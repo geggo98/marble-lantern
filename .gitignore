@@ -1,0 +1,30 @@
+# devenv / direnv
+.devenv/
+.direnv/
+devenv.local.nix
+devenv.local.yaml
+
+# Secrets (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# Gradle / build output
+.gradle/
+build/
+out/
+.kotlin/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Selfplay data, checkpoints, weights, databases: too large for the repo
+/data/
+
+# Downloaded TornadoVM SDK
+/tornado-sdk/
