@@ -99,7 +99,7 @@ A move cannot mix the two kinds. A step ends the move. A jumped piece stays on t
 
 The path of a jump chain has no effect on the result. Only the pair (start cell, end cell) matters. The move generator therefore returns each (start, end) pair exactly once, even when several jump paths reach the same end cell. **Project decision:** a jump chain that returns to its start cell is not a move.
 
-**Project decision:** the move generator finds jump chains by breadth-first search over jump targets with a visited mask. This makes deduplication automatic.
+**Project decision:** the move generator finds jump chains by a graph search over jump targets with a visited mask (depth-first with an explicit stack in the engine). This makes deduplication automatic.
 
 In the mid-game, the branching factor is often well above 50, because every end cell of a jump chain counts as its own move (**reported**).
 

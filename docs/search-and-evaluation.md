@@ -144,7 +144,7 @@ The variant is about 10 % slower per node. It still wins clearly at equal cost o
 
 ### Learned linear evaluation (`eval=linear`, measured 2026-11-07)
 
-`LinearEvaluator` scores a position with a weighted sum of 12 cheap features, each "side to move minus opponent": summed distance, maximum distance, summed squared distance, pieces in the goal, pieces in the start corner, spread of the distances, distance from the centre line, forward single jumps, touching own pieces, forward steps, the distance difference times the game phase, and a tempo constant. A logistic regression of the game result on 68 255 positions from 2000 baseline games set the weights (`LinearWeights`; `LinearTraining` in the test sources reproduces the fit). On 400 held-out games the model predicts the winner of 78.8 % of the positions, the distance difference alone 76.8 %.
+`LinearEvaluator` scores a position with a weighted sum of 12 cheap features, each "side to move minus opponent": summed distance, maximum distance, summed squared distance, pieces in the goal, pieces in the start corner, spread of the distances, distance from the centre line, forward single jumps, touching own pieces, forward steps, the distance difference times the game phase, and a tempo constant (table-driven over the piece lists since E02, values unchanged). A logistic regression of the game result on 68 255 positions from 2000 baseline games set the weights (`LinearWeights`; `LinearTraining` in the test sources reproduces the fit). On 400 held-out games the model predicts the winner of 78.8 % of the positions, the distance difference alone 76.8 %.
 
 Arena result against `ab:eval=distance,nodes=20000`, 200 pairs each (tuned on seeds 3 and 4 only):
 
@@ -287,6 +287,26 @@ CPU time per move of R2 at 20000 nodes: about 15 ms. Within one run the repetiti
 | E01 | `AlphaBeta`: lazy selection in move ordering (`pick`, strict `>`, so the order is unchanged); LMR tables static per mode instead of per searcher | 1.474 (runs 1.474, 1.491, 1.441; 1.37M vs 0.94M nodes/CPU-s in the median run) | 64/64, 2/2 identical in every run; fingerprint tests unchanged |
 
 E01 was measured on 2026-11-07 under load from parallel jobs (1-minute load 11.9 to 14.8 on 16 cores in two runs, 14.3 rising to 52 in the third, which Bench marked `UNDER_LOAD`); the verifier re-measures on an idle machine. Within runs the repetitions ranged from 1.34 to 1.58.
+
+### Engine speed pack (E02, identical tree)
+
+E02 makes move generation and the linear evaluation cheaper without changing a move, a move's position in the list or a score:
+
+- `Position` keeps a sorted piece list per player (with a cell-to-index map), maintained by `put`, `make`, `unmake` and `copy`. `generate`, `pieces` and `distanceSum` read it instead of scanning 121 cells. New accessors: `pieceCount`, `pieceCell`, `goalOccupied`.
+- `generate` uses flat step and jump-landing tables per player with the allowed cells folded in (`Layout`), a 128-bit visited set in two `long` values, and the leaveGoal test once per piece. The Definition-2 suicide test runs only when an opponent's goal already holds 9 or more pieces: a move adds at most one piece to another goal, so below 9 the test cannot fire.
+- `LinearEvaluator` sums integers over the piece lists with a per-player table of "step lands closer" and "jump lands closer" bits per (cell, direction), then forms the doubles in exactly the order of the old code, so `Math.round` gives the same integer.
+
+Order and values are pinned by three tests: `MoveOrderEquivalenceTest` (engine; the generator's arrays equal those of `LegacyMoveGenerator`, a verbatim copy of the old generator, on 1 280 626 positions and 57.9 M moves over eight rule variants including three players), `LinearEvaluatorEquivalenceTest` (search; raw IEEE bits of all 12 features and the scores for five weight sets equal those of `LinearEvaluatorReference`, the old code, on 1.1 M positions with both leaveGoal values) and `BestSpecFingerprintTest` (unchanged constants).
+
+Measured on 2026-11-07, R2 against the frozen build, three Bench runs, under load (`--ignore-load`, 1-minute load 12.4 to 14.8 on 16 cores, other experiments running):
+
+| Run | nps current | nps frozen | Ratio (median of 3 repetitions) | Trees |
+|---|---|---|---|---|
+| 1 | 1 144 874 | 977 794 | 1.1670 | 64/64, 2/2 identical |
+| 2 | 1 095 571 | 931 431 | 1.1823 | 64/64, 2/2 identical |
+| 3 | 1 128 524 | 965 630 | 1.1696 | 64/64, 2/2 identical |
+
+Median of the three runs: **1.170**. The frozen build is the E00 state, so this ratio does not contain E01. Microbenchmark on 20 000 playout positions (separate JVMs per build, alternated six times, thread CPU time, also under load): `generate` 1.19 to 1.26 times faster, `LinearEvaluator.evaluate` 1.45 to 1.55 times faster; `make` plus `unmake` cost about 15 ns more per pair for the piece-list update.
 
 ### Arena: CPU column, cost adjustment, SPRT
 

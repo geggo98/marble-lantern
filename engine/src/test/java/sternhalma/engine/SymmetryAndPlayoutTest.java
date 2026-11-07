@@ -1,5 +1,6 @@
 package sternhalma.engine;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -90,9 +91,12 @@ class SymmetryAndPlayoutTest {
                         assertEquals(hash, pos.hash());
                         assertEquals(before, pos);
                         assertEquals(before.ply(), pos.ply());
+                        MoveOrderEquivalenceTest.assertPieceListsMatchTheBoard(pos, "unmake " + Move.toString(m));
                     }
                     pos.make(moves[random.nextInt(moves.length)]);
                     assertEquals(pos.transformed(c -> c, false).hash(), pos.hash(), "incremental hash vs rebuild");
+                    MoveOrderEquivalenceTest.assertPieceListsMatchTheBoard(pos, "seed " + seed + " ply " + ply);
+                    MoveOrderEquivalenceTest.assertPieceListsMatchTheBoard(before, "copy after make on the original");
                     for (int q = 0; q < players; q++) {
                         int[] board = new int[Geometry.CELLS];
                         for (int c = 0; c < Geometry.CELLS; c++) {
@@ -101,6 +105,41 @@ class SymmetryAndPlayoutTest {
                         assertEquals(ReferenceGenerator.wins(pos.rules(), board, q), pos.hasWon(q), "win counters, player " + q);
                     }
                 }
+            }
+        }
+    }
+
+    @Test
+    void pieceListsStaySortedForSetupsInAnyOrderAndCopiesAreIndependent() {
+        Random random = new Random(7);
+        for (int trial = 0; trial < 200; trial++) {
+            Position pos = Position.empty(RuleSet.defaults(2));
+            int[] cells = new int[Geometry.CELLS];
+            for (int c = 0; c < Geometry.CELLS; c++) {
+                cells[c] = c;
+            }
+            for (int i = cells.length - 1; i > 0; i--) {
+                int j = random.nextInt(i + 1);
+                int t = cells[i];
+                cells[i] = cells[j];
+                cells[j] = t;
+            }
+            int[] left = {Position.PIECES, Position.PIECES};
+            for (int c : cells) {
+                int p = random.nextInt(2);
+                if (left[p] > 0 && pos.layout().allowed(p, c)) {
+                    pos.put(p, c);
+                    left[p]--;
+                }
+            }
+            MoveOrderEquivalenceTest.assertPieceListsMatchTheBoard(pos, "setup " + trial);
+            Position copy = pos.copy();
+            int[] moves = copy.legalMoves();
+            if (moves.length > 0) {
+                int[] mine = pos.pieces(0);
+                copy.make(moves[random.nextInt(moves.length)]);
+                assertArrayEquals(mine, pos.pieces(0), "a move on the copy changed the original");
+                MoveOrderEquivalenceTest.assertPieceListsMatchTheBoard(copy, "copy " + trial);
             }
         }
     }
