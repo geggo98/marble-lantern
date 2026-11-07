@@ -61,6 +61,11 @@ public final class Ranking {
         return indexOfCell[cell] >= 0;
     }
 
+    /** The region index of a cell (its position in {@link #cells}), or -1 if the cell lies outside the region. */
+    public int indexOf(int cell) {
+        return indexOfCell[cell];
+    }
+
     /** Whether every cell lies in the region and there are exactly {@code pieces} of them. */
     public boolean covers(int[] ownCells) {
         if (ownCells.length != pieces) {
@@ -99,6 +104,31 @@ public final class Ranking {
                 throw new IllegalArgumentException("indices must be strictly ascending: " + Arrays.toString(idx));
             }
             rank += binomial[idx[j]][j + 1];
+        }
+        return rank;
+    }
+
+    /**
+     * The rank of the configuration that {@code idx} (ascending region indices) becomes when the index at position
+     * {@code pos} is replaced by {@code replacement}, which must not occur in {@code idx}: a merge of the remaining
+     * indices with the new one, without a sort. The retrograde builder ranks every predecessor this way.
+     */
+    long rankReplacing(int[] idx, int pos, int replacement) {
+        long rank = 0;
+        int i = pos == 0 ? 1 : 0;
+        boolean placed = false;
+        for (int out = 0; out < pieces; out++) {
+            int value;
+            if (!placed && (i >= pieces || replacement < idx[i])) {
+                value = replacement;
+                placed = true;
+            } else {
+                value = idx[i++];
+                if (i == pos) {
+                    i++;
+                }
+            }
+            rank += binomial[value][out + 1];
         }
         return rank;
     }

@@ -29,11 +29,6 @@ final class SoloMoves {
         }
     }
 
-    /** A consumer of landing cells. */
-    interface Landing {
-        void accept(int cell);
-    }
-
     private final int[] stack = new int[Geometry.CELLS];
 
     static boolean has(long lo, long hi, int cell) {
@@ -57,17 +52,20 @@ final class SoloMoves {
     }
 
     /**
-     * Calls {@code out} once for every cell the piece on {@code from} can reach by a step or a jump chain, with
-     * {@code lo, hi} the occupancy of all pieces (including the moving piece, which is removed internally).
+     * Writes every cell the piece on {@code from} can reach by a step or a jump chain into {@code out} (room for
+     * {@link Geometry#CELLS} entries) and returns their number, with {@code lo, hi} the occupancy of all pieces
+     * (including the moving piece, which is removed internally). A cell that is both a step landing and the end of a
+     * jump chain appears twice; callers that need a set must deduplicate.
      */
-    void landings(long lo, long hi, int from, Landing out) {
+    int landings(long lo, long hi, int from, int[] out) {
         long occLo = withoutLo(lo, from);
         long occHi = withoutHi(hi, from);
+        int n = 0;
         int[] nb = NEIGHBOR[from];
         for (int d = 0; d < Geometry.DIRECTIONS; d++) {
-            int n = nb[d];
-            if (n >= 0 && ALLOWED[n] && !has(occLo, occHi, n)) {
-                out.accept(n);
+            int c = nb[d];
+            if (c >= 0 && ALLOWED[c] && !has(occLo, occHi, c)) {
+                out[n++] = c;
             }
         }
         long visLo = withLo(0, from);
@@ -89,8 +87,9 @@ final class SoloMoves {
                 visLo = withLo(visLo, land);
                 visHi = withHi(visHi, land);
                 stack[top++] = land;
-                out.accept(land);
+                out[n++] = land;
             }
         }
+        return n;
     }
 }

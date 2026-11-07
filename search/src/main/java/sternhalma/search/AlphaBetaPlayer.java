@@ -52,7 +52,13 @@ public final class AlphaBetaPlayer implements Player {
                 + (timeLimitMillis == Long.MAX_VALUE ? "" : ", " + timeLimitMillis + " ms")
                 + (maxNodes == Long.MAX_VALUE ? "" : ", " + maxNodes + " nodes")
                 + (options.isDefault() ? "" : ", " + options.describe())
-                + (race == null ? "" : ", race=" + race.mode() + (race.usesTable() ? "" : ", racetable=0")) + "]";
+                + (race == null ? "" : ", race=" + race.mode() + (race.usesTable() ? "" : ", racetable=0")
+                        + (race != null && race.tableMinRow() == 1 ? ", racerows=1" : "")) + "]";
+    }
+
+    /** The race module of this player, or null. */
+    public RaceMove race() {
+        return race;
     }
 
     @Override

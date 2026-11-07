@@ -10,40 +10,85 @@ import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet.LeaveGoal;
 
 /**
- * The race table for the region "rows &gt;= {@value #MIN_ROW}" of player 0 (28 allowed cells, C(28, 10) =
- * 13,123,110 configurations, one byte each), built with {@code leaveGoal = FORBIDDEN}, the project default.
- * See {@link RaceCounts} for what a count means and what it must not be used for.
+ * A race table: the exact restricted solitaire move count for every configuration of player 0's ten pieces on the
+ * allowed cells with row {@code >= minRow}, one byte each, built with {@code leaveGoal = FORBIDDEN}, the project
+ * default. See {@link RaceCounts} for what a count means and what it must not be used for. Two regions exist:
  *
- * <p><b>Where the table comes from.</b> {@link #rows2()} looks for {@code rows2.bin} in the directory named by
- * the system property {@code sternhalma.tablebase.dir}, else in {@code tablebase/tables/} of the repository
- * root (found by walking up from the working directory to {@code settings.gradle.kts}), else in the cache
- * {@code tablebase/build/tables/}. The committed file is tracked with Git LFS; a clone without LFS content has
- * only a pointer file there. A pointer, a missing file, a file with a wrong checksum or of another format version
- * is not used: the table is then rebuilt ({@link RetrogradeBuilder}, about 10 to 30 seconds), written to the
- * cache and checked against {@link #SHA256}, the SHA-256 of the file the builder is known to produce. A real
- * file is used only when its own SHA-256 equals {@link #SHA256}, so a stale or corrupt table never plays.
+ * <ul>
+ * <li>{@link #ROWS2} (rows &gt;= 2, 28 cells, 13,123,110 states, 12.5 MB): the default table of race play,
+ * committed as {@code tablebase/tables/rows2.bin} with Git LFS.</li>
+ * <li>{@link #ROWS1} (rows &gt;= 1, 36 cells, 254,186,856 states, 242 MB; round-2 experiment E09): optional. It is
+ * never committed (too large for the Git LFS quota); {@link #rows1()} builds it on first use in a few minutes into
+ * the cache directory and {@link #rows1IfCached()} only uses it when it is already there. Every part of the project
+ * works without it; race play uses it only when a spec says {@code racerows=1}.</li>
+ * </ul>
  *
- * <p>Run {@code RaceTable <directory>} (Gradle task {@code :tablebase:buildTable}) to write the file.
+ * <p><b>Where a table comes from.</b> A table is looked for in the directory named by the system property
+ * {@code sternhalma.tablebase.dir}, then (committed regions only) in {@code tablebase/tables/} of the repository
+ * root (found by walking up from the working directory to {@code settings.gradle.kts}), then in the cache
+ * {@code tablebase/build/tables/}. A Git LFS pointer file (a clone without LFS content), a missing file, a file
+ * with a wrong checksum or of another format version is not used: the table is then rebuilt
+ * ({@link RetrogradeBuilder}), written to the cache and checked against the region's recorded SHA-256 of the file the
+ * builder is known to produce. A real file is used only when its own SHA-256 equals that constant, so a stale or
+ * corrupt table never plays.
+ *
+ * <p>Run {@code RaceTable <directory> [--rows N] [--threads T]} (Gradle task {@code :tablebase:buildTable
+ * [-Prows=N]}) to write a file.
  */
 public final class RaceTable implements RaceCounts {
 
+    /** The region of the default table. */
     public static final int MIN_ROW = 2;
     public static final String FILE_NAME = "rows2.bin";
     public static final LeaveGoal LEAVE_GOAL = LeaveGoal.FORBIDDEN;
 
     /**
-     * SHA-256 of the complete table file that {@link RetrogradeBuilder} produces for this region and version.
+     * SHA-256 of the complete rows&gt;=2 table file that {@link RetrogradeBuilder} produces for this format version.
      * Re-record it (with the reason in the commit message) only when the format or the solitaire rules change.
      */
     public static final String SHA256 = "d62edf38bbccb229ca055da3054a11e6daffae817d2293dbfa523ad8bb3678e3";
 
-    private static volatile RaceTable shared;
+    public static final String ROWS1_FILE_NAME = "rows1.bin";
 
+    /**
+     * SHA-256 of the complete rows&gt;=1 table file that the builder produces (recorded from two builds with
+     * different thread counts). The file itself lives only in the cache directory; see {@link #ROWS1}.
+     */
+    public static final String ROWS1_SHA256 = "85850d6f47f526daf45ac5cd3a0dad8841244cb50d0d8d15a5b6a54f09d1bfd1";
+
+    /**
+     * A table region with the name and the recorded checksum of its file.
+     *
+     * @param minRow    allowed cells of player 0 with row {@code >= minRow}
+     * @param fileName  the file name in a table directory
+     * @param sha256    SHA-256 of the file the builder produces
+     * @param committed whether the file is committed under {@code tablebase/tables/} (Git LFS); an uncommitted
+     *                  region is looked for and written in the cache only
+     */
+    public record Region(int minRow, String fileName, String sha256, boolean committed) {
+
+        /** The ranking of this region. */
+        public Ranking ranking() {
+            return new Ranking(Rows.regionCells(minRow), Position.PIECES);
+        }
+    }
+
+    public static final Region ROWS2 = new Region(MIN_ROW, FILE_NAME, SHA256, true);
+    public static final Region ROWS1 = new Region(1, ROWS1_FILE_NAME, ROWS1_SHA256, false);
+
+    /** States above which a build prints one progress line per layer. */
+    private static final long VERBOSE_BUILD_STATES = 100_000_000L;
+
+    private static volatile RaceTable sharedRows2;
+    private static volatile RaceTable sharedRows1;
+
+    private final Region region;
     private final Ranking ranking;
     private final byte[] table;
     private final int maxCount;
 
-    private RaceTable(Ranking ranking, byte[] table) {
+    private RaceTable(Region region, Ranking ranking, byte[] table) {
+        this.region = region;
         this.ranking = ranking;
         this.table = table;
         int max = 0;
@@ -56,35 +101,97 @@ public final class RaceTable implements RaceCounts {
         this.maxCount = max;
     }
 
+    /** The region with that minimum row ({@link #ROWS2} or {@link #ROWS1}). */
+    public static Region region(int minRow) {
+        return switch (minRow) {
+            case 2 -> ROWS2;
+            case 1 -> ROWS1;
+            default -> throw new IllegalArgumentException("no race table for rows >= " + minRow + " (1 or 2)");
+        };
+    }
+
     /** The ranking of the rows&gt;=2 region. */
     public static Ranking ranking() {
-        return new Ranking(Rows.regionCells(MIN_ROW), Position.PIECES);
+        return ROWS2.ranking();
     }
 
-    /** The shared instance; loads or builds the table on first use (thread-safe). */
+    /** The shared rows&gt;=2 table; loads or builds it on first use (thread-safe). */
     public static RaceTable rows2() {
-        RaceTable t = shared;
-        if (t == null) {
-            synchronized (RaceTable.class) {
-                t = shared;
-                if (t == null) {
-                    t = loadOrBuild();
-                    shared = t;
+        return shared(ROWS2, true);
+    }
+
+    /**
+     * The shared rows&gt;=1 table; loads it from the cache or builds it on first use (254 million states, several
+     * minutes, progress on stderr). Thread-safe.
+     */
+    public static RaceTable rows1() {
+        return shared(ROWS1, true);
+    }
+
+    /** The shared rows&gt;=1 table if a valid file is in the cache or in {@code sternhalma.tablebase.dir}, else null. */
+    public static RaceTable rows1IfCached() {
+        return shared(ROWS1, false);
+    }
+
+    /** The shared table of a region by its minimum row, loaded or built on first use. */
+    public static RaceTable of(int minRow) {
+        return shared(region(minRow), true);
+    }
+
+    private static RaceTable shared(Region region, boolean allowBuild) {
+        RaceTable t = region.committed ? sharedRows2 : sharedRows1;
+        if (t != null) {
+            return t;
+        }
+        synchronized (RaceTable.class) {
+            t = region.committed ? sharedRows2 : sharedRows1;
+            if (t == null) {
+                t = loadOrBuild(region, allowBuild);
+                if (t != null) {
+                    if (region.committed) {
+                        sharedRows2 = t;
+                    } else {
+                        sharedRows1 = t;
+                    }
                 }
             }
+            return t;
         }
-        return t;
     }
 
-    /** Builds the table in memory without touching the file system. */
+    /** Builds the rows&gt;=2 table in memory without touching the file system. */
     public static RaceTable build(int threads) {
-        Ranking ranking = ranking();
-        return new RaceTable(ranking, RetrogradeBuilder.build(ranking, LEAVE_GOAL, threads));
+        return build(ROWS2, threads, null);
     }
 
-    /** The encoded file content of this table. */
+    /** Builds a region's table in memory without touching the file system. */
+    public static RaceTable build(Region region, int threads, RetrogradeBuilder.Progress progress) {
+        Ranking ranking = region.ranking();
+        return new RaceTable(region, ranking, RetrogradeBuilder.build(ranking, LEAVE_GOAL, threads, progress));
+    }
+
+    public Region region() {
+        return region;
+    }
+
+    /** The minimum row of the region (2 for the default table, 1 for the extended one). */
+    public int minRow() {
+        return region.minRow;
+    }
+
+    /** The header bytes of this table's file. */
+    public byte[] header() {
+        return TableFile.encodeHeader(LEAVE_GOAL, region.minRow, ranking, table);
+    }
+
+    /** The encoded file content of this table in one array (copies the body; fine for the small default table). */
     public byte[] encode() {
-        return TableFile.encode(LEAVE_GOAL, MIN_ROW, ranking, table);
+        return TableFile.encode(LEAVE_GOAL, region.minRow, ranking, table);
+    }
+
+    /** SHA-256 of this table's file content, computed without copying the body. */
+    public String sha256Hex() {
+        return TableFile.sha256Hex(header(), table);
     }
 
     public Ranking rankingOf() {
@@ -94,6 +201,21 @@ public final class RaceTable implements RaceCounts {
     /** The largest count in the table. */
     public int maxCount() {
         return maxCount;
+    }
+
+    /** Number of states, that is table entries. */
+    public long states() {
+        return table.length;
+    }
+
+    /** The number of states per count, index 0 .. {@link #maxCount}, plus the unreachable states at the end. */
+    public long[] layerSizes() {
+        long[] layers = new long[maxCount + 2];
+        for (byte b : table) {
+            int v = b & 0xFF;
+            layers[v == RetrogradeBuilder.UNKNOWN ? maxCount + 1 : v]++;
+        }
+        return layers;
     }
 
     /** The raw entry of a rank ({@link RetrogradeBuilder#UNKNOWN} for an unreachable configuration). */
@@ -132,26 +254,37 @@ public final class RaceTable implements RaceCounts {
         return null;
     }
 
-    private static RaceTable loadOrBuild() {
+    static Path propertyDir() {
         String property = System.getProperty("sternhalma.tablebase.dir");
-        return resolve(property == null ? null : Path.of(property), repositoryRoot(), true);
+        return property == null ? null : Path.of(property);
+    }
+
+    private static RaceTable loadOrBuild(Region region, boolean allowBuild) {
+        return resolve(region, propertyDir(), repositoryRoot(), allowBuild);
+    }
+
+    /** {@link #resolve(Region, Path, Path, boolean)} for the default region. */
+    static RaceTable resolve(Path propertyDir, Path root, boolean allowBuild) {
+        return resolve(ROWS2, propertyDir, root, allowBuild);
     }
 
     /**
-     * The table from the first valid file among {@code propertyDir/rows2.bin}, {@code root/tablebase/tables/rows2.bin}
-     * and {@code root/tablebase/build/tables/rows2.bin}; otherwise, if {@code allowBuild}, a rebuilt table that is
-     * checked against {@link #SHA256} and cached (in {@code propertyDir}, else under {@code root/tablebase/build/tables},
-     * else in the temporary directory). Without {@code allowBuild} a missing table gives null.
+     * The table from the first valid file among {@code propertyDir/<file>}, {@code root/tablebase/tables/<file>}
+     * (committed regions only) and {@code root/tablebase/build/tables/<file>}; otherwise, if {@code allowBuild}, a
+     * rebuilt table that is checked against the region's SHA-256 and cached (in {@code propertyDir}, else under
+     * {@code root/tablebase/build/tables}, else in the temporary directory). Without {@code allowBuild} a missing
+     * table gives null.
      */
-    static RaceTable resolve(Path propertyDir, Path root, boolean allowBuild) {
+    static RaceTable resolve(Region region, Path propertyDir, Path root, boolean allowBuild) {
         try {
             Path[] candidates = {
-                propertyDir == null ? null : propertyDir.resolve(FILE_NAME),
-                root == null ? null : root.resolve("tablebase").resolve("tables").resolve(FILE_NAME),
-                root == null ? null : root.resolve("tablebase").resolve("build").resolve("tables").resolve(FILE_NAME),
+                propertyDir == null ? null : propertyDir.resolve(region.fileName),
+                root == null || !region.committed ? null
+                        : root.resolve("tablebase").resolve("tables").resolve(region.fileName),
+                root == null ? null : root.resolve("tablebase").resolve("build").resolve("tables").resolve(region.fileName),
             };
             for (Path file : candidates) {
-                RaceTable loaded = tryLoad(file);
+                RaceTable loaded = tryLoad(region, file);
                 if (loaded != null) {
                     return loaded;
                 }
@@ -163,19 +296,9 @@ public final class RaceTable implements RaceCounts {
                     : root != null ? root.resolve("tablebase").resolve("build").resolve("tables")
                     : Path.of(System.getProperty("java.io.tmpdir")).resolve("sternhalma-tablebase");
             int threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
-            System.err.printf(Locale.ROOT, "[tablebase] no valid %s found; building (%d threads) into %s%n",
-                    FILE_NAME, threads, cache);
-            long t0 = System.nanoTime();
-            RaceTable built = build(threads);
-            byte[] encoded = built.encode();
-            String sha = java.util.HexFormat.of().formatHex(TableFile.sha256(encoded));
-            System.err.printf(Locale.ROOT, "[tablebase] built in %.1f s, sha256 %s%n", (System.nanoTime() - t0) / 1e9, sha);
-            if (!sha.equals(SHA256)) {
-                throw new IllegalStateException("the rebuilt table has sha256 " + sha + ", but RaceTable.SHA256 is "
-                        + SHA256 + ": the builder or the format changed without re-recording the constant");
-            }
+            RaceTable built = buildChecked(region, threads, cache, region.ranking().count() >= VERBOSE_BUILD_STATES);
             try {
-                TableFile.write(cache.resolve(FILE_NAME), encoded);
+                TableFile.write(cache.resolve(region.fileName), built.header(), built.table);
             } catch (IOException e) {
                 System.err.println("[tablebase] could not cache the table: " + e);
             }
@@ -185,57 +308,103 @@ public final class RaceTable implements RaceCounts {
         }
     }
 
-    /** The table in {@code file} if it is a real, matching file; null if absent, a pointer, stale or corrupt. */
+    /**
+     * Builds a region's table, logs the time, and checks the result against the region's recorded SHA-256.
+     *
+     * @throws IllegalStateException if the checksum differs (the builder or the format changed)
+     */
+    static RaceTable buildChecked(Region region, int threads, Path cache, boolean verbose) throws IOException {
+        TableFile.cleanTemporaries(cache.resolve(region.fileName));
+        System.err.printf(Locale.ROOT, "[tablebase] no valid %s found; building %d states (%d threads) into %s%n",
+                region.fileName, region.ranking().count(), threads, cache);
+        long t0 = System.nanoTime();
+        RetrogradeBuilder.Progress progress = verbose ? (layer, states, elapsed) -> System.err.printf(Locale.ROOT,
+                "[tablebase] %s layer %d: %d states, %.1f s elapsed%n", region.fileName, layer, states, elapsed / 1e9)
+                : null;
+        RaceTable built = build(region, threads, progress);
+        String sha = built.sha256Hex();
+        System.err.printf(Locale.ROOT, "[tablebase] built %s in %.1f s, sha256 %s%n", region.fileName,
+                (System.nanoTime() - t0) / 1e9, sha);
+        if (!sha.equals(region.sha256)) {
+            throw new IllegalStateException("the rebuilt " + region.fileName + " has sha256 " + sha
+                    + ", but the recorded constant is " + region.sha256
+                    + ": the builder or the format changed without re-recording the constant");
+        }
+        return built;
+    }
+
+    /** {@link #tryLoad(Region, Path)} for the default region. */
     static RaceTable tryLoad(Path file) throws IOException {
+        return tryLoad(ROWS2, file);
+    }
+
+    /** The table in {@code file} if it is a real, matching file; null if absent, a pointer, stale or corrupt. */
+    static RaceTable tryLoad(Region region, Path file) throws IOException {
         if (file == null || !Files.isRegularFile(file)) {
             return null;
         }
         if (TableFile.isLfsPointer(file)) {
             String oid = TableFile.lfsPointerOid(file);
             System.err.printf(Locale.ROOT, "[tablebase] %s is a Git LFS pointer (oid %s)%s%n", file, oid,
-                    SHA256.equals(oid) ? "" : "; its oid differs from RaceTable.SHA256, the committed table is stale");
+                    region.sha256.equals(oid) ? "" : "; its oid differs from the recorded SHA-256, the committed table is stale");
             return null;
         }
         String sha = TableFile.sha256Hex(file);
-        if (!sha.equals(SHA256)) {
-            System.err.printf(Locale.ROOT, "[tablebase] %s has sha256 %s, expected %s; ignored%n", file, sha, SHA256);
+        if (!sha.equals(region.sha256)) {
+            System.err.printf(Locale.ROOT, "[tablebase] %s has sha256 %s, expected %s; ignored%n", file, sha, region.sha256);
             return null;
         }
         TableFile.Content content = TableFile.read(file);
-        Ranking ranking = ranking();
+        Ranking ranking = region.ranking();
         TableFile.Header h = content.header();
-        if (h.leaveGoal() != LEAVE_GOAL || h.minRow() != MIN_ROW || h.pieces() != Position.PIECES
+        if (h.leaveGoal() != LEAVE_GOAL || h.minRow() != region.minRow || h.pieces() != Position.PIECES
                 || !java.util.Arrays.equals(h.cells(), ranking.cells()) || h.states() != ranking.count()) {
             System.err.printf(Locale.ROOT, "[tablebase] %s describes another region; ignored%n", file);
             return null;
         }
-        return new RaceTable(ranking, content.body());
+        return new RaceTable(region, ranking, content.body());
     }
 
-    /** Builds the table and writes it to {@code <directory>/rows2.bin}. */
+    /**
+     * Builds a table and writes it to {@code <directory>/<file>}. Arguments: the directory (default
+     * {@code tablebase/tables}), {@code --rows N} (default 2), {@code --threads T} (default half the processors).
+     * An uncommitted region (rows &gt;= 1) is refused for the committed directory {@code tablebase/tables}.
+     */
     public static void main(String[] args) throws IOException {
-        Path dir = Path.of(args.length > 0 ? args[0] : "tablebase/tables");
+        Path dir = Path.of("tablebase/tables");
+        int minRow = MIN_ROW;
         int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
-        long t0 = System.nanoTime();
-        RaceTable built = build(threads);
-        byte[] encoded = built.encode();
-        String sha = java.util.HexFormat.of().formatHex(TableFile.sha256(encoded));
-        Path file = dir.resolve(FILE_NAME);
-        TableFile.write(file, encoded);
-        long unknown = 0;
-        long[] layers = new long[built.maxCount() + 1];
-        for (byte b : built.table) {
-            int v = b & 0xFF;
-            if (v == RetrogradeBuilder.UNKNOWN) {
-                unknown++;
-            } else {
-                layers[v]++;
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--rows" -> minRow = Integer.parseInt(args[++i]);
+                case "--threads" -> threads = Integer.parseInt(args[++i]);
+                default -> dir = Path.of(args[i]);
             }
         }
-        System.out.printf(Locale.ROOT, "wrote %s: %d states, %d bytes, max count %d, unreachable %d, %.1f s%n",
-                file, built.table.length, encoded.length, built.maxCount(), unknown, (System.nanoTime() - t0) / 1e9);
-        System.out.println("layers " + java.util.Arrays.toString(layers));
-        System.out.println("sha256 " + sha + (sha.equals(SHA256) ? " (matches RaceTable.SHA256)"
-                : " (DIFFERS from RaceTable.SHA256 = " + SHA256 + "; re-record the constant with a reason)"));
+        Region region = region(minRow);
+        Path absolute = dir.toAbsolutePath().normalize();
+        if (!region.committed && absolute.endsWith(Path.of("tablebase", "tables"))) {
+            System.err.println("refusing to write the uncommitted " + region.fileName + " into " + absolute
+                    + ": that directory is tracked with Git LFS; use tablebase/build/tables or -Dsternhalma.tablebase.dir");
+            System.exit(2);
+        }
+        Path file = dir.resolve(region.fileName);
+        TableFile.cleanTemporaries(file);
+        long t0 = System.nanoTime();
+        RaceTable built = build(region, threads, (layer, states, elapsed) -> System.err.printf(Locale.ROOT,
+                "layer %d: %d states, %.1f s elapsed%n", layer, states, elapsed / 1e9));
+        long buildNanos = System.nanoTime() - t0;
+        byte[] header = built.header();
+        String sha = TableFile.sha256Hex(header, built.table);
+        TableFile.write(file, header, built.table);
+        long[] layers = built.layerSizes();
+        long unknown = layers[layers.length - 1];
+        System.out.printf(Locale.ROOT,
+                "wrote %s: %d states, %d bytes, max count %d, unreachable %d, built in %.1f s on %d threads (%.0f states/s), %.1f s total%n",
+                file, built.table.length, header.length + built.table.length, built.maxCount(), unknown, buildNanos / 1e9,
+                threads, built.table.length / (buildNanos / 1e9), (System.nanoTime() - t0) / 1e9);
+        System.out.println("layers " + java.util.Arrays.toString(java.util.Arrays.copyOf(layers, layers.length - 1)));
+        System.out.println("sha256 " + sha + (sha.equals(region.sha256) ? " (matches the recorded constant)"
+                : " (DIFFERS from the recorded constant " + region.sha256 + "; re-record it with a reason)"));
     }
 }

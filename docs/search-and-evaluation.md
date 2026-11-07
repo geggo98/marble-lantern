@@ -109,7 +109,7 @@ Only a tournament can measure the cost of these blind spots. The [experiment lis
 
 A test checks the options of the "No" rows against plain negamax.
 
-Three further keys belong to the player, not to the search: `race=1` plays a passed position (the armies have passed each other) from the race table or a solitaire plan without a search, `race=2` does so only while the race is not known to be lost, and `racetable=0` disables the table (plan only). They are off by default and leave the search tree untouched; see [the race module](endgame-and-opening.md#the-race-module).
+Four further keys belong to the player, not to the search: `race=1` plays a passed position (the armies have passed each other) from the race table or a solitaire plan without a search, `race=2` does so only while the race is not known to be lost, `racetable=0` disables the table (plan only), and `racerows=1` uses the optional rows ≥ 1 table instead of the default rows ≥ 2 table (E09; built into the cache on first use). They are off by default and leave the search tree untouched; see [the race module](endgame-and-opening.md#the-race-module).
 
 **Why the exact options alone gain nothing:** with good move ordering, depth 4 costs about 9 000 nodes and depth 5 about 85 000 (mean over 40 random positions). At 20 000 nodes every exact option ends at depth 4 and throws the unfinished depth-5 iteration away. PVS, killers, aspiration and the table save at most 3 % of the nodes, which does not reach depth 5. Their match results stay inside the noise. History changes which of several equal root moves is chosen (about 45 % of positions have ties at depth 4), so its result is noise from tie-breaking (+44 then +15 Elo on the tuning seeds).
 
@@ -388,8 +388,9 @@ Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by it
 | Experiment | Change | Author, equal nodes (Elo, 95 %) | Author, equal cost | Verifier | Decision |
 |---|---|---|---|---|---|
 | E03 race module | `race=1`: table or solitaire plan instead of a search in passed positions; S1 adjudication (labels only) | +66.8 ± 16.0 (seed 33), +58.5 ± 15.5 (seed 34) against BEST_SPEC | +46.6 ± 25.7, +44.2 ± 24.6 (A at 0.924 of B's nodes, still 12 % cheaper per move) | pending | author: merge; `race=1` for BEST_SPEC at integration |
+| E09 rows ≥ 1 table | generic builder; the 254 M-state table built on demand into the cache (never committed), selected by `racerows=1`; rows ≥ 2 stays the default | +5.8 ± 5.0 (seed 33), +2.3 ± 3.2 (seed 34), `race=1,racerows=1` against `race=1`, 300 pairs each | same cost (CPU-ms per move 11.1 vs 11.4 and 11.7 vs 12.0) | pending | author: merge as an optional table and label source; no change of BEST_SPEC; exact table moves in 88.7 % instead of 68.0 % of the race plies |
 
-E03's soundness evidence (proof, lemma tests, exhaustive adversary over 997 verdicts, mutation check) and the self-play figures (S1 fires in 99.7 % of BEST games at mean ply 86.0 and saves 7.9 % of the plies; 68.5 % and 2.6 % on games of `ab:eval=distance,nodes=1000`) are in [endgame and opening](endgame-and-opening.md#measurements-e03).
+E03's soundness evidence (proof, lemma tests, exhaustive adversary over 997 verdicts, mutation check) and the self-play figures (S1 fires in 99.7 % of BEST games at mean ply 86.0 and saves 7.9 % of the plies; 68.5 % and 2.6 % on games of `ab:eval=distance,nodes=1000`) are in [endgame and opening](endgame-and-opening.md#measurements-e03). E09's build cost (305.6 s on 4 threads, 113.1 s on 8, 579 MB peak), its validation (every one of the 254,186,856 entries layer-consistent with the engine's moves; never longer than rows ≥ 2 on the 13.1 M shared states) and its coverage figures are in [endgame and opening](endgame-and-opening.md#the-rows--1-table-e09-optional) and [its measurements](endgame-and-opening.md#measurements-e09-the-rows--1-table-in-race-play).
 
 ## Algorithms for more than two players
 

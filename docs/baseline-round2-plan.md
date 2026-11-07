@@ -317,6 +317,12 @@ The plan said to replace the weights of `eval=linear`. The author added the froz
 
 The second texel round used games without `race=1`, because E03 was not available to the author. The plan wanted games with race play for round 2. This is to be repeated at integration.
 
+### E09: optional table in the cache, selected by a key, author seeds
+
+The plan said "RaceTable loads the largest table found" and "a Gradle task writes data/tablebase/rows1.bin". Delivered instead (owner decisions): the rows ≥ 1 table (254,187,064 bytes) is never committed, not even through Git LFS; `:tablebase:buildTable -Prows=1` and `RaceTable.rows1()` build it on demand into `tablebase/build/tables/` (or `-Dsternhalma.tablebase.dir`) and check it against the constant `RaceTable.ROWS1_SHA256`; the rows ≥ 2 table remains the default of race play, and only the new spec key `racerows=1` uses the extended table, so existing specs play exactly as before and no result depends on what a machine has cached. Tests that need the table skip with a message when it is absent.
+
+The plan's Elo measurement ("500 pairs, seed 41") used a verifier seed; the author measured on the report seeds 33 and 34 (300 pairs each) and the data-set seed 1005 for the coverage replays, leaving 41 and 42 to the verifier. Measured: +5.8 ± 5.0 and +2.3 ± 3.2 Elo at equal nodes and equal cost (the expected "0 to +15"); exact table moves in 88.7 % instead of 68.0 % of the race plies (the surveyor's 87 % confirmed); build 305.6 s on 4 threads (the plan's failure limit was 10 minutes), 113.1 s on 8. The plan's "1.03 % of rows ≥ 2 states are shorter in rows ≥ 1" is 0.08 % (10,558 of 13,123,110, each by exactly one move) on the committed tables. The table is validated exhaustively (every entry layer-consistent with the engine's moves), which proves it exact; the plan's "sampled forward IDA*" became a sampled forward BFS. The test JVM heap is raised to 2 GB in the convention plugin for the 254 MB array.
+
 ### Operations
 
-The race table (about 12.5 MB) is stored with Git LFS. A table build without the LFS file takes 12 s on an idle machine and 33 to 58 s under load, not the 16 s that the plan assumed.
+The race table (about 12.5 MB) is stored with Git LFS. A table build without the LFS file takes 12 s on an idle machine and 33 to 58 s under load, not the 16 s that the plan assumed. Since E09 the builder needs roughly half the CPU time (merge-based ranks, no sort; 9.5 s on 4 threads under load against 11.9 s on 8 threads before, both on the shared machine), and the rows ≥ 2 table is reproduced byte for byte.

@@ -1,8 +1,10 @@
 package sternhalma.tablebase;
 
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -30,6 +32,9 @@ import sternhalma.engine.RuleSet.LeaveGoal;
  *   body SHA-256          32 bytes
  *   body                  state count bytes, one distance per rank ({@link RetrogradeBuilder#UNKNOWN} = 255)
  * </pre>
+ *
+ * <p>Header and body are handled as separate arrays, so that a 254 MB table is never copied into a second array
+ * just to hash or write it.
  */
 public final class TableFile {
 
@@ -38,6 +43,8 @@ public final class TableFile {
 
     /** A Git LFS pointer file starts with this line; a clone without LFS content has only the pointer. */
     static final String LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1";
+
+    private static final int BUFFER = 1 << 20;
 
     /** The header of a table file. */
     public record Header(LeaveGoal leaveGoal, int minRow, int pieces, int[] cells, long states, byte[] bodySha256) {
@@ -59,21 +66,42 @@ public final class TableFile {
     private TableFile() {
     }
 
-    static byte[] sha256(byte[] data) {
+    private static MessageDigest sha256() {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(data);
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    /** SHA-256 of a whole file as lower-case hex. */
-    public static String sha256Hex(Path file) throws IOException {
-        return HexFormat.of().formatHex(sha256(Files.readAllBytes(file)));
+    static byte[] sha256(byte[] data) {
+        return sha256().digest(data);
     }
 
-    /** Serialises header and body. */
-    public static byte[] encode(LeaveGoal leaveGoal, int minRow, Ranking ranking, byte[] body) {
+    /** SHA-256 of the concatenation of {@code parts} as lower-case hex. */
+    public static String sha256Hex(byte[]... parts) {
+        MessageDigest digest = sha256();
+        for (byte[] part : parts) {
+            digest.update(part);
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    /** SHA-256 of a whole file as lower-case hex, streamed. */
+    public static String sha256Hex(Path file) throws IOException {
+        MessageDigest digest = sha256();
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buffer = new byte[BUFFER];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, n);
+            }
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    /** The header bytes for a body (hashes the body once). */
+    public static byte[] encodeHeader(LeaveGoal leaveGoal, int minRow, Ranking ranking, byte[] body) {
         if (body.length != ranking.count()) {
             throw new IllegalArgumentException("body has " + body.length + " entries, region " + ranking.count());
         }
@@ -90,22 +118,53 @@ public final class TableFile {
         }
         header.putLong(body.length);
         header.put(sha256(body));
-        byte[] out = new byte[header.position() + body.length];
-        System.arraycopy(header.array(), 0, out, 0, header.position());
-        System.arraycopy(body, 0, out, header.position(), body.length);
+        return Arrays.copyOf(header.array(), header.position());
+    }
+
+    /** Serialises header and body into one array (for small tables; large ones use the header and body apart). */
+    public static byte[] encode(LeaveGoal leaveGoal, int minRow, Ranking ranking, byte[] body) {
+        byte[] header = encodeHeader(leaveGoal, minRow, ranking, body);
+        byte[] out = new byte[header.length + body.length];
+        System.arraycopy(header, 0, out, 0, header.length);
+        System.arraycopy(body, 0, out, header.length, body.length);
         return out;
     }
 
-    /** Writes the file atomically: to a temporary name in the same directory, then renamed. */
-    public static void write(Path file, byte[] encoded) throws IOException {
+    /**
+     * Writes the concatenation of {@code parts} atomically: to a temporary name in the same directory, then renamed,
+     * so that only a complete file ever carries the final name.
+     */
+    public static void write(Path file, byte[]... parts) throws IOException {
         Files.createDirectories(file.toAbsolutePath().getParent());
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + ProcessHandle.current().pid());
         try {
-            Files.write(tmp, encoded);
+            try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(tmp), BUFFER)) {
+                for (byte[] part : parts) {
+                    out.write(part);
+                }
+            }
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } finally {
             Files.deleteIfExists(tmp);
         }
+    }
+
+    /** Deletes temporary files of interrupted earlier writes of {@code file}; returns how many. */
+    public static int cleanTemporaries(Path file) throws IOException {
+        Path dir = file.toAbsolutePath().getParent();
+        if (dir == null || !Files.isDirectory(dir)) {
+            return 0;
+        }
+        String prefix = file.getFileName() + ".tmp.";
+        int removed = 0;
+        try (var stream = Files.list(dir)) {
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                if (p.getFileName().toString().startsWith(prefix) && Files.deleteIfExists(p)) {
+                    removed++;
+                }
+            }
+        }
+        return removed;
     }
 
     /** Whether the file is a Git LFS pointer instead of a table (a clone without the LFS content). */

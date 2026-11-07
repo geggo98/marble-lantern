@@ -11,6 +11,10 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // The optional rows>=1 race table is a 254 MB array; Gradle's default test heap of 512 MB cannot hold it.
+    maxHeapSize = "2g"
+    // Tests look for race tables in -Psternhalma.tablebase.dir as well (RaceTable).
+    providers.gradleProperty("sternhalma.tablebase.dir").orNull?.let { systemProperty("sternhalma.tablebase.dir", it) }
     testLogging {
         events("failed", "skipped")
         showStandardStreams = false

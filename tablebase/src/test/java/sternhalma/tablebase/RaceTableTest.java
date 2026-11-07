@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -202,13 +203,102 @@ class RaceTableTest {
         assertEquals(-1, table.count(new int[9]));
     }
 
+    /**
+     * The generalised builder (E09: merge-based predecessor ranks, buffer-based landings, progress hook) must
+     * reproduce the committed rows&gt;=2 table byte for byte; the recorded checksum pins it.
+     */
+    @Test
+    void theGeneralisedBuilderReproducesTheCommittedRowsTwoTable() {
+        int[] layers = new int[1];
+        RaceTable fresh = RaceTable.build(RaceTable.ROWS2, 4, (layer, states, elapsed) -> layers[0]++);
+        assertEquals(RaceTable.SHA256, fresh.sha256Hex(), "the body or the header of the rebuilt table differs");
+        assertEquals(16, layers[0], "one progress call per layer (max count 15)");
+        RaceTable shared = RaceTable.rows2();
+        assertArrayEquals(shared.encode(), fresh.encode());
+        assertArrayEquals(new long[] {1, 14, 164, 1493, 10801, 60633, 258914, 825110, 1919127, 3146725, 3465380, 2382230,
+            896106, 148408, 7929, 75, 0}, fresh.layerSizes(), "layer sizes as documented, no unreachable state");
+        assertEquals(2, fresh.minRow());
+        assertEquals(13_123_110L, fresh.states());
+    }
+
+    @Test
+    void regionsAreNamedByTheirMinimumRow() {
+        assertEquals(RaceTable.ROWS2, RaceTable.region(2));
+        assertEquals(RaceTable.ROWS1, RaceTable.region(1));
+        assertThrows(IllegalArgumentException.class, () -> RaceTable.region(3));
+        assertTrue(RaceTable.ROWS2.committed());
+        assertFalse(RaceTable.ROWS1.committed(), "the 242 MB table is never committed");
+        assertEquals(254_186_856L, RaceTable.ROWS1.ranking().count());
+        assertEquals(64, RaceTable.ROWS1_SHA256.length());
+    }
+
+    /**
+     * An uncommitted region is looked for in the property directory and in the cache only, never under
+     * {@code tablebase/tables/}, and without {@code allowBuild} it is never built. Checked with a tiny region so the
+     * test needs no 242 MB table.
+     */
+    @Test
+    void uncommittedRegionsAreLookedForInTheCacheOnlyAndNotBuiltUnlessAllowed(@TempDir Path root) throws IOException {
+        Ranking ranking = new Ranking(Rows.regionCells(4), 10);
+        byte[] body = RetrogradeBuilder.build(ranking, LeaveGoal.FORBIDDEN, 1);
+        byte[] header = TableFile.encodeHeader(LeaveGoal.FORBIDDEN, 4, ranking, body);
+        String sha = TableFile.sha256Hex(header, body);
+        RaceTable.Region committed = new RaceTable.Region(4, "rows4.bin", sha, true);
+        RaceTable.Region uncommitted = new RaceTable.Region(4, "rows4.bin", sha, false);
+        Files.writeString(root.resolve("settings.gradle.kts"), "// fake root\n");
+        Path committedFile = root.resolve("tablebase").resolve("tables").resolve("rows4.bin");
+        TableFile.write(committedFile, header, body);
+        assertNotNull(RaceTable.resolve(committed, null, root, false), "a committed region loads from tablebase/tables");
+        assertNull(RaceTable.resolve(uncommitted, null, root, false),
+                "an uncommitted region ignores tablebase/tables and is not built without allowBuild");
+        Path cacheFile = root.resolve("tablebase").resolve("build").resolve("tables").resolve("rows4.bin");
+        TableFile.write(cacheFile, header, body);
+        RaceTable fromCache = RaceTable.resolve(uncommitted, null, root, false);
+        assertNotNull(fromCache, "the cache is searched for both kinds");
+        assertEquals(4, fromCache.minRow());
+        assertEquals(0, fromCache.count(Geometry.cornerCells(Layout.of(2).goalCorner(0))));
+        Path property = root.resolve("elsewhere");
+        TableFile.write(property.resolve("rows4.bin"), header, body);
+        assertNotNull(RaceTable.resolve(uncommitted, property, root.resolve("nowhere"), false),
+                "the property directory is searched first");
+        // allowBuild builds into the cache and checks the checksum
+        Path emptyRoot = root.resolve("empty");
+        Files.createDirectories(emptyRoot);
+        Files.writeString(emptyRoot.resolve("settings.gradle.kts"), "// fake root\n");
+        RaceTable built = RaceTable.resolve(uncommitted, null, emptyRoot, true);
+        assertNotNull(built);
+        assertEquals(sha, TableFile.sha256Hex(emptyRoot.resolve("tablebase").resolve("build").resolve("tables")
+                .resolve("rows4.bin")), "the built table is cached");
+        RaceTable.Region wrongSha = new RaceTable.Region(4, "rows4x.bin", "00" + sha.substring(2), false);
+        assertThrows(IllegalStateException.class, () -> RaceTable.resolve(wrongSha, null, emptyRoot, true),
+                "a rebuilt table whose checksum differs from the constant is refused");
+    }
+
+    @Test
+    void temporariesOfInterruptedWritesAreRemovedBeforeABuild(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("rows1.bin");
+        Files.createDirectories(dir);
+        Files.writeString(file.resolveSibling("rows1.bin.tmp.123"), "half a table");
+        Files.writeString(file.resolveSibling("rows1.bin.tmp.456"), "another half");
+        Files.writeString(file.resolveSibling("rows2.bin.tmp.1"), "not ours");
+        assertEquals(2, TableFile.cleanTemporaries(file));
+        assertTrue(Files.exists(file.resolveSibling("rows2.bin.tmp.1")));
+        assertEquals(0, TableFile.cleanTemporaries(file));
+        assertEquals(0, TableFile.cleanTemporaries(dir.resolve("missing").resolve("x.bin")));
+    }
+
     @Test
     void theFileFormatRoundTripsAndDetectsCorruption(@TempDir Path dir) throws IOException {
         Ranking ranking = new Ranking(Rows.regionCells(4), 10);
         byte[] body = RetrogradeBuilder.build(ranking, LeaveGoal.FORBIDDEN, 1);
         byte[] encoded = TableFile.encode(LeaveGoal.FORBIDDEN, 4, ranking, body);
+        byte[] header = TableFile.encodeHeader(LeaveGoal.FORBIDDEN, 4, ranking, body);
+        assertEquals(encoded.length, header.length + body.length);
+        assertEquals(TableFile.sha256Hex(encoded), TableFile.sha256Hex(header, body), "hashing in parts");
         Path file = dir.resolve("rows4.bin");
-        TableFile.write(file, encoded);
+        TableFile.write(file, header, body);
+        assertArrayEquals(encoded, Files.readAllBytes(file), "writing in parts gives the same file");
+        assertEquals(TableFile.sha256Hex(encoded), TableFile.sha256Hex(file), "the streamed file hash");
         TableFile.Content content = TableFile.read(file);
         assertArrayEquals(body, content.body());
         assertEquals(4, content.header().minRow());
