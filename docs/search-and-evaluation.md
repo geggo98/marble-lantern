@@ -80,6 +80,56 @@ Two pruning methods reduce the width. Both are risky (reported):
 
 Only a tournament can measure the cost of these blind spots. The [experiment list](#experiments) contains this measurement.
 
+### Search enhancements (measured 2026-11-07)
+
+`AlphaBeta` has optional enhancements. Each is a `SearchOptions` field and a player-spec key, and all are off by default, so `ab:eval=distance,nodes=20000` plays exactly as before (a fingerprint test checks this):
+
+| Key | Enhancement | Changes the value of a fixed-depth search? |
+|---|---|---|
+| `pvs=1` | Principal variation search: null windows after the first move, re-search on a fail high | No |
+| `killers=1` | Two killer moves per height, ordered right after the table move | No |
+| `history=1` | History table (from, to) breaks ties of the distance gain in move ordering | No |
+| `asp=1` or `asp=<w>` | Aspiration window of half-width 50 (or w) around the previous iteration's score | No |
+| `ttrep=1` | Table buckets of two: one keeps the deeper entry of the current search, one is always replaced | No |
+| `mate=1` | Mate scores are stored relative to the node and converted back on probing | No (fixes the mate distance across moves) |
+| `lmr=1/2/3` | Late move reductions after the third move at depth ≥ 3: by 1 ply, by ln d · ln i / 2, by ln d · ln i / 1.25 | Yes, by design |
+| `partial=1` | Use the best move of the iteration the node limit interrupts, if the first root move was searched completely | Yes (it uses a deeper, incomplete iteration) |
+
+A test checks the options of the "No" rows against plain negamax.
+
+**Why the exact options alone gain nothing:** with good move ordering, depth 4 costs about 9 000 nodes and depth 5 about 85 000 (mean over 40 random positions). At 20 000 nodes every exact option ends at depth 4 and throws the unfinished depth-5 iteration away. PVS, killers, aspiration and the table save at most 3 % of the nodes, which does not reach depth 5. Their match results stay inside the noise. History changes which of several equal root moves is chosen (about 45 % of positions have ties at depth 4), so its result is noise from tie-breaking (+44 then +15 Elo on the tuning seeds).
+
+**What gains:** the two options that use the wasted nodes. LMR raises the mean completed depth at 20 000 nodes from 4.0 to 4.6. `partial=1` uses the interrupted depth-5 iteration. Together with the exact options they give about +160 Elo at equal nodes, more than 4x nodes for the baseline (+135).
+
+Tuning matches (seeds 3 and 4, 200 pairs each, against `ab:eval=distance,nodes=20000`, Elo with 95 % interval):
+
+| Variant | Seed 3 | Seed 4 |
+|---|---|---|
+| `pvs=1` | +0 ± 13 | |
+| `killers=1` | −17 ± 21 | |
+| `history=1` | +44 ± 28 | +15 ± 26 |
+| `asp=1` | +5 ± 18 | |
+| `ttrep=1,mate=1` | −2 ± 6 | |
+| `lmr=1` | +4 ± 28 | |
+| `lmr=2` | +53 ± 31 | +51 ± 31 |
+| `lmr=3` | +67 ± 32 | +64 ± 34 |
+| `partial=1` | +65 ± 28 | |
+| `lmr=2,partial=1` | +155 ± 35 | +171 ± 36 |
+| `pvs=1,lmr=2,partial=1` | +176 ± 36 | +172 ± 36 |
+| all exact options + `partial=1` | +91 ± 31 | |
+| all, `lmr=3` | +164 ± 34 | +145 ± 36 |
+| all, `lmr=2` | +212 ± 38 | +180 ± 37 |
+
+Result for the best variant `ab:eval=distance,nodes=20000,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1`, seeds 1 and 2 (not used for tuning), 200 pairs each:
+
+| Match | Seed 1 | Seed 2 |
+|---|---|---|
+| Equal nodes (20 000 each) | +175 ± 36 | +143 ± 35 |
+| Nodes/s, variant vs baseline (same run) | 991 k vs 1 096 k (0.905) | 906 k vs 998 k (0.907) |
+| Cost-adjusted (variant 18 094 nodes, baseline 20 000) | +161 ± 37 | +113 ± 32 |
+
+The variant is about 10 % slower per node. It still wins clearly at equal cost on both seeds. The search options are therefore a stronger baseline for the evaluation experiments; compare evaluators with the same options on both sides.
+
 ## Algorithms for more than two players
 
 Alpha-beta assumes that one player's gain is the other player's loss. With three players this is false. The literature offers four families:
