@@ -23,7 +23,9 @@ The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next mile
 | Gradle build (wrapper 9.8.2, dependency verification), `engine` module | done |
 | `search` module: alpha-beta baseline, learned linear evaluation, search enhancements, arena, strategy contract tests | done (best variant beats the first baseline in 198 of 200 games) |
 | `nn` module: network design, safetensors, encoder, CPU reference, Vector API path | done (TornadoVM kernels not started) |
-| `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
+| `selfplay` module: classical self-play data tool (adjudication, control games, sample files; `scripts/selfplay.sh`) | done for classical engines (round 2, E05); training loop not started |
+| `tablebase` module: rows >= 2 race table | done (round 2, E03); GPU build not started |
+| `book`, `bench`, `app` | not started |
 
 On the development Mac, `tornado --devices` lists one Metal device.
 

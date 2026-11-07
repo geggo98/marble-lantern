@@ -218,7 +218,8 @@ Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze th
 | 33, 34 | authors' report (300 pairs each) |
 | 41, 42 | verifier (300 pairs; 500 when the claimed gain is below +50 Elo) |
 | 43 | integration match |
-| 1002 to 1005 | data sets (E03, E04, E05) |
+| 1002 to 1005 | data sets (E03: 1002, E04: 1003 and 1004, E05: 1005 for every official set) |
+| 1006 and up | other data: E05 tuning 1006, E05 throughput runs 1007 |
 
 Official numbers use no other seeds. Seeds of round 1 and of the surveyors (1 to 4, 9, 11 to 13, 21 to 25, 77, 1001) are not reused. The reference positions below use the fixed generator seed 1000; they produce no Elo number, only trees and speed.
 
@@ -381,6 +382,36 @@ Deviations from the plan: the plan names `ab:eval=stage4,ws=15,wq=6,wj=3` withou
 
 Not done: the futility margins of E06 depend on the evaluation scale and must be re-probed with `linear-r2` (DeltaProbe). The verifier re-measures on seeds 41 and 42.
 
+### Self-play data tool (E05, measured 2026-11-07)
+
+The tool is described in [training](training.md#self-play-data-tool-round-2-e05). All official sets use seed 1005, softmax openings (4 to 10 plies, T = 30, depth 1), the default layers (S1; margin 500 on 2 own moves; layer 3 off) and `--control all`, so every game is played to its end and every label is checked against the play-out by the same players. BEST is `Strategies.BEST_SPEC` (`eval=linear`, no race play). Measured on 16 shared cores (1-minute load 7 to 120); node limits make the labels independent of the load, the CPU figures are not.
+
+| Set (seed 1005) | Games | Mean plies | S1: fires, plies saved | S1 play-out disagreements | Margin: firings, wrong, CP95 upper | Margin alone saves | Combined saving |
+|---|---|---|---|---|---|---|---|
+| BEST, 20 000 nodes | 23 000 | 95.7 | 99.9 %, 7.86 % | 201 (0.87 %), all verified, 0 label errors | 993 (4.3 % of games), 1, **0.477 %** | 1.29 % | **8.87 %** (8.49 plies per game) |
+| BEST, 1000 nodes | 2000 | 99.9 | 99.9 %, 8.06 % | 41, all verified | 244, 0, 1.22 % | 4.00 % | 11.26 % |
+| `ab:eval=distance,nodes=1000` | 1000 | 130.7 | 67.2 %, 2.44 % | 3, all verified | 33, 0, 8.7 % | 0.03 % | 2.46 % |
+
+- **S1** is a game value; a disagreement is a won race that the players failed to convert. Every one of the 245 disagreements was checked by `VerdictCheck`: the plan against the loser's recorded moves and against every loser move (none hit the 2 M node cap); 0 failures, so 0 label errors in 22 966 + 1998 + 672 verdicts (one-sided 95 % bound 0.013 % for the 20 000-node set).
+- **Margin layer at 20 000 nodes: accepted** under the plan's rule (1 wrong needs at least 950 firings for a bound below 0.5 %). The set was extended from 12 000 to 15 500 to 23 000 games for this, as the plan asks; at 12 000 games the count was 491 firings, 0 wrong (bound 0.61 %), at 15 500 games 644 and 1 (0.73 %). The one wrong label (game 15288) is a game that went to the move limit with the labelled side ahead by distance (0.042), not a win of the other side. Stronger continuation: the first 300 margin positions played on by BEST at 80 000 nodes on both sides gave the same winner 300 times (0 overturned, bound 0.99 %). This is self-consistency of the classical engine; a network player needs its own control set.
+- **The margin layer saves little:** 1.29 % of the plies alone and 1.0 point on top of S1 at 20 000 nodes, because it fires in 4.3 % of the games and on average 28.5 plies before the end. The offline sweep over the stored scores shows the price of more: margin 400 on one own move saves 5.4 % alone (12.1 % with S1) but has 35 wrong labels in 3557 firings (bound 1.30 %); 500 on one own move gives 1316 firings, 2 wrong (0.48 %), 9.24 % combined. The plan's estimate of 12 to 16 % combined is not reached with an error bound below 0.5 %.
+- **Weak-player lower bound:** on `ab:eval=distance,nodes=1000` games adjudication saves 2.5 % of the plies (S1 2.4 %); the margin of 500 is 50 distance steps for that evaluator and fires almost only on mate scores.
+- **Diversity** (distinct positions up to the mirror per 1000 games): BEST at 20 000 nodes 0.933 / 0.996 / 0.995 / 0.996 at plies 4 / 10 / 20 / 40 (minimum over the 23 blocks 0.991 at ply 20); BEST at 1000 nodes 0.990 at ply 20.
+- **Colour advantage** (score of the first mover, from the labels): BEST at 20 000 nodes +24.7 Elo [+20.2, +29.2]; BEST at 1000 nodes +50.4 [+35.1, +65.9]; the distance player +483. It depends on the parity of the opening length (20 000 nodes: 0.57 to 0.58 after an even number of random plies, 0.47 to 0.50 after an odd number, when player 0 has made one random move more). Softmax openings gave a smaller advantage than uniform ones on the tuning seed (1000 nodes, 1000 games: +57 [+36, +79] against +80 [+58, +102], diversity 0.988 and 0.991 at ply 20), so they are the setting of the official sets.
+
+**Throughput** (seed 1007, 4 threads, load about 7, thread CPU time per game; `plain` = no adjudication and no samples, `production` = the default layers, no control games, samples written):
+
+| Nodes | plain: games per CPU-second | production: games per CPU-second | production: plies per game, samples per CPU-second | CPU share of layers 1 and 3 |
+|---|---|---|---|---|
+| 1000 | **24.4** (41.0 ms per game) | 23.0 | 89.9 (plain 100.9), 2070 | 13.6 % |
+| 5000 | **5.59** | 5.75 | 87.1 (96.5), 500 | 3.9 % |
+| 20 000 | **1.31** | 1.34 | 89.6 (97.3), 120 | 0.8 % |
+
+- At 1000 nodes 24.4 games per CPU-second per core, against 16.9 with the round-1 speed prototypes and 10.1 before the round; the plan asked for at least 19.
+- Searcher reuse and `tt=16` gain nothing measurable: fresh players per game with `tt=18` give 24.1 games per CPU-second (1 % less, within noise). `tt=16` against `tt=18` at 1000 nodes, 500 pairs, seed 33: score exactly 0.5000 (499 / 2 / 499), the two players played identical games, so the non-inferiority bound (> −15 Elo) holds trivially.
+- **Adjudication does not make classical self-play cheaper per sample.** S1 is checked before every move in a passed position until it fires and costs 13.6 % of the CPU time at 1000 nodes (about 1 ms per check), more than the 11 % of the plies it and the margin save; at 20 000 nodes the late plies it cuts are cheap (the search stops early on found wins), so games get 2 % cheaper while 8 % of the plies go. The saving that matters is the share of plies, 8.9 % on BEST games and 2.5 % on weak games, for network self-play, where a ply costs a search with network calls and a check about 1 ms. Making the check cheaper (it allocates two `Solitaire` instances per call and runs a beam of width 300 for both sides) belongs to the race module.
+- The official 20 000-node set ran at 1.08 s CPU per game under load 13 to 120, against 0.77 s in the throughput run under load 7: CPU time per game grows with the machine's load (shared caches and cores), so throughput figures need a quiet machine and are quoted with their load.
+
 ## Results of round 2 (in progress)
 
 Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by its author on seeds 33 and 34 and re-measured by a verifier on seeds 41 and 42; `Strategies.BEST_SPEC` changes only in the integration commit after a wave.
@@ -388,6 +419,7 @@ Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by it
 | Experiment | Change | Author, equal nodes (Elo, 95 %) | Author, equal cost | Verifier | Decision |
 |---|---|---|---|---|---|
 | E03 race module | `race=1`: table or solitaire plan instead of a search in passed positions; S1 adjudication (labels only) | +66.8 ± 16.0 (seed 33), +58.5 ± 15.5 (seed 34) against BEST_SPEC | +46.6 ± 25.7, +44.2 ± 24.6 (A at 0.924 of B's nodes, still 12 % cheaper per move) | pending | author: merge; `race=1` for BEST_SPEC at integration |
+| E05 self-play data tool | module `selfplay`: S1 plus score margin, control games, openings, sample files | no Elo claim; 8.87 % of the plies saved on BEST games at 20 000 nodes (S1 7.86 %), margin 993 firings, 1 wrong, bound 0.477 %; 24.4 games per CPU-second at 1000 nodes | - | pending | author: merge ([measurements](#self-play-data-tool-e05-measured-2026-11-07)) |
 
 E03's soundness evidence (proof, lemma tests, exhaustive adversary over 997 verdicts, mutation check) and the self-play figures (S1 fires in 99.7 % of BEST games at mean ply 86.0 and saves 7.9 % of the plies; 68.5 % and 2.6 % on games of `ab:eval=distance,nodes=1000`) are in [endgame and opening](endgame-and-opening.md#measurements-e03).
 

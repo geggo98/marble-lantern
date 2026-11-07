@@ -303,7 +303,45 @@ Metadata: `format` = `sternhalma-samples`, `format_version` = `1`, `players`, th
 
 **Why canonical cells (project reasoning):** the encoder's work is done once, when the sample is written. Planes 0 to 2 follow from `cells` by comparison, planes 3 to 5 are constants in canonical orientation ([network](network.md#input-planes)), and plane 6 is min(ply, move_limit) / move_limit. Training therefore needs no `Position`, no `Orientation` and no move generator. A test checks that expanding `cells` gives exactly `Encoder.encode` of the original position, for every mover of two and three players.
 
-A sample takes 121 + 4 bytes plus 6 bytes per legal move plus about 40 bytes; with about 80 legal moves (to measure) that is about 650 bytes.
+A sample takes 121 + 4 bytes plus 6 bytes per legal move plus about 40 bytes; with about 80 legal moves (to measure) that is about 650 bytes. **Measured (E05):** 52.5 legal moves per sample and 479 bytes per sample on disk, BEST_SPEC games at 1000 nodes.
+
+**As implemented (round 2, E05):** module `selfplay` writes this format with `format_version` = `1` (`GameShard`, `SampleFile`). `SampleFile` is a small safetensors writer and reader for `U8`, `I16`, `I32` and `F32` in the module itself; `nn.Safetensors` and `Parameters.load` stay `F32`-only (open question 9 answered this way for now). A Python reader with the standard library only (`struct`, `json`) reads the files (`SampleFileTest`). The policy target is the bootstrap target below (1 − ε on the played move, ε = 0.05 spread over the legal moves; flag bit 0 is never set), the value target is the game's label (see the next section), random opening plies get wp = 0 and flag bit 2, and adjudicated games set flag bit 1 on all their samples. `network_sha256` is empty, because the tool plays classical engines only. One file is one shard of 25 to 50 games; the name is `samples-s<seed>-<shard>.safetensors`. Beyond the table above a file holds these game tensors, all `[G]` unless noted:
+
+| Tensor | Dtype | Content |
+|---|---|---|
+| `game_id` | I32 | game index; the opening is a function of seed and id |
+| `game_opening_plies` | I16 | random plies at the start of `game_moves` |
+| `game_scores` | I32 [·] | per move the mover's search score, `INT_MIN` for an opening ply or a race-play move; offsets as `game_move_offsets` |
+| `game_label`, `game_label_ply` | U8, I16 | layer of the label (0 played to the end, 1 S1, 2 score margin, 3 static evaluation) and the ply of the labelled position; samples exist for plies below it |
+| `game_final_ply`, `game_final_values` | I16, F32 [G, 2] | end of a game played to its end (control games, unadjudicated games), else −1 and NaN |
+| `game_s1` | I16 [G, 3] | first S1 firing: ply, winner, predicted end ply (−1 if none) |
+| `game_margin`, `game_eval` | I16 [G, 2] | first firing of layers 2 and 3: ply, winner |
+| `game_race_scores_ignored`, `game_cpu_us` [G, 3], `game_nodes` | I32 | race-band scores seen by layer 2; thread CPU µs (total, search, layers 1 and 3); search nodes |
+
+`game_values` holds the label, not the played result: an S1 verdict is the game value and stays the label even when the players fail to convert it (owner decision, E03 amendment). `game_moves` of a control game continue past the label ply.
+
+### Self-play data tool (round 2, E05)
+
+`sternhalma.selfplay.SelfPlay` (run with `devenv shell -- scripts/selfplay.sh`) plays N games of one alpha-beta spec against itself and writes the shards above. It never loads a network.
+
+```text
+selfplay.sh run --out DIR --spec SPEC --games N --seed S [--threads T] [--shard 50] [--control all|none|F]
+                [--s1 1] [--margin 500] [--margin-moves 2] [--eval-threshold 0] [--eval-plies 4]
+                [--opening uniform|softmax] [--opening-min 4] [--opening-max 10] [--opening-temp 30]
+                [--opening-depth 1] [--tt auto|spec] [--samples 1] [--reuse 1]
+selfplay.sh run --status --out DIR
+selfplay.sh report DIR... [--sweep 400,500] [--check-s1 1]
+selfplay.sh strong-check --from DIR --out DIR2 --spec SPEC [--limit 300]
+```
+
+- **Layered adjudication** (`Adjudication`), two players only (other player counts are refused): layer 1 is S1 ([endgame and opening](endgame-and-opening.md#the-criterion-s1-adjudication)), checked before every move in a passed position. Layer 2 fires when the same player reports `|score| >= 500` with the same sign on 2 consecutive own moves; scores in the race band (`Scores.kind == RACE`, `|score| >= Scores.RACE_BASE` = 5000 below the mate bound) and moves without a search (race play) are "no information" and reset the streak. Layer 3 (`sigmoid(eval/100) >= p` on 4 consecutive plies, ordinary values only) is off by default. Layers 2 and 3 never fire in a passed position: there only S1 labels. The first firing sets the label and the cut.
+- **Control games:** a control game records the label and plays on to the end, so the label can be checked; `--control all` for acceptance runs, a 10 % default (deterministic per game id) for production. The cut and the samples of a control game equal those of the same game played without control (`SelfPlayGameTest`).
+- **Openings** (`OpeningSampler`): k plies with k uniform in [4, 10], each uniformly random or drawn from a softmax over the scores of all root moves at temperature 30 (evaluation after the move, or a depth-1 search from the child with `--opening-depth 2`). Game `id` of seed `s` draws from `new Random(s * 1000003 + id)`.
+- **Searcher reuse:** each pool thread keeps two players and calls `AlphaBetaPlayer.clearSearch()` between games; the games equal those of fresh players move for move. `--tt auto` sets `tt = clamp(ceil(log2(nodes)) + 6, 14, 18)` when the spec has no `tt` key (16 at 1000 nodes; at 1000 nodes `tt=16` and `tt=18` played identical games, see the measurements).
+- **Job conventions** (`Job`, as in [Job conventions](#job-conventions)): the state comes from the shards (a shard that reads and validates is SKIP, a corrupt one is renamed `*.corrupt` and redone, `*.tmp.*` leftovers are removed, a shard written with other settings stops the run with 1); `FileChannel.tryLock` on `.selfplay.lock` (75 when held); `--status` (0 not running, 75 running, with pid, elapsed time and the last progress line); a shutdown hook on SIGINT and SIGTERM stops new games, writes the shards whose games all finished and prints the summary; the JVM then ends with 130 or 143 (verified by `SignalExitTest`, open question 11). Progress lines on stderr with rate, ETA and elapsed time count only games of this process.
+- **`report`** prints, over the played-out games, per layer the firings, the wrong labels (the game played on by the same players is not won by the labelled side; a move-limit game counts as wrong), the one-sided 95 % Clopper-Pearson bound and the plies saved; the combined saving; S1 play-out disagreements, each checked by `VerdictCheck` (the plan against the loser's recorded moves and against every loser move, capped at 2 M nodes); diversity per 1000 games; the colour advantage; the cost; and with `--sweep` layer 2 recomputed offline from `game_scores` for other margins. **`strong-check`** continues the first layer-2 firings with a stronger spec on both sides and counts overturned labels.
+
+The measurements of E05 are in [search and evaluation](search-and-evaluation.md#self-play-data-tool-e05-measured-2026-11-07).
 
 ### Symmetric augmentation
 
@@ -562,9 +600,9 @@ An earlier review found that weak tests were the main risk ([network](network.md
 6. **Race endgames in self-play.** The rule of [What classical code covers](#what-classical-code-covers) needs a conservative contact test and exact solitaire distances. Which of the two arrives first, and what share of plies does it save?
 7. **Distance input plane.** Replace the constant planes 3 to 5 with the single-agent distance per cell ([network open question 1](network.md#open-questions))? This is a classical feature the network would no longer need to learn, and it changes the file format version.
 8. **Float softmax on Metal.** Confirm that TornadoVM rejects `double` on Metal and that the float softmax meets the gradient bound.
-9. **Integer dtypes in safetensors.** Extend the project's reader for sample files (U8, I16, I32), while `Parameters.load` stays F32-only?
+9. **Integer dtypes in safetensors.** Extend the project's reader for sample files (U8, I16, I32), while `Parameters.load` stays F32-only? E05 keeps a typed reader and writer in module `selfplay` (`SampleFile`) and leaves `nn.Safetensors` unchanged.
 10. **Replay window and reuse.** W = 500,000 samples and R = 4 are starting values.
-11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item.
+11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item. E05 verified 130 and 143 on JDK 25 with a shutdown hook (`SignalExitTest`).
 12. **Distillation.** The [architecture](architecture.md#neural-network) plans to train LARGE and distil into SMALL. The trainer supports it with teacher distributions from LARGE; the schedule is open.
 13. **References.** Adam, AdamW, SGD with momentum and AlphaZero need entries in [references](references.md) before this document cites them.
 

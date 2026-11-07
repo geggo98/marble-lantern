@@ -56,6 +56,8 @@ graph TD
     search --> nn
     search --> tablebase
     selfplay --> search
+    selfplay --> nn
+    selfplay --> tablebase
     book --> engine
     tablebase --> engine
     bench --> nn
@@ -73,7 +75,7 @@ The alpha-beta baseline in `search` uses `engine` and, for the race module of ro
 | `engine` | Board geometry, rule set, move generation, Zobrist hashing, symmetries. Plain Java. Every rule-dependent method takes an immutable `RuleSet` record (see [rules](rules.md)). A small-board mode is proposed (see [below](#ruleset-and-small-board-mode)). | nothing |
 | `nn` | Network definition, CPU reference with `jdk.incubator.vector`, TornadoVM kernels for forward and backward pass, safetensors reader and writer. | `engine` (neighbour table), TornadoVM |
 | `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. The race module (`Solitaire`, `RaceMove`, `RaceAdjudication`, see [endgame and opening](endgame-and-opening.md#the-race-module)). Later: Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`; `tablebase` (interface `RaceCounts`) for the race module; `nn` for MCTS only |
-| `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. | `search` (and through it `engine`, `nn`) |
+| `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. Exists (round 2, E05): the classical self-play data tool with layered adjudication, control games, opening sampler and sample files ([training](training.md#self-play-data-tool-round-2-e05)). | `search`; `tablebase` (race table for S1); `nn` (`Orientation` for canonical cells) |
 | `book` | Opening book built from self-play games. | `engine`, self-play data |
 | `tablebase` | Single-player endgame database. Exists (CPU): ranking, layered retrograde BFS, the table file format and the rows ≥ 2 race table (`RaceTable`, Git LFS). Planned: BFS layers as a TornadoVM kernel for larger regions. | `engine`; TornadoVM later |
 | `bench` | JMH benchmarks: evaluations per second per backend and batch size. | `nn` |
