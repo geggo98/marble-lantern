@@ -24,6 +24,8 @@ public final class Evaluators {
         put("linear", LinearEvaluator::new);
         // frozen round-1 weights: the evaluator of the reference player R2 (ReferencePositions.R2_SPEC)
         put("linear-r1", () -> new LinearEvaluator(LinearWeights.R1, LinearWeights.SCALE));
+        // round-2 refit on passed-filtered BEST self-play (E04); BEST_SPEC changes only in an integration commit
+        put("linear-r2", () -> new LinearEvaluator(LinearWeights.ROUND2, LinearWeights.SCALE));
         REGISTRY.put("stage4", Stage4Evaluator::of);
     }
 
