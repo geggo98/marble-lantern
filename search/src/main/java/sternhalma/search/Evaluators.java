@@ -20,12 +20,22 @@ public final class Evaluators {
     static {
         REGISTRY.put("distance", DistanceEvaluator::new);
         REGISTRY.put("rows", RowEvaluator::new);
+        REGISTRY.put("linear", LinearEvaluator::new);
     }
+
+    /**
+     * Prefix for a linear evaluator with weights from a file, for tuning experiments without a rebuild:
+     * {@code eval=linear-file:/path/w.txt}. See {@link LinearWeights#fromFile(String)}.
+     */
+    static final String LINEAR_FILE = "linear-file:";
 
     private Evaluators() {
     }
 
     public static Evaluator byName(String name) {
+        if (name.startsWith(LINEAR_FILE)) {
+            return LinearWeights.fromFile(name.substring(LINEAR_FILE.length()));
+        }
         Supplier<Evaluator> supplier = REGISTRY.get(name);
         if (supplier == null) {
             throw new IllegalArgumentException("unknown evaluator '" + name + "', known: " + REGISTRY.keySet());

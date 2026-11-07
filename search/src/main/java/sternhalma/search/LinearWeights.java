@@ -1,0 +1,66 @@
+package sternhalma.search;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+
+/**
+ * Fitted weights of {@link LinearEvaluator}, in logit units per feature unit, in the order of
+ * {@link LinearEvaluator#NAMES}.
+ *
+ * <p>How they were produced (reproduce with {@code LinearTraining} in the test sources):
+ * <pre>
+ *   LinearTraining generate d1.csv 2000 101 4 'ab:nodes=20000|ab:nodes=20000' 'ab:nodes=5000|ab:nodes=20000' \
+ *       'ab:nodes=20000|ab:eval=rows,nodes=20000' 'ab:nodes=5000|ab:nodes=5000'
+ *   LinearTraining fit w.txt all d1.csv
+ * </pre>
+ * 2000 baseline games, 68255 positions (every third ply from ply 6), labelled with the final result for
+ * the side to move; logistic regression, games with id % 5 == 0 held out. Held-out accuracy of predicting
+ * the winner: 0.788 (distance difference alone: 0.768); held-out log loss 0.437 (0.482).
+ *
+ * <p>A second round, refitted on these games plus 1500 games played by this evaluator, predicted better
+ * in its own early game but played weaker in the arena (seed 4: +440 against +526 Elo over the
+ * baseline), so the first-round weights are kept.
+ */
+final class LinearWeights {
+
+    /** Score units per logit unit; about 36 units per step of distance, near the move-limit score. */
+    static final double SCALE = 100.0;
+
+    static final double[] WEIGHTS = {
+        -0.361185,   // dsum
+        -0.353700,   // dmax
+        -0.120344,   // dsq
+        0.257194,    // inGoal
+        0.0330329,   // inStart
+        0.0581328,   // spread
+        -0.0303039,  // lateral
+        0.119662,    // jumps
+        -0.00720263, // adjacent
+        0.0532558,   // steps
+        0.270701,    // dsumPhase
+        0.229450,    // tempo
+    };
+
+    private LinearWeights() {
+    }
+
+    /**
+     * Reads an evaluator from a text file: the scale, then the {@link LinearEvaluator#FEATURES} weights,
+     * separated by white space. Lines starting with '#' are comments. For tuning experiments only.
+     */
+    static LinearEvaluator fromFile(String file) {
+        try {
+            double[] numbers = Files.readAllLines(Path.of(file)).stream()
+                    .filter(line -> !line.isBlank() && !line.startsWith("#"))
+                    .flatMap(line -> Arrays.stream(line.trim().split("\\s+")))
+                    .mapToDouble(Double::parseDouble)
+                    .toArray();
+            return new LinearEvaluator(Arrays.copyOfRange(numbers, 1, numbers.length), numbers[0]);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+}
