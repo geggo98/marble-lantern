@@ -11,8 +11,8 @@ dependencies {
 }
 
 // Builds a race table (sternhalma.tablebase.RaceTable). The default region rows>=2 goes to tablebase/tables/rows2.bin
-// (committed, tracked with Git LFS, see .gitattributes); rows>=1 (254M states, about 242 MB) is never committed and
-// goes to the cache tablebase/build/tables/ (or -Psternhalma.tablebase.dir=<dir>), where RaceTable finds it:
+// (committed, tracked with Git LFS, see .gitattributes); rows>=1 (254M states, about 242 MB) goes to
+// tablebase/tables/rows1.bin, also tracked with Git LFS (or to -Psternhalma.tablebase.dir=<dir>):
 //   ./gradlew --no-build-cache :tablebase:buildTable                        # rows>=2, about 12 s
 //   ./gradlew --no-build-cache :tablebase:buildTable -Prows=1 -Pthreads=4   # rows>=1, a few minutes
 // A rows>=2 rebuild is only needed after a change of the table format or of the solitaire rules; RaceTable rebuilds a
@@ -23,14 +23,12 @@ val tableDir = providers.gradleProperty("sternhalma.tablebase.dir")
 
 tasks.register<JavaExec>("buildTable") {
     group = "build"
-    description = "Writes a race table: rows>=2 into tablebase/tables, rows>=1 (-Prows=1) into the cache."
+    description = "Writes a race table into tablebase/tables: rows>=2 by default, rows>=1 with -Prows=1."
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = "sternhalma.tablebase.RaceTable"
     maxHeapSize = "2g"
     val r = rows.get()
-    val dir = tableDir.orNull
-        ?: if (r >= 2) projectDir.resolve("tables").toString()
-        else layout.buildDirectory.dir("tables").get().asFile.toString()
+    val dir = tableDir.orNull ?: projectDir.resolve("tables").toString()
     args = listOf(dir, "--rows", r.toString()) + (tableThreads.orNull?.let { listOf("--threads", it) } ?: emptyList())
 }
 

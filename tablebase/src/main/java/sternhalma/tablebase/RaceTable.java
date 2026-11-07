@@ -17,10 +17,11 @@ import sternhalma.engine.RuleSet.LeaveGoal;
  * <ul>
  * <li>{@link #ROWS2} (rows &gt;= 2, 28 cells, 13,123,110 states, 12.5 MB): the default table of race play,
  * committed as {@code tablebase/tables/rows2.bin} with Git LFS.</li>
- * <li>{@link #ROWS1} (rows &gt;= 1, 36 cells, 254,186,856 states, 242 MB; round-2 experiment E09): optional. It is
- * never committed (too large for the Git LFS quota); {@link #rows1()} builds it on first use in a few minutes into
- * the cache directory and {@link #rows1IfCached()} only uses it when it is already there. Every part of the project
- * works without it; race play uses it only when a spec says {@code racerows=1}.</li>
+ * <li>{@link #ROWS1} (rows &gt;= 1, 36 cells, 254,186,856 states, 242 MB; round-2 experiment E09): optional.
+ * It is committed as {@code tablebase/tables/rows1.bin} with Git LFS because it costs several minutes to build and
+ * is reused (owner decision, 2026-11-07). A clone without LFS content has only a pointer file: {@link #rows1()} then
+ * rebuilds it into the cache, and {@link #rows1IfCached()} returns null. Every part of the project works without it;
+ * race play uses it only when a spec says {@code racerows=1}.</li>
  * </ul>
  *
  * <p><b>Where a table comes from.</b> A table is looked for in the directory named by the system property
@@ -52,7 +53,7 @@ public final class RaceTable implements RaceCounts {
 
     /**
      * SHA-256 of the complete rows&gt;=1 table file that the builder produces (recorded from two builds with
-     * different thread counts). The file itself lives only in the cache directory; see {@link #ROWS1}.
+     * different thread counts). The file is committed with Git LFS as tablebase/tables/rows1.bin; see {@link #ROWS1}.
      */
     public static final String ROWS1_SHA256 = "85850d6f47f526daf45ac5cd3a0dad8841244cb50d0d8d15a5b6a54f09d1bfd1";
 
@@ -74,7 +75,7 @@ public final class RaceTable implements RaceCounts {
     }
 
     public static final Region ROWS2 = new Region(MIN_ROW, FILE_NAME, SHA256, true);
-    public static final Region ROWS1 = new Region(1, ROWS1_FILE_NAME, ROWS1_SHA256, false);
+    public static final Region ROWS1 = new Region(1, ROWS1_FILE_NAME, ROWS1_SHA256, true);
 
     /** States above which a build prints one progress line per layer. */
     private static final long VERBOSE_BUILD_STATES = 100_000_000L;
@@ -139,16 +140,18 @@ public final class RaceTable implements RaceCounts {
     }
 
     private static RaceTable shared(Region region, boolean allowBuild) {
-        RaceTable t = region.committed ? sharedRows2 : sharedRows1;
+        // the two regions are told apart by their minimum row; "committed" only says where a file may live
+        boolean rows2 = region.minRow == ROWS2.minRow;
+        RaceTable t = rows2 ? sharedRows2 : sharedRows1;
         if (t != null) {
             return t;
         }
         synchronized (RaceTable.class) {
-            t = region.committed ? sharedRows2 : sharedRows1;
+            t = rows2 ? sharedRows2 : sharedRows1;
             if (t == null) {
                 t = loadOrBuild(region, allowBuild);
                 if (t != null) {
-                    if (region.committed) {
+                    if (rows2) {
                         sharedRows2 = t;
                     } else {
                         sharedRows1 = t;

@@ -116,7 +116,7 @@ The region sizes come from the star shape (computed from the board geometry, `Ro
 | rows ≥ 4 | 15 | 3,003 | 3 KB | in a test |
 | rows ≥ 3 | 21 | 352,716 | 353 KB | in a test |
 | rows ≥ 2 | 28 | 13,123,110 | 12.5 MB | yes, `tablebase/tables/rows2.bin` (E03) |
-| rows ≥ 1 | 36 | 254,186,856 | 242 MB | yes, on demand into the cache, never committed (E09, [below](#the-rows--1-table-e09-optional)) |
+| rows ≥ 1 | 36 | 254,186,856 | 242 MB | yes, `tablebase/tables/rows1.bin` with Git LFS (E09, [below](#the-rows--1-table-e09-optional)); rebuilt into the cache if only a pointer exists |
 | rows ≥ 0, the middle row | 45 | 3,190,187,286 | 3.0 GB | planned on the GPU (E12) |
 
 The rows ≥ 0 table fits into the 51.8 GB of global memory that the development GPU reports; the earlier estimate of 179 GB came from the overstated cell count.

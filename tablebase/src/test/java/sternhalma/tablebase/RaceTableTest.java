@@ -221,13 +221,26 @@ class RaceTableTest {
         assertEquals(13_123_110L, fresh.states());
     }
 
+    /** A clone without LFS content has a pointer instead of the 242 MB table; it must never be used as a table. */
+    @Test
+    void aRowsOnePointerFileOrAWrongFileInTheCommittedDirectoryIsNeverUsed(@TempDir Path root) throws IOException {
+        Path dir = Files.createDirectories(root.resolve("tablebase").resolve("tables"));
+        Path file = dir.resolve(RaceTable.ROWS1_FILE_NAME);
+        Files.writeString(file, "version https://git-lfs.github.com/spec/v1\noid sha256:" + RaceTable.ROWS1_SHA256
+                + "\nsize 254187064\n");
+        assertNull(RaceTable.resolve(RaceTable.ROWS1, null, root, false), "a pointer is not a table");
+        Files.write(file, new byte[1000]);
+        assertNull(RaceTable.resolve(RaceTable.ROWS1, null, root, false), "a file with the wrong checksum is not a table");
+        assertTrue(RaceTable.ROWS1.committed(), "rows1 is looked for in tablebase/tables like rows2");
+    }
+
     @Test
     void regionsAreNamedByTheirMinimumRow() {
         assertEquals(RaceTable.ROWS2, RaceTable.region(2));
         assertEquals(RaceTable.ROWS1, RaceTable.region(1));
         assertThrows(IllegalArgumentException.class, () -> RaceTable.region(3));
         assertTrue(RaceTable.ROWS2.committed());
-        assertFalse(RaceTable.ROWS1.committed(), "the 242 MB table is never committed");
+        assertTrue(RaceTable.ROWS1.committed(), "the 242 MB table is committed with Git LFS (owner decision)");
         assertEquals(254_186_856L, RaceTable.ROWS1.ranking().count());
         assertEquals(64, RaceTable.ROWS1_SHA256.length());
     }
