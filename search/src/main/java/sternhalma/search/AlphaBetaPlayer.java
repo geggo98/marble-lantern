@@ -21,6 +21,7 @@ public final class AlphaBetaPlayer implements Player {
     private long totalNanos;
     private long moves;
     private long raceMoves;
+    private SearchResult lastResult;
 
     public AlphaBetaPlayer(int maxDepth) {
         this(new DistanceEvaluator(), maxDepth, Long.MAX_VALUE, Long.MAX_VALUE, 20, "distance");
@@ -64,6 +65,7 @@ public final class AlphaBetaPlayer implements Player {
                 totalNanos += System.nanoTime() - t0;
                 moves++;
                 raceMoves++;
+                lastResult = null;
                 return move;
             }
         }
@@ -71,7 +73,27 @@ public final class AlphaBetaPlayer implements Player {
         totalNanos += System.nanoTime() - t0;
         totalNodes += result.nodes();
         moves++;
+        lastResult = result;
         return result.move();
+    }
+
+    /**
+     * The search result of the last {@link #choose} call, or null if the race module chose that move (no search,
+     * no score) or no move was chosen since the last {@link #clearSearch}. Its score is from the side that moved;
+     * classify it with {@link Scores#kind} before using it as a label.
+     */
+    public SearchResult lastResult() {
+        return lastResult;
+    }
+
+    /**
+     * Forgets the transposition table, the killers, the history and the last result, so that the next game plays
+     * exactly as with a fresh player of the same spec (checked by the self-play tool's tests). The counters
+     * ({@link #totalNodes()} and the others) keep counting.
+     */
+    public void clearSearch() {
+        search.clear();
+        lastResult = null;
     }
 
     @Override

@@ -12,3 +12,4 @@ dependencyResolutionManagement {
 rootProject.name = "stern-halma"
 
 include("engine", "search", "nn", "nn-tornado", "tablebase")
+include("selfplay")

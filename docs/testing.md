@@ -114,3 +114,16 @@ Before any time-based measurement that a decision depends on:
 3. If either check fails, wait for the machine to cool down or stop other jobs, and measure again. Do not use `--ignore-load` for numbers that decide anything; report such numbers as indicative only.
 
 Speed ratios between two builds that Bench interleaves are more robust than absolute numbers, because both builds see the same clock, but they still carry about ±4% of noise on a throttled machine.
+
+## Tests of the self-play data tool (round 2, E05)
+
+| Test | What it checks |
+|---|---|
+| `AdjudicationTest` | Layer 2 needs consecutive own moves of one sign and resets on a smaller score, a sign change, race play and race-band scores (which are counted); mate scores count; no layer 2 label in a passed position, also not for scores of +5000 and more; S1 equals `RaceAdjudication`; layer 3 needs consecutive plies for one side and ordinary values; three players are refused. |
+| `MarginRegressionTest` | The live layer 2, fed with the stored scores of 65 control games of the acceptance run, labels exactly as recorded: 30 correct firings and the one known move-limit game; the set holds 35 games that a margin of 400 on one move mislabels, so a looser default fails it. |
+| `SelfPlayGameTest` | Reused searchers play the same moves and scores as fresh players and as plain self-play, also with race play and with the same game twice in a row; a production game is a prefix of its control game with the same label and samples; labels follow the policy (S1 label is the verdict, margin labels never in passed positions and backed by two stored scores beyond the margin, the offline margin equals the live one); every sample expands to `Encoder.encode` of its position, its moves map back to the legal moves, the policy target sums to 1, weights and flags follow the opening and the label. |
+| `JobTest` | An aborted run resumes to the same games; a rerun skips everything and rewrites nothing; leftover temporary files and corrupt shards are cleaned up and redone; a shard of other settings stops the run with 1; a held lock gives 75 and `--status` reports it. |
+| `SignalExitTest` | Real child JVMs: a second run on the same directory exits with 75, `--status` names the running pid, SIGINT ends with 130 and SIGTERM with 143 after the summary, no half-written shard remains, and a restart skips the finished shards. |
+| `SampleFileTest`, `ClopperPearsonTest`, `OpeningSamplerTest` | The typed safetensors layout (alignment, offsets, rejection of corrupt files, a Python standard-library reader); the bound against its closed form and the exact binomial sum, and the plan's minimum firing counts; reproducible, legal, varied openings, greedy softmax at a low temperature, and the mirror-canonical key. |
+
+`ScoresTest` (module `search`) checks the score bands and `AlphaBetaPlayer.lastResult` and `clearSearch`. A mutation check of the tool (searcher tables not cleared, samples in the wrong orientation, the passed-position guard of layer 2 dropped, race-band scores counted as ordinary) failed at least one of these tests each time.

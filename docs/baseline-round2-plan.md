@@ -320,3 +320,15 @@ The second texel round used games without `race=1`, because E03 was not availabl
 ### Operations
 
 The race table (about 12.5 MB) is stored with Git LFS. A table build without the LFS file takes 12 s on an idle machine and 33 to 58 s under load, not the 16 s that the plan assumed.
+
+### E05 (wave 2): deviations of the author run
+
+Measurements: [search and evaluation](search-and-evaluation.md#self-play-data-tool-e05-measured-2026-11-07).
+
+- **Seeds.** The plan named seeds 1004 and 1005 for the two acceptance sets; 1004 was already used by E04. Every official E05 set (BEST at 20 000 and 1000 nodes, the distance player) uses seed 1005; the tuning runs (opening mode, margin sweep) use 1006, the throughput runs 1007. The `tt=16` non-inferiority match ran on author seed 33, not 41, which is reserved for the verifier.
+- **Size of the 20 000-node set.** The margin layer fires in 4.3 % of BEST games, not in about 40 % as the surveyor's 398 firings suggested, so the set grew from 1000 to 23 000 games (993 firings, 1 wrong, bound 0.477 %) to meet the plan's 950-firing rule for one error.
+- **The plan's 12 to 16 % combined saving is not reached:** 8.87 % at 20 000 nodes (S1 7.86 %, the margin 1.0 point more). Lower margins save more but break the 0.5 % bound (offline sweep in the measurements).
+- **Throughput criterion.** 24.4 games per CPU-second at 1000 nodes without adjudication (criterion: at least 19). With adjudication a game is shorter but not cheaper at 1000 nodes, because the S1 checks cost 13.6 % of the CPU time; the plan's hypothesis "15 to 25 % lower cost per sample" does not hold for classical self-play. The ply share saved is the figure for network self-play.
+- **Colour advantage.** Within ±30 Elo at 20 000 nodes (+24.7, interval up to +29.2), not at 1000 nodes (+50.4); the advantage is the first mover's tempo and depends on the parity of the opening length.
+- **Searcher reuse and `tt=16`** gave no measurable speed-up (1 %, noise), as the plan expected for the reuse; `tt=16` played identical games to `tt=18` at 1000 nodes.
+- **S1 play-outs.** Following the E03 amendment, S1 labels stay labels when the play-out ends otherwise (245 such games over the three sets), and each such verdict is checked against the plan instead (0 failures).
