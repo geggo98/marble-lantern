@@ -116,7 +116,7 @@ The region sizes come from the star shape (computed from the board geometry, `Ro
 | rows ≥ 4 | 15 | 3,003 | 3 KB | in a test |
 | rows ≥ 3 | 21 | 352,716 | 353 KB | in a test |
 | rows ≥ 2 | 28 | 13,123,110 | 12.5 MB | yes, `tablebase/tables/rows2.bin` (E03) |
-| rows ≥ 1 | 36 | 254,186,856 | 242 MB | planned (E09) |
+| rows ≥ 1 | 36 | 254,186,856 | 242 MB | yes, on demand into the cache, never committed (E09, [below](#the-rows--1-table-e09-optional)) |
 | rows ≥ 0, the middle row | 45 | 3,190,187,286 | 3.0 GB | planned on the GPU (E12) |
 
 The rows ≥ 0 table fits into the 51.8 GB of global memory that the development GPU reports; the earlier estimate of 179 GB came from the overstated cell count.
@@ -194,9 +194,27 @@ The file is tracked with Git LFS. It starts with a header (format version, rule,
 
 A count is an **upper bound** of the unrestricted solitaire distance (a route through row 1 might be shorter). It serves play and search heuristics, never a label.
 
+### The rows ≥ 1 table (E09, optional)
+
+The same builder (`RetrogradeBuilder`, generic in the region since E09) produces the table of the 36 allowed cells of rows 1 to 8: 254,186,856 configurations, one byte each, `leaveGoal = FORBIDDEN`. Every configuration reaches the goal inside the region; the largest count is 19; layer sizes 1, 14, 164, 1493, 11353, 72696, 384397, 1638799, 5542557, 14761224, 30633718, 48819428, 58547341, 50838402, 29862660, 10768087, 2108414, 190455, 5610, 43.
+
+**Never committed.** The file (`rows1.bin`, 254,187,064 bytes) is too large for the Git LFS quota. `RaceTable.rows1()` looks for it in `-Dsternhalma.tablebase.dir`, then in the cache `tablebase/build/tables/` (never in `tablebase/tables/`), and otherwise builds it there on first use; a file is used only when its SHA-256 equals `RaceTable.ROWS1_SHA256` (`85850d6f47f526daf45ac5cd3a0dad8841244cb50d0d8d15a5b6a54f09d1bfd1`), and a rebuilt table must reproduce that constant. `./gradlew --no-build-cache :tablebase:buildTable -Prows=1 [-Pthreads=4]` builds it explicitly; the task refuses to write the uncommitted table into `tablebase/tables/`. `RaceTable.rows1IfCached()` returns null instead of building, which is what the tests use: every test that needs the table is skipped with a message when it is absent. Everything else works without the file; the rows ≥ 2 table stays the default of race play, and a spec selects the extended table with `racerows=1` (see below).
+
+**Build cost (measured 2026-11-07, 16 cores shared with other jobs, JDK 25, `-Xmx2g`, direct `java` invocation under `/usr/bin/time -l`):** 305.6 s on 4 threads (0.83 M states/s, 822 CPU-s, 1-minute load 7 before and 14 after) and 113.1 s on 8 threads (2.25 M states/s, 506 CPU-s, load 14 before and 29 after); both builds gave the same SHA-256, so the table does not depend on the thread count. Peak resident set of the JVM 579 MB (the table is a 254 MB array; nothing else is large). Loading the cached file takes 0.8 s. The builder ranks a predecessor by merging the moved piece's region index into the sorted indices of the state (`Ranking.rankReplacing`, no sort) and generates landings into a buffer; the rows ≥ 2 build now takes 9.5 s on 4 threads under load 11 (before E09: 11.9 s on 8 threads), with the committed file reproduced byte for byte (`RaceTableTest`).
+
+**Validation (`TableValidation`, Gradle task `:tablebase:validateTable`, all with the engine's move generator `Position.generate`, independent of the builder's own generator):**
+
+| Check | Result |
+|---|---|
+| Layer consistency on **every** one of the 254,186,856 entries: entry 0 only at the goal, from entry d > 0 some legal move inside the region reaches d − 1 and none reaches less, no unreachable entry | consistent (226.8 s on 8 threads). As for rows ≥ 3, this proves every entry exact for the restricted solitaire. |
+| Against the committed rows ≥ 2 table on all 13,123,110 states both tables define | equal on 13,112,552; shorter by exactly one move on 10,558 (0.08 %; the surveyor's 1.03 % was measured on another table); never longer, never unknown |
+| Forward breadth-first search inside the region from 3000 random configurations with count ≤ 6 (cap 2 M states each; 337 M states expanded in 246.6 s on 8 threads) | 3000 solved, 0 mismatches (distances 2 to 6, most at 6) |
+| `RowsOneTableTest` (skipped without the file): checksum, layer sizes, the comparison above, layer consistency on 200,000 samples, forward BFS on 300 configurations | green |
+| `RaceTableRows1Test` (search, skipped without the file): race moves legal and strictly count-reducing, player flip, a race is won in exactly the count against an opponent outside the region, parity bound ≤ count on 2 M sampled states, the beam ordered by the table finds the 27-move solitaire and never fewer | green |
+
 ### Race play (`race=1`, `race=2`)
 
-In a passed position the player with `race=1` does not search: it plays the legal move whose resulting configuration has the smallest table count (ties: larger distance gain, then move order); when its configuration is not covered by the table, the first move of a solitaire plan (`Solitaire`, a beam search of width 200 whose landing cells all lie above the opponent's rearmost piece); when neither yields a legal move, the search decides. `race=2` races only while the table arithmetic does not say the race is lost (the opponent finishes first under the conversion rule above); a lost race goes back to the search, which may find a block. `racetable=0` disables the table. Race play is a strength heuristic and never produces a label.
+In a passed position the player with `race=1` does not search: it plays the legal move whose resulting configuration has the smallest table count (ties: larger distance gain, then move order); when its configuration is not covered by the table, the first move of a solitaire plan (`Solitaire`, a beam search of width 200 whose landing cells all lie above the opponent's rearmost piece); when neither yields a legal move, the search decides. `race=2` races only while the table arithmetic does not say the race is lost (the opponent finishes first under the conversion rule above); a lost race goes back to the search, which may find a block. `racetable=0` disables the table; `racerows=1` uses the rows ≥ 1 table instead of the default rows ≥ 2 table (E09; built into the cache on first use when absent). Race play is a strength heuristic and never produces a label.
 
 ### The criterion S1 (adjudication)
 
@@ -243,6 +261,31 @@ Reading the table:
 - **Draws** are games that reached the 200-ply limit (scored by distance); they occur in a few pairs of seed 33.
 
 **Bench** of BEST_SPEC on this build against the frozen pre-round build (single thread, thread CPU time, 3 interleaved repetitions, `--ignore-load` because the machine was shared, load 21 to 58): ratio 0.9965 (repetitions 1.0115, 0.9955, 0.9965; 746 426 against 745 559 nodes per CPU-second), 64 of 64 positions and 2 of 2 games with identical trees, so the fingerprint and the speed of the search are unchanged. The race module adds no code to the search path; a race player's cost shows in the arena's CPU column, not in Bench.
+
+### Measurements (E09: the rows ≥ 1 table in race play)
+
+Measured on 2026-11-07 on the E09 build (branch `exp/E09`), the same shared machine (1-minute load 16 to 110 during the runs; node limits make the results independent of it, the CPU figures are figures under load). Data-set seed 1005 (reserved for E09), report seeds 33 and 34.
+
+**Coverage (`RaceCoverage`, 1000 self-play games of BEST_SPEC at 20 000 nodes from the arena openings of seed 1005, 4 random opening plies; both tables are probed at every passed ply of the same games, so the comparison is paired):** 93.6 plies per game, 999 decided; 17 422 passed plies (18.6 % of 93 626), first passed ply 76.2 on average.
+
+| Table | Mover's configuration covered | Both configurations covered | First ply with both covered | Race play would use: table / solitaire plan | Table moves as a share of all plies |
+|---|---|---|---|---|---|
+| rows ≥ 2 | 68.0 % of passed plies | 57.3 % | 83.3 (973 games) | 68.0 % / 32.0 % | 12.7 % |
+| rows ≥ 1 | 88.7 % | 80.9 % | 79.3 (994 games) | 88.7 % / 11.3 % | 16.5 % (+3.8 points) |
+
+Exact table moves therefore replace about 30 % more of the race plies (88.7 % instead of 68.0 % of the passed plies), both sides are covered 4 plies earlier, and the beam (6 to 7 ms per call) is needed in a third as many plies. The surveyor's 87 % for rows ≥ 1 is confirmed.
+
+**Self-play with race play (1000 games each, seed 1005, the players' own counters):** with `race=1` (rows ≥ 2) 16 462 of 88 665 moves after the opening (18.6 %) are race moves: 12 152 (13.7 %) from the table, 4 310 (4.9 %) from the plan; with `race=1,racerows=1` 16 370 of 88 573 (18.5 %) are race moves: 14 932 (16.9 %) from the table, 1 438 (1.6 %) from the plan. The share of plies played without a search is the same; what changes is how many of them are exact.
+
+**Arena (`BEST_SPEC,race=1,racerows=1` as A against `BEST_SPEC,race=1` as B, both at 20 000 nodes, paired games with colours swapped, 4 random opening plies, `--threads 4`):**
+
+| Seed, pairs | Wins A / draws / wins B | Score (A) | Elo (A − B), 95 % | CPU-ms per move A / B |
+|---|---|---|---|---|
+| 31, 50 (tuning) | 52 / 0 / 48 | 0.5200 | +13.9 ± 19.1 | 12.37 / 12.62 |
+| **33, 300** | 301 / 8 / 291 | 0.5083 | **+5.8 ± 5.0** | 11.14 / 11.35 |
+| **34, 300** | 301 / 2 / 297 | 0.5033 | **+2.3 ± 3.2** | 11.73 / 11.95 |
+
+The intervals are narrow because both players search identical trees until the armies pass and most pairs are decided by colour alone. The effect is at most a few Elo (lower bound +0.8 on seed 33, −0.9 on seed 34), as the plan expected ("0 to +15 and probably not separable"): the beam already plays the uncovered race plies well. The cost per move is equal (a rows ≥ 1 lookup costs the same as a rows ≥ 2 lookup, and the beam is called less often). The gain of the table is not strength but exactness: 89 % of the race plies in BEST games now have an exact move set and an exact moves-left count at microsecond cost, for policy and auxiliary targets of the network, while value labels of passed positions still come only from S1.
 
 ## Opening book from self-play
 

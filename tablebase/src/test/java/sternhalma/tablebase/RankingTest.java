@@ -73,6 +73,36 @@ class RankingTest {
         assertThrows(IllegalArgumentException.class, () -> ranking.rank(new int[10]));
     }
 
+    /** The builder's merge-based rank of a predecessor equals the rank of the sorted modified configuration. */
+    @Test
+    void rankReplacingEqualsTheRankOfTheModifiedConfiguration() {
+        Ranking ranking = new Ranking(Rows.regionCells(1), 10);
+        Random random = new Random(5);
+        for (int i = 0; i < 200_000; i++) {
+            long rank = (long) (random.nextDouble() * ranking.count());
+            int[] idx = new int[10];
+            ranking.unrankIndices(rank, idx);
+            int pos = random.nextInt(10);
+            int replacement = random.nextInt(ranking.cells().length);
+            while (java.util.Arrays.binarySearch(idx, replacement) >= 0) {
+                replacement = random.nextInt(ranking.cells().length);
+            }
+            int[] modified = idx.clone();
+            modified[pos] = replacement;
+            java.util.Arrays.sort(modified);
+            assertEquals(ranking.rankIndices(modified), ranking.rankReplacing(idx, pos, replacement),
+                    "rank " + rank + " pos " + pos + " -> " + replacement);
+        }
+        // the extremes: replacing the first by a smaller and the last by a larger index
+        int[] idx = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+        assertEquals(ranking.rankIndices(new int[] {0, 2, 3, 4, 5, 6, 7, 8, 9, 10}), ranking.rankReplacing(idx, 0, 0));
+        assertEquals(ranking.rankIndices(new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 35}), ranking.rankReplacing(idx, 9, 35));
+        assertEquals(ranking.rankIndices(new int[] {1, 2, 3, 4, 5, 6, 7, 8, 10, 35}), ranking.rankReplacing(idx, 8, 35));
+        assertEquals(ranking.rankIndices(new int[] {2, 3, 4, 5, 6, 7, 8, 9, 10, 35}), ranking.rankReplacing(idx, 0, 35));
+        assertEquals(0, ranking.indexOf(ranking.cells()[0]));
+        assertEquals(-1, ranking.indexOf(Geometry.id(0, 0)), "the middle row is outside rows>=1");
+    }
+
     @Test
     void rowsMapPlayerOneOntoPlayerZero() {
         Layout layout = Layout.of(2);

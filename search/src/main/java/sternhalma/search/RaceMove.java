@@ -57,6 +57,16 @@ public final class RaceMove {
         return table != null;
     }
 
+    /** The minimum row of the race table's region (2 default, 1 extended), or -1 without a {@link RaceTable}. */
+    public int tableMinRow() {
+        return table instanceof sternhalma.tablebase.RaceTable t ? t.minRow() : -1;
+    }
+
+    /** The race table, or null for beam-only play. */
+    public RaceCounts table() {
+        return table;
+    }
+
     /** Moves chosen from the race table so far. */
     public long tableMoves() {
         return tableMoves;

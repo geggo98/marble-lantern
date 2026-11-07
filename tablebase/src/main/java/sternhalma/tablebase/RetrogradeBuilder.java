@@ -10,7 +10,9 @@ import sternhalma.engine.RuleSet.LeaveGoal;
 /**
  * Layered retrograde breadth-first search for a single-player race table (docs/endgame-and-opening.md, "The
  * endgame database principle"): the configuration with all pieces in the goal has distance 0; the predecessors of
- * layer d that have no distance yet get d + 1, until a layer is empty.
+ * layer d that have no distance yet get d + 1, until a layer is empty. The builder is generic in the region: any
+ * {@link Ranking} whose cells contain the goal corner, for example the allowed cells with row {@code >= k} for
+ * k = 4, 3, 2 (the committed table) or 1 (254 million states, built on demand).
  *
  * <p>A predecessor of a configuration S moves one piece from its cell {@code to} back to a cell {@code from} of
  * the region such that the forward move {@code from -> to} is legal: a step or a jump chain over the other pieces
@@ -22,11 +24,23 @@ import sternhalma.engine.RuleSet.LeaveGoal;
  *
  * <p>Entries are bytes; {@link #UNKNOWN} marks a configuration that cannot reach the goal inside the region.
  * The layer scan is split over threads; two threads may write the same value d + 1 into the same entry, which is
- * harmless, and the layers are separated by joins.
+ * harmless, and the layers are separated by joins, so the table does not depend on the thread count. A
+ * predecessor's rank is computed by merging the moved piece's new region index into the sorted indices of the
+ * state ({@link Ranking#rankReplacing}), without a sort.
  */
 public final class RetrogradeBuilder {
 
     public static final int UNKNOWN = 255;
+
+    /** Receives one call per finished layer (a long build prints progress through it). */
+    public interface Progress {
+        /**
+         * @param layer        the distance d whose states were just expanded
+         * @param states       the number of states in that layer
+         * @param elapsedNanos time since the start of the build
+         */
+        void layer(int layer, long states, long elapsedNanos);
+    }
 
     private RetrogradeBuilder() {
     }
@@ -39,6 +53,11 @@ public final class RetrogradeBuilder {
      * @param threads   worker threads for the layer scans
      */
     public static byte[] build(Ranking ranking, LeaveGoal leaveGoal, int threads) {
+        return build(ranking, leaveGoal, threads, null);
+    }
+
+    /** As {@link #build(Ranking, LeaveGoal, int)}, reporting every finished layer to {@code progress} (may be null). */
+    public static byte[] build(Ranking ranking, LeaveGoal leaveGoal, int threads, Progress progress) {
         long count = ranking.count();
         if (count > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("region too large for an in-memory table: " + count + " states");
@@ -56,10 +75,14 @@ public final class RetrogradeBuilder {
         }
         table[(int) ranking.rank(goal)] = 0;
         int workers = Math.max(1, threads);
+        long t0 = System.nanoTime();
         for (int d = 0; ; d++) {
             long found = expandLayer(ranking, leaveGoal, table, d, workers);
             if (found == 0) {
                 break;
+            }
+            if (progress != null) {
+                progress.layer(d, found, System.nanoTime() - t0);
             }
             if (d + 1 >= UNKNOWN) {
                 throw new IllegalStateException("distance does not fit into a byte");
@@ -98,10 +121,11 @@ public final class RetrogradeBuilder {
     private static long expandRange(Ranking ranking, LeaveGoal leaveGoal, byte[] table, int d, int begin, int end) {
         byte layer = (byte) d;
         byte next = (byte) (d + 1);
+        byte unknown = (byte) UNKNOWN;
         int k = ranking.pieces();
         int[] idx = new int[k];
         int[] cells = new int[k];
-        int[] pred = new int[k];
+        int[] land = new int[Geometry.CELLS];
         int[] region = ranking.cells();
         boolean forbidden = leaveGoal == LeaveGoal.FORBIDDEN;
         SoloMoves moves = new SoloMoves();
@@ -121,22 +145,22 @@ public final class RetrogradeBuilder {
             }
             for (int j = 0; j < k; j++) {
                 int to = cells[j];
-                boolean toInGoal = Geometry.cornerOf(to) == SoloMoves.GOAL_CORNER;
-                int piece = j;
-                moves.landings(lo, hi, to, from -> {
-                    if (!ranking.contains(from)) {
-                        return; // the predecessor must lie inside the region
+                boolean leavesGoalForbidden = forbidden && Geometry.cornerOf(to) != SoloMoves.GOAL_CORNER;
+                int n = moves.landings(lo, hi, to, land);
+                for (int t = 0; t < n; t++) {
+                    int from = land[t];
+                    int fromIndex = ranking.indexOf(from);
+                    if (fromIndex < 0) {
+                        continue; // the predecessor must lie inside the region
                     }
-                    if (forbidden && !toInGoal && Geometry.cornerOf(from) == SoloMoves.GOAL_CORNER) {
-                        return; // the forward move would leave the goal
+                    if (leavesGoalForbidden && Geometry.cornerOf(from) == SoloMoves.GOAL_CORNER) {
+                        continue; // the forward move would leave the goal
                     }
-                    System.arraycopy(cells, 0, pred, 0, k);
-                    pred[piece] = from;
-                    int r = (int) ranking.rank(pred);
-                    if (table[r] == (byte) UNKNOWN) {
+                    int r = (int) ranking.rankReplacing(idx, j, fromIndex);
+                    if (table[r] == unknown) {
                         table[r] = next;
                     }
-                });
+                }
             }
         }
         return found;

@@ -9,7 +9,7 @@ Implementation starts with the rules engine and a two-player alpha-beta baseline
 > **Status.** This document describes the approved plan.
 > The development environment, the TornadoVM installation and the Gradle build exist.
 > The modules `engine` and `search` (alpha-beta baseline) are implemented and tested.
-> The module `tablebase` exists with its CPU part: the rows ≥ 2 race table and the race module's interface (round-2 experiment E03, see [endgame and opening](endgame-and-opening.md#the-race-module)); its GPU part does not exist yet.
+> The module `tablebase` exists with its CPU part: the rows ≥ 2 race table and the race module's interface (round-2 experiment E03, see [endgame and opening](endgame-and-opening.md#the-race-module)) and the optional rows ≥ 1 table built on demand (E09); its GPU part does not exist yet.
 > The other modules described below do not exist yet.
 
 How to read the claims in this document:
@@ -77,7 +77,7 @@ The alpha-beta baseline in `search` uses `engine` and, for the race module of ro
 | `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. The race module (`Solitaire`, `RaceMove`, `RaceAdjudication`, see [endgame and opening](endgame-and-opening.md#the-race-module)). Later: Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`; `tablebase` (interface `RaceCounts`) for the race module; `nn` for MCTS only |
 | `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. Exists (round 2, E05): the classical self-play data tool with layered adjudication, control games, opening sampler and sample files ([training](training.md#self-play-data-tool-round-2-e05)). | `search`; `tablebase` (race table for S1); `nn` (`Orientation` for canonical cells) |
 | `book` | Opening book built from self-play games. | `engine`, self-play data |
-| `tablebase` | Single-player endgame database. Exists (CPU): ranking, layered retrograde BFS, the table file format and the rows ≥ 2 race table (`RaceTable`, Git LFS). Planned: BFS layers as a TornadoVM kernel for larger regions. | `engine`; TornadoVM later |
+| `tablebase` | Single-player endgame database. Exists (CPU): ranking, layered retrograde BFS generic in the region, the table file format, the rows ≥ 2 race table (`RaceTable`, Git LFS) and the optional rows ≥ 1 table (254 M states, built on demand into `tablebase/build/tables/`, never committed, checked against a checksum constant; E09) with `TableValidation`. Planned: BFS layers as a TornadoVM kernel for larger regions. | `engine`; TornadoVM later |
 | `bench` | JMH benchmarks: evaluations per second per backend and batch size. | `nn` |
 | `app` | Optional web app: play against the AI, get move suggestions. | `search`, `book`, `tablebase` |
 
