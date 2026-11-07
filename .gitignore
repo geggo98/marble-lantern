@@ -39,3 +39,6 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+
+# jqwik property-test failure database
+.jqwik-database

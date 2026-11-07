@@ -25,6 +25,11 @@ public final class Evaluators {
     private Evaluators() {
     }
 
+    /** The names of all registered evaluators; the strategy contract tests cover every one of them. */
+    public static java.util.Set<String> names() {
+        return java.util.Collections.unmodifiableSet(REGISTRY.keySet());
+    }
+
     public static Evaluator byName(String name) {
         Supplier<Evaluator> supplier = REGISTRY.get(name);
         if (supplier == null) {
