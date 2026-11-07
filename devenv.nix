@@ -9,7 +9,6 @@
   languages.java = {
     enable = true;
     jdk.package = pkgs.jdk25;
-    gradle.enable = true;
   };
 
   # Secrets and local settings live in .env (gitignored); .env.example documents the keys.
@@ -26,8 +25,9 @@
   '';
 
   # Gradle must never serve stale results while the build is being changed.
-  tasks."agent:build" = { exec = "gradle --no-build-cache build -x test"; };
-  tasks."agent:test" = { exec = "gradle --no-build-cache test"; };
+  # The Gradle wrapper pins Gradle 9.8.2, which supports JDK 25; the nixpkgs Gradle (8.14) does not.
+  tasks."agent:build" = { exec = "${config.devenv.root}/gradlew --no-build-cache build -x test"; };
+  tasks."agent:test" = { exec = "${config.devenv.root}/gradlew --no-build-cache test"; };
 
   enterTest = ''
     java --version | grep -q '^openjdk 25'

@@ -7,8 +7,9 @@ The code is split into eight Gradle modules; a CPU reference implementation chec
 Implementation starts with the rules engine and a two-player alpha-beta baseline, before any network code (*project decision*, see [implementation order](#implementation-order)).
 
 > **Status.** This document describes the approved plan.
-> The development environment and the TornadoVM installation exist.
-> The Gradle modules described below do not exist yet.
+> The development environment, the TornadoVM installation and the Gradle build exist.
+> The modules `engine` and `search` (alpha-beta baseline) are implemented and tested.
+> The other modules described below do not exist yet.
 
 How to read the claims in this document:
 

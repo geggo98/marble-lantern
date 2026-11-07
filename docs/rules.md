@@ -254,7 +254,9 @@ The paper says only this about first moves: "There are six possible adjacent mov
 - 7 classes of first moves under the left-right flip,
 - 196 distinct positions after two plies, which is 98 classes under the left-right flip.
 
-The script gets the same numbers whether pieces may enter the four side corners or not. The count agrees with the reading "\|L2\| = number of positions after two plies, up to the left-right flip". It is one count by one script, not an oracle.
+The script gets the same numbers whether pieces may enter the four side corners or not. The count agrees with the reading "\|L2\| = number of positions after two plies, up to the left-right flip".
+
+**Update (2026-11-07):** the engine's move generator and an independent reference generator in the test code (axial coordinate arithmetic, recursive jump search, no shared tables) both give 14 first moves, 7 classes, 196 positions after two plies and 98 classes. Three independent counts now agree, so tests 4 to 6 are no longer provisional. They stay values computed by the project, not oracles from the literature.
 
 ## Oracles from the paper
 
@@ -317,9 +319,9 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 1. The board has 121 cells: 61 in the hexagon and 10 in each of the six corners.
 2. Each neighbour relation is symmetric. Each cell has between 2 and 6 neighbours.
 3. Each player starts with 10 pieces in the start corner. For 2 players the corners are opposite. For 3 players no two occupied corners are neighbours around the star, each goal is empty, and the play order is clockwise: r < −4, then s < −4, then q < −4.
-4. The move generator computes the number of legal first moves from the start position. The expected value is 14 (computed by a project script, see [Move counts on the full board](#move-counts-on-the-full-board)). The test is provisional until a second, independent count agrees.
-5. Under the left-right flip, the first moves form 7 classes. Provisional, as test 4.
-6. After two plies there are 196 distinct positions, or 98 up to the left-right flip. Provisional, as test 4. The figure "\|L2\| = 98" from the owner's survey is not in [Sturtevant2019] and is not an oracle.
+4. The move generator computes the number of legal first moves from the start position. The expected value is 14 (computed by a project script, see [Move counts on the full board](#move-counts-on-the-full-board)). Confirmed by the engine and by an independent reference generator (2026-11-07).
+5. Under the left-right flip, the first moves form 7 classes. Confirmed, as test 4.
+6. After two plies there are 196 distinct positions, or 98 up to the left-right flip. Confirmed, as test 4. The figure "\|L2\| = 98" from the owner's survey is not in [Sturtevant2019] and is not an oracle.
 7. The move list has no duplicate (start, end) pair. Test this on a position where two jump paths reach the same end cell.
 8. A jump chain can turn backwards. Test it on a position where the only path to an end cell goes away from the goal.
 9. With `leaveGoal = FORBIDDEN`, no move takes a piece from inside its goal to a cell outside the goal. With `ALLOWED`, such a move exists in a constructed position.
@@ -335,6 +337,6 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 14. With `drawHandling = SCORE_BY_DISTANCE`, the player with the smaller remaining distance gets the better score, and equal distances give equal scores. With `DRAW`, both players get the draw value.
 15. With 3 players and `ranking = FIRST_WINNER_ONLY`, the game ends at the first win. The value `FULL_RANKING` is rejected as not implemented.
 16. Each symmetry of [Symmetry](#symmetry) maps a legal position to a legal position. The move count of a position equals the move count of its image. The 180-degree rotation equals the player symmetry followed by the left-right flip.
-17. Property test (jqwik): for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash.
+17. Property test: for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash. The engine tests use seeded random playouts for this; jqwik is not used yet.
 
 **Proposed, not scheduled:** in the [small-board mode](#small-board-mode), the engine reproduces the "Positions" and "Illegal" columns of Table 1 for 7×7 with 1 and 2 pieces. The "Wins" and "Draws" columns are not a test target, because they need a solver.

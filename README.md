@@ -1,8 +1,8 @@
 # Chinese Checkers AI
 
 **TL;DR:** This project builds an AI for Chinese Checkers (German: Stern-Halma) in Java 25 and uses it as a TornadoVM showcase.
-Today only the development environment and the TornadoVM SDK setup exist.
-The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next milestone is the Gradle build, the `engine` module and an alpha-beta baseline for two players.
+Today the development environment, the TornadoVM SDK setup, the `engine` module and a two-player alpha-beta baseline exist.
+The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next milestone is the neural network: a CPU reference first, then the TornadoVM kernels.
 
 ## What this project is
 
@@ -20,8 +20,9 @@ The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next mile
 | devenv environment (JDK 25, Gradle, `.env`) | done |
 | TornadoVM 7.3.1 SDK download with SHA-256 check | done |
 | Rules document, decisions of 2026-11-07 | done |
-| Gradle build, `engine`, alpha-beta baseline | next |
-| `nn`, `search`, `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
+| Gradle build (wrapper 9.8.2, dependency verification), `engine` module | done |
+| `search` module: alpha-beta baseline with distance evaluation | done |
+| `nn`, `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
 
 On the development Mac, `tornado --devices` lists one Metal device.
 
@@ -44,12 +45,16 @@ Prerequisites: [devenv](https://devenv.sh) and an Apple Silicon Mac or a Linux a
    tornado --devices
    ```
 
-The tasks `agent:build` and `agent:test` exist in `devenv.nix`. They have nothing to build until the Gradle modules exist.
+Build and test with the Gradle wrapper. Use `--no-build-cache` while the build changes:
+```sh
+devenv shell -- ./gradlew --no-build-cache build
+```
+The tasks `devenv tasks run agent:build` and `devenv tasks run agent:test` do the same.
 
 ## Repository layout
 
-Present now: `devenv.nix`, `devenv.yaml`, `devenv.lock`, `.envrc`, `.env.example`, `scripts/setup-tornado.sh`, `tornado-sdk/` (gitignored) and `docs/`.
-Planned: a Gradle multi-module build (Kotlin DSL) with the modules described in [architecture](docs/architecture.md).
+Present now: `devenv.nix`, `devenv.yaml`, `devenv.lock`, `.envrc`, `.env.example`, `scripts/setup-tornado.sh`, `tornado-sdk/` (gitignored), `docs/`, the Gradle build (`settings.gradle.kts`, `build-logic/`, `gradle/`, `gradlew`) and the modules `engine` and `search`.
+Planned: the other modules described in [architecture](docs/architecture.md).
 
 ## Documentation
 
