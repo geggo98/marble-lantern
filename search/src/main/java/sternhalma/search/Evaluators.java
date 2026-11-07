@@ -2,6 +2,7 @@ package sternhalma.search;
 
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import sternhalma.engine.Geometry;
@@ -15,22 +16,38 @@ import sternhalma.engine.Position;
  */
 public final class Evaluators {
 
-    private static final Map<String, Supplier<Evaluator>> REGISTRY = new TreeMap<>();
+    private static final Map<String, Function<Map<String, Integer>, Evaluator>> REGISTRY = new TreeMap<>();
 
     static {
-        REGISTRY.put("distance", DistanceEvaluator::new);
-        REGISTRY.put("rows", RowEvaluator::new);
+        put("distance", DistanceEvaluator::new);
+        put("rows", RowEvaluator::new);
+        REGISTRY.put("stage4", Stage4Evaluator::of);
+    }
+
+    /** Registers an evaluator without weights; weights given in a spec are then an error. */
+    private static void put(String name, Supplier<Evaluator> supplier) {
+        REGISTRY.put(name, weights -> {
+            if (!weights.isEmpty()) {
+                throw new IllegalArgumentException("evaluator '" + name + "' takes no weights, got " + weights.keySet());
+            }
+            return supplier.get();
+        });
     }
 
     private Evaluators() {
     }
 
     public static Evaluator byName(String name) {
-        Supplier<Evaluator> supplier = REGISTRY.get(name);
-        if (supplier == null) {
+        return byName(name, Map.of());
+    }
+
+    /** An evaluator with weights from a player spec (keys {@code w...}). */
+    public static Evaluator byName(String name, Map<String, Integer> weights) {
+        Function<Map<String, Integer>, Evaluator> factory = REGISTRY.get(name);
+        if (factory == null) {
             throw new IllegalArgumentException("unknown evaluator '" + name + "', known: " + REGISTRY.keySet());
         }
-        return supplier.get();
+        return factory.apply(weights);
     }
 
     /**
