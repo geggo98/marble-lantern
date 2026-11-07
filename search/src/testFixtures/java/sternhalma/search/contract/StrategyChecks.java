@@ -34,6 +34,19 @@ public final class StrategyChecks {
      */
     public static final int SANITY_MIN_PLIES_WITH_BLOCKADE_RULE = 8;
 
+    /**
+     * The longest run of own moves without a new best distance sum that a competent strategy may show against a
+     * random player. Measured over 600 games per strategy (default start): a search with 1000 nodes per move shows at
+     * most 11 (99th percentile 7), with 10000 nodes at most 6; a search with only 100 nodes shows up to 56 and loses
+     * 30 percent of its games, and a random player has a median of 26. The bound is far above the competent
+     * strategies and clearly below the weak ones. It replaces a fixed maximum game length, which would only encode the
+     * strength of today's strategies.
+     */
+    public static final int MAX_OWN_MOVES_WITHOUT_PROGRESS = 20;
+
+    /** How often one position may occur in a game: competent strategies reach 2, the weak one 3 (measured). */
+    public static final int MAX_POSITION_OCCURRENCES = 3;
+
     /** The fewest plies after which a game under these rules may be won. */
     public static int minPliesOfAWonGame(sternhalma.engine.RuleSet rules) {
         return rules.blockadeRule() == sternhalma.engine.RuleSet.BlockadeRule.NONE
@@ -54,18 +67,71 @@ public final class StrategyChecks {
         String context = context(strategy, start, "beats-random, strategy index " + strategyIndex + ", seed " + seed);
         Player mine = strategy.create(seed);
         Player random = new RandomPlayer(seed);
-        GameRunner.Result result;
+        Player[] players = strategyMovesFirst ? new Player[] {mine, random} : new Player[] {random, mine};
+        PlayedGame game;
         try {
-            result = GameRunner.play(start, strategyMovesFirst ? new Player[] {mine, random} : new Player[] {random, mine});
+            game = play(start, players, strategyIndex);
+        } catch (AssertionError e) {
+            throw new AssertionError(e.getMessage() + "\n" + context, e);
         } catch (RuntimeException e) {
-            throw new AssertionError("technical error or illegal move\n" + context, e);
+            throw new AssertionError("technical error: " + e + "\n" + context, e);
         }
-        Outcome outcome = result.outcome();
+        if (game.longestStall() > MAX_OWN_MOVES_WITHOUT_PROGRESS) {
+            throw new AssertionError("the strategy stalled: " + game.longestStall() + " own moves in a row without a new best"
+                    + " distance sum (limit " + MAX_OWN_MOVES_WITHOUT_PROGRESS + ")\n" + context);
+        }
+        if (game.maxOccurrences() > MAX_POSITION_OCCURRENCES) {
+            throw new AssertionError("one position occurred " + game.maxOccurrences() + " times (limit "
+                    + MAX_POSITION_OCCURRENCES + "): the strategy oscillates\n" + context);
+        }
+        Outcome outcome = game.outcome();
         if (!outcome.hasWinner() || outcome.winner() != strategyIndex) {
-            throw new AssertionError("the random player did not lose: " + outcome + " after " + result.plies()
+            throw new AssertionError("the random player did not lose: " + outcome + " after " + game.plies()
                     + " plies\n" + context);
         }
-        assertPlausibleLength(result.plies(), start.rules(), context);
+        assertPlausibleLength(game.plies(), start.rules(), context);
+    }
+
+    /** A finished game with what the checks need to know about it. */
+    private record PlayedGame(Outcome outcome, int plies, int longestStall, int maxOccurrences) {
+    }
+
+    /**
+     * Plays a game, rejects illegal moves, and records how long player {@code observed} went without a new best
+     * distance sum and how often one position occurred.
+     */
+    private static PlayedGame play(Position start, Player[] players, int observed) {
+        Position pos = start.copy();
+        int best = Integer.MAX_VALUE;
+        int since = 0;
+        int stall = 0;
+        java.util.Map<Long, Integer> occurrences = new java.util.HashMap<>();
+        int maxOccurrences = 1;
+        while (true) {
+            Outcome outcome = pos.outcome();
+            if (outcome == null && pos.legalMoves().length == 0) {
+                outcome = pos.noMovesOutcome();
+            }
+            if (outcome != null) {
+                return new PlayedGame(outcome, pos.ply(), stall, maxOccurrences);
+            }
+            int mover = pos.sideToMove();
+            int move = players[mover].choose(pos);
+            if (Arrays.stream(pos.legalMoves()).noneMatch(m -> m == move)) {
+                throw new AssertionError("illegal move " + describeMove(move) + " by player " + mover);
+            }
+            pos.make(move);
+            maxOccurrences = Math.max(maxOccurrences, occurrences.merge(pos.hash(), 1, Integer::sum));
+            if (mover == observed) {
+                int distance = pos.distanceSum(observed);
+                if (distance < best) {
+                    best = distance;
+                    since = 0;
+                } else {
+                    stall = Math.max(stall, ++since);
+                }
+            }
+        }
     }
 
     /** A won game with fewer plies than the rules allow is a bug. */

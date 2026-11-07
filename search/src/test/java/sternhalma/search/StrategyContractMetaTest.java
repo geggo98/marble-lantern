@@ -97,6 +97,34 @@ class StrategyContractMetaTest {
         }
     }
 
+    /** A legal player that moves one piece back and forth; it never makes progress. */
+    private static final class Oscillator implements Player {
+        private int lastFrom = -1;
+        private int lastTo = -1;
+
+        @Override
+        public int choose(Position position) {
+            int reverse = Move.of(lastTo, lastFrom);
+            for (int m : position.legalMoves()) {
+                if (lastFrom >= 0 && m == reverse) {
+                    return remember(m);
+                }
+            }
+            return remember(position.legalMoves()[0]);
+        }
+
+        private int remember(int move) {
+            lastFrom = Move.from(move);
+            lastTo = Move.to(move);
+            return move;
+        }
+
+        @Override
+        public String name() {
+            return "oscillator";
+        }
+    }
+
     // ---- the checks fail on broken strategies ----
 
     @Test
@@ -123,8 +151,35 @@ class StrategyContractMetaTest {
         assertDoesNotThrow(() -> StrategyChecks.assertCleanSelfPlay(runaway, START, 1), "runaway plays legal moves");
         for (boolean first : new boolean[] {true, false}) {
             AssertionError error = assertThrows(AssertionError.class, () -> StrategyChecks.assertBeatsRandom(runaway, START, first, 3));
-            assertTrue(error.getMessage().contains("did not lose"), error.getMessage());
+            assertTrue(error.getMessage().contains("stalled"), "a strategy that runs away is reported as stalled: " + error.getMessage());
         }
+    }
+
+    @Test
+    void aStrategyThatOscillatesIsReportedAsStalledBeforeAnythingElse() {
+        Strategy oscillator = strategy("oscillator", seed -> new Oscillator());
+        AssertionError error = assertThrows(AssertionError.class, () -> StrategyChecks.assertBeatsRandom(oscillator, START, true, 5));
+        assertTrue(error.getMessage().contains("stalled") || error.getMessage().contains("oscillates"), error.getMessage());
+    }
+
+    @Test
+    void theStallLimitSeparatesCompetentStrategiesFromWeakOnes() {
+        // the limit was measured: competent strategies stay well below it, a 100-node search and a random player do not
+        Strategy competent = Strategies.registered().stream().filter(s -> s.name().startsWith("ab:eval=distance")).findFirst().orElseThrow();
+        for (long seed = 1; seed <= 10; seed++) {
+            long s = seed;
+            assertDoesNotThrow(() -> StrategyChecks.assertBeatsRandom(competent, START, s % 2 == 0, s));
+        }
+        Strategy weak = strategy("ab-100-nodes", seed -> PlayerSpec.parse("ab:eval=distance,nodes=100,tt=14").create());
+        int failures = 0;
+        for (long seed = 1; seed <= 20; seed++) {
+            try {
+                StrategyChecks.assertBeatsRandom(weak, START, seed % 2 == 0, seed);
+            } catch (AssertionError expected) {
+                failures++;
+            }
+        }
+        assertTrue(failures >= 5, "a 100-node search must fail the contract often, failed " + failures + " of 20");
     }
 
     @Test
