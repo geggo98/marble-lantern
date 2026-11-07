@@ -111,7 +111,7 @@ class SearchOptionsTest {
 
     @Test
     void lateMoveReductionsStillFindTheWinAndReturnLegalMoves() {
-        for (int lmr = 1; lmr <= 2; lmr++) {
+        for (int lmr = 1; lmr <= 3; lmr++) {
             SearchOptions o = new SearchOptions(true, true, true, lmr, 50, true, true);
             SearchResult win = new AlphaBeta(EVALUATOR, 16, true, o).search(nearlyWon(0, 4), 6);
             assertEquals(Move.of(cell(0, 4), cell(-1, 5)), win.move());
@@ -177,7 +177,7 @@ class SearchOptionsTest {
         assertEquals(30, PlayerSpec.parse("ab:asp=30").options().aspiration());
         assertFalse(PlayerSpec.parse("ab:pvs=0").options().pvs());
         assertThrows(IllegalArgumentException.class, () -> PlayerSpec.parse("ab:pvs=2"));
-        assertThrows(IllegalArgumentException.class, () -> PlayerSpec.parse("ab:lmr=3"));
+        assertThrows(IllegalArgumentException.class, () -> PlayerSpec.parse("ab:lmr=4"));
         assertTrue(PlayerSpec.parse("ab:pvs=1,lmr=1").create().name().contains("pvs,lmr=1"));
     }
 }

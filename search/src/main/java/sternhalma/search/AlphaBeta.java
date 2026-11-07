@@ -99,7 +99,11 @@ public final class AlphaBeta {
         this.historyTable = options.history() ? new int[Geometry.CELLS * Geometry.CELLS] : null;
         for (int d = 1; d <= MAX_DEPTH; d++) {
             for (int i = 1; i < Position.MAX_MOVES; i++) {
-                int r = options.lmr() == 2 ? (int) (0.5 + Math.log(d) * Math.log(i) / 2.0) : 1;
+                int r = switch (options.lmr()) {
+                    case 2 -> (int) (0.5 + Math.log(d) * Math.log(i) / 2.0);
+                    case 3 -> (int) (0.5 + Math.log(d) * Math.log(i) / 1.25);
+                    default -> 1;
+                };
                 lmrTable[d][i] = Math.max(1, Math.min(r, d - 2));
             }
         }

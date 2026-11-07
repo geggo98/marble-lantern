@@ -7,7 +7,8 @@ package sternhalma.search;
  * @param pvs            principal variation search: null windows after the first move, re-search on a fail high
  * @param killers        two killer moves per height, ordered right after the table move
  * @param history        a history table (from, to) that breaks ties of the distance gain in move ordering
- * @param lmr            late move reductions: 0 off, 1 reduces late moves by one ply, 2 by a log formula
+ * @param lmr            late move reductions: 0 off, 1 reduces late moves by one ply, 2 by ln(depth) ln(move)/2,
+ *                       3 by the more aggressive ln(depth) ln(move)/1.25
  * @param aspiration     aspiration window half-width at the root in score units; 0 off
  * @param depthPreferred two entries per table bucket: one keeps the deeper entry of the current search, one is
  *                       always replaced
@@ -29,8 +30,8 @@ public record SearchOptions(boolean pvs, boolean killers, boolean history, int l
     public static final int DEFAULT_ASPIRATION = 5 * DistanceEvaluator.UNIT;
 
     public SearchOptions {
-        if (lmr < 0 || lmr > 2) {
-            throw new IllegalArgumentException("lmr must be 0, 1 or 2");
+        if (lmr < 0 || lmr > 3) {
+            throw new IllegalArgumentException("lmr must be 0, 1, 2 or 3");
         }
         if (aspiration < 0) {
             throw new IllegalArgumentException("aspiration must be >= 0");
