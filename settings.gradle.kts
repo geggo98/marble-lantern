@@ -11,4 +11,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "stern-halma"
 
-include("engine", "search", "nn")
+include("engine", "search", "nn", "nn-tornado")
