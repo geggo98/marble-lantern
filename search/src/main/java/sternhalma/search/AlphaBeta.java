@@ -62,7 +62,42 @@ public final class AlphaBeta {
     private final int[][] orderKeys = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
     private final int[][] killerMoves = new int[MAX_DEPTH + 2][2];
     private final int[] historyTable;
-    private final int[][] lmrTable = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
+    /** Reductions by remaining depth and move index; shared, read-only, see {@link #LMR_TABLES}. */
+    private final int[][] lmrTable;
+
+    /**
+     * Late move reductions per {@link SearchOptions#lmr()} mode, indexed [depth][move index]. Computed once
+     * per JVM rather than per searcher (78k {@code Math.log} calls each), with the same formula as before.
+     * Mode 0 (off) shares the mode-1 table, which is never read then.
+     */
+    private static final int[][][] LMR_TABLES = new int[4][][];
+
+    static {
+        for (int mode = 1; mode <= 3; mode++) {
+            LMR_TABLES[mode] = lmrTable(mode);
+        }
+        LMR_TABLES[0] = LMR_TABLES[1];
+    }
+
+    static int[][] lmrTable(int mode) {
+        int[][] table = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
+        for (int d = 1; d <= MAX_DEPTH; d++) {
+            for (int i = 1; i < Position.MAX_MOVES; i++) {
+                int r = switch (mode) {
+                    case 2 -> (int) (0.5 + Math.log(d) * Math.log(i) / 2.0);
+                    case 3 -> (int) (0.5 + Math.log(d) * Math.log(i) / 1.25);
+                    default -> 1;
+                };
+                table[d][i] = Math.max(1, Math.min(r, d - 2));
+            }
+        }
+        return table;
+    }
+
+    /** The reduction this searcher applies at remaining depth {@code depth} to the move at {@code index}. */
+    int lmrReduction(int depth, int index) {
+        return lmrTable[depth][index];
+    }
 
     private long nodes;
     private long nodeLimit;
@@ -97,16 +132,7 @@ public final class AlphaBeta {
         this.generations = options.depthPreferred() ? new short[size] : null;
         this.mask = size - 1;
         this.historyTable = options.history() ? new int[Geometry.CELLS * Geometry.CELLS] : null;
-        for (int d = 1; d <= MAX_DEPTH; d++) {
-            for (int i = 1; i < Position.MAX_MOVES; i++) {
-                int r = switch (options.lmr()) {
-                    case 2 -> (int) (0.5 + Math.log(d) * Math.log(i) / 2.0);
-                    case 3 -> (int) (0.5 + Math.log(d) * Math.log(i) / 1.25);
-                    default -> 1;
-                };
-                lmrTable[d][i] = Math.max(1, Math.min(r, d - 2));
-            }
-        }
+        this.lmrTable = LMR_TABLES[options.lmr()];
         clearKillers();
     }
 
@@ -240,11 +266,16 @@ public final class AlphaBeta {
         int[] moves = moveBuffers[0];
         int count = root.generate(moves);
         order(root, moves, count, 0, firstGuess);
+        int[] keys = orderKeys[0];
+        pick(moves, keys, 0, count);
         int alpha = alphaIn;
         int bestMove = moves[0];
         int bestScore = -MATE - 1;
         int completed = 0;
         for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                pick(moves, keys, i, count);
+            }
             root.make(moves[i]);
             int score;
             if (options.pvs() && i > 0) {
@@ -326,6 +357,8 @@ public final class AlphaBeta {
             return terminalScoreNoMoves(root);
         }
         order(root, moves, count, height, ttMove);
+        int[] keys = orderKeys[height];
+        pick(moves, keys, 0, count);
         int best = -MATE - 1;
         int bestMove = moves[0];
         int originalAlpha = alpha;
@@ -333,6 +366,9 @@ public final class AlphaBeta {
         boolean lmr = options.lmr() > 0 && depth >= LMR_MIN_DEPTH;
         int[] killers = killerMoves[height];
         for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                pick(moves, keys, i, count);
+            }
             int move = moves[i];
             root.make(move);
             int score;
@@ -431,8 +467,10 @@ public final class AlphaBeta {
     }
 
     /**
-     * Orders moves best-first: the table move, then the killer moves (if on), then by the distance a move
-     * gains for the mover, with ties broken by the history table (if on).
+     * Computes the ordering keys of the moves into {@code orderKeys[height]}, without sorting: the table
+     * move first, then the killer moves (if on), then by the distance a move gains for the mover, with ties
+     * broken by the history table (if on). The caller brings move i to the front with {@link #pick} just
+     * before it searches move i, so a node that cuts off after a few moves never sorts the rest.
      */
     private void order(Position pos, int[] moves, int count, int height, int firstMove) {
         Layout layout = pos.layout();
@@ -456,21 +494,30 @@ public final class AlphaBeta {
                 gain[i] = hist == null ? g : (g << 20) + hist[from * Geometry.CELLS + to];
             }
         }
-        for (int i = 0; i < count - 1; i++) { // selection sort: the front is searched first, the rest rarely
-            int best = i;
-            for (int j = i + 1; j < count; j++) {
-                if (gain[j] > gain[best]) {
-                    best = j;
-                }
+    }
+
+    /**
+     * Step {@code i} of a selection sort on {@code keys} (descending), applied to both arrays: swaps the
+     * first entry with the largest key among positions i..count-1 into position i. The strict comparison
+     * keeps the earliest of tied keys, so calling it for i = 0, 1, ... in turn yields exactly the order of
+     * the full selection sort that the search used before (round 2, E01); any other sort orders ties
+     * differently and changes the search tree.
+     */
+    static void pick(int[] moves, int[] keys, int i, int count) {
+        int best = i;
+        int bestKey = keys[i];
+        for (int j = i + 1; j < count; j++) {
+            if (keys[j] > bestKey) {
+                best = j;
+                bestKey = keys[j];
             }
-            if (best != i) {
-                int t = moves[i];
-                moves[i] = moves[best];
-                moves[best] = t;
-                t = gain[i];
-                gain[i] = gain[best];
-                gain[best] = t;
-            }
+        }
+        if (best != i) {
+            int t = moves[i];
+            moves[i] = moves[best];
+            moves[best] = t;
+            keys[best] = keys[i];
+            keys[i] = bestKey;
         }
     }
 
