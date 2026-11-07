@@ -229,17 +229,7 @@ class RulesTest {
         assertArrayEquals(new double[] {0, 0}, pos.outcome().values(), 0.0);
     }
 
-    // ---- test 15: three players ----
-
-    @Test
-    void threePlayerGameEndsAtTheFirstWinAndTheValueVectorSumsToZero() {
-        Position pos = oneStepFromWinning(RuleSet.defaults(3));
-        pos.make(Move.of(cell(0, 4), cell(-1, 5)));
-        Outcome outcome = pos.outcome();
-        assertEquals(Outcome.Reason.WIN, outcome.reason());
-        assertEquals(0, outcome.winner());
-        assertArrayEquals(new double[] {1.0, -0.5, -0.5}, outcome.values(), 1e-12);
-    }
+    // ---- test 15: three players (the first-win case is in ReviewRegressionTest) ----
 
     @Test
     void fullRankingAndBlockingStatesAreRejectedAsNotImplemented() {

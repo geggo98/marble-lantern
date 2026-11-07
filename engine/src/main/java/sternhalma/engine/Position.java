@@ -93,8 +93,21 @@ public final class Position {
 
     // ---- setup (before the first move only) ----
 
-    /** Places a piece. For setup before the first {@link #make}. */
+    /**
+     * Places a piece. For setup before the first {@link #make}.
+     *
+     * @throws IllegalArgumentException if the player or cell does not exist, or the player may not enter the cell
+     * @throws IllegalStateException    if the cell is occupied or a move has been played
+     */
     public Position put(int player, int cell) {
+        requireSetup();
+        requirePlayer(player);
+        if (cell < 0 || cell >= Geometry.CELLS) {
+            throw new IllegalArgumentException("no such cell: " + cell);
+        }
+        if (!layout.allowed(player, cell)) {
+            throw new IllegalArgumentException("player " + player + " may not enter cell " + cell);
+        }
         if (owner[cell] >= 0) {
             throw new IllegalStateException("cell " + cell + " is occupied");
         }
@@ -114,9 +127,23 @@ public final class Position {
     }
 
     public Position setSideToMove(int player) {
+        requireSetup();
+        requirePlayer(player);
         hash ^= SIDE_KEY[sideToMove] ^ SIDE_KEY[player];
         sideToMove = player;
         return this;
+    }
+
+    private void requireSetup() {
+        if (ply > 0) {
+            throw new IllegalStateException("setup is only allowed before the first move (ply " + ply + ")");
+        }
+    }
+
+    private void requirePlayer(int player) {
+        if (player < 0 || player >= rules.players()) {
+            throw new IllegalArgumentException("player " + player + " outside 0.." + (rules.players() - 1));
+        }
     }
 
     // ---- accessors ----
@@ -202,6 +229,9 @@ public final class Position {
 
     /** Takes back the last move. */
     public void unmake() {
+        if (ply == 0) {
+            throw new IllegalStateException("no move to take back");
+        }
         ply--;
         int move = moves[ply];
         int from = Move.from(move);
@@ -394,6 +424,8 @@ public final class Position {
     /**
      * The position under a cell map; with {@code swapPlayers} players 0 and 1 and the side to move are
      * swapped (two players only). The result has no move history.
+     *
+     * @throws IllegalArgumentException if the image holds a piece on a cell its owner may not enter
      */
     public Position transformed(java.util.function.IntUnaryOperator cellMap, boolean swapPlayers) {
         if (swapPlayers && rules.players() != 2) {
