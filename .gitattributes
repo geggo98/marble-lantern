@@ -1,3 +1,6 @@
 *.bat text eol=crlf
 gradlew text eol=lf
 *.sh text eol=lf
+
+# Large generated tables (race tablebase etc.) are stored with Git LFS
+tablebase/tables/*.bin filter=lfs diff=lfs merge=lfs -text
