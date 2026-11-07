@@ -142,6 +142,19 @@ Result for the best variant `ab:eval=distance,nodes=20000,pvs=1,killers=1,histor
 
 The variant is about 10 % slower per node. It still wins clearly at equal cost on both seeds. The search options are therefore a stronger baseline for the evaluation experiments; compare evaluators with the same options on both sides.
 
+### Learned linear evaluation (`eval=linear`, measured 2026-11-07)
+
+`LinearEvaluator` scores a position with a weighted sum of 12 cheap features, each "side to move minus opponent": summed distance, maximum distance, summed squared distance, pieces in the goal, pieces in the start corner, spread of the distances, distance from the centre line, forward single jumps, touching own pieces, forward steps, the distance difference times the game phase, and a tempo constant. A logistic regression of the game result on 68 255 positions from 2000 baseline games set the weights (`LinearWeights`; `LinearTraining` in the test sources reproduces the fit). On 400 held-out games the model predicts the winner of 78.8 % of the positions, the distance difference alone 76.8 %.
+
+Arena result against `ab:eval=distance,nodes=20000`, 200 pairs each (tuned on seeds 3 and 4 only):
+
+| Variant | Seed 1 | Seed 2 |
+|---|---|---|
+| `ab:eval=linear,nodes=20000` | +552 ± 89 Elo | +577 ± 96 Elo |
+| `ab:eval=linear,nodes=13300` (equal time) | +499 ± 81 Elo | +478 ± 72 Elo |
+
+The evaluation costs about a third of the search speed (nodes/s 0.66 of the baseline), so the equal-time match gives it 13 300 nodes. A second fitting round on games of the linear evaluator itself predicted better but played weaker (seed 4: +440 against +526 Elo), so the first-round weights stay.
+
 ## Algorithms for more than two players
 
 Alpha-beta assumes that one player's gain is the other player's loss. With three players this is false. The literature offers four families:

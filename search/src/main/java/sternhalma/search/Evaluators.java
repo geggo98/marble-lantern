@@ -21,6 +21,7 @@ public final class Evaluators {
     static {
         put("distance", DistanceEvaluator::new);
         put("rows", RowEvaluator::new);
+        put("linear", LinearEvaluator::new);
         REGISTRY.put("stage4", Stage4Evaluator::of);
     }
 
@@ -33,6 +34,12 @@ public final class Evaluators {
             return supplier.get();
         });
     }
+
+    /**
+     * Prefix for a linear evaluator with weights from a file, for tuning experiments without a rebuild:
+     * {@code eval=linear-file:/path/w.txt}. See {@link LinearWeights#fromFile(String)}.
+     */
+    static final String LINEAR_FILE = "linear-file:";
 
     private Evaluators() {
     }
@@ -48,6 +55,12 @@ public final class Evaluators {
 
     /** An evaluator with weights from a player spec (keys {@code w...}). */
     public static Evaluator byName(String name, Map<String, Integer> weights) {
+        if (name.startsWith(LINEAR_FILE)) {
+            if (!weights.isEmpty()) {
+                throw new IllegalArgumentException("'" + LINEAR_FILE + "' takes no weights, got " + weights.keySet());
+            }
+            return LinearWeights.fromFile(name.substring(LINEAR_FILE.length()));
+        }
         Function<Map<String, Integer>, Evaluator> factory = REGISTRY.get(name);
         if (factory == null) {
             throw new IllegalArgumentException("unknown evaluator '" + name + "', known: " + REGISTRY.keySet());
