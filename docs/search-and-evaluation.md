@@ -43,6 +43,18 @@ Per the owner's survey, stage 2 is slightly better than stage 1 (reported). Stag
 
 The stage 4 terms match ideas from a lecture slide deck [MITSlides2010]: moving a marble a long distance by a sequence of jumps is best, lateral moves are of doubtful efficiency, and trailing marbles that cannot hop over anything take long to catch up. The slides are background for teaching, not a tested result.
 
+### Stage 4 measured (experiment of 2026-11-07, branch exp/stage4)
+
+`Stage4Evaluator` (arena name `stage4`) adds four weighted terms to the stage 2 distance difference: `ws` per step of the largest piece distance (straggler), `wq` per 10 of the sum of squared distances (smooth straggler), `wc` per adjacent own pair (cohesion) and `wj` per forward single jump that is possible now (jump bridges). The weights were tuned with the arena at 5000 nodes on seeds 3 and 4 and then measured at 20000 nodes on seeds 1 and 2, 200 pairs each:
+
+| Variant | Opponent | Seed 1 | Seed 2 |
+|---|---|---|---|
+| `ws=15,wq=6,wj=3`, 20000 nodes | `distance`, 20000 nodes | +306 ± 41 | +371 ± 51 |
+| `ws=15,wq=6,wj=3`, 16600 nodes (cost-adjusted, 0.83 x nodes/s) | `distance`, 20000 nodes | +343 ± 46 | +343 ± 46 |
+| `ws=15,wq=6` (no jump term, equal cost) | `distance`, 20000 nodes | +239 ± 39 | +245 ± 37 |
+
+The straggler terms give most of the gain. The jump term adds about 100 Elo at equal nodes and survives the cost adjustment. The cohesion term did not help: `wc=5` lost by more than 450 Elo, and `wc = ±1` changed nothing measurable, so the tuned setting leaves it at 0.
+
 ### Why every stage has a blind spot
 
 Project reasoning: the single-agent distance is an abstraction of the true value, because it ignores interaction with other pieces, such as blocks and jump bridges. Stages 1 to 5 all compute values for one player alone. None of them sees that a piece of the opponent can be a bridge for a jump, or a block. Therefore a hand-written heuristic will always miss some tactical positions. The search or a learned network must find these.
