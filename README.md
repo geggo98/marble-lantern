@@ -21,8 +21,9 @@ The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next mile
 | TornadoVM 7.3.1 SDK download with SHA-256 check | done |
 | Rules document, decisions of 2026-11-07 | done |
 | Gradle build (wrapper 9.8.2, dependency verification), `engine` module | done |
-| `search` module: alpha-beta baseline with distance evaluation | done |
-| `nn`, `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
+| `search` module: alpha-beta baseline, learned linear evaluation, search enhancements, arena, strategy contract tests | done (best variant beats the first baseline in 198 of 200 games) |
+| `nn` module: network design, safetensors, encoder, CPU reference, Vector API path | done (TornadoVM kernels not started) |
+| `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
 
 On the development Mac, `tornado --devices` lists one Metal device.
 
@@ -53,7 +54,7 @@ The tasks `devenv tasks run agent:build` and `devenv tasks run agent:test` do th
 
 ## Repository layout
 
-Present now: `devenv.nix`, `devenv.yaml`, `devenv.lock`, `.envrc`, `.env.example`, `scripts/setup-tornado.sh`, `tornado-sdk/` (gitignored), `docs/`, the Gradle build (`settings.gradle.kts`, `build-logic/`, `gradle/`, `gradlew`) and the modules `engine` and `search`.
+Present now: `devenv.nix`, `devenv.yaml`, `devenv.lock`, `.envrc`, `.env.example`, `scripts/setup-tornado.sh`, `tornado-sdk/` (gitignored), `docs/`, the Gradle build (`settings.gradle.kts`, `build-logic/`, `gradle/`, `gradlew`) and the modules `engine`, `search` and `nn`.
 Planned: the other modules described in [architecture](docs/architecture.md).
 
 ## Documentation

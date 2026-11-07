@@ -155,6 +155,42 @@ Arena result against `ab:eval=distance,nodes=20000`, 200 pairs each (tuned on se
 
 The evaluation costs about a third of the search speed (nodes/s 0.66 of the baseline), so the equal-time match gives it 13 300 nodes. A second fitting round on games of the linear evaluator itself predicted better but played weaker (seed 4: +440 against +526 Elo), so the first-round weights stay.
 
+## Results of the first improvement round (2026-11-07)
+
+Five ideas were built in separate git worktrees and measured in the arena against `ab:eval=distance,nodes=20000`. An independent verifier repeated each measurement with new seeds (300 pairs) and with a cost-adjusted node budget, and read the diff for unfair advantages. Every author tuned on different seeds than the ones reported.
+
+| Idea | Equal nodes, verifier (Elo, 95% interval) | Cost-adjusted | Decision |
+|---|---|---|---|
+| Learned linear evaluation (`linear`) | +506 ± 65, +466 ± 58 | +506 ± 63 | merged |
+| Stage 4: straggler, squared distances, jump bridges (`stage4`) | +318 ± 34, +308 ± 35 | +299 ± 33 | merged |
+| Search enhancements (LMR, partial iteration, killers, table) | +170 ± 28, +166 ± 29 | +153 ± 29 | merged |
+| Jump-aware breadth-first distance (`jumpbfs`) | +258 ± 34, +217 ± 30 | **−85 ± 27** | discarded: too slow |
+| Optimal piece-to-goal assignment (`assign`, stage 3) | −57 ± 23, −77 ± 25 | −156 ± 27 | discarded: loses |
+
+Head-to-head after the merge (200 pairs each):
+
+| Match | Elo |
+|---|---|
+| `linear` against `stage4`, equal nodes | +143 ± 35, +168 ± 34 |
+| `linear` against `stage4`, `linear` with 0.8 of the nodes (equal cost) | +111 ± 33 |
+| `linear` with all search options against plain `linear`, equal cost | +235 ± 39, +246 ± 43 |
+| `linear` with all search options against the original baseline, 15 ms per move each | 198 of 200 games won |
+
+What the results say:
+
+- **The evaluation limits strength, not the depth.** Four times the nodes was worth +135 Elo. A better evaluation was worth +300 to +500.
+- **Search enhancements alone gain nothing; they gain together.** At 20000 nodes every exact option still ends in depth 4 and throws away the unfinished depth-5 iteration. Late move reductions and the use of the interrupted iteration turn those nodes into depth.
+- **`linear` generalises beyond its training opponent.** Its weights were fitted on games of the baseline and its variants. It also beats `stage4`, which is a different evaluation, by +111 Elo at equal cost.
+- **Cohesion did not help.** The tuning of `stage4` found no useful weight for pairs of adjacent pieces; large weights lost by more than 450 Elo.
+- **`assign` loses.** The authors guess that Definition 1 is the cause: opponent pieces left in the goal fill holes anyway, so forcing own pieces into the deepest cells wastes tempo. No run with another blockade rule has tested this.
+- **`jumpbfs` is a real gain per node and a loss per second.** A faster implementation could change the decision.
+
+Limits of these numbers:
+
+- **The arena saturates.** At 99% of the points the Elo estimate is clamped and its interval is wide. The original baseline can no longer separate stronger players. From now on, new strategies are measured against `Strategies.BEST_SPEC`.
+- **Openings and opponents.** All games start after 4 random plies and are played against other engines of this family. Strength against humans or against a different kind of player is not measured.
+- **Machine load.** Node-limited matches do not depend on load. The nodes-per-second ratios behind the cost adjustment were measured while other runs used the machine and are accurate to a few percent.
+
 ## Algorithms for more than two players
 
 Alpha-beta assumes that one player's gain is the other player's loss. With three players this is false. The literature offers four families:
