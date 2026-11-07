@@ -7,6 +7,7 @@ import java.util.function.Supplier;
 
 import sternhalma.engine.Geometry;
 import sternhalma.engine.Position;
+import sternhalma.tablebase.RaceTable;
 
 /**
  * Registry of named evaluators for the arena. A new evaluation variant adds one class and one line to
@@ -27,6 +28,14 @@ public final class Evaluators {
         // round-2 refit on passed-filtered BEST self-play (E04); BEST_SPEC changes only in an integration commit
         put("linear-r2", () -> new LinearEvaluator(LinearWeights.ROUND2, LinearWeights.SCALE));
         REGISTRY.put("stage4", Stage4Evaluator::of);
+        // round-2 experiment E08: linear-r2 with exact race arithmetic as the leaf value in passed positions, inside
+        // the RACE score band; racelin reads the committed rows>=2 table, racelin1 the rows>=1 table (E09; loaded from
+        // tablebase/tables/ or built into the cache on first use, like racerows=1). The one weight, wout=1, estimates
+        // the counts of pieces behind the region (RaceEvaluator). No racelin-r1: the R2 fingerprint stays untouched.
+        REGISTRY.put("racelin", weights -> RaceEvaluator.of(new LinearEvaluator(LinearWeights.ROUND2,
+                LinearWeights.SCALE), RaceTable.rows2(), RaceTable.ROWS2.minRow(), weights));
+        REGISTRY.put("racelin1", weights -> RaceEvaluator.of(new LinearEvaluator(LinearWeights.ROUND2,
+                LinearWeights.SCALE), RaceTable.rows1(), RaceTable.ROWS1.minRow(), weights));
     }
 
     /** Registers an evaluator without weights; weights given in a spec are then an error. */

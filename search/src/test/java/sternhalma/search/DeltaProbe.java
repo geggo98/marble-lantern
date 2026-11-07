@@ -58,7 +58,8 @@ public final class DeltaProbe {
         long seed = args.length > 4 ? Long.parseLong(args[4]) : 31;
         String spec = args.length > 5 ? args[5] : DEFAULT_SPEC;
         List<Position> positions = positions(spec, games, seed);
-        Report r = probe(Evaluators.byName(eval), futk, positions);
+        PlayerSpec evalSpec = PlayerSpec.parse("ab:eval=" + eval); // the eval argument may carry weights, e.g. racelin,wout=1
+        Report r = probe(Evaluators.byName(evalSpec.evaluator(), evalSpec.weights()), futk, positions);
         System.out.println("# DeltaProbe eval=" + eval + " futk=" + futk + " positions=" + positions.size()
                 + " (" + games + " games of " + spec + ", seed " + seed + ")");
         System.out.print(r);
@@ -132,20 +133,32 @@ public final class DeltaProbe {
         }
     }
 
-    /** The result of a probe: depth-1 and depth-2 excess tables, split by passed transitions, and counts. */
+    /**
+     * The result of a probe: depth-1 and depth-2 excess tables, split by passed transitions and by the evaluator's
+     * {@link Evaluator#futilitySafe} hook (E08), and counts. Moves at a node where the hook forbids pruning at that
+     * depth go to the {@code hook} tables, whatever their children look like; the search never prunes them. For an
+     * evaluator without a hook (linear) those tables are empty and the output is that of E06.
+     */
     static final class Report {
         final Table depth1;
         final Table depth2;
         final Table depth1Passed;
         final Table depth2Passed;
+        final Table depth1Hook;
+        final Table depth2Hook;
         long terminal;
         long passedMoves;
+        long passedNodes;
+        long unsafeNodes1;
+        long unsafeNodes2;
 
         Report(int futk) {
             depth1 = new Table(futk);
             depth2 = new Table(futk);
             depth1Passed = new Table(futk);
             depth2Passed = new Table(futk);
+            depth1Hook = new Table(futk);
+            depth2Hook = new Table(futk);
         }
 
         @Override
@@ -153,11 +166,15 @@ public final class DeltaProbe {
             return "# depth 1: value(move) - eval(node) - futk*gain, non-terminal, non-passed children ("
                     + depth1.count() + " moves)\n" + depth1
                     + "# depth 2: value after the opponent's best reply - eval(node) - futk*gain (" + depth2.count() + " moves)\n" + depth2
-                    + "# depth 1, child passed (" + depth1Passed.count() + " moves; race band of E08 excludes these)\n"
+                    + "# depth 1, child passed (" + depth1Passed.count() + " moves; with racelin, E08's hook excludes these)\n"
                     + depth1Passed
                     + "# depth 2, child passed (" + depth2Passed.count() + " moves)\n" + depth2Passed
+                    + "# depth 1, node excluded by the evaluator's futilitySafe hook (" + depth1Hook.count()
+                    + " moves at " + unsafeNodes1 + " nodes; never pruned)\n" + depth1Hook
+                    + "# depth 2, node excluded by the hook (" + depth2Hook.count() + " moves at " + unsafeNodes2
+                    + " nodes)\n" + depth2Hook
                     + "# excluded: " + terminal + " moves into terminal positions, " + passedMoves
-                    + " moves into passed positions\n";
+                    + " moves into passed positions; " + passedNodes + " of the nodes are passed themselves\n";
         }
     }
 
@@ -197,6 +214,11 @@ public final class DeltaProbe {
         Report r = new Report(futk);
         for (Position node : positions) {
             int stand = eval.evaluate(node);
+            boolean safe1 = eval.futilitySafe(node, 1);
+            boolean safe2 = eval.futilitySafe(node, 2);
+            r.passedNodes += LinearTraining.passed(node) ? 1 : 0;
+            r.unsafeNodes1 += safe1 ? 0 : 1;
+            r.unsafeNodes2 += safe2 ? 0 : 1;
             for (int m : node.legalMoves()) {
                 int g = gain(node, m);
                 node.make(m);
@@ -217,12 +239,9 @@ public final class DeltaProbe {
                 node.unmake();
                 if (passed) {
                     r.passedMoves++;
-                    r.depth1Passed.add(g, v1 - stand);
-                    r.depth2Passed.add(g, v2 - stand);
-                } else {
-                    r.depth1.add(g, v1 - stand);
-                    r.depth2.add(g, v2 - stand);
                 }
+                (safe1 ? passed ? r.depth1Passed : r.depth1 : r.depth1Hook).add(g, v1 - stand);
+                (safe2 ? passed ? r.depth2Passed : r.depth2 : r.depth2Hook).add(g, v2 - stand);
             }
         }
         return r;

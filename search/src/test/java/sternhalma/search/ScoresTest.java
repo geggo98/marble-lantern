@@ -10,8 +10,11 @@ class ScoresTest {
 
     @Test
     void bandsAreSeparatedAndSymmetric() {
-        assertTrue(Scores.RACE_BASE < AlphaBeta.MATE_BOUND - 200 * 20, "room for 200 x 20 race units below mates");
+        assertTrue(Scores.RACE_BASE < AlphaBeta.MATE_BOUND - RaceEvaluator.UNIT * 20,
+                "room for 20 race units below mates (the largest table count is 19)");
         assertTrue(Scores.RACE_BASE > 2 * 2000, "above twice the aspiration cap of AlphaBeta");
+        assertEquals(Scores.Kind.RACE, Scores.kind(RaceEvaluator.raceScore(1, 19, 200)), "the widest won race");
+        assertEquals(Scores.Kind.RACE, Scores.kind(RaceEvaluator.raceScore(19, 1, 200)), "the widest lost race");
         for (int sign : new int[] {1, -1}) {
             assertEquals(Scores.Kind.ORDINARY, Scores.kind(sign * (Scores.RACE_BASE - 1)));
             assertEquals(Scores.Kind.RACE, Scores.kind(sign * Scores.RACE_BASE));
