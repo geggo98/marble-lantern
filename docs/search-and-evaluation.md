@@ -379,7 +379,88 @@ Cost: Bench `linear-r2` against `linear-r1` gives 1.04 nodes per CPU-second (the
 
 Deviations from the plan: the plan names `ab:eval=stage4,ws=15,wq=6,wj=3` without search options. The gate here gives stage4 the same search options, because without them stage4 would be saturated and the gate would be insensitive. The gates ran on author seed 33. Seed 41 is reserved for the verifier. Round 2 used games without `race=1`, because E03 is not in this branch.
 
-Not done: the futility margins of E06 depend on the evaluation scale and must be re-probed with `linear-r2` (DeltaProbe). The verifier re-measures on seeds 41 and 42.
+Not done: the verifier re-measures on seeds 41 and 42. (E06 re-probed the futility margins with `linear-r2`, see the next section.)
+
+### Futility pruning (E06, `fut`, `futk`, `fut2`, measured 2026-11-07)
+
+**TL;DR:** At nodes with 1 or 2 plies left, the search stops at the first move whose bound `static eval + futk x distance gain + margin` cannot reach alpha. Moves are ordered by gain, so that move ends the loop. Tuned spec `fut=1,futk=30,fut2=1` with `linear-r2`, against the same spec without futility: **+139 ± 27 and +142 ± 28 Elo at equal cost** (seeds 33 and 34, 300 pairs, 15 500 against 20 000 nodes from the Bench ratio 0.775), and +192 ± 31 and +177 ± 29 at equal nodes. Mean completed depth at 20 000 nodes rises from 4.27 to 5.53 plies. The option is off by default; `Strategies.BEST_SPEC` is unchanged, and the spec is registered as `Strategies.FUTILITY_SPEC` for the contract tests.
+
+Rule (`AlphaBeta.negamax`): at remaining depth 1 with margin `fut`, or depth 2 with margin `fut2` (0 = off), for every move after the first that is neither the table move nor a killer, take the gain g from the ordering key (`key >> 20` with history on). Evaluate the node once, lazily. If `stand + futk*g + margin <= alpha`, raise `best` to that bound, count a cut and break. The table stores the node as usual (UPPER on a fail low).
+
+Exclusions (`AlphaBeta.futilityAllowed`, checked once per node; the root is never pruned):
+
+| Exclusion | Why |
+|---|---|
+| a goal (either player's) holds `CORNER_SIZE - depth` or more pieces: 9 at depth 1, 8 at depth 2 | a win within `depth` plies, or the only defence against one, is scored `MATE`, outside the bound. A move adds at most one piece to a goal, so below this count no game can end by a win in time. The plan names 9; at depth 2 one more is needed, because the mover can add a piece to the opponent's goal (its own start corner) |
+| `ply + depth >= moveLimit` | the game would end with a distance score at `END_SCALE` |
+| `repetition = REPETITION_IS_DRAW` | a child can be a draw scored by distance (not in the plan; it only turns the option off in that rule variant) |
+| `Evaluator.futilitySafe(pos, depth)` is false | hook for E08's race band. The default method returns true |
+| `abs(alpha) >= 5000` (`FUTILITY_SCORE_LIMIT`, the planned `RACE_BASE` of E08) | covers mate scores and band scores |
+
+The no-moves terminal is not excluded. With 10 pieces a child without a legal move is practically unreachable: DeltaProbe counted 32 terminal children (win, move limit or no moves, not told apart) among 128 765 moves.
+
+**DeltaProbe** (`search/src/test/.../DeltaProbe.java`) measures the bound: 2419 positions from 80 self-play games (`linear-r2`, all options, 1000 nodes, seed 31), all 128 765 legal moves. Of these, 112 486 are in the table, 16 247 lead into passed positions and 32 into terminal positions. Excess = value after the move (depth 1) or after the opponent's best reply (depth 2) minus the static value minus 30 x gain. Column "cut" is what the break rule needs: the largest excess over all moves with a gain of at most g0, measured against 30 x g0.
+
+| Gain | Moves | Depth 1: max excess | q99.9 | cut | Depth 2: max excess | cut |
+|---|---|---|---|---|---|---|
+| -2 | 15 415 | 34 | 12 | 34 | 41 | 41 |
+| 0 | 37 811 | 3 | -12 | 3 | 18 | 18 |
+| 1 | 20 547 | 6 | -8 | 6 | 20 | 20 |
+| 2 | 8 658 | 25 | -3 | 25 | 20 | 20 |
+| 4 | 1 945 | 7 | 5 | 7 | -19 | -19 |
+| 6 | 321 | -33 | -33 | -33 | -39 | -39 |
+
+16 247 further moves go into passed positions. In this build, without race play, futility prunes there too. Their depth-1 excess is at most 14 (gain 3) and their depth-2 excess at most 33 (gain 0). With 30 per step, the 99.9 % quantile of the depth-1 excess is at most 5 for every gain from 0 to 6. Backward moves (gain < 0) fall by less than 30 per step, up to 92 above the line at gain -8. This matters only when the cut falls on a backward move. The arena prefers the smallest margins nevertheless: a cut that is wrong now and then costs less than the extra depth gains.
+
+```bash
+devenv shell -- ./gradlew --no-build-cache :search:testClasses
+CP=engine/build/classes/java/main:search/build/classes/java/main:search/build/classes/java/test
+java -cp $CP sternhalma.search.DeltaProbe probe linear-r2 30 80 31          # the table above
+java -cp $CP sternhalma.search.DeltaProbe depth 20 31 '<spec>' ...           # mean completed depth
+```
+
+Arena (A = B + the futility keys; B = `ab:eval=linear-r2,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1`; `--threads 4`; 200 pairs for tuning, 300 for the report; Elo of A, 95 %):
+
+| Futility keys of A | Nodes A | Seed 31 | Seed 32 |
+|---|---|---|---|
+| `fut=1,futk=20` | 20000 | +105 ± 32 | |
+| `fut=20,futk=20` | 20000 | +93 ± 32 | |
+| `fut=1,futk=30` | 20000 | +127 ± 34 | |
+| `fut=20,futk=30` | 20000 | +79 ± 31 (+74 ± 44 at 100 pairs) | |
+| `fut=1,futk=20,fut2=20` | 20000 | +160 ± 38 | +230 ± 40 |
+| `fut=1,futk=20,fut2=40` | 20000 | +151 ± 34 | |
+| `fut=20,futk=20,fut2=20` | 20000 | +129 ± 35 | |
+| `fut=20,futk=30,fut2=20` | 20000 | +137 ± 35 | |
+| `fut=20,futk=30,fut2=40` | 20000 | +144 ± 35 | |
+| `fut=1,futk=30,fut2=1` | 20000 | +177 ± 36 | +189 ± 35 |
+| `fut=1,futk=30,fut2=20` | 20000 | +194 ± 36 | +166 ± 35 |
+| `fut=1,futk=30,fut2=40` | 20000 | +172 ± 36 | +153 ± 33 |
+| `fut=1,futk=40,fut2=20` | 20000 | | +168 ± 35 |
+| `fut=1,futk=40,fut2=1` | 20000 | | +151 ± 34 |
+| `fut=1,futk=30` (equal cost) | 17314 | +64 ± 31 | +47 ± 32 |
+| `fut=1,futk=30,fut2=20` (equal cost) | 15036 | +128 ± 34 | +121 ± 32 |
+| `fut=1,futk=20,fut2=20` (equal cost) | 15044 | +140 ± 34 | +123 ± 33 |
+| `fut=1,futk=30,fut2=1` (equal cost) | 15472 | +164 ± 33 | +128 ± 35 |
+
+Report on seeds 33 and 34 (300 pairs) for the chosen `fut=1,futk=30,fut2=1`:
+
+| Match | Seed 33 | Seed 34 |
+|---|---|---|
+| equal cost: A at 15 500 nodes vs B at 20 000 | **+139 ± 27** (0.690) | **+142 ± 28** (0.693) |
+| equal nodes: both at 20 000 | +192 ± 31 (0.752) | +177 ± 29 (0.734) |
+| A at 15 500 nodes vs R2 (`linear-r1`, 20 000 nodes) | +292 ± 37 (0.843; 13.36 vs 13.47 CPU-ms per move) | |
+
+The match against R2 contains the refit (E04) as well. Its score is above the re-base threshold of 0.80, but only the integration commit applies the re-base rule. The nodes for A against R2 come from the Bench ratio against `linear-r2`. That run's CPU column shows equal cost within 1 %.
+
+Cost: Bench, A against B on the current build, 20 000 nodes. Runs: 0.7736 (load 66 on 16 cores, `--ignore-load`, `UNDER_LOAD`), 0.7787 (load 9.8 to 8.8) and 0.7750 (load 8.8 to 7.9). The median is **0.775**, so A gets 20000 x 0.775 = 15 500 nodes. The tuning Bench runs for the other candidates ran under load 40 to 75 (`--ignore-load`): `fut=1,futk=30,fut2=20` 0.7518, `fut=1,futk=20,fut2=20` 0.7522, `fut=1,futk=30` 0.8657. The cost per node rises because the cuts remove mostly cheap leaves, and the lazy static evaluation adds one evaluation per pruning node. The arena's own CPU ratio under load (0.78 to 0.80) agrees.
+
+Depth (`DeltaProbe depth`, 606 positions from 20 self-play games, seed 31): mean completed depth at 20 000 nodes 4.27 without futility, 5.00 with `fut=1,futk=30`, 5.43 with `fut2=20` added, 5.53 with `fut2=1` added, and 5.23 for the chosen spec at 15 500 nodes. With `fut2=1` there are 823 cuts per search.
+
+Tests: `WinInOneTest` covers a gain-1 winning goal entry behind gain-2 jumps, and the opponent's threatened jump into its last goal hole, whose only defences have gain 0. Each case is tested at the root and at an interior node with a chosen window (`AlphaBeta.searchNode`), with a control position without the near-win in which the same call prunes. With the near-win exclusion removed, both interior tests fail; this was checked once by mutation. `FutilityTest` covers the spec keys, that off is the old options, every exclusion, that the root is never pruned, and the bound property on 200 self-play positions: 1719 cuts, 13 positions skipped because the bound with margin 20 fails for some move there. The exactness tests of `SearchOptionsTest` run with futility off, as before, and the fingerprint and `DefaultBehaviourTest` constants are unchanged.
+
+Deviations from the plan: the plan's comparison is `BEST_SPEC,race=1` against the same with futility. E03 is not in this branch, and the owner chose `linear-r2` without `race` as the base. The near-win threshold at depth 2 is 8, not 9 (see the table above). The repetition-draw exclusion is added. The tuning grid was extended to `fut2=1` and `futk=40`; seeds 31 and 32 only.
+
+Open: E07 (bestGain) and E08 (racelin) change the evaluation and must rerun DeltaProbe and the margins. The verifier re-measures on seeds 41 and 42.
 
 ## Results of round 2 (in progress)
 
