@@ -2,12 +2,15 @@ package sternhalma.search;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * A player described by text, e.g. {@code ab:eval=distance,nodes=20000,depth=20,tt=18}.
  *
  * <p>Keys: {@code eval} (see {@link Evaluators}), {@code nodes} (per move, default 20000), {@code depth}
  * (default 30), {@code ms} (time per move, default none), {@code tt} (log2 table entries, default 18).
+ * Keys of the form {@code w<letters/digits>} with integer values are evaluator weights, e.g.
+ * {@code ab:eval=stage4,ws=5}; the evaluator decides which weights it accepts.
  * A node budget, not a time budget, is the default so that results do not depend on machine load.
  *
  * <p>Search enhancements ({@link SearchOptions}), all off by default: {@code pvs=1}, {@code killers=1},
@@ -16,7 +19,16 @@ import java.util.Map;
  * {@code partial=1} (use the best move of an interrupted iteration).
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
-        SearchOptions options) {
+        SearchOptions options, Map<String, Integer> weights) {
+
+    public PlayerSpec {
+        weights = Map.copyOf(weights);
+    }
+
+    public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
+            SearchOptions options) {
+        this(text, evaluator, nodes, depth, millis, tableBits, options, Map.of());
+    }
 
     public static PlayerSpec parse(String text) {
         String[] head = text.split(":", 2);
@@ -48,6 +60,15 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 flag(options.remove("ttrep"), "ttrep"),
                 flag(options.remove("mate"), "mate"),
                 flag(options.remove("partial"), "partial"));
+        // what is left and looks like w<letters/digits> are evaluator weights
+        Map<String, Integer> weights = new TreeMap<>();
+        options.keySet().removeIf(key -> {
+            if (key.matches("w[a-z0-9]+")) {
+                weights.put(key, Integer.parseInt(options.get(key)));
+                return true;
+            }
+            return false;
+        });
         if (!options.isEmpty()) {
             throw new IllegalArgumentException("unknown options " + options.keySet());
         }
@@ -58,7 +79,8 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 depth == null ? 30 : Integer.parseInt(depth),
                 ms == null ? Long.MAX_VALUE : Long.parseLong(ms),
                 tt == null ? 18 : Integer.parseInt(tt),
-                search);
+                search,
+                weights);
     }
 
     private static boolean flag(String value, String key) {
@@ -77,7 +99,8 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
 
     /** A new player; call once per game, because a player keeps its transposition table. */
     public AlphaBetaPlayer create() {
-        return new AlphaBetaPlayer(Evaluators.byName(evaluator), depth, millis, nodes, tableBits, evaluator,
+        String label = weights.isEmpty() ? evaluator : evaluator + weights;
+        return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights), depth, millis, nodes, tableBits, label,
                 options);
     }
 }
