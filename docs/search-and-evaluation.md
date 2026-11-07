@@ -81,7 +81,7 @@ For two players the classical approach is alpha-beta search [CPW]. The baseline 
 
 - iterative deepening,
 - a transposition table with Zobrist hashing,
-- move ordering by the heuristic change of the move (the "heuristic delta").
+- move ordering by the heuristic change of the move (the "heuristic delta"). The order is a selection sort done lazily: step i runs only just before move i is searched (round 2, E01), so a node that cuts off after a few moves never sorts the rest. Ties keep the order of the full selection sort.
 
 The branching factor in the mid-game is often well above 50 (reported), because every end cell of a jump chain is a separate move. This makes deep full-width search expensive.
 
@@ -279,6 +279,14 @@ Measured on 2026-11-07 for R2 on the unchanged code (16 cores, load 3.7 to 4.8; 
 Arena check of the alias (seed 41, 100 pairs, 20000 nodes, `--threads 4`): `linear-r1` against `linear` with all options scored exactly 0.5000 (100 wins each, every game decided by colour), 18 917 nodes per move on both sides, 15.01 against 14.99 CPU-ms per move.
 
 CPU time per move of R2 at 20000 nodes: about 15 ms. Within one run the repetitions agree to about 1 %; between runs (separate JVMs, separate JIT compilations) the ratio moved between 0.980 and 1.005 on identical code. A speed claim therefore quotes the median of 3 Bench runs, and differences below about 2 % are not resolved.
+
+### Speed packs
+
+| Experiment | Change | Bench ratio vs frozen build (R2, median of 3 runs) | Trees |
+|---|---|---|---|
+| E01 | `AlphaBeta`: lazy selection in move ordering (`pick`, strict `>`, so the order is unchanged); LMR tables static per mode instead of per searcher | 1.474 (runs 1.474, 1.491, 1.441; 1.37M vs 0.94M nodes/CPU-s in the median run) | 64/64, 2/2 identical in every run; fingerprint tests unchanged |
+
+E01 was measured on 2026-11-07 under load from parallel jobs (1-minute load 11.9 to 14.8 on 16 cores in two runs, 14.3 rising to 52 in the third, which Bench marked `UNDER_LOAD`); the verifier re-measures on an idle machine. Within runs the repetitions ranged from 1.34 to 1.58.
 
 ### Arena: CPU column, cost adjustment, SPRT
 
