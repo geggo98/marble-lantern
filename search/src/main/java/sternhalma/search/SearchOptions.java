@@ -15,11 +15,25 @@ package sternhalma.search;
  * @param mateFix        store mate scores relative to the node, not to the root, and convert them back on probing
  * @param partial        use the best move of an iteration that the limit interrupted, if at least the first root
  *                       move (the previous best) was searched completely and the score is not a fail low
+ * @param futility       futility pruning at remaining depth 1 (round-2 experiment E06): the margin in score units,
+ *                       0 off. Not exact: a pruned move is assumed to score at most
+ *                       {@code static eval + futilityGain * distance gain + margin}
+ * @param futilityGain   score units per step of distance gain in the futility bound (default
+ *                       {@value #DEFAULT_FUTILITY_GAIN}); only read when {@code futility} or {@code futility2} is on
+ * @param futility2      futility pruning at remaining depth 2: the margin, 0 off
  */
 public record SearchOptions(boolean pvs, boolean killers, boolean history, int lmr, int aspiration,
-        boolean depthPreferred, boolean mateFix, boolean partial) {
+        boolean depthPreferred, boolean mateFix, boolean partial, int futility, int futilityGain, int futility2) {
+
+    /** Default score units per step of distance gain in the futility bound. */
+    public static final int DEFAULT_FUTILITY_GAIN = 30;
 
     public static final SearchOptions DEFAULT = new SearchOptions(false, false, false, 0, 0, false, false, false);
+
+    public SearchOptions(boolean pvs, boolean killers, boolean history, int lmr, int aspiration,
+            boolean depthPreferred, boolean mateFix, boolean partial) {
+        this(pvs, killers, history, lmr, aspiration, depthPreferred, mateFix, partial, 0, DEFAULT_FUTILITY_GAIN, 0);
+    }
 
     public SearchOptions(boolean pvs, boolean killers, boolean history, int lmr, int aspiration,
             boolean depthPreferred, boolean mateFix) {
@@ -36,6 +50,23 @@ public record SearchOptions(boolean pvs, boolean killers, boolean history, int l
         if (aspiration < 0) {
             throw new IllegalArgumentException("aspiration must be >= 0");
         }
+        if (futility < 0 || futility2 < 0 || futilityGain < 0) {
+            throw new IllegalArgumentException("fut, fut2 and futk must be >= 0");
+        }
+        if (futility == 0 && futility2 == 0) {
+            futilityGain = DEFAULT_FUTILITY_GAIN; // unused; normalised so that equals() ignores it
+        }
+    }
+
+    /** These options with futility pruning set (margins 0 = off). */
+    public SearchOptions withFutility(int margin1, int gain, int margin2) {
+        return new SearchOptions(pvs, killers, history, lmr, aspiration, depthPreferred, mateFix, partial,
+                margin1, gain, margin2);
+    }
+
+    /** Whether futility pruning is on at any depth. */
+    public boolean futilityOn() {
+        return futility > 0 || futility2 > 0;
     }
 
     public boolean isDefault() {
@@ -68,6 +99,15 @@ public record SearchOptions(boolean pvs, boolean killers, boolean history, int l
         }
         if (partial) {
             b.append(",partial");
+        }
+        if (futility > 0) {
+            b.append(",fut=").append(futility);
+        }
+        if (futility2 > 0) {
+            b.append(",fut2=").append(futility2);
+        }
+        if (futilityOn()) {
+            b.append(",futk=").append(futilityGain);
         }
         return b.isEmpty() ? "" : b.substring(1);
     }

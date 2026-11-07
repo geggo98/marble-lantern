@@ -16,7 +16,9 @@ import java.util.TreeMap;
  * <p>Search enhancements ({@link SearchOptions}), all off by default: {@code pvs=1}, {@code killers=1},
  * {@code history=1}, {@code lmr=1|2}, {@code asp=1} (default window) or {@code asp=<half-width>},
  * {@code ttrep=1} (depth-preferred table), {@code mate=1} (mate scores relative to the node),
- * {@code partial=1} (use the best move of an interrupted iteration).
+ * {@code partial=1} (use the best move of an interrupted iteration), {@code fut=<margin>} and
+ * {@code fut2=<margin>} (futility pruning at remaining depth 1 and 2, 0 off), {@code futk=<units per step>}
+ * (gain factor of the futility bound, default {@value SearchOptions#DEFAULT_FUTILITY_GAIN}).
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
         SearchOptions options, Map<String, Integer> weights) {
@@ -51,6 +53,9 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
         String ms = options.remove("ms");
         String tt = options.remove("tt");
         int asp = intOption(options.remove("asp"));
+        int fut = intOption(options.remove("fut"));
+        String futk = options.remove("futk");
+        int fut2 = intOption(options.remove("fut2"));
         SearchOptions search = new SearchOptions(
                 flag(options.remove("pvs"), "pvs"),
                 flag(options.remove("killers"), "killers"),
@@ -59,7 +64,10 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 asp == 1 ? SearchOptions.DEFAULT_ASPIRATION : asp,
                 flag(options.remove("ttrep"), "ttrep"),
                 flag(options.remove("mate"), "mate"),
-                flag(options.remove("partial"), "partial"));
+                flag(options.remove("partial"), "partial"),
+                fut,
+                futk == null ? SearchOptions.DEFAULT_FUTILITY_GAIN : Integer.parseInt(futk),
+                fut2);
         // what is left and looks like w<letters/digits> are evaluator weights
         Map<String, Integer> weights = new TreeMap<>();
         options.keySet().removeIf(key -> {

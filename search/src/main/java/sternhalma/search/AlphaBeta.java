@@ -7,6 +7,7 @@ import sternhalma.engine.Layout;
 import sternhalma.engine.Move;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
+import sternhalma.engine.RuleSet;
 
 /**
  * Two-player negamax with alpha-beta pruning, iterative deepening, a transposition table and move ordering
@@ -21,7 +22,8 @@ import sternhalma.engine.Position;
  * the search that found them; {@link SearchOptions#mateFix()} stores them relative to the node instead.
  *
  * <p>{@link SearchOptions} switches on further enhancements (PVS, killers, history, LMR, aspiration windows,
- * a depth-preferred table). With {@link SearchOptions#DEFAULT} the search is the original baseline.
+ * a depth-preferred table, futility pruning). With {@link SearchOptions#DEFAULT} the search is the original
+ * baseline.
  *
  * <p>Not thread-safe; one instance per thread.
  */
@@ -45,6 +47,13 @@ public final class AlphaBeta {
     private static final int HISTORY_MAX = (1 << 20) - 1;
     /** Beyond this half-width an aspiration window becomes the full window. */
     private static final int ASPIRATION_MAX = 2000;
+    /**
+     * Futility pruning stays off while |alpha| reaches this value: such scores are not ordinary evaluations
+     * (move-limit outcomes scale with {@link #END_SCALE}, mates with {@link #MATE}), so the per-step bound says
+     * nothing about them. Equal to the planned race band {@code RACE_BASE} of round-2 experiment E08, which
+     * futility must not see either; E08 replaces this constant by its own.
+     */
+    static final int FUTILITY_SCORE_LIMIT = 5000;
 
     private final Evaluator evaluator;
     private final boolean useTable;
@@ -100,6 +109,7 @@ public final class AlphaBeta {
     }
 
     private long nodes;
+    private long futilityCuts;
     private long nodeLimit;
     private long deadlineNanos;
     private boolean stopped;
@@ -186,6 +196,7 @@ public final class AlphaBeta {
         root = position.copy();
         nodeLimit = maxNodes;
         nodes = 0;
+        futilityCuts = 0;
         stopped = false;
         deadlineNanos = timeLimitMillis == Long.MAX_VALUE
                 ? Long.MAX_VALUE : System.nanoTime() + timeLimitMillis * 1_000_000L;
@@ -365,11 +376,31 @@ public final class AlphaBeta {
         boolean pvs = options.pvs();
         boolean lmr = options.lmr() > 0 && depth >= LMR_MIN_DEPTH;
         int[] killers = killerMoves[height];
+        int margin = depth == 1 ? options.futility() : depth == 2 ? options.futility2() : 0;
+        boolean futile = margin > 0 && futilityAllowed(root, depth, alpha, evaluator);
+        int stand = 0;
+        boolean standKnown = false;
         for (int i = 0; i < count; i++) {
             if (i > 0) {
                 pick(moves, keys, i, count);
             }
             int move = moves[i];
+            if (futile && i > 0 && move != ttMove && move != killers[0] && move != killers[1]) {
+                // the rest is ordered by distance gain, so once this move cannot reach alpha, none can
+                int gain = historyTable == null ? keys[i] : keys[i] >> 20;
+                if (!standKnown) {
+                    stand = evaluator.evaluate(root);
+                    standKnown = true;
+                }
+                int bound = stand + options.futilityGain() * gain + margin;
+                if (bound <= alpha) {
+                    futilityCuts++;
+                    if (bound > best) {
+                        best = bound;
+                    }
+                    break;
+                }
+            }
             root.make(move);
             int score;
             int reduction = lmr && i >= LMR_FULL_MOVES && move != ttMove
@@ -413,6 +444,59 @@ public final class AlphaBeta {
             store(key, best, depth, flag, bestMove, height);
         }
         return best;
+    }
+
+    /**
+     * Whether futility pruning may cut moves at this node (round-2 plan E06). It is off where the bound
+     * "static value + futilityGain x distance gain + margin" can fail because a child within {@code depth}
+     * plies is not scored by the evaluation:
+     * <ul>
+     *   <li>near a win: a goal holds {@code CORNER_SIZE - depth} or more pieces, for either player, so a gain-1
+     *       goal entry that wins, or the only move that stops the opponent's win, is never cut (a move adds at
+     *       most one piece to a goal, so below this count no game can end by a win within {@code depth} plies);</li>
+     *   <li>near the move limit: the game would end within {@code depth} plies with a distance score at
+     *       {@link #END_SCALE};</li>
+     *   <li>with repetition draws: a child may end as a draw scored by distance;</li>
+     *   <li>where the evaluator says so ({@link Evaluator#futilitySafe}, the race band of E08);</li>
+     *   <li>when |alpha| is a mate score or at least {@link #FUTILITY_SCORE_LIMIT}.</li>
+     * </ul>
+     * Never called at the root, which {@link #searchRoot} searches without futility. The no-moves terminal is not
+     * excluded: with 10 pieces a child without a legal move is practically unreachable (accepted gap).
+     */
+    static boolean futilityAllowed(Position pos, int depth, int alpha, Evaluator evaluator) {
+        if (Math.abs(alpha) >= FUTILITY_SCORE_LIMIT) {
+            return false;
+        }
+        int nearWin = Geometry.CORNER_SIZE - depth;
+        int me = pos.sideToMove();
+        if (pos.goalOccupied(me) >= nearWin || pos.goalOccupied(1 - me) >= nearWin) {
+            return false;
+        }
+        RuleSet rules = pos.rules();
+        if (pos.ply() + depth >= rules.moveLimit() || rules.repetition() == RuleSet.Repetition.REPETITION_IS_DRAW) {
+            return false;
+        }
+        return evaluator.futilitySafe(pos, depth);
+    }
+
+    /** Moves cut by futility pruning in the last search. */
+    public long futilityCuts() {
+        return futilityCuts;
+    }
+
+    /**
+     * Searches one interior node (height 1, so never treated as the root) in the window (alpha, beta) with
+     * {@code depth} plies left and no node limit; for tests of the pruning rules, which need a chosen window.
+     */
+    int searchNode(Position position, int depth, int alpha, int beta) {
+        root = position.copy();
+        nodeLimit = Long.MAX_VALUE;
+        deadlineNanos = Long.MAX_VALUE;
+        nodes = 0;
+        futilityCuts = 0;
+        stopped = false;
+        timed = false;
+        return negamax(depth, alpha, beta, 1);
     }
 
     /** The slot holding {@code key}, or -1. */

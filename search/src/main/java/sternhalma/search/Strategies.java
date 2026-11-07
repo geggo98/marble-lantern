@@ -22,6 +22,15 @@ public final class Strategies {
     public static final String BEST_SPEC =
             "ab:eval=linear,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1";
 
+    /**
+     * Round-2 experiment E06: futility pruning at remaining depth 1 and 2 with the refit weights {@code linear-r2}
+     * (docs/search-and-evaluation.md, "Futility pruning (E06)"). Registered so that the strategy contract covers
+     * the pruning, including its exclusions near a win and near the move limit; it is not the BEST_SPEC, which
+     * only an integration commit changes.
+     */
+    public static final String FUTILITY_SPEC =
+            "ab:eval=linear-r2,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=30,fut2=1";
+
     private Strategies() {
     }
 
@@ -32,7 +41,7 @@ public final class Strategies {
             String spec = "ab:eval=" + evaluator + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(spec, Set.of(2), true, seed -> PlayerSpec.parse(spec).create()));
         }
-        for (String spec : List.of(BEST_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3")) {
+        for (String spec : List.of(BEST_SPEC, FUTILITY_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3")) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));
         }

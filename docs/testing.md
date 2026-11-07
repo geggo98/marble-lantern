@@ -70,6 +70,8 @@ Both reference classes are old code kept on purpose; do not optimise them. A cha
 
 `LinearRefitTest` covers the refit data tool of E04: the passed filter at its row boundary, atomic shards, resume, cleanup and the lock (exit code 75), samples and labels against an independent replay, and the frozen `linear-r2` weights. The test resource `e04-heldout-games.txt` holds 100 held-out BEST games (54 KB). On these games `linear-r2` must have a lower log loss than `linear-r1`, and one game must replay move for move.
 
+Futility pruning (E06) is not exact, so the exactness tests of `SearchOptionsTest` leave it off. Two tests cover it instead. `WinInOneTest` checks that a winning gain-1 goal entry and the only defence against the opponent's win in 1 are never cut. It checks this at the root and at an interior node with a chosen window (`AlphaBeta.searchNode`); each case has a control position in which the same call does prune. `FutilityTest` checks the spec keys, the exclusions, that the root is never pruned, and the bound property on 200 self-play positions. The registry entry `Strategies.FUTILITY_SPEC` puts the pruning through the strategy contract as well. `DeltaProbe` (test sources) is the measuring tool for the margins, not a test.
+
 The contract covers the frozen aliases `linear-r1` and `linear-r2` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.
 
 ## Adding a strategy
