@@ -19,7 +19,7 @@ import sternhalma.search.PlayerSpec;
  *
  * <pre>
  *   SelfPlay run --out DIR --spec SPEC --games N --seed S [--threads T] [--shard 50]
- *                [--control all|none|FRACTION] [--s1 0|1] [--margin 500] [--margin-moves 2]
+ *                [--control all|none|FRACTION] [--s1 0|1] [--margin 0|500] [--margin-moves 2]
  *                [--eval-threshold 0|P] [--eval-plies 4]
  *                [--opening uniform|softmax] [--opening-min 4] [--opening-max 10] [--opening-temp 30]
  *                [--opening-depth 1|2] [--tt auto|spec] [--epsilon 0.05] [--samples 1|0] [--reuse 1|0]
@@ -130,7 +130,7 @@ public final class SelfPlay {
 
     static SelfPlayGame.Settings settings(Map<String, String> opts) {
         String spec = effectiveSpec(require(opts, "spec"), opts.getOrDefault("tt", "auto"));
-        Adjudication.Config d = Adjudication.Config.DEFAULT;
+        Adjudication.Config d = Adjudication.Config.PRODUCTION;
         Adjudication.Config adj = new Adjudication.Config(intOpt(opts, "s1", 1) == 1,
                 intOpt(opts, "margin", d.margin()), intOpt(opts, "margin-moves", d.marginMoves()),
                 doubleOpt(opts, "eval-threshold", d.evalThreshold()), intOpt(opts, "eval-plies", d.evalPlies()));

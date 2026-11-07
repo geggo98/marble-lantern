@@ -62,6 +62,14 @@ public final class Adjudication {
     public record Config(boolean s1, int margin, int marginMoves, double evalThreshold, int evalPlies) {
 
         public static final Config DEFAULT = new Config(true, 500, 2, 0, 4);
+        /**
+         * What the command line uses unless told otherwise: only S1, whose verdicts are game values with no error
+         * in 23,000 and 28,000 played-out games. The margin layer (DEFAULT) saves 1.3% of the plies and passed its
+         * error bound of 0.5% only after the run was extended (0.64% at 16,000 games, 0.48% at 28,000), and its two
+         * wrong labels were games won by the other player. Switch it on with --margin 500 and re-validate it for
+         * every evaluator or network generation.
+         */
+        public static final Config PRODUCTION = new Config(true, 0, 2, 0, 4);
         public static final Config OFF = new Config(false, 0, 2, 0, 4);
 
         public Config {
