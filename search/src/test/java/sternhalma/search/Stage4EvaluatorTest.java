@@ -99,6 +99,50 @@ class Stage4EvaluatorTest {
         assertTrue(new Stage4Evaluator(0, 0, 0, 1).evaluate(pos) > base);
     }
 
+    /** Straightforward reference for the pair and jump counts of one player. */
+    private static int[] naiveCounts(Position pos, int p) {
+        int pairs = 0;
+        int jumps = 0;
+        var layout = pos.layout();
+        for (int c = 0; c < Geometry.CELLS; c++) {
+            if (pos.owner(c) != p) {
+                continue;
+            }
+            for (int dir = 0; dir < Geometry.DIRECTIONS; dir++) {
+                int n = Geometry.neighbor(c, dir);
+                if (n < 0 || pos.owner(n) < 0) {
+                    continue;
+                }
+                if (pos.owner(n) == p && n > c && (layout.distance(p, c) > 0 || layout.distance(p, n) > 0)) {
+                    pairs++;
+                }
+                int land = Geometry.neighbor(n, dir);
+                if (land >= 0 && pos.owner(land) < 0 && layout.allowed(p, land)
+                        && layout.distance(p, land) < layout.distance(p, c)) {
+                    jumps++;
+                }
+            }
+        }
+        return new int[] {pairs, jumps};
+    }
+
+    @Test
+    void precomputedTablesMatchANaiveCount() {
+        Evaluator distance = new DistanceEvaluator();
+        Evaluator pairsOnly = new Stage4Evaluator(0, 0, 1, 0);
+        Evaluator jumpsOnly = new Stage4Evaluator(0, 0, 0, 1);
+        Random random = new Random(5);
+        for (int i = 0; i < 300; i++) {
+            Position pos = biasedRandomPosition(random, random.nextInt(150));
+            int me = pos.sideToMove();
+            int[] mine = naiveCounts(pos, me);
+            int[] theirs = naiveCounts(pos, 1 - me);
+            int base = distance.evaluate(pos);
+            assertEquals(base + mine[0] - theirs[0], pairsOnly.evaluate(pos));
+            assertEquals(base + mine[1] - theirs[1], jumpsOnly.evaluate(pos));
+        }
+    }
+
     @Test
     void specSetsTheWeights() {
         PlayerSpec spec = PlayerSpec.parse("ab:eval=stage4,ws=5,wc=-2,nodes=100");
