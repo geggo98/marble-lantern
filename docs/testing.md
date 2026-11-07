@@ -102,3 +102,15 @@ Register it in `Strategies.registered()` with the player counts it supports and 
 ## Seeds
 
 The properties use fixed jqwik seeds, so every run explores the same cases and a failure is reproducible. The failure message names the strategy, the check, the seed and the start position. The jqwik failure database (`.jqwik-database`) is not committed.
+
+## Measurement hygiene: timing numbers need a healthy machine
+
+Elo from node-limited arena matches does not depend on the machine. Everything measured in time does: nodes per CPU second, CPU time per move, games per second, build times, and the equal-cost node counts that the arena derives from the nodes-per-second ratio. A hot or shared machine lowers the clock and makes these numbers unreliable. On 2026-11-07 the same search ran at 2.31 million nodes per CPU second at one moment and at 2.07 million a few hours later (down 11%), drifted by 13% within one minute, and the self-ratio of the same code against its own copy read 0.96 to 0.99 instead of 1.00.
+
+Before any time-based measurement that a decision depends on:
+
+1. Run `./gradlew :search:bench --args='<spec> --copy'`. Accept the machine only if the self-ratio lies within 0.98 to 1.02 in all repetitions, and if the absolute nodes per CPU second are within 10% of the last idle reference (2.3 million for the round-2 R2 spec).
+2. Check that the machine is not shared with heavy jobs (the 1-minute load should stay below the number of performance cores, which is 12 on this machine).
+3. If either check fails, wait for the machine to cool down or stop other jobs, and measure again. Do not use `--ignore-load` for numbers that decide anything; report such numbers as indicative only.
+
+Speed ratios between two builds that Bench interleaves are more robust than absolute numbers, because both builds see the same clock, but they still carry about ±4% of noise on a throttled machine.
