@@ -284,3 +284,39 @@ The plan above is the revision made after these issues. Each issue names the exp
 - An independent opponent family (stage4, R3) in the gate for weight refits, to detect self-play overfitting.
 - Clopper-Pearson bounds and minimum firing counts for every adjudication error claim.
 - Three-player handling: every race and adjudication component must refuse to run when players=3, with a test.
+
+## Amendments made during execution
+
+These entries record where the execution deviated from the plan above, with the reason and the evidence. The plan text itself stays as it was written.
+
+### Wave 1 (2026-11-07): results
+
+| Experiment | Verified result (independent verifier, own measurements) | Merged |
+|---|---|---|
+| E00 yardstick | Frozen jars checked class by class against a fresh build of their commit (38 of 38 classes identical); Bench ratio of the unchanged build 0.98 to 1.005. | yes |
+| E01 search speed pack | Tree identical (144 fingerprint lines, byte for byte); 1.45 x nodes per CPU second (1.449, 1.451, 1.454). | yes |
+| E02 engine speed pack | Moves and values identical on 1.28 million positions; 1.175 x alone; **1.825 x together with E01** (CPU time per move 15.1 to 8.25 ms, trees identical on 64 of 64 positions and 2 of 2 games). | yes |
+| E03 race module | Seeds 41 and 42, 500 pairs: +67.5 and +56.8 Elo at equal nodes, +47.9 and +56.1 at equal cost; every lower 95% bound above 0; CPU time per move below the opponent's. No counterexample to S1 in about 31,000 attacked positions (own attacker, full-width replies). | yes |
+| E04 weight refit (`linear-r2`) | Seeds 41 and 42, 500 pairs: +157 and +192 Elo against `linear-r1` at equal cost (nodes per CPU second ratio 1.04). | yes, as a separate evaluator |
+
+### E02: accepted although one sub-criterion was missed
+
+The plan asked for a generator microbenchmark of at least 1.25 x. The verifier measured 1.20 to 1.23 x and marked the experiment as not confirmed. The experiment was merged all the same. Reason: the plan's purpose for that criterion is speed at an unchanged result, and the primary measurement meets it with a margin: 1.26 x on top of E01 against the required 1.12 x, with identical values and trees.
+
+### E03: the acceptance wording about play-outs was changed
+
+The plan required that the number of S1 firings whose game, played to the end by BEST, ends differently from the prediction must be 0. Measured: 6 of 997 (author) and 6 of 998 (verifier, other seed), one-sided 95% upper bound about 1.2%. All six are one-tempo races in which BEST at 20,000 nodes failed to convert a won race. For each of them the verifier showed that the predicted winner has a forced win (the plan played against the actual loser moves wins on time, and a full-width attack from the position finds no loser win).
+
+**Amended criterion:** S1 is correct if no reply of the loser defeats the verdict (full-width attack on every verdict, and the plan played against the recorded loser moves). Disagreement between a verdict and the result of a game played by an imperfect player is not a label error: the verdict is the value of the position. About 0.6% of the games of the strongest engine therefore have a label that differs from the played result, intentionally.
+
+Consequence for training data: S1 labels are game values and must not be replaced by the result of the self-play game.
+
+### E04: delivered as `linear-r2`, not as a replacement of `linear`
+
+The plan said to replace the weights of `eval=linear`. The author added the frozen set `LinearWeights.ROUND2` under the evaluator name `linear-r2` and left `linear` and `linear-r1` unchanged, which keeps the fingerprint and the yardstick intact. `Strategies.BEST_SPEC` still uses `linear`. The switch to `linear-r2` and the addition of `race=1` belong to the integration commit at the end of wave 2.
+
+The second texel round used games without `race=1`, because E03 was not available to the author. The plan wanted games with race play for round 2. This is to be repeated at integration.
+
+### Operations
+
+The race table (about 12.5 MB) is stored with Git LFS. A table build without the LFS file takes 12 s on an idle machine and 33 to 58 s under load, not the 16 s that the plan assumed.
