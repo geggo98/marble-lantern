@@ -12,11 +12,18 @@ package sternhalma.search;
  * @param depthPreferred two entries per table bucket: one keeps the deeper entry of the current search, one is
  *                       always replaced
  * @param mateFix        store mate scores relative to the node, not to the root, and convert them back on probing
+ * @param partial        use the best move of an iteration that the limit interrupted, if at least the first root
+ *                       move (the previous best) was searched completely and the score is not a fail low
  */
 public record SearchOptions(boolean pvs, boolean killers, boolean history, int lmr, int aspiration,
-        boolean depthPreferred, boolean mateFix) {
+        boolean depthPreferred, boolean mateFix, boolean partial) {
 
-    public static final SearchOptions DEFAULT = new SearchOptions(false, false, false, 0, 0, false, false);
+    public static final SearchOptions DEFAULT = new SearchOptions(false, false, false, 0, 0, false, false, false);
+
+    public SearchOptions(boolean pvs, boolean killers, boolean history, int lmr, int aspiration,
+            boolean depthPreferred, boolean mateFix) {
+        this(pvs, killers, history, lmr, aspiration, depthPreferred, mateFix, false);
+    }
 
     /** Default aspiration half-width: five steps of distance difference. */
     public static final int DEFAULT_ASPIRATION = 5 * DistanceEvaluator.UNIT;
@@ -57,6 +64,9 @@ public record SearchOptions(boolean pvs, boolean killers, boolean history, int l
         }
         if (mateFix) {
             b.append(",mate");
+        }
+        if (partial) {
+            b.append(",partial");
         }
         return b.isEmpty() ? "" : b.substring(1);
     }

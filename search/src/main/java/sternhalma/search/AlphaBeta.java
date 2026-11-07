@@ -185,6 +185,10 @@ public final class AlphaBeta {
                     : searchRoot(depth, bestMove, -MATE - 1, MATE + 1);
             if (stopped && depth > 1) {
                 complete = false;
+                if (options.partial() && iteration[2] != 0) {
+                    bestMove = iteration[0];
+                    bestScore = iteration[1];
+                }
                 break;
             }
             bestMove = iteration[0];
@@ -222,7 +226,12 @@ public final class AlphaBeta {
         }
     }
 
-    /** One root iteration in the window (alpha, beta); returns {move, score}. */
+    /**
+     * One root iteration in the window (alpha, beta); returns {move, score, usable}. If the limit stops the
+     * iteration, move and score come from the root moves searched completely, and usable is 1 if there was at
+     * least one such move and its score is above alpha (so it is a real value or a fail high, not a bound
+     * from a fail low).
+     */
     private int[] searchRoot(int depth, int firstGuess, int alphaIn, int beta) {
         int[] moves = moveBuffers[0];
         int count = root.generate(moves);
@@ -230,6 +239,7 @@ public final class AlphaBeta {
         int alpha = alphaIn;
         int bestMove = moves[0];
         int bestScore = -MATE - 1;
+        int completed = 0;
         for (int i = 0; i < count; i++) {
             root.make(moves[i]);
             int score;
@@ -245,6 +255,7 @@ public final class AlphaBeta {
             if (stopped) {
                 break;
             }
+            completed++;
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = moves[i];
@@ -260,7 +271,7 @@ public final class AlphaBeta {
             int flag = bestScore <= alphaIn ? UPPER : bestScore >= beta ? LOWER : EXACT;
             store(root.hash(), bestScore, depth, flag, bestMove, 0);
         }
-        return new int[] {bestMove, bestScore};
+        return new int[] {bestMove, bestScore, completed > 0 && bestScore > alphaIn ? 1 : 0};
     }
 
     private int negamax(int depth, int alphaIn, int betaIn, int height) {

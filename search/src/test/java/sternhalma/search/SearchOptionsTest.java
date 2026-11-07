@@ -126,6 +126,22 @@ class SearchOptionsTest {
     }
 
     @Test
+    void partialIterationsChangeNothingWithoutALimitAndStillGiveLegalMovesWithOne() {
+        SearchOptions partial = new SearchOptions(false, false, false, 0, 0, false, false, true);
+        SearchOptions partialAll = new SearchOptions(true, true, true, 0, 50, true, true, true);
+        for (long seed = 1; seed <= 4; seed++) {
+            Position pos = randomPosition(seed, 20);
+            assertEquals(new AlphaBeta(EVALUATOR).search(pos, 3),
+                    new AlphaBeta(EVALUATOR, 20, true, partial).search(pos, 3));
+            for (SearchOptions o : List.of(partial, partialAll)) {
+                SearchResult r = new AlphaBeta(EVALUATOR, 16, true, o).search(pos, 30, Long.MAX_VALUE, 20_000);
+                assertFalse(r.complete());
+                assertTrue(Arrays.stream(pos.legalMoves()).anyMatch(m -> m == r.move()), r.toString());
+            }
+        }
+    }
+
+    @Test
     void mateScoresAreStoredRelativeToTheNode() {
         for (int height = 0; height < 40; height += 7) {
             for (int score : new int[] {0, 1234, -1234, AlphaBeta.MATE - 3, -(AlphaBeta.MATE - 5)}) {
@@ -156,8 +172,8 @@ class SearchOptionsTest {
     void specsParseTheSearchOptions() {
         assertEquals(SearchOptions.DEFAULT, PlayerSpec.parse("ab:eval=distance,nodes=20000").options());
         assertTrue(PlayerSpec.parse("ab").options().isDefault());
-        SearchOptions o = PlayerSpec.parse("ab:pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1").options();
-        assertEquals(new SearchOptions(true, true, true, 2, SearchOptions.DEFAULT_ASPIRATION, true, true), o);
+        SearchOptions o = PlayerSpec.parse("ab:pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1").options();
+        assertEquals(new SearchOptions(true, true, true, 2, SearchOptions.DEFAULT_ASPIRATION, true, true, true), o);
         assertEquals(30, PlayerSpec.parse("ab:asp=30").options().aspiration());
         assertFalse(PlayerSpec.parse("ab:pvs=0").options().pvs());
         assertThrows(IllegalArgumentException.class, () -> PlayerSpec.parse("ab:pvs=2"));

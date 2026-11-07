@@ -12,7 +12,8 @@ import java.util.Map;
  *
  * <p>Search enhancements ({@link SearchOptions}), all off by default: {@code pvs=1}, {@code killers=1},
  * {@code history=1}, {@code lmr=1|2}, {@code asp=1} (default window) or {@code asp=<half-width>},
- * {@code ttrep=1} (depth-preferred table), {@code mate=1} (mate scores relative to the node).
+ * {@code ttrep=1} (depth-preferred table), {@code mate=1} (mate scores relative to the node),
+ * {@code partial=1} (use the best move of an interrupted iteration).
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
         SearchOptions options) {
@@ -45,7 +46,8 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 intOption(options.remove("lmr")),
                 asp == 1 ? SearchOptions.DEFAULT_ASPIRATION : asp,
                 flag(options.remove("ttrep"), "ttrep"),
-                flag(options.remove("mate"), "mate"));
+                flag(options.remove("mate"), "mate"),
+                flag(options.remove("partial"), "partial"));
         if (!options.isEmpty()) {
             throw new IllegalArgumentException("unknown options " + options.keySet());
         }
