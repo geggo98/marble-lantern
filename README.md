@@ -1,18 +1,16 @@
 # Chinese Checkers AI
 
-**TL;DR:** This project builds an AI for Chinese Checkers (German: Stern-Halma) in Java 25.
-It is a showcase for TornadoVM: batched network inference for self-play, network training and the BFS layers of the endgame database are planned as GPU kernels.
-Today only the development environment and the TornadoVM SDK setup exist. The engine, the network and the search are not written yet.
+**TL;DR:** This project builds an AI for Chinese Checkers (German: Stern-Halma) in Java 25 and uses it as a TornadoVM showcase.
+Today only the development environment and the TornadoVM SDK setup exist.
+The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next milestone is the Gradle build, the `engine` module and an alpha-beta baseline for two players.
 
 ## What this project is
 
 - **Game:** Chinese Checkers on the 121-cell star board, two players first, three players later.
-- **AI:** AlphaZero-style Monte-Carlo Tree Search (MCTS) with PUCT and a neural network (project decision).
-  An alpha-beta search with a hand-written heuristic serves as baseline opponent and test oracle.
-- **GPU:** TornadoVM compiles Java kernels for Metal and OpenCL on macOS (aarch64), and for PTX and OpenCL on Linux (amd64).
-  A CPU reference implementation with the Java Vector API (`jdk.incubator.vector`) will check every kernel (project decision).
-- **Default rules:** a two-player rule set in the style of [Sturtevant2019]: a piece may not leave the goal area, a blockade rule applies, and a move limit ends the game.
-  This choice is a project decision. Other variants are switches. See [rules](docs/rules.md).
+- **AI:** first an alpha-beta search for two players. Its heuristic is the single-agent distance to the goal, which [Sturtevant2019, §2] calls a common heuristic for play. Then AlphaZero-style Monte Carlo tree search (MCTS) with PUCT and a neural network for two and three players. Alpha-beta stays as baseline opponent and test oracle (project decision).
+- **GPU:** TornadoVM kernels for batched network inference, training and, as an optional experiment, the BFS layers of a small endgame database, on Metal and OpenCL (macOS aarch64) or PTX and OpenCL (Linux amd64). A CPU reference with `jdk.incubator.vector` checks every kernel (project decision).
+- **Rules:** the win condition follows Definition 1 of [Sturtevant2019, §3.2]: the goal is full and at least one piece in it is your own. A two-player game ends after 200 plies, and a game without a winner is scored by distance (`drawHandling = SCORE_BY_DISTANCE`). Three players move clockwise, and the game ends at the first winner; ranking the other players (`FULL_RANKING`) is reserved for later. All of these are project decisions of 2026-11-07. `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`: project decision; differs from [Sturtevant2019, §3]. See [rules](docs/rules.md).
+- **Scope:** the project trains a neural network. It does not try to strongly solve any variant, because the development machine has too little RAM. [Sturtevant2019] serves only for verification and as an optional later test oracle (project decision).
 
 ## Status
 
@@ -21,7 +19,9 @@ Today only the development environment and the TornadoVM SDK setup exist. The en
 | Git repository and `.gitignore` | done |
 | devenv environment (JDK 25, Gradle, `.env`) | done |
 | TornadoVM 7.3.1 SDK download with SHA-256 check | done |
-| `engine`, `nn`, `search` and all later modules | not started |
+| Rules document, decisions of 2026-11-07 | done |
+| Gradle build, `engine`, alpha-beta baseline | next |
+| `nn`, `search`, `selfplay`, `tablebase`, `book`, `bench`, `app` | not started |
 
 On the development Mac, `tornado --devices` lists one Metal device.
 
@@ -33,21 +33,14 @@ Prerequisites: [devenv](https://devenv.sh) and an Apple Silicon Mac or a Linux a
    ```sh
    cp .env.example .env
    ```
-2. Check `TORNADO_BACKEND` in `.env`. The example file sets it to `metal`.
-   On Linux, change it to `ptx` or `opencl`, because the Linux archives have no Metal backend.
-   If the variable is not set, the setup script uses `metal` on macOS and `ptx` on Linux.
-3. Download and verify the TornadoVM SDK. Do this once.
+2. Check `TORNADO_BACKEND` in `.env`. The example sets `metal`. On Linux, set `ptx` or `opencl`, because the Linux archives have no Metal backend. Without the variable, the setup script uses `metal` on macOS and `ptx` on Linux.
+3. Download and verify the TornadoVM SDK once. A second run skips a verified install.
    ```sh
    devenv tasks run setup:tornado
    ```
-   The script is safe to run again. A verified install is skipped.
-4. Start the shell.
+4. Start the shell and check that TornadoVM finds a device.
    ```sh
    devenv shell
-   ```
-   If the SDK is missing, the shell prints a reminder to do step 3.
-5. Check that TornadoVM finds a device.
-   ```sh
    tornado --devices
    ```
 
@@ -55,37 +48,12 @@ The tasks `agent:build` and `agent:test` exist in `devenv.nix`. They have nothin
 
 ## Repository layout
 
-Present now:
-
-```text
-README.md                              this file
-.gitignore                             ignored files: .env, build output, data/, tornado-sdk/
-devenv.nix, devenv.yaml, devenv.lock   development environment
-.envrc                                 direnv hook (use devenv)
-.env.example                           documented settings; copy to .env (gitignored)
-scripts/setup-tornado.sh               pinned TornadoVM download with SHA-256 check
-tornado-sdk/                           installed SDK (gitignored, created by setup:tornado)
-docs/                                  project documentation (see below)
-```
-
-Planned (not yet present):
-
-```text
-settings.gradle.kts, gradle/, build-logic/   Gradle multi-module build (Kotlin DSL)
-engine/      board, move generator, rules; plain Java
-nn/          network: CPU reference and TornadoVM kernels, safetensors I/O
-search/      MCTS (PUCT, virtual loss, leaf batching), time and simulation budget
-selfplay/    batched self-play, training data format, trainer CLI
-book/        opening book
-tablebase/   endgame database
-bench/       JMH benchmarks: CPU scalar, Vector API, TornadoVM Metal and OpenCL
-app/         optional Spring Boot and Vaadin UI
-data/        self-play data, checkpoints, weights (gitignored)
-```
+Present now: `devenv.nix`, `devenv.yaml`, `devenv.lock`, `.envrc`, `.env.example`, `scripts/setup-tornado.sh`, `tornado-sdk/` (gitignored) and `docs/`.
+Planned: a Gradle multi-module build (Kotlin DSL) with the modules described in [architecture](docs/architecture.md).
 
 ## Documentation
 
-- [Rules](docs/rules.md): the default rule set and its variants.
+- [Rules](docs/rules.md): the default rule set, its switches and the conformance tests.
 - [Architecture](docs/architecture.md): modules, data flow and the role of TornadoVM.
 - [Search and evaluation](docs/search-and-evaluation.md): heuristics, alpha-beta, multi-player search, MCTS.
 - [Endgame and opening](docs/endgame-and-opening.md): endgame database and opening book.
@@ -93,18 +61,19 @@ data/        self-play data, checkpoints, weights (gitignored)
 
 ## Roadmap
 
-The milestones follow the order of the implementation plan. Milestone 3 (rules before code) is an addition to that plan. Each milestone gets one commit.
+Each milestone gets one commit. Milestones 3 and 5 are additions to the implementation plan; milestone 5 follows the owner decision of 2026-11-07 to build alpha-beta before the network.
 
 1. Git repository and `.gitignore` (done).
 2. devenv environment and TornadoVM setup (done).
-3. Rules written down in [rules](docs/rules.md), before the engine code.
-4. `engine` with tests: perft-style move counts, symmetry tests, property tests.
-5. `nn` CPU reference and safetensors reader and writer.
-6. TornadoVM kernels and the `bench` benchmark. The results go into this README.
-7. `search`: MCTS with leaf batching.
-8. Local self-play and training loop with gating against the previous network.
-9. `tablebase`: single-player retrograde BFS for the last few pieces, with BFS layers as a TornadoVM kernel.
-10. `book`: opening book from late self-play generations.
-11. Advisor API (move suggestions) and Opponent API (strength levels).
-12. Optional `app` with Vaadin.
-13. Self-play in the cloud on NVIDIA GPUs (PTX backend).
+3. Rules in [rules](docs/rules.md) (done).
+4. **Next:** Gradle scaffold and `engine` with tests: move counts computed by our generator, symmetry tests, property tests.
+5. **Next:** alpha-beta baseline for two players in `search`, with the single-agent distance heuristic.
+6. `nn` CPU reference and safetensors reader and writer.
+7. TornadoVM kernels and the `bench` benchmark. The results go into this README.
+8. `search`: MCTS with PUCT and leaf batching.
+9. Local self-play and training loop with gating against the previous network.
+10. Optional experiment, `tablebase`: single-player retrograde BFS for the last 4 to 5 pieces, BFS layers as a TornadoVM kernel.
+11. `book`: opening book from late self-play generations.
+12. Advisor API (move suggestions) and Opponent API (strength levels).
+13. Optional `app` with Vaadin.
+14. Self-play in the cloud on NVIDIA GPUs (PTX backend).

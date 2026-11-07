@@ -1,9 +1,10 @@
 # Architecture
 
 **TL;DR:** The project is an AlphaZero-style AI for Chinese Checkers (German: Stern-Halma), written entirely in Java 25.
-Its main purpose is to show TornadoVM: batched network inference for self-play, network training and the BFS layers of the endgame database run as TornadoVM kernels on the GPU.
+Its main purpose is to show TornadoVM: batched network inference for self-play and network training run as TornadoVM kernels on the GPU, and so do the BFS layers of an optional small endgame database.
 Everything else (rules engine, opening book, user interface) stays deliberately simple.
 The code is split into eight Gradle modules; a CPU reference implementation checks every GPU kernel.
+Implementation starts with the rules engine and a two-player alpha-beta baseline, before any network code (*project decision*, see [implementation order](#implementation-order)).
 
 > **Status.** This document describes the approved plan.
 > The development environment and the TornadoVM installation exist.
@@ -21,14 +22,16 @@ How to read the claims in this document:
 
 Goals (*project decision*):
 
-- Show TornadoVM on a real workload: batched network forward pass, backward pass with an optimiser, and breadth-first search layers for the endgame database.
+- Show TornadoVM on a real workload: batched network forward pass and backward pass with an optimiser. Breadth-first search layers for a small single-player endgame database are an optional experiment.
 - Measure the gain. A benchmark compares CPU scalar code, the CPU Vector API and the TornadoVM backends over batch sizes from 1 to 1024.
 - Play the [default rule set](rules.md) for two players first, then three players. The board and the value head support N players from the start.
 - Make every long computation resumable, so that an interrupted run costs little.
 
 Non-goals (*project decision*):
 
-- Solving the full game. The full 121-cell board with 10 pieces per player is not solved (*established*, [Sturtevant2019]).
+- Strongly solving any variant, and building large tablebases. The project trains a neural network instead; the development machine has too little RAM for strong solving. The project uses [Sturtevant2019] only to verify its rules and, optionally later, as a test oracle.
+  For context: the largest variant that [Sturtevant2019, §5] strongly solves is the 6 × 6 board with 6 pieces per player; the paper had not yet validated it with a second solver, and the author's publications page later reports that a different solver verified it [SturtevantPubs]. The paper calls 7 × 7 with 6 pieces "the largest game that can likely be strongly solved on hardware that we have readily accessible" (*established*). The full 121-cell board with 10 pieces per player is larger still.
+  The paper gives 1.73 × 10^24 states for one common board size [Sturtevant2019, §1].
 - A polished user interface. The web app is optional.
 - A general-purpose deep-learning framework. The network uses a small set of standard operations, and the project implements only those.
 - Languages other than Java on the critical path.
@@ -39,7 +42,7 @@ Non-goals (*project decision*):
 graph TD
     engine["engine<br/>board, rules, moves"]
     nn["nn<br/>network: CPU reference + TornadoVM"]
-    search["search<br/>MCTS (PUCT)"]
+    search["search<br/>alpha-beta baseline, MCTS (PUCT)"]
     selfplay["selfplay<br/>self-play, training"]
     book["book<br/>opening book"]
     tablebase["tablebase<br/>endgame database"]
@@ -60,12 +63,13 @@ graph TD
 
 An arrow points from a module to a module it depends on.
 The dependency edges are a *project decision* and can change during implementation.
+The alpha-beta baseline in `search` uses only `engine`; the edge from `search` to `nn` exists for MCTS.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `engine` | Board geometry, rule set, move generation, Zobrist hashing, symmetries. Plain Java. | nothing |
+| `engine` | Board geometry, rule set, move generation, Zobrist hashing, symmetries. Plain Java. Every rule-dependent method takes an immutable `RuleSet` record (see [rules](rules.md)). A small-board mode is proposed (see [below](#ruleset-and-small-board-mode)). | nothing |
 | `nn` | Network definition, CPU reference with `jdk.incubator.vector`, TornadoVM kernels for forward and backward pass, safetensors reader and writer. | `engine` (neighbour table), TornadoVM |
-| `search` | Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`, `nn` |
+| `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. Later: Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`; `nn` for MCTS only |
 | `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. | `search` (and through it `engine`, `nn`) |
 | `book` | Opening book built from self-play games. | `engine`, self-play data |
 | `tablebase` | Single-player endgame database. BFS layers as a TornadoVM kernel. | `engine`, TornadoVM |
@@ -75,6 +79,44 @@ The dependency edges are a *project decision* and can change during implementati
 The build will use the Gradle Kotlin DSL.
 A convention plugin in `build-logic/` will hold the shared Gradle settings, and `gradle/libs.versions.toml` will hold the dependency versions.
 Neither file exists yet.
+
+## Implementation order
+
+The modules are built in this order (*project decision*):
+
+1. Rules written down in [rules](rules.md), before the engine code.
+2. `engine` with its conformance tests.
+3. Alpha-beta baseline for two players in `search`.
+4. `nn` CPU reference with the safetensors reader and writer.
+5. TornadoVM kernels and the `bench` benchmark.
+6. MCTS with the network in `search`.
+7. Self-play and training, then `tablebase`, `book`, the APIs, the optional `app` and the cloud runs.
+
+Steps 1 and 3 are additions to the approved implementation plan.
+The plan puts all of `search` after `nn` and the kernels; the owner requested the alpha-beta baseline as an earlier step, before the network (2026-11-07).
+MCTS keeps its place from the plan.
+The [roadmap in the README](../README.md#roadmap) lists the same order as numbered milestones.
+
+## RuleSet and small-board mode
+
+The engine takes the rules as an immutable `RuleSet` record and hard-codes none of them (*project decision*).
+The switches, their allowed values and their defaults are defined in [rules](rules.md); that document is the single source for them.
+This section names only the parts that affect the architecture:
+
+- **Move limit.** A `RuleSet` parameter, 200 plies by default for two players (*project decision*); 300 plies for three players is *proposed*.
+- **Blockade.** An opponent piece in the goal counts as filling it, provided at least one own piece is in the goal (*project decision*, owner, 2026-11-07). This is Definition 1 of [Sturtevant2019, §3.2] (*established*).
+- **Three players.** Play goes clockwise around the star, and the game ends at the first winner (*project decision*). The switch value `ranking = FULL_RANKING` (play on to decide second place) is reserved and not implemented.
+- **Games without a winner.** The default `drawHandling = SCORE_BY_DISTANCE` ranks the players by their distance to the goal; `DRAW` stays available for comparisons with the solved tables of [Sturtevant2019, §5], where draws are real draws (*project decision*).
+- **Two deliberate deviations.** The defaults `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT` are *project decisions* and differ from [Sturtevant2019, §3]: its rules contain no ban on leaving the goal, and they declare a game drawn when any board state repeats (§3.4, Definition 4). See [rules](rules.md#deliberate-deviations-from-sturtevant2019). The move limit applies as a backstop in both repetition modes.
+
+**Small-board mode (*proposed*, not scheduled).**
+The engine could also play on an m × m diamond with k pieces per player under exactly the rules of [Sturtevant2019, §3]: no ban on leaving the goal, a repeated position is a draw (Definition 4, §3.4), and Definitions 1 to 3 for wins and illegal states (§3.2, §3.3).
+The counts in Table 1 of [Sturtevant2019, §5] could then serve as an optional, later conformance oracle for the counting rules (*project reasoning*).
+The 4 × 4 row with 6 pieces is excluded: the author's publications page reports a copy/paste error in it and promises an updated table [SturtevantPubs].
+The same note reports that a different solver verified the 6 × 6 results with 6 pieces; the other rows are used as printed in the paper.
+The project does not try to solve any board. For example, as printed in the paper, the 7 × 7 board with 1 piece has 4,704 positions, 2,304 won states for one player, 0 draws and 96 illegal states.
+The engine can reproduce these counts only in this mode, because the paper computed them with its own rules.
+The mode needs board geometry that is a parameter rather than a constant, so the `engine` design keeps the cell count and the neighbour tables as data (*project reasoning*).
 
 ## Data representation
 
@@ -101,7 +143,7 @@ The project makes no performance claim about them until the `bench` module has m
 ## Neural network
 
 The network follows the AlphaZero pattern: one shared trunk, a policy head and a value head (*project decision*).
-AlphaZero-style work on Chinese Checkers exists [Liu2019].
+AlphaZero-style work on Chinese Checkers exists [Liu2019], and [Sturtevant2019, §1] expects the AlphaZero approach to learn the game.
 
 ```mermaid
 graph LR
@@ -232,7 +274,7 @@ The `app` module is optional and comes last (*project decision*):
 ## Key decisions
 
 Each entry gives the decision, the reason, and the alternatives that the project rejected.
-All entries are *project decisions*.
+All entries are *project decisions*; a citation inside an entry supports only the statement it is attached to.
 
 1. **Java only.**
    Reason: the project is a TornadoVM showcase, and TornadoVM runs Java.
@@ -241,25 +283,37 @@ All entries are *project decisions*.
    Reason: one search covers both player counts, and alpha-beta works for two players only (*reported*, see [search and evaluation](search-and-evaluation.md)).
    Rejected as the main engine: alpha-beta for two players plus Max^n, Paranoid or Best Reply Search for three players [Sturtevant2003], [SchaddWinands2011].
    Alpha-beta with the heuristic stays as a baseline opponent and test oracle.
-3. **Hex convolution as gather over the neighbour table.**
+3. **Start with the alpha-beta baseline, before the network.**
+   Context: the approved plan builds `nn` and the TornadoVM kernels before `search`, so the first playable opponent would need a trained network.
+   Decision (owner, 2026-11-07): after `engine`, build two-player alpha-beta in `search` with the single-agent distance to the goal as its heuristic. The network and MCTS follow.
+   Reason: the engine gets a real user early, the project can play games without a network, and later networks have a fixed opponent to measure against.
+   That heuristic is common for play according to [Sturtevant2019, §2], which cites [Sturtevant2002].
+   Consequence: `search` gets a part that depends on `engine` only; the MCTS part still depends on `nn`.
+   Rejected: the plan's order (network first), which leaves the engine without a search to test it until the kernels work.
+4. **The engine takes an immutable `RuleSet`.**
+   Reason: the rules of Chinese Checkers vary, and the project needs both its own defaults and the exact rules of [Sturtevant2019, §3] for comparison with the paper's solved tables.
+   One record with fixed switch values keeps every variant explicit and testable.
+   Rejected: hard-coded rules, and mutable rule flags that could change during a game.
+   A small-board mode for optional, later conformance tests against [Sturtevant2019, §5] is *proposed*.
+5. **Hex convolution as gather over the neighbour table.**
    Reason: it uses the board as it is and reuses the engine's neighbour table.
    Rejected: embedding the star in a rectangular grid for a standard 2D convolution, which adds cells that do not exist and needs extra masking.
-4. **CPU reference as the oracle for every kernel.**
+6. **CPU reference as the oracle for every kernel.**
    Reason: GPU kernels fail silently with wrong numbers; a comparison within ε catches that.
    Rejected: testing kernels only against hand-computed values.
-5. **Safetensors with an in-project reader and writer.**
+7. **Safetensors with an in-project reader and writer.**
    Reason: the format is simple and readable by other tools.
    Rejected: Java serialisation and framework-specific checkpoint formats.
-6. **Local first, cloud later.**
+8. **Local first, cloud later.**
    Reason: the Metal backend on the development Mac is enough to build and verify the system.
    Rejected: starting on rented GPUs before the pipeline works.
-7. **Single-player endgame database for the last k ≤ 4 to 5 pieces in the goal region.**
+9. **Optional single-player endgame database for the last k ≤ 4 to 5 pieces in the goal region.**
    Reason: the plan judges a full two-player table not feasible, because the table size grows very fast with the number of cells (size figures *reported*, see [endgame and opening](endgame-and-opening.md)).
    Rejected: a full two-player endgame table.
-8. **Simple storage outside the GPU path.**
-   Reason: the showcase is TornadoVM; everything else stays simple.
-   The opening book is a sorted binary file.
-   Rejected: a database server for the book.
-9. **Pinned TornadoVM release installed by a script.**
-   Reason: TornadoVM is not in nixpkgs; a pinned version with a SHA-256 check is reproducible.
-   Rejected: an unpinned "latest" download.
+10. **Simple storage outside the GPU path.**
+    Reason: the showcase is TornadoVM; everything else stays simple.
+    The opening book is a sorted binary file.
+    Rejected: a database server for the book.
+11. **Pinned TornadoVM release installed by a script.**
+    Reason: TornadoVM is not in nixpkgs; a pinned version with a SHA-256 check is reproducible.
+    Rejected: an unpinned "latest" download.
