@@ -109,20 +109,17 @@ A distance needs more than two bits per entry, so the 2-bit figure applies only 
 
 The table needs one entry per way to place 10 identical pieces on n cells.
 That count is the binomial coefficient C(n, 10).
-The region sizes come from the star shape (computed from the board geometry): the goal triangle has 4 rows (10 cells), the next rows have 13, 12, 11, 10 and 9 cells.
+The region sizes come from the star shape (computed from the board geometry, `Rows.regionCells`): the goal triangle has 4 rows (10 cells); the rows before it, counted in the player's own rows 4, 3, 2, 1, 0, have 5, 6, 7, 8 and 9 cells that the player may enter. Rows 4 and 3 of the board also hold cells of the two side corners, which no player may enter; an earlier version of this table counted them (13, 12, 11, 10 and 9 cells per row) and so overstated every region.
 
-The exact values below are computed with `python3 -c "from math import comb; print(comb(35,10), comb(46,10), comb(65,10))"`.
-The approximations in the third column are reported from the owner's survey.
-
-| Region | Cells n | C(n, 10), exact (computed) | Reported approximation | Size at 1 byte per entry (computed) |
+| Region (player's rows) | Cells n | C(n, 10), exact (computed) | Size at 1 byte per entry | Built |
 |---|---|---|---|---|
-| Last 6 rows | 35 | 183,579,396 | about 1.8e8, about 180 MB | about 184 MB (0.17 GiB) |
-| Last 7 rows | 46 | 4,076,350,421 | about 4.1e9, about 4 GB | about 4.1 GB (3.80 GiB) |
-| Up to the middle row | 65 | 179,013,799,328 | about 1.8e11, disk only, needs ranking | about 179 GB (167 GiB) |
+| rows ≥ 4 | 15 | 3,003 | 3 KB | in a test |
+| rows ≥ 3 | 21 | 352,716 | 353 KB | in a test |
+| rows ≥ 2 | 28 | 13,123,110 | 12.5 MB | yes, `tablebase/tables/rows2.bin` (E03) |
+| rows ≥ 1 | 36 | 254,186,856 | 242 MB | planned (E09) |
+| rows ≥ 0, the middle row | 45 | 3,190,187,286 | 3.0 GB | planned on the GPU (E12) |
 
-The computed values agree with the reported approximations.
-The 65-cell table does not fit into the 51.8 GB of global memory that the development GPU reports.
-It needs disk storage and a ranking function.
+The rows ≥ 0 table fits into the 51.8 GB of global memory that the development GPU reports; the earlier estimate of 179 GB came from the overstated cell count.
 
 ## Project scope for the endgame database
 
@@ -180,6 +177,72 @@ The move limit applies in both modes as a backstop.
 The contact test must never report "no contact" while contact is still possible.
 If it does, the search uses a wrong exact value and trusts it fully.
 A conservative test, which reports contact in some cases without contact, is acceptable: it costs strength, not correctness.
+
+## The race module
+
+This section is a **project decision**, implemented in round-2 experiment E03 (plan: [baseline-round2-plan.md](baseline-round2-plan.md)). Numbers are measured unless marked otherwise.
+
+**Passed.** A two-player position is *passed* when every piece of player 0 has a larger `r` than every piece of player 1 (`RaceAdjudication.passed`; both players with all 10 pieces). Each army is then entirely ahead of the other in its own direction. This is a conservative form of "no contact": a piece can still turn back, so passing is not yet a proof that the two solitaires are independent; that proof is the job of the criterion S1 below.
+
+**Rows.** In a player's own orientation the row of a cell is `r` (player 0) or `-r` (player 1): both players advance towards higher rows, their goal corner is rows 5 to 8, their start corner rows -8 to -5 (`Rows`). Every step changes the row by at most 1, every jump by exactly 0 or 2 with its hurdle one row short; every cell a player may stand on below the tip has an allowed neighbour on the next row (tested exhaustively, `GeometryRowAxisTest`).
+
+### The rows ≥ 2 table
+
+`tablebase/tables/rows2.bin` (module `tablebase`, 13,123,110 configurations of 10 pieces on the 28 allowed cells of rows 2 to 8, one byte each) holds, for `leaveGoal = FORBIDDEN`, the exact number of moves to fill the goal when every configuration on the way stays inside the region, built by the layered retrograde BFS (`RetrogradeBuilder`, 11.9 s on 8 threads; max count 15; every configuration reaches the goal; layer sizes 1, 14, 164, 1493, 10801, 60633, 258914, 825110, 1919127, 3146725, 3465380, 2382230, 896106, 148408, 7929, 75). Layer consistency on the whole rows ≥ 3 table proves that table exact, the rows ≥ 4 table equals a forward brute force, and the shared table is checked on samples (`RaceTableTest`).
+
+The file is tracked with Git LFS. It starts with a header (format version, rule, region, state count, SHA-256 of the body) and is deterministic, so its SHA-256 (`RaceTable.SHA256`, equal to the LFS object id) identifies it. `RaceTable.rows2()` uses a file only when its SHA-256 equals that constant; a Git LFS pointer file (a clone without LFS content), a missing, stale or corrupt file leads to a rebuild into `tablebase/build/tables/` (or `-Dsternhalma.tablebase.dir`), and the rebuilt file must reproduce the constant.
+
+A count is an **upper bound** of the unrestricted solitaire distance (a route through row 1 might be shorter). It serves play and search heuristics, never a label.
+
+### Race play (`race=1`, `race=2`)
+
+In a passed position the player with `race=1` does not search: it plays the legal move whose resulting configuration has the smallest table count (ties: larger distance gain, then move order); when its configuration is not covered by the table, the first move of a solitaire plan (`Solitaire`, a beam search of width 200 whose landing cells all lie above the opponent's rearmost piece); when neither yields a legal move, the search decides. `race=2` races only while the table arithmetic does not say the race is lost (the opponent finishes first under the conversion rule above); a lost race goes back to the search, which may find a block. `racetable=0` disables the table. Race play is a strength heuristic and never produces a label.
+
+### The criterion S1 (adjudication)
+
+S1 (`RaceAdjudication`) ends a passed game with a label that cannot be wrong. Its soundness statement and proof are in the class's javadoc; in short, with W the predicted winner, Lo the loser, rows W's rows and F Lo's front (the Lo piece closest to W): if all W pieces stand on rows ≥ F + 3 before a Lo move, no Lo move raises Lo's front by more than one row (a jump that gains two rows needs a hurdle one row short of its landing, and Lo never gets next to a W piece), so after k Lo moves Lo stands on rows ≤ F + k. W's plan is a solitaire sequence over W pieces only whose move t lands (intermediate landings included) on rows ≥ F + k + 1, with W's rearmost piece on rows ≥ F + k + 3 before every Lo move; Lo therefore never blocks it or alters its hurdles. In a passed position no piece stands in the opponent's goal (fewer than 10 cells lie behind a goal's front row), so neither Definition 1 nor Definition 2 interferes, Lo always has a legal move (its rearmost non-goal piece can step back), and Lo plays a solitaire with own hurdles only, so it needs at least the parity-assignment bound LB of moves (a piece reaches a goal cell in one move only by a step to a neighbour or a chain to a cell of the same class `(q mod 2, r mod 2)`). S1 fires only if W's plan of U moves satisfies U ≤ LB (W to move) or U ≤ LB − 1 (Lo to move) and ends by the move limit; it requires two players, `blockingStates = NONE` and `repetition = MOVE_LIMIT` (under `REPETITION_IS_DRAW` a plan position could repeat an earlier game position), and works for both `leaveGoal` and both `blockadeRule` values. The plan comes from the beam (width 300) with these constraints built in and is then re-verified independently (engine legality on the W-only position, an independent path search, the row conditions, the final configuration). S1 need not fire in every won race; it never fires in a race that is not won.
+
+Only S1 may label passed positions (label policy of the round-2 plan); the table and race play may not.
+
+### Measurements (E03)
+
+Measured on 2026-11-07 on the E03 build (branch `exp/E03`), 16 cores shared with other jobs (1-minute load 15 to 40), so every CPU-time figure is a figure under load; node-limited results do not depend on it.
+
+**Self-play replay (`RaceReplay`, seed 1002, 1000 games, 4 random opening plies, S1 at every ply until it fires, then the game is played to the end by the same players):**
+
+| Player | Games decided | Mean plies | Passed plies | S1 fires | Mean first firing ply | Plies saved | Play-outs that ended otherwise | Adversary |
+|---|---|---|---|---|---|---|---|---|
+| BEST_SPEC at 20 000 nodes | 997 of 1000 | 93.8 | 18.3 % | 997 of 1000 (99.7 %) | 86.0 | 7.45 per game, 7.9 % of all plies | 6 of 997 (see below) | 997 verdicts, 0 failures: exhaustive on every verdict (the loser has at most 6 moves in every plan; 54.0 M nodes, 40.3 M leaves, 0 of 997 hit the cap of 10 M nodes, 26 s on 8 threads) and 5 complete lines each |
+| `ab:eval=distance,nodes=1000` (weak-player lower bound) | 995 of 1000 | 128.8 | 7.2 % | 685 of 1000 (68.5 %) | 126.0 | 3.29 per game, 2.6 % of all plies | 7 of 685 | 685 verdicts, 0 failures: exhaustive on 656 (at most 4 loser moves, 0 capped, 2.6 M nodes, 1.97 M leaves), 5 lines each |
+
+Winner plan lengths of the BEST games: 1 move in 19 verdicts, 2 in 43, 3 in 142, 4 in 359, 5 in 388, 6 in 46. No front-bound violation in any game.
+
+**Play-outs that ended otherwise are conversion failures of the player, not label errors.** All 13 such games (6 of BEST, 7 of the distance player) are races decided by one tempo: the predicted winner W was to move with a plan of U = LB moves, the loser needed exactly LB moves, and W, searching with a depth-4 to -5 horizon and a distance-based evaluation, wasted a tempo and lost on the ply after the predicted end (for example game 23: S1 at ply 81, plan of 6 moves, predicted end ply 92, loser's bound 6, the loser won at ply 93). In every one of these games the adversary line "recorded" (W plays its plan, the loser plays the moves it played in the game) ends in W's win on time, as do all other lines. The label of S1 is the game value under the plan, which the proof and the adversary establish; the players who continue the game need not find it. For BEST the one-sided 95 % Clopper-Pearson bound of this play-out disagreement is 1.2 % (6 of 997); the soundness claim rests on the proof, the lemma tests and the exhaustive adversary (0 of 997), not on this sample. This is also the strength argument for race play: BEST at 20 000 nodes throws away won races by one tempo, and 34 further BEST games were won later than the plan predicted.
+
+**Mutation check of the soundness-critical code** (each mutant applied by hand, the race tests run, the source restored): killed were a weakened tempo test (U ≤ LB + 1; by `ExhaustiveAdversaryTest` and the new strict-tempo test), a front gap of two rows instead of three (`RaceAdjudicationTest`, `ExhaustiveAdversaryTest`), `passed` without the ten-piece requirement, the side to move inverted, `leaveGoal` ignored in the solitaire generator (`SolitaireTest`), an off-by-one in the ranking (`RankingTest`, `RaceTableTest`, and the table checksum), the player-1 mirror forgotten in race play (only the symmetry test of `RaceMoveTest` notices; without it player 1 silently fell back to the slower beam), the lower bound without the matching (2 × outside pieces; `LowerBoundAdmissibilityTest` on all 13 M states, `RaceAdjudicationTest`, `ExhaustiveAdversaryTest`) and the rule preconditions dropped. Two mutants survived because they are equivalent: the landing condition of W's plan lowered by one row (condition 2 of the statement follows from condition 1 and the own-hurdle rule, as the javadoc now explains) and the legality filter of the plan move in `RaceMove` removed (a plan move in a passed position is legal by the same argument; the filter is a guard).
+
+**Arena (paired games, colours swapped, 4 random opening plies, `--threads 4`, node limits; B is always BEST_SPEC at 20 000 nodes, A the same spec with race play):**
+
+| A | Seed, pairs | Wins A / draws / wins B | Score (A) | Elo (A − B), 95 % | CPU-ms per move A / B | Arena's equal-cost line for A |
+|---|---|---|---|---|---|---|
+| `race=1`, 20 000 nodes (tuning) | 31, 150 | 180 / 0 / 120 | 0.6000 | +70.4 ± 23.3 | 23.05 / 24.89 | 18 393 |
+| `race=2`, 20 000 nodes (tuning) | 31, 150 | 173 / 0 / 127 | 0.5767 | +53.7 ± 20.6 | 22.28 / 23.56 | 18 760 |
+| `race=1,racetable=0` (beam only), 20 000 nodes (tuning) | 31, 150 | 167 / 0 / 133 | 0.5567 | +39.5 ± 20.2 | 21.83 / 23.50 | 18 325 |
+| **`race=1`, 20 000 nodes (equal nodes)** | 33, 300 | 353 / 8 / 239 | 0.5950 | **+66.8 ± 16.0** | 21.26 / 22.83 | 18 490 |
+| **`race=1`, 20 000 nodes (equal nodes)** | 34, 300 | 349 / 2 / 249 | 0.5833 | **+58.5 ± 15.5** | 21.51 / 23.07 | 18 491 |
+| **`race=1`, 18 490 nodes (equal cost)** | 33, 300 | 340 / 0 / 260 | 0.5667 | **+46.6 ± 25.7** | 21.01 / 23.98 | 18 112 |
+| **`race=1`, 18 491 nodes (equal cost)** | 34, 300 | 337 / 2 / 261 | 0.5633 | **+44.2 ± 24.6** | 21.42 / 24.49 | 18 098 |
+| `race=2`, 20 000 nodes (equal nodes) | 33, 300 | 345 / 8 / 247 | 0.5817 | +57.3 ± 15.0 | 23.23 / 24.48 | 18 770 |
+
+Reading the table:
+
+- **Choice:** `race=1` with the table is the strongest variant on the tuning seed; the beam alone (`racetable=0`) gives about half the gain, as in the surveyor's run, and `race=2` (back to the search in a lost race) gains nothing over `race=1` on either seed. The report seeds were run only after this choice.
+- **Equal cost:** the race player's cost per move is lower in every run (race moves cost a table lookup or a beam call instead of 20 000 nodes), so the plan's criterion "CPU-ms per move not above the opponent's" holds. The equal-cost runs give A the node budget that the equal-nodes run on the same seed printed as its equal-cost line (18 490 and 18 491, that is 0.924 and 0.925 of B's nodes); at that budget the race player still uses 12 % less CPU per move than B, so the equal-cost Elo is a conservative figure. The Bench ratio of the search itself is 1.00 (below), so the whole cost difference comes from the race moves.
+- **Intervals:** the equal-nodes runs have narrow intervals because the two players search identical trees until the armies pass, so many pairs are decided by colour alone; at equal cost the trees differ from the first move and the pair scores vary more.
+- **Acceptance (plan E03):** the lower 95 % bound is above 0 on both report seeds at equal nodes (+50.8, +43.0) and at equal cost (+20.9, +19.6). The verifier re-measures on seeds 41 and 42.
+- **Draws** are games that reached the 200-ply limit (scored by distance); they occur in a few pairs of seed 33.
+
+**Bench** of BEST_SPEC on this build against the frozen pre-round build (single thread, thread CPU time, 3 interleaved repetitions, `--ignore-load` because the machine was shared, load 21 to 58): ratio 0.9965 (repetitions 1.0115, 0.9955, 0.9965; 746 426 against 745 559 nodes per CPU-second), 64 of 64 positions and 2 of 2 games with identical trees, so the fingerprint and the speed of the search are unchanged. The race module adds no code to the search path; a race player's cost shows in the arena's CPU column, not in Bench.
 
 ## Opening book from self-play
 

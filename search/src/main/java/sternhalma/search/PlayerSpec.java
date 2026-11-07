@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
+import sternhalma.tablebase.RaceTable;
+
 /**
  * A player described by text, e.g. {@code ab:eval=distance,nodes=20000,depth=20,tt=18}.
  *
@@ -17,12 +19,27 @@ import java.util.TreeMap;
  * {@code history=1}, {@code lmr=1|2}, {@code asp=1} (default window) or {@code asp=<half-width>},
  * {@code ttrep=1} (depth-preferred table), {@code mate=1} (mate scores relative to the node),
  * {@code partial=1} (use the best move of an interrupted iteration).
+ *
+ * <p>Race play ({@link RaceMove}), off by default: {@code race=1} plays passed positions from the race table and the
+ * solitaire beam without a search, {@code race=2} does so only while the race is not known to be lost;
+ * {@code racetable=0} disables the table (beam only). Two players only; with three players the search decides.
+ *
+ * @param race      0 off, 1 or 2 the race mode
+ * @param raceTable whether race play may use the race table
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
-        SearchOptions options, Map<String, Integer> weights) {
+        SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable) {
 
     public PlayerSpec {
         weights = Map.copyOf(weights);
+        if (race < 0 || race > 2) {
+            throw new IllegalArgumentException("race must be 0, 1 or 2, got " + race);
+        }
+    }
+
+    public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
+            SearchOptions options, Map<String, Integer> weights) {
+        this(text, evaluator, nodes, depth, millis, tableBits, options, weights, 0, true);
     }
 
     public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
@@ -60,6 +77,9 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 flag(options.remove("ttrep"), "ttrep"),
                 flag(options.remove("mate"), "mate"),
                 flag(options.remove("partial"), "partial"));
+        int race = intOption(options.remove("race"));
+        String raceTable = options.remove("racetable");
+        boolean useTable = raceTable == null || flag(raceTable, "racetable");
         // what is left and looks like w<letters/digits> are evaluator weights
         Map<String, Integer> weights = new TreeMap<>();
         options.keySet().removeIf(key -> {
@@ -80,7 +100,9 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 ms == null ? Long.MAX_VALUE : Long.parseLong(ms),
                 tt == null ? 18 : Integer.parseInt(tt),
                 search,
-                weights);
+                weights,
+                race,
+                useTable);
     }
 
     private static boolean flag(String value, String key) {
@@ -100,7 +122,8 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
     /** A new player; call once per game, because a player keeps its transposition table. */
     public AlphaBetaPlayer create() {
         String label = weights.isEmpty() ? evaluator : evaluator + weights;
+        RaceMove raceMove = race == 0 ? null : new RaceMove(raceTable ? RaceTable.rows2() : null, race);
         return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights), depth, millis, nodes, tableBits, label,
-                options);
+                options, raceMove);
     }
 }

@@ -109,6 +109,8 @@ Only a tournament can measure the cost of these blind spots. The [experiment lis
 
 A test checks the options of the "No" rows against plain negamax.
 
+Three further keys belong to the player, not to the search: `race=1` plays a passed position (the armies have passed each other) from the race table or a solitaire plan without a search, `race=2` does so only while the race is not known to be lost, and `racetable=0` disables the table (plan only). They are off by default and leave the search tree untouched; see [the race module](endgame-and-opening.md#the-race-module).
+
 **Why the exact options alone gain nothing:** with good move ordering, depth 4 costs about 9 000 nodes and depth 5 about 85 000 (mean over 40 random positions). At 20 000 nodes every exact option ends at depth 4 and throws the unfinished depth-5 iteration away. PVS, killers, aspiration and the table save at most 3 % of the nodes, which does not reach depth 5. Their match results stay inside the noise. History changes which of several equal root moves is chosen (about 45 % of positions have ties at depth 4), so its result is noise from tie-breaking (+44 then +15 Elo on the tuning seeds).
 
 **What gains:** the two options that use the wasted nodes. LMR raises the mean completed depth at 20 000 nodes from 4.0 to 4.6. `partial=1` uses the interrupted depth-5 iteration. Together with the exact options they give about +160 Elo at equal nodes, more than 4x nodes for the baseline (+135).
@@ -378,6 +380,16 @@ Cost: Bench `linear-r2` against `linear-r1` gives 1.04 nodes per CPU-second (the
 Deviations from the plan: the plan names `ab:eval=stage4,ws=15,wq=6,wj=3` without search options. The gate here gives stage4 the same search options, because without them stage4 would be saturated and the gate would be insensitive. The gates ran on author seed 33. Seed 41 is reserved for the verifier. Round 2 used games without `race=1`, because E03 is not in this branch.
 
 Not done: the futility margins of E06 depend on the evaluation scale and must be re-probed with `linear-r2` (DeltaProbe). The verifier re-measures on seeds 41 and 42.
+
+## Results of round 2 (in progress)
+
+Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by its author on seeds 33 and 34 and re-measured by a verifier on seeds 41 and 42; `Strategies.BEST_SPEC` changes only in the integration commit after a wave.
+
+| Experiment | Change | Author, equal nodes (Elo, 95 %) | Author, equal cost | Verifier | Decision |
+|---|---|---|---|---|---|
+| E03 race module | `race=1`: table or solitaire plan instead of a search in passed positions; S1 adjudication (labels only) | +66.8 ± 16.0 (seed 33), +58.5 ± 15.5 (seed 34) against BEST_SPEC | +46.6 ± 25.7, +44.2 ± 24.6 (A at 0.924 of B's nodes, still 12 % cheaper per move) | pending | author: merge; `race=1` for BEST_SPEC at integration |
+
+E03's soundness evidence (proof, lemma tests, exhaustive adversary over 997 verdicts, mutation check) and the self-play figures (S1 fires in 99.7 % of BEST games at mean ply 86.0 and saves 7.9 % of the plies; 68.5 % and 2.6 % on games of `ab:eval=distance,nodes=1000`) are in [endgame and opening](endgame-and-opening.md#measurements-e03).
 
 ## Algorithms for more than two players
 
