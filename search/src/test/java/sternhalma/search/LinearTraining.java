@@ -15,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import sternhalma.engine.Geometry;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
@@ -29,6 +30,11 @@ import sternhalma.engine.RuleSet;
  *       'ab:nodes=20000|ab:nodes=20000' 'ab:nodes=5000|ab:nodes=20000' 'ab:nodes=20000|ab:eval=rows'
  *   # 2. logistic regression, games with id % 5 == 0 held out
  *   java -cp ... sternhalma.search.LinearTraining fit weights.txt all data.csv [more.csv ...]
+ *
+ *   # round 2 (E04): moves-only self-play game files, then a fit that replays them (see GameFiles)
+ *   java -cp ... sternhalma.search.LinearTraining games data/e04/r1 2000 1003 8 '&lt;spec&gt;'
+ *   java -cp ... sternhalma.search.LinearTraining fit-games w.txt all [--keep-passed] data/e04/r1
+ *   java -cp ... sternhalma.search.LinearTraining score-games data/e04/r1   # linear-r1 vs linear-r2, held out
  * </pre>
  *
  * <p>Generation: game g plays matchup g % k (k matchups given as {@code specA|specB}); colours alternate
@@ -54,7 +60,121 @@ public final class LinearTraining {
             case "generate" -> generate(Path.of(args[1]), Integer.parseInt(args[2]), Long.parseLong(args[3]),
                     Integer.parseInt(args[4]), Arrays.copyOfRange(args, 5, args.length));
             case "fit" -> fit(Path.of(args[1]), args[2], Arrays.copyOfRange(args, 3, args.length), 100.0);
-            default -> throw new IllegalArgumentException("usage: generate|fit ...");
+            case "games" -> System.exit(GameFiles.generate(Path.of(args[1]), Integer.parseInt(args[2]),
+                    Long.parseLong(args[3]), Integer.parseInt(args[4]), args[5]));
+            case "fit-games" -> fitGames(Path.of(args[1]), args[2], Arrays.copyOfRange(args, 3, args.length));
+            case "score-games" -> scoreGames(Arrays.copyOfRange(args, 1, args.length));
+            default -> throw new IllegalArgumentException("usage: generate|fit|games|fit-games|score-games ...");
+        }
+    }
+
+    // ---- moves-only game files (round 2, E04) ----
+
+    /**
+     * A passed position: every piece of player 0 stands on a higher row than every piece of player 1, so the
+     * armies have passed each other and the game is two solitaire races (the definition of round-2 plan E03,
+     * duplicated here so that E04 does not depend on the race module). Two players only; false otherwise.
+     * Player 0 starts at r &lt; -4 and moves towards +r ({@link sternhalma.engine.Layout}).
+     */
+    static boolean passed(Position pos) {
+        if (pos.rules().players() != 2) {
+            return false;
+        }
+        int min0 = Integer.MAX_VALUE;
+        int max1 = Integer.MIN_VALUE;
+        for (int c = 0; c < Geometry.CELLS; c++) {
+            int o = pos.owner(c);
+            if (o == 0) {
+                min0 = Math.min(min0, Geometry.r(c));
+            } else if (o == 1) {
+                max1 = Math.max(max1, Geometry.r(c));
+            }
+        }
+        return min0 > max1;
+    }
+
+    /**
+     * Samples of every position of the given games from ply {@code fromPly} on that is not terminal, has a legal
+     * move and (with {@code dropPassed}) is not {@link #passed}; label (1 + value) / 2 of the recorded outcome for
+     * the side to move. {@code counts}, if not null, receives {kept, passed dropped}.
+     */
+    static List<Sample> samples(List<GameFiles.Game> games, int fromPly, boolean dropPassed, long[] counts) {
+        List<Sample> out = new ArrayList<>();
+        long dropped = 0;
+        for (GameFiles.Game g : games) {
+            Position pos = Position.initial(RuleSet.defaults(2));
+            for (int i = 0; i <= g.moves().length; i++) {
+                if (pos.outcome() != null || pos.legalMoves().length == 0) {
+                    break;
+                }
+                if (pos.ply() >= fromPly) {
+                    if (dropPassed && passed(pos)) {
+                        dropped++;
+                    } else {
+                        double[] x = new double[F];
+                        LinearEvaluator.features(pos, x);
+                        double value = pos.sideToMove() == 0 ? g.value0() : -g.value0();
+                        out.add(new Sample(g.id(), pos.ply(), (1 + value) / 2, x));
+                    }
+                }
+                if (i < g.moves().length) {
+                    pos.make(g.moves()[i]);
+                }
+            }
+        }
+        if (counts != null) {
+            counts[0] = out.size();
+            counts[1] = dropped;
+        }
+        return out;
+    }
+
+    /**
+     * {@code fit-games <out> <mask> [--keep-passed] <game files...>}: replays moves-only game files, samples every
+     * position from ply 6 (passed positions dropped unless {@code --keep-passed}), fits as {@link #fit} with game
+     * id % 5 == 0 held out, and reports the frozen {@link LinearWeights#R1} weights on the same held-out set.
+     */
+    static void fitGames(Path out, String maskSpec, String[] args) throws IOException {
+        boolean dropPassed = !Arrays.asList(args).contains("--keep-passed");
+        String[] files = Arrays.stream(args).filter(a -> !a.startsWith("--")).toArray(String[]::new);
+        List<GameFiles.Game> games = GameFiles.readAll(files);
+        long[] counts = new long[2];
+        List<Sample> all = samples(games, 6, dropPassed, counts);
+        System.out.printf(Locale.ROOT, "games %d, samples %d, passed positions dropped %d (filter %s)%n",
+                games.size(), counts[0], counts[1], dropPassed ? "on" : "off");
+        List<Sample> train = all.stream().filter(s -> !heldOut(s)).toList();
+        List<Sample> test = all.stream().filter(LinearTraining::heldOut).toList();
+        System.out.printf(Locale.ROOT, "samples: %d train, %d held out (%d games held out)%n", train.size(),
+                test.size(), test.stream().mapToInt(Sample::game).distinct().count());
+        double[] base = logistic(train, mask("dsum"), 1e-6);
+        double[] w = logistic(train, mask(maskSpec), 1e-6);
+        report("distance only", train, test, base);
+        report("frozen R1 (linear-r1)", train, test, LinearWeights.R1);
+        report("model " + maskSpec, train, test, w);
+        StringBuilder sb = new StringBuilder();
+        sb.append("# LinearTraining fit-games, mask=").append(maskSpec).append(", passed filter ")
+                .append(dropPassed ? "on" : "off").append(", files=").append(String.join(" ", files)).append('\n');
+        sb.append("# order: scale, ").append(String.join(" ", LinearEvaluator.NAMES)).append('\n');
+        sb.append(100.0).append('\n');
+        for (int i = 0; i < F; i++) {
+            sb.append(String.format(Locale.ROOT, "%.6g%n", w[i]));
+            System.out.printf(Locale.ROOT, "  %-10s %+.6g%n", LinearEvaluator.NAMES[i], w[i]);
+        }
+        Files.writeString(out, sb.toString());
+    }
+
+    /**
+     * {@code score-games <game files...>}: held-out log loss and accuracy (game id % 5 == 0, passed positions
+     * dropped, from ply 6) of the frozen weight sets {@code linear-r1} and {@code linear-r2}.
+     */
+    static void scoreGames(String[] files) throws IOException {
+        long[] counts = new long[2];
+        List<Sample> test = samples(GameFiles.readAll(files), 6, true, counts).stream()
+                .filter(LinearTraining::heldOut).toList();
+        System.out.printf(Locale.ROOT, "held-out samples %d (passed dropped overall: %d)%n", test.size(), counts[1]);
+        for (String[] named : new String[][] {{"linear-r1"}, {"linear-r2"}}) {
+            double[] s = score(test, named[0].equals("linear-r1") ? LinearWeights.R1 : LinearWeights.ROUND2);
+            System.out.printf(Locale.ROOT, "%-10s held-out logloss %.4f acc %.4f%n", named[0], s[0], s[1]);
         }
     }
 

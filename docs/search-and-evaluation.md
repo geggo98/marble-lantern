@@ -320,6 +320,65 @@ Paired games with colours swapped, 4 random opening plies, `--threads 4`, node l
 
 **Label policy:** scores with |score| >= RACE_BASE (the racelin band, E08) are never labels or value targets; only S1 (E03) may label passed positions. Every error claim for an adjudication rule states the number of firings, the errors found by playing the games to the end and the one-sided 95 % Clopper-Pearson upper bound (0 of n: about 3.0/n; 1 of n: about 4.74/n; 2 of n: about 6.3/n).
 
+### Refit of the linear weights (E04, `eval=linear-r2`, measured 2026-11-07)
+
+**TL;DR:** Two texel rounds on passed-filtered self-play of BEST_SPEC give the frozen weight set `linear-r2` (`LinearWeights.ROUND2`). With the same search options and nodes it beats `linear-r1` by +191 ± 32 and +158 ± 30 Elo (seeds 33 and 34), and at 20000 nodes it plays even with R3 (R2 at 80000 nodes). `eval=linear`, `linear-r1` and `Strategies.BEST_SPEC` are unchanged; an integration commit decides whether BEST_SPEC switches.
+
+`linear-r2` is a registry name for a weight set. Do not confuse it with the reference player R2, which plays `linear-r1`.
+
+Passed filter: `LinearTraining.passed` treats a position as passed when every piece of player 0 stands on a higher row than every piece of player 1 (the definition from E03). The E03 module is not in this branch, so this six-line predicate is a duplicate. The fit drops passed positions. In those positions race play (E03, `race=1`) is expected to take over from the evaluation.
+
+Data and fit (moves-only game files: `GameFiles`, `LinearTraining games | fit-games | score-games` in the search test sources). The files are in the git-ignored `data/e04/` (1.1 MB per set) and can be rebuilt with these commands:
+
+```bash
+devenv shell -- ./gradlew --no-build-cache :search:testClasses
+CP=engine/build/classes/java/main:search/build/classes/java/main:search/build/classes/java/test
+O=pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,nodes=20000
+# round 1: BEST_SPEC of this commit (eval=linear = R1 weights), openings of arena seed 1003, one game per opening
+java -cp $CP sternhalma.search.LinearTraining games data/e04/r1 2000 1003 8 "ab:eval=linear,$O"
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e04/w-r1-filtered.txt all data/e04/r1
+# round 2: the same search with the round-1 weights, same openings; its fit is linear-r2
+java -cp $CP sternhalma.search.LinearTraining games data/e04/r2 2000 1003 6 "ab:eval=linear-file:data/e04/w-r1-filtered.txt,$O"
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e04/w-r2-filtered.txt all data/e04/r2
+```
+
+The search is deterministic, so the game files are reproducible. `LinearRefitTest` replays one stored game. The generator writes 50-game shards atomically, resumes after an abort, and holds a lock.
+
+Held-out prediction (every position from ply 6, passed positions dropped, games with id % 5 == 0 held out):
+
+| Data set | Positions (held-out games) | Passed dropped | linear-r1 log loss / accuracy | Refit log loss / accuracy |
+|---|---|---|---|---|
+| Round 1 (BEST games) | 28 007 (400) | 34 551 of 176 037 | 0.5565 / 0.6968 | 0.5380 / 0.7101 (round-1 fit); `linear-r2` 0.5385 / 0.7110 |
+| Round 2 (round-1-fit games) | 30 136 (400) | 29 587 of 180 819 | 0.5232 / 0.7226 | 0.5176 / 0.7278 (`linear-r2`) |
+| Round 1, filter off (ablation) | 34 960 (400) | 0 | 0.5154 / 0.7323 | 0.4972 / 0.7433 |
+
+Arena (300 pairs for official numbers, 200 for tuning; all players use `pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1`; nodes 20000 unless stated; `--threads 4`). The authors tuned on seeds 31 and 32 and reported on seeds 33 and 34:
+
+| Match | Seed | Elo (95 %) |
+|---|---|---|
+| tuning: round-1 fit, filter on, vs `linear-r1` | 31 / 32 | +137 ± 37 / +150 ± 35 |
+| tuning: round-1 fit, filter off, vs `linear-r1` | 31 / 32 | +78 ± 33 / +71 ± 33 |
+| tuning: round-2 fit vs round-1 fit | 31 / 32 | +34 ± 31 / +23 ± 33 |
+| `linear-r2` vs `linear-r1` (R2) | 33 | **+191 ± 32** |
+| `linear-r2` vs `linear-r1` (R2) | 34 | **+158 ± 30** |
+| `linear-r2` vs the round-1 fit (second texel round) | 33 | +41 ± 25 |
+| gate: `linear-r2` vs `stage4,ws=15,wq=6,wj=3` at 23 511 nodes (equal cost) | 33 | +335 ± 39 |
+| gate: `linear-r1` vs the same `stage4` | 33 | +160 ± 31 |
+| gate: `linear-r2` vs R3 (`linear-r1`, 80000 nodes) | 33 | +15 ± 27 |
+| gate: `linear-r1` vs R3 | 33 | −200 ± 31 |
+
+Findings:
+
+- **The passed filter helps.** At the same evaluation code, the filtered fit gains about twice as much as the unfiltered fit, although the unfiltered fit has the lower held-out log loss on its larger set. The unfiltered fit spends weight on race positions, where the result follows from the distance arithmetic.
+- **The second round still gains** (+41 ± 25 on seed 33). The cap of 2 rounds stops the loop here. Round 3 is not tested.
+- **The gain is not only against the linear family.** Against `stage4` the score rises from 0.715 to 0.873, and against R3 from 0.240 to 0.522. Both gates pass with a wide margin. The criterion is: the candidate's score must not fall below `linear-r1`'s score by more than the combined interval.
+
+Cost: Bench `linear-r2` against `linear-r1` gives 1.04 nodes per CPU-second (the same code, other trees; measured under load 16 to 20 on 16 cores). Equal nodes is therefore at least equal cost. The stage4 node budget comes from Bench `stage4` (all options) against `linear-r1`: ratio 1.1755, under load 10.7.
+
+Deviations from the plan: the plan names `ab:eval=stage4,ws=15,wq=6,wj=3` without search options. The gate here gives stage4 the same search options, because without them stage4 would be saturated and the gate would be insensitive. The gates ran on author seed 33. Seed 41 is reserved for the verifier. Round 2 used games without `race=1`, because E03 is not in this branch.
+
+Not done: the futility margins of E06 depend on the evaluation scale and must be re-probed with `linear-r2` (DeltaProbe). The verifier re-measures on seeds 41 and 42.
+
 ## Algorithms for more than two players
 
 Alpha-beta assumes that one player's gain is the other player's loss. With three players this is false. The literature offers four families:

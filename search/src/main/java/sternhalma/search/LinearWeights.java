@@ -69,6 +69,36 @@ final class LinearWeights {
         0.229450,    // tempo
     };
 
+    /**
+     * The round-2 refit (experiment E04 of docs/baseline-round2-plan.md), registry name {@code linear-r2}; not to be
+     * confused with the reference player R2, which plays {@code linear-r1}. Frozen: never change these values, add
+     * a new set instead. {@code eval=linear} and {@link #R1} are unchanged by E04; only an integration commit may
+     * make {@link Strategies#BEST_SPEC} use these weights.
+     *
+     * <p>Texel loop, two rounds, each a logistic fit (as {@code LinearTraining fit}) on moves-only self-play games
+     * replayed by {@code LinearTraining fit-games}: every position from ply 6, passed positions dropped
+     * ({@code LinearTraining.passed}: every piece of player 0 on a higher row than every piece of player 1), games
+     * with id % 5 == 0 held out. Round 1: 2000 games of BEST_SPEC (eval=linear = {@link #R1}) at 20000 nodes from
+     * the arena openings of seed 1003; held-out log loss 0.5565 (R1) to 0.5380, accuracy 0.6968 to 0.7101 on 28007
+     * positions of 400 games. Round 2 (these weights): 2000 games of the same search with the round-1 weights,
+     * same openings; held-out log loss 0.5232 (R1) to 0.5176, accuracy 0.7226 to 0.7278 on 30136 positions.
+     * Commands and arena results: docs/search-and-evaluation.md, "Refit of the linear weights (E04)".
+     */
+    static final double[] ROUND2 = {
+        -0.264514,   // dsum
+        -0.385392,   // dmax
+        -0.167810,   // dsq
+        0.230892,    // inGoal
+        0.110844,    // inStart
+        0.119476,    // spread
+        -0.109568,   // lateral
+        0.0946884,   // jumps
+        -0.0295270,  // adjacent
+        0.0637964,   // steps
+        0.223242,    // dsumPhase
+        0.282466,    // tempo
+    };
+
     private LinearWeights() {
     }
 

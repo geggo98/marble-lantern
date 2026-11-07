@@ -68,7 +68,9 @@ Both reference classes are old code kept on purpose; do not optimise them. A cha
 
 `BenchTest` checks the speed tool: the same spec in a second, isolated copy of the build searches identical trees, different specs are reported as different trees, and the load rule refuses above the core count. Its test `theFrozenBuildSearchesTheSameTreesAsR2` compares R2 with the frozen pre-round jars in `.reference/`; it is skipped on machines without them.
 
-The contract covers the frozen alias `linear-r1` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.
+`LinearRefitTest` covers the refit data tool of E04: the passed filter at its row boundary, atomic shards, resume, cleanup and the lock (exit code 75), samples and labels against an independent replay, and the frozen `linear-r2` weights. The test resource `e04-heldout-games.txt` holds 100 held-out BEST games (54 KB). On these games `linear-r2` must have a lower log loss than `linear-r1`, and one game must replay move for move.
+
+The contract covers the frozen aliases `linear-r1` and `linear-r2` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.
 
 ## Adding a strategy
 
