@@ -2,6 +2,7 @@ package sternhalma.search;
 
 import java.util.Arrays;
 
+import sternhalma.engine.Geometry;
 import sternhalma.engine.Layout;
 import sternhalma.engine.Move;
 import sternhalma.engine.Outcome;
@@ -16,7 +17,11 @@ import sternhalma.engine.Position;
  *
  * <p>The transposition table is keyed by the position hash only. A stored value can depend on the ply
  * through the move limit; the table ignores that, as the limit is far beyond the search depth in the
- * opening and middle game. Stored mate scores are relative to the height where they were found.
+ * opening and middle game. By default mate scores are stored as they are, that is relative to the root of
+ * the search that found them; {@link SearchOptions#mateFix()} stores them relative to the node instead.
+ *
+ * <p>{@link SearchOptions} switches on further enhancements (PVS, killers, history, LMR, aspiration windows,
+ * a depth-preferred table). With {@link SearchOptions#DEFAULT} the search is the original baseline.
  *
  * <p>Not thread-safe; one instance per thread.
  */
@@ -26,21 +31,38 @@ public final class AlphaBeta {
     public static final int END_SCALE = 10_000;
     public static final int MAX_DEPTH = 64;
 
+    /** Scores at least this far from zero are wins or losses in a known number of plies. */
+    static final int MATE_BOUND = MATE - 1000;
+
     private static final int EXACT = 0;
     private static final int LOWER = 1;
     private static final int UPPER = 2;
 
+    /** Moves searched at full depth before late move reductions start. */
+    private static final int LMR_FULL_MOVES = 3;
+    /** Minimum remaining depth for a late move reduction. */
+    private static final int LMR_MIN_DEPTH = 3;
+    private static final int HISTORY_MAX = (1 << 20) - 1;
+    /** Beyond this half-width an aspiration window becomes the full window. */
+    private static final int ASPIRATION_MAX = 2000;
+
     private final Evaluator evaluator;
     private final boolean useTable;
+    private final SearchOptions options;
 
-    // transposition table: parallel arrays, always-replace
+    // transposition table: parallel arrays, always-replace (default) or depth-preferred buckets of two
     private final long[] keys;
     private final int[] scores;
     private final int[] info; // depth (8 bits) | flag (2 bits) | move+1 (21 bits)
+    private final short[] generations; // search number of the entry, only for depth-preferred
     private final int mask;
+    private short generation;
 
     private final int[][] moveBuffers = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
     private final int[][] orderKeys = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
+    private final int[][] killerMoves = new int[MAX_DEPTH + 2][2];
+    private final int[] historyTable;
+    private final int[][] lmrTable = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
 
     private long nodes;
     private long nodeLimit;
@@ -58,19 +80,54 @@ public final class AlphaBeta {
      * @param useTable  false disables the table (for tests that compare against plain search)
      */
     public AlphaBeta(Evaluator evaluator, int tableBits, boolean useTable) {
+        this(evaluator, tableBits, useTable, SearchOptions.DEFAULT);
+    }
+
+    public AlphaBeta(Evaluator evaluator, int tableBits, boolean useTable, SearchOptions options) {
         this.evaluator = evaluator;
         this.useTable = useTable;
+        this.options = options;
         int size = useTable ? 1 << tableBits : 1;
+        if (options.depthPreferred() && size < 2) {
+            size = 2; // one bucket of two entries
+        }
         this.keys = new long[size];
         this.scores = new int[size];
         this.info = new int[size];
+        this.generations = options.depthPreferred() ? new short[size] : null;
         this.mask = size - 1;
+        this.historyTable = options.history() ? new int[Geometry.CELLS * Geometry.CELLS] : null;
+        for (int d = 1; d <= MAX_DEPTH; d++) {
+            for (int i = 1; i < Position.MAX_MOVES; i++) {
+                int r = options.lmr() == 2 ? (int) (0.5 + Math.log(d) * Math.log(i) / 2.0) : 1;
+                lmrTable[d][i] = Math.max(1, Math.min(r, d - 2));
+            }
+        }
+        clearKillers();
+    }
+
+    public SearchOptions options() {
+        return options;
     }
 
     /** Forgets all stored positions. */
     public void clear() {
         Arrays.fill(keys, 0L);
         Arrays.fill(info, 0);
+        if (generations != null) {
+            Arrays.fill(generations, (short) 0);
+        }
+        if (historyTable != null) {
+            Arrays.fill(historyTable, 0);
+        }
+        clearKillers();
+    }
+
+    private void clearKillers() {
+        for (int[] k : killerMoves) {
+            k[0] = -1;
+            k[1] = -1;
+        }
     }
 
     /** Searches to a fixed depth with no time limit. */
@@ -102,6 +159,16 @@ public final class AlphaBeta {
         stopped = false;
         deadlineNanos = timeLimitMillis == Long.MAX_VALUE
                 ? Long.MAX_VALUE : System.nanoTime() + timeLimitMillis * 1_000_000L;
+        generation++;
+        if (generation == 0) {
+            generation = 1; // 0 marks an empty entry
+        }
+        clearKillers();
+        if (historyTable != null) {
+            for (int i = 0; i < historyTable.length; i++) {
+                historyTable[i] >>= 2;
+            }
+        }
         int[] rootMoves = new int[Position.MAX_MOVES];
         int rootCount = root.generate(rootMoves);
         if (rootCount == 0 || root.outcome() != null) {
@@ -113,7 +180,9 @@ public final class AlphaBeta {
         boolean complete = true;
         for (int depth = 1; depth <= maxDepth; depth++) {
             timed = depth > 1; // depth 1 always completes, so there is always a move to return
-            int[] iteration = searchRoot(depth, bestMove);
+            int[] iteration = options.aspiration() > 0 && depth > 1 && Math.abs(bestScore) < MATE_BOUND
+                    ? aspirationRoot(depth, bestMove, bestScore)
+                    : searchRoot(depth, bestMove, -MATE - 1, MATE + 1);
             if (stopped && depth > 1) {
                 complete = false;
                 break;
@@ -128,18 +197,50 @@ public final class AlphaBeta {
         return new SearchResult(bestMove, bestScore, doneDepth, nodes, complete);
     }
 
-    /** One root iteration; returns {move, score}. */
-    private int[] searchRoot(int depth, int firstGuess) {
+    /** A root iteration in a window around the previous score, widened until the score falls inside. */
+    private int[] aspirationRoot(int depth, int firstGuess, int previous) {
+        int delta = options.aspiration();
+        int alpha = Math.max(-MATE - 1, previous - delta);
+        int beta = Math.min(MATE + 1, previous + delta);
+        int guess = firstGuess;
+        while (true) {
+            int[] iteration = searchRoot(depth, guess, alpha, beta);
+            if (stopped) {
+                return iteration;
+            }
+            int score = iteration[1];
+            if (score <= alpha && alpha > -MATE - 1) {
+                delta *= 4;
+                alpha = delta > ASPIRATION_MAX ? -MATE - 1 : Math.max(-MATE - 1, score - delta);
+            } else if (score >= beta && beta < MATE + 1) {
+                guess = iteration[0]; // a fail high has found a better move; search it first
+                delta *= 4;
+                beta = delta > ASPIRATION_MAX ? MATE + 1 : Math.min(MATE + 1, score + delta);
+            } else {
+                return iteration;
+            }
+        }
+    }
+
+    /** One root iteration in the window (alpha, beta); returns {move, score}. */
+    private int[] searchRoot(int depth, int firstGuess, int alphaIn, int beta) {
         int[] moves = moveBuffers[0];
         int count = root.generate(moves);
         order(root, moves, count, 0, firstGuess);
-        int alpha = -MATE - 1;
-        int beta = MATE + 1;
+        int alpha = alphaIn;
         int bestMove = moves[0];
         int bestScore = -MATE - 1;
         for (int i = 0; i < count; i++) {
             root.make(moves[i]);
-            int score = -negamax(depth - 1, -beta, -alpha, 1);
+            int score;
+            if (options.pvs() && i > 0) {
+                score = -negamax(depth - 1, -alpha - 1, -alpha, 1);
+                if (score > alpha && score < beta && !stopped) {
+                    score = -negamax(depth - 1, -beta, -alpha, 1);
+                }
+            } else {
+                score = -negamax(depth - 1, -beta, -alpha, 1);
+            }
             root.unmake();
             if (stopped) {
                 break;
@@ -151,9 +252,13 @@ public final class AlphaBeta {
                     alpha = score;
                 }
             }
+            if (alpha >= beta) {
+                break; // only inside an aspiration window
+            }
         }
         if (useTable && !stopped) {
-            store(root.hash(), bestScore, depth, EXACT, bestMove);
+            int flag = bestScore <= alphaIn ? UPPER : bestScore >= beta ? LOWER : EXACT;
+            store(root.hash(), bestScore, depth, flag, bestMove, 0);
         }
         return new int[] {bestMove, bestScore};
     }
@@ -178,14 +283,14 @@ public final class AlphaBeta {
         long key = root.hash();
         int ttMove = -1;
         if (useTable) {
-            int slot = (int) (key ^ (key >>> 32)) & mask;
-            if (keys[slot] == key) {
+            int slot = probe(key);
+            if (slot >= 0) {
                 int stored = info[slot];
                 int storedDepth = stored >>> 24;
                 int flag = (stored >>> 22) & 3;
                 ttMove = (stored & 0x1FFFFF) - 1;
                 if (storedDepth >= depth) {
-                    int s = scores[slot];
+                    int s = options.mateFix() ? fromTable(scores[slot], height) : scores[slot];
                     if (flag == EXACT) {
                         return s;
                     }
@@ -209,48 +314,132 @@ public final class AlphaBeta {
         int best = -MATE - 1;
         int bestMove = moves[0];
         int originalAlpha = alpha;
+        boolean pvs = options.pvs();
+        boolean lmr = options.lmr() > 0 && depth >= LMR_MIN_DEPTH;
+        int[] killers = killerMoves[height];
         for (int i = 0; i < count; i++) {
-            root.make(moves[i]);
-            int score = -negamax(depth - 1, -beta, -alpha, height + 1);
+            int move = moves[i];
+            root.make(move);
+            int score;
+            int reduction = lmr && i >= LMR_FULL_MOVES && move != ttMove
+                    && move != killers[0] && move != killers[1] ? lmrTable[depth][i] : 0;
+            if (i == 0 || (!pvs && reduction == 0)) {
+                score = -negamax(depth - 1, -beta, -alpha, height + 1);
+            } else {
+                score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, height + 1);
+                if (reduction > 0 && score > alpha && !stopped) {
+                    score = -negamax(depth - 1, pvs ? -alpha - 1 : -beta, -alpha, height + 1);
+                }
+                if (pvs && score > alpha && score < beta && !stopped) {
+                    score = -negamax(depth - 1, -beta, -alpha, height + 1);
+                }
+            }
             root.unmake();
             if (stopped) {
                 return 0;
             }
             if (score > best) {
                 best = score;
-                bestMove = moves[i];
+                bestMove = move;
             }
             if (score > alpha) {
                 alpha = score;
             }
             if (alpha >= beta) {
+                if (options.killers() && move != killers[0]) {
+                    killers[1] = killers[0];
+                    killers[0] = move;
+                }
+                if (historyTable != null) {
+                    int h = Move.from(move) * Geometry.CELLS + Move.to(move);
+                    historyTable[h] = Math.min(HISTORY_MAX, historyTable[h] + depth * depth);
+                }
                 break;
             }
         }
         if (useTable) {
             int flag = best <= originalAlpha ? UPPER : best >= beta ? LOWER : EXACT;
-            store(key, best, depth, flag, bestMove);
+            store(key, best, depth, flag, bestMove, height);
         }
         return best;
     }
 
-    private void store(long key, int score, int depth, int flag, int move) {
+    /** The slot holding {@code key}, or -1. */
+    private int probe(long key) {
         int slot = (int) (key ^ (key >>> 32)) & mask;
+        if (!options.depthPreferred()) {
+            return keys[slot] == key ? slot : -1;
+        }
+        int first = slot & ~1;
+        if (keys[first] == key && generations[first] != 0) {
+            return first;
+        }
+        int second = first | 1;
+        return keys[second] == key && generations[second] != 0 ? second : -1;
+    }
+
+    private void store(long key, int score, int depth, int flag, int move, int height) {
+        int slot = (int) (key ^ (key >>> 32)) & mask;
+        if (options.depthPreferred()) {
+            int first = slot & ~1;
+            boolean replaceFirst = keys[first] == key
+                    || generations[first] != generation
+                    || depth >= (info[first] >>> 24);
+            slot = replaceFirst ? first : first | 1;
+            generations[slot] = generation;
+        }
         keys[slot] = key;
-        scores[slot] = score;
+        scores[slot] = options.mateFix() ? toTable(score, height) : score;
         info[slot] = (Math.min(depth, 255) << 24) | (flag << 22) | (move + 1);
     }
 
-    /** Orders moves best-first: the table move, then by the distance a move gains for the mover. */
+    /** A score at {@code height} as stored in the table: mate scores relative to the node. */
+    static int toTable(int score, int height) {
+        if (score >= MATE_BOUND) {
+            return score + height;
+        }
+        if (score <= -MATE_BOUND) {
+            return score - height;
+        }
+        return score;
+    }
+
+    /** The inverse of {@link #toTable(int, int)}. */
+    static int fromTable(int score, int height) {
+        if (score >= MATE_BOUND) {
+            return score - height;
+        }
+        if (score <= -MATE_BOUND) {
+            return score + height;
+        }
+        return score;
+    }
+
+    /**
+     * Orders moves best-first: the table move, then the killer moves (if on), then by the distance a move
+     * gains for the mover, with ties broken by the history table (if on).
+     */
     private void order(Position pos, int[] moves, int count, int height, int firstMove) {
         Layout layout = pos.layout();
         int player = pos.sideToMove();
         int[] gain = orderKeys[height];
+        int killer0 = options.killers() ? killerMoves[height][0] : -1;
+        int killer1 = options.killers() ? killerMoves[height][1] : -1;
+        int[] hist = historyTable;
         for (int i = 0; i < count; i++) {
             int m = moves[i];
-            gain[i] = m == firstMove
-                    ? Integer.MAX_VALUE
-                    : layout.distance(player, Move.from(m)) - layout.distance(player, Move.to(m));
+            if (m == firstMove) {
+                gain[i] = Integer.MAX_VALUE;
+            } else if (m == killer0) {
+                gain[i] = Integer.MAX_VALUE - 1;
+            } else if (m == killer1) {
+                gain[i] = Integer.MAX_VALUE - 2;
+            } else {
+                int from = Move.from(m);
+                int to = Move.to(m);
+                int g = layout.distance(player, from) - layout.distance(player, to);
+                gain[i] = hist == null ? g : (g << 20) + hist[from * Geometry.CELLS + to];
+            }
         }
         for (int i = 0; i < count - 1; i++) { // selection sort: the front is searched first, the rest rarely
             int best = i;

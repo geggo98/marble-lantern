@@ -27,13 +27,19 @@ public final class AlphaBetaPlayer implements Player {
 
     public AlphaBetaPlayer(Evaluator evaluator, int maxDepth, long timeLimitMillis, long maxNodes, int tableBits,
             String evaluatorName) {
-        this.search = new AlphaBeta(evaluator, tableBits, true);
+        this(evaluator, maxDepth, timeLimitMillis, maxNodes, tableBits, evaluatorName, SearchOptions.DEFAULT);
+    }
+
+    public AlphaBetaPlayer(Evaluator evaluator, int maxDepth, long timeLimitMillis, long maxNodes, int tableBits,
+            String evaluatorName, SearchOptions options) {
+        this.search = new AlphaBeta(evaluator, tableBits, true, options);
         this.maxDepth = maxDepth;
         this.timeLimitMillis = timeLimitMillis;
         this.maxNodes = maxNodes;
         this.name = "ab[eval=" + evaluatorName + ", depth<=" + maxDepth
                 + (timeLimitMillis == Long.MAX_VALUE ? "" : ", " + timeLimitMillis + " ms")
-                + (maxNodes == Long.MAX_VALUE ? "" : ", " + maxNodes + " nodes") + "]";
+                + (maxNodes == Long.MAX_VALUE ? "" : ", " + maxNodes + " nodes")
+                + (options.isDefault() ? "" : ", " + options.describe()) + "]";
     }
 
     @Override
