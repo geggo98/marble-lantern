@@ -22,6 +22,8 @@ public final class Evaluators {
         put("distance", DistanceEvaluator::new);
         put("rows", RowEvaluator::new);
         put("linear", LinearEvaluator::new);
+        // frozen round-1 weights: the evaluator of the reference player R2 (ReferencePositions.R2_SPEC)
+        put("linear-r1", () -> new LinearEvaluator(LinearWeights.R1, LinearWeights.SCALE));
         REGISTRY.put("stage4", Stage4Evaluator::of);
     }
 

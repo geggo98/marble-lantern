@@ -46,6 +46,21 @@ Both limits are project values chosen from these measurements. They apply to gam
 
 `StrategyContractMetaTest` feeds deliberately broken strategies to the checks and expects each check to fail: a cheater (illegal move), a crasher (exception), a runaway (legal moves, never wins), a random strategy that claims to beat random players, and a player that changes the position it is given. It also tests that the position generator is varied and that positions "just before the end" really are one move from the end.
 
+## Search-tree fingerprints
+
+Two tests pin what the alpha-beta players search, so that a speed optimisation cannot change play unnoticed:
+
+| Test | Pins | Recorded with |
+|---|---|---|
+| `DefaultBehaviourTest` | `ab:eval=distance` with default options: 8 searches and one game | commit 78eb955 |
+| `BestSpecFingerprintTest` | R2 (`eval=linear-r1`, the frozen round-1 weights) and `Strategies.BEST_SPEC`, each at 20000 nodes: 64 reference positions (node-limited search and an exact depth-4 search) and one self-play game each at 1000 and 5000 nodes | commit cb4b750 plus E00 |
+
+An identical-tree change (round-2 experiments E01, E02, E13) must keep every constant. A tree-changing feature is off by default and keeps them too while it is off. A change of the `linear` weights (E04) re-records only the `BEST_*` constants. Every re-record needs a written reason in the commit message and in docs/search-and-evaluation.md ("Round 2 yardstick"). On a failure, `./gradlew :search:fingerprint --args='<spec>'` prints one line per position on each build; the first differing line shows where the trees part.
+
+`BenchTest` checks the speed tool: the same spec in a second, isolated copy of the build searches identical trees, different specs are reported as different trees, and the load rule refuses above the core count. Its test `theFrozenBuildSearchesTheSameTreesAsR2` compares R2 with the frozen pre-round jars in `.reference/`; it is skipped on machines without them.
+
+The contract covers the frozen alias `linear-r1` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.
+
 ## Adding a strategy
 
 Register it in `Strategies.registered()` with the player counts it supports and whether it must beat a random player. A strategy in another module extends `StrategyContract`. Add `testImplementation(testFixtures(project(":search")))` to that module's build file.

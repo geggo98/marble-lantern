@@ -20,6 +20,16 @@ import sternhalma.engine.RuleSet;
  * the score {@code (1 + value) / 2} of the outcome, so a win is 1, a loss is 0 and a game ended by the move
  * limit counts by its distance score (docs/rules.md).
  *
+ * <p>Cost per player is reported twice: wall time and thread CPU time per move (measured by {@link GameRunner}
+ * around each move choice on the thread that plays the game). Criteria such as "not slower" use the CPU column,
+ * because wall time under shared load also counts the time the thread waited for a core. The report also
+ * suggests the node budget for A that costs as much CPU time as B's budget,
+ * {@code nodes(A) = nodes(B) x nps(A) / nps(B)}; that ratio is measured under the arena's own load, and claims
+ * use the ratio of {@link Bench} instead.
+ *
+ * <p>{@code --sprt elo0,elo1} stops the match early once a sequential test on the pair scores (in pair order,
+ * so the decision does not depend on the thread count) accepts one hypothesis; see {@link Sprt}. Default off.
+ *
  * <pre>
  *   java -cp ... sternhalma.search.Arena --a ab:eval=distance --b ab:eval=rows --pairs 100
  * </pre>
@@ -31,24 +41,41 @@ public final class Arena {
             PlayerSpec a, PlayerSpec b, int pairs, double score, double scoreStandardError,
             double elo, double eloConfidence95, int aWins, int draws, int bWins,
             double averagePlies, double nodesPerSecondA, double nodesPerSecondB,
-            double nodesPerMoveA, double nodesPerMoveB) {
+            double nodesPerMoveA, double nodesPerMoveB,
+            double cpuMillisPerMoveA, double cpuMillisPerMoveB, double wallMillisPerMoveA, double wallMillisPerMoveB,
+            double nodesPerCpuSecondA, double nodesPerCpuSecondB, String sprt) {
+
+        /**
+         * The node budget for A that costs as much CPU time per move as B's budget, from this run's CPU-time
+         * nodes/s: {@code nodes(B) x nps(A) / nps(B)}. Measured under the arena's load; NaN without CPU times.
+         */
+        public double equalCostNodesA() {
+            return b.nodes() * nodesPerCpuSecondA / nodesPerCpuSecondB;
+        }
 
         @Override
         public String toString() {
             return String.format(Locale.ROOT,
                     "A=%s%nB=%s%npairs=%d games=%d  A wins=%d draws=%d B wins=%d  avg plies=%.1f%n"
                             + "score(A)=%.4f +- %.4f  Elo(A-B)=%+.1f +- %.1f (95%%)%n"
-                            + "A: %.0f nodes/move, %.0f nodes/s   B: %.0f nodes/move, %.0f nodes/s%n"
-                            + "RESULT elo=%.1f ci=%.1f score=%.4f pairs=%d",
+                            + "%s"
+                            + "A: %.0f nodes/move, %.0f nodes/s wall, %.0f nodes/CPU-s, %.2f CPU-ms/move, %.2f wall-ms/move%n"
+                            + "B: %.0f nodes/move, %.0f nodes/s wall, %.0f nodes/CPU-s, %.2f CPU-ms/move, %.2f wall-ms/move%n"
+                            + "equal cost: nodes(A) = nodes(B) x nps(A)/nps(B) = %d x %.3f = %.0f "
+                            + "(CPU time under this run's load; use the Bench ratio for claims)%n"
+                            + "RESULT elo=%.1f ci=%.1f score=%.4f pairs=%d cpu_ms_a=%.3f cpu_ms_b=%.3f",
                     a.text(), b.text(), pairs, 2 * pairs, aWins, draws, bWins, averagePlies,
                     score, scoreStandardError, elo, eloConfidence95,
-                    nodesPerMoveA, nodesPerSecondA, nodesPerMoveB, nodesPerSecondB,
-                    elo, eloConfidence95, score, pairs);
+                    sprt.isEmpty() ? "" : sprt + String.format("%n"),
+                    nodesPerMoveA, nodesPerSecondA, nodesPerCpuSecondA, cpuMillisPerMoveA, wallMillisPerMoveA,
+                    nodesPerMoveB, nodesPerSecondB, nodesPerCpuSecondB, cpuMillisPerMoveB, wallMillisPerMoveB,
+                    b.nodes(), nodesPerCpuSecondA / nodesPerCpuSecondB, equalCostNodesA(),
+                    elo, eloConfidence95, score, pairs, cpuMillisPerMoveA, cpuMillisPerMoveB);
         }
     }
 
     private record GameData(double scoreA, int plies, boolean aWon, boolean bWon,
-            long nodesA, long nanosA, long movesA, long nodesB, long nanosB, long movesB) {
+            long nodesA, long nanosA, long cpuA, long movesA, long nodesB, long nanosB, long cpuB, long movesB) {
     }
 
     private Arena() {
@@ -66,6 +93,15 @@ public final class Arena {
     }
 
     public static Report match(PlayerSpec a, PlayerSpec b, int pairs, long seed, int openingPlies, int threads) {
+        return match(a, b, pairs, seed, openingPlies, threads, null);
+    }
+
+    /**
+     * A match of at most {@code pairs} pairs; with an {@link Sprt} (may be null) it stops at the first pair after
+     * which the test accepts a hypothesis, and the report covers the pairs played up to there.
+     */
+    public static Report match(PlayerSpec a, PlayerSpec b, int pairs, long seed, int openingPlies, int threads,
+            Sprt sprt) {
         RuleSet rules = RuleSet.defaults(2);
         List<Future<GameData[]>> futures = new ArrayList<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads))) {
@@ -77,18 +113,23 @@ public final class Arena {
                 }));
             }
             double[] pairScores = new double[pairs];
+            int played = 0;
+            double llr = 0;
             int aWins = 0;
             int bWins = 0;
             int draws = 0;
             double plies = 0;
             long nodesA = 0;
             long nanosA = 0;
+            long cpuA = 0;
             long movesA = 0;
             long nodesB = 0;
             long nanosB = 0;
+            long cpuB = 0;
             long movesB = 0;
             for (int pair = 0; pair < pairs; pair++) {
                 GameData[] games = get(futures.get(pair));
+                played++;
                 pairScores[pair] = (games[0].scoreA() + games[1].scoreA()) / 2.0;
                 for (GameData g : games) {
                     aWins += g.aWon() ? 1 : 0;
@@ -97,18 +138,35 @@ public final class Arena {
                     plies += g.plies();
                     nodesA += g.nodesA();
                     nanosA += g.nanosA();
+                    cpuA += g.cpuA();
                     movesA += g.movesA();
                     nodesB += g.nodesB();
                     nanosB += g.nanosB();
+                    cpuB += g.cpuB();
                     movesB += g.movesB();
                 }
+                if (sprt != null) {
+                    llr = sprt.llr(pairScores, played);
+                    if (sprt.decide(llr) != Sprt.Decision.CONTINUE) {
+                        for (int rest = pair + 1; rest < pairs; rest++) {
+                            futures.get(rest).cancel(false);
+                        }
+                        break;
+                    }
+                }
             }
-            double score = Elo.mean(pairScores);
-            double se = Elo.standardError(pairScores);
-            return new Report(a, b, pairs, score, se, Elo.fromScore(score), Elo.confidence95(score, se),
-                    aWins, draws, bWins, plies / (2.0 * pairs),
+            double[] scores = java.util.Arrays.copyOf(pairScores, played);
+            double score = Elo.mean(scores);
+            double se = Elo.standardError(scores);
+            boolean cpu = GameRunner.measuresCpuTime();
+            return new Report(a, b, played, score, se, Elo.fromScore(score), Elo.confidence95(score, se),
+                    aWins, draws, bWins, plies / (2.0 * played),
                     nodesA / (nanosA / 1e9), nodesB / (nanosB / 1e9),
-                    (double) nodesA / movesA, (double) nodesB / movesB);
+                    (double) nodesA / movesA, (double) nodesB / movesB,
+                    cpu ? cpuA / 1e6 / movesA : Double.NaN, cpu ? cpuB / 1e6 / movesB : Double.NaN,
+                    nanosA / 1e6 / movesA, nanosB / 1e6 / movesB,
+                    cpu ? nodesA / (cpuA / 1e9) : Double.NaN, cpu ? nodesB / (cpuB / 1e9) : Double.NaN,
+                    sprt == null ? "" : sprt.describe(llr, played));
         }
     }
 
@@ -128,12 +186,13 @@ public final class Arena {
                 : GameRunner.play(start, playerB, playerA);
         Outcome outcome = result.outcome();
         int indexA = aFirst ? 0 : 1;
+        int indexB = 1 - indexA;
         double scoreA = (1.0 + outcome.value(indexA)) / 2.0;
         boolean aWon = outcome.hasWinner() && outcome.winner() == indexA;
         boolean bWon = outcome.hasWinner() && outcome.winner() != indexA;
         return new GameData(scoreA, result.plies(), aWon, bWon,
-                playerA.totalNodes(), playerA.totalNanos(), playerA.moves(),
-                playerB.totalNodes(), playerB.totalNanos(), playerB.moves());
+                playerA.totalNodes(), result.wallNanos()[indexA], result.cpuNanos()[indexA], result.moves()[indexA],
+                playerB.totalNodes(), result.wallNanos()[indexB], result.cpuNanos()[indexB], result.moves()[indexB]);
     }
 
     public static void main(String[] args) {
@@ -143,6 +202,7 @@ public final class Arena {
         long seed = 1;
         int openingPlies = 4;
         int threads = Runtime.getRuntime().availableProcessors();
+        Sprt sprt = null;
         for (int i = 0; i < args.length; i += 2) {
             if (i + 1 >= args.length) {
                 throw new IllegalArgumentException("missing value for " + args[i]);
@@ -154,13 +214,14 @@ public final class Arena {
                 case "--seed" -> seed = Long.parseLong(args[i + 1]);
                 case "--opening-plies" -> openingPlies = Integer.parseInt(args[i + 1]);
                 case "--threads" -> threads = Integer.parseInt(args[i + 1]);
+                case "--sprt" -> sprt = Sprt.parse(args[i + 1]);
                 default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
         if (a == null || b == null) {
             throw new IllegalArgumentException("usage: Arena --a <spec> --b <spec> [--pairs N] [--seed S] "
-                    + "[--opening-plies K] [--threads T]");
+                    + "[--opening-plies K] [--threads T] [--sprt elo0,elo1]");
         }
-        System.out.println(match(PlayerSpec.parse(a), PlayerSpec.parse(b), pairs, seed, openingPlies, threads));
+        System.out.println(match(PlayerSpec.parse(a), PlayerSpec.parse(b), pairs, seed, openingPlies, threads, sprt));
     }
 }

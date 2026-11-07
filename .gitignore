@@ -26,6 +26,9 @@ out/
 # Selfplay data, checkpoints, weights, databases: too large for the repo
 /data/
 
+# Frozen pre-round build (cost reference for Bench, scripts/freeze-reference.sh)
+/.reference/
+
 # Downloaded TornadoVM SDK
 /tornado-sdk/
 

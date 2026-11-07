@@ -189,7 +189,108 @@ Limits of these numbers:
 
 - **The arena saturates.** At 99% of the points the Elo estimate is clamped and its interval is wide. The original baseline can no longer separate stronger players. From now on, new strategies are measured against `Strategies.BEST_SPEC`.
 - **Openings and opponents.** All games start after 4 random plies and are played against other engines of this family. Strength against humans or against a different kind of player is not measured.
-- **Machine load.** Node-limited matches do not depend on load. The nodes-per-second ratios behind the cost adjustment were measured while other runs used the machine and are accurate to a few percent.
+- **Machine load.** Node-limited matches do not depend on load. The nodes-per-second ratios behind the cost adjustment were measured while other runs used the machine and are accurate to a few percent. Round 2 measures them with `Bench` instead (next section).
+
+## Round 2 yardstick
+
+**TL;DR:** Round 2 is measured against a frozen reference player R2 (round 1's best player with its weights frozen as `linear-r1`), whose search tree is pinned by a test, and against a frozen jar of the pre-round build for speed. Speed ratios come only from `Bench` (single thread, thread CPU time, interleaved), never from an arena report. The full plan is [baseline-round2-plan.md](baseline-round2-plan.md); this section is the part that the code implements (experiment E00).
+
+### Reference player and ladder
+
+R2 = `ab:eval=linear-r1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,nodes=20000` (`ReferencePositions.R2_SPEC`). `linear-r1` is the registry name of `LinearWeights.R1`, a literal copy of the round-1 weights; `eval=linear` keeps the live weights (`LinearWeights.WEIGHTS`) and may be refitted. Every later build can construct R2, and the strategy contract tests cover `linear-r1` through `Evaluators.names()`.
+
+| Rung | Spec | Use |
+|---|---|---|
+| R0 | `ab:eval=distance,nodes=20000` | sanity only (saturated at 198 of 200 games) |
+| R1 | R2 at 5000 nodes | lower rung |
+| R2 | as above | gating opponent of the round and of every network generation |
+| R3 | R2 at 80000 nodes | upper rung, sensitive gate for weight refits |
+
+Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze the new BEST as R2' with a new registry alias and fingerprint, and keep R2 in the ladder.
+
+### Seeds
+
+| Seeds | Use |
+|---|---|
+| 31, 32 | authors' tuning |
+| 33, 34 | authors' report (300 pairs each) |
+| 41, 42 | verifier (300 pairs; 500 when the claimed gain is below +50 Elo) |
+| 43 | integration match |
+| 1002 to 1005 | data sets (E03, E04, E05) |
+
+Official numbers use no other seeds. Seeds of round 1 and of the surveyors (1 to 4, 9, 11 to 13, 21 to 25, 77, 1001) are not reused. The reference positions below use the fixed generator seed 1000; they produce no Elo number, only trees and speed.
+
+### Search-tree fingerprint
+
+`ReferencePositions` generates 64 positions deterministically: 8 self-play games of R2 at 1000 nodes from 4 random plies (seed 1000), 8 distinct plies between 8 and 100 drawn from each. Two more openings start the full games. Nothing is stored on disk; the set is a list of move sequences from the start position and takes about a second to generate.
+
+`Fingerprint` computes three checksums for a spec: per position the move, score, completed depth and node count of the node-limited search plus the move, score and exact node count of a depth-4 search (a node-limited search nearly always reports exactly its limit, so only the depth-4 count measures the tree size); and the move sequence and node totals of one self-play game at 1000 and one at 5000 nodes. `BestSpecFingerprintTest` records them for R2 and for `Strategies.BEST_SPEC` at 20000 nodes. At the freeze both specs have the same values, because the weights are the same.
+
+Rules:
+
+- An identical-tree change (E01, E02, E13) keeps all six constants. It needs no arena run: the fingerprint test green without touching a constant, plus the Bench ratio.
+- A tree-changing feature is off by default, so it changes no constant while it is off.
+- A refit of `linear` (E04) changes the `BEST_*` constants, never the `R2_*` constants.
+- Every re-record needs a written reason in the commit message and in this section.
+- To find where two trees part: `devenv shell -- ./gradlew --no-build-cache :search:fingerprint --args='<spec>'` prints one line per position and the game moves; diff the output of the two builds.
+
+Re-records: none so far.
+
+### Cost reference: the frozen pre-round build
+
+The pre-round build is frozen as `engine.jar` and `search.jar` in `.reference/` in the repository root (ignored by git), built by `devenv shell -- scripts/freeze-reference.sh`, which refuses to overwrite an existing reference without `--force`. `Bench` reads it from `-Dsternhalma.reference.dir` (default `.reference` in the working directory; the Gradle task runs in the repository root and accepts `-Psternhalma.reference.dir=<dir>`).
+
+| Item | Value |
+|---|---|
+| Commit | `cb4b75011678758e485700a8605ac864a491d6c3` (the last commit before round 2) |
+| Built | 2026-11-07, OpenJDK 25.0.3 |
+| SHA-256 `engine.jar` | `6b8e8da29674d7a684919172b48a2f709a91d1e20ac353ce4f222d2c92813223` |
+| SHA-256 `search.jar` | `d46b8b89bc0ac073b53b9b5ad22e1a65db1dacfaba004d2211f12a0f58771bda` |
+
+The frozen build has no `linear-r1`; its `eval=linear` holds the same weights, and Bench uses it there automatically (it says so in its output). Bench confirms on every run that both builds search the identical trees.
+
+### Bench: nodes per CPU-second
+
+```bash
+devenv shell -- ./gradlew --no-build-cache :search:bench --args='<spec>'           # current vs frozen build
+devenv shell -- ./gradlew --no-build-cache :search:bench --args='<specA> <specB>'  # two specs, current build
+devenv shell -- ./gradlew --no-build-cache :search:bench --args='<spec> --copy'    # current vs a second copy of it
+```
+
+Protocol, as implemented in `Bench`:
+
+- **Items:** the 64 reference positions (a fresh searcher each) plus 2 full self-play games (two fresh players that keep their tables, as in the arena), all at the spec's node budget (`--nodes N` overrides it).
+- **Single thread, CPU time:** everything runs on the main thread. `ThreadMXBean.getCurrentThreadCpuTime()` is read around each `search` or `choose` call, never per node. Table allocation and position replay lie outside the timed region. Wall time is printed beside it for information.
+- **Same code path for both builds:** both sides, also the current build, are driven by reflection through API that exists in the frozen build (`PlayerSpec.parse`, `Evaluators.byName`, `new AlphaBeta(...)`, `AlphaBeta.search`, `AlphaBetaPlayer.choose`). The frozen jars live in their own class loader whose parent is the platform class loader.
+- **Interleaving:** one untimed warm-up pass of both sides over the positions, then 3 repetitions. In each repetition every item runs on both sides directly after each other, in the order A,B when item number plus repetition number is even, otherwise B,A. A change of load therefore hits both sides alike, and neither side always runs first. The ratio of a repetition is nps(A)/nps(B) over all its items; Bench reports the median of the repetitions.
+- **Load:** the 1-minute load average is logged before and after. Above the core count Bench refuses to start (before) or prints `REFUSED` instead of `RESULT` (after), with exit code 3; `--ignore-load` reports anyway and marks the line `UNDER_LOAD`.
+- **Tree check:** Bench reports on how many positions and games A and B searched identical trees (move, score, depth and nodes; for games the move sequence and the node total).
+
+Measured on 2026-11-07 for R2 on the unchanged code (16 cores, load 3.7 to 4.8; three separate Bench runs against the frozen build):
+
+| Comparison | nps(A) | nps(B) | Ratio (median of 3 repetitions) | Trees |
+|---|---|---|---|---|
+| current vs frozen, run 1 | 1 252 704 | 1 275 993 | 0.9803 | 64/64, 2/2 identical |
+| current vs frozen, run 2 | 1 276 398 | 1 268 658 | 1.0045 | 64/64, 2/2 identical |
+| current vs frozen, run 3 | 1 276 770 | 1 278 545 | 0.9991 | 64/64, 2/2 identical |
+| current vs a second copy of itself (`--copy`) | 1 267 474 | 1 269 402 | 0.9958 | 64/64, 2/2 identical |
+| `linear-r1` vs `linear`, current build | 1 270 823 | 1 275 566 | 0.9946 | 64/64, 2/2 identical |
+
+Arena check of the alias (seed 41, 100 pairs, 20000 nodes, `--threads 4`): `linear-r1` against `linear` with all options scored exactly 0.5000 (100 wins each, every game decided by colour), 18 917 nodes per move on both sides, 15.01 against 14.99 CPU-ms per move.
+
+CPU time per move of R2 at 20000 nodes: about 15 ms. Within one run the repetitions agree to about 1 %; between runs (separate JVMs, separate JIT compilations) the ratio moved between 0.980 and 1.005 on identical code. A speed claim therefore quotes the median of 3 Bench runs, and differences below about 2 % are not resolved.
+
+### Arena: CPU column, cost adjustment, SPRT
+
+`GameRunner` measures the thread CPU time and the wall time of every move choice per player, and `Arena` prints CPU-ms and wall-ms per move and nodes per CPU-second for both players. Cost criteria (for example E03's "not slower") use the CPU column. The report also prints the equal-cost node budget `nodes(A) = nodes(B) x nps(A)/nps(B)` from this run's CPU times; that ratio is measured under the arena's own load (`--threads 4` beside other jobs), so claims use the Bench ratio, fixed before the arena run and quoted with it. `--sprt elo0,elo1` (alpha = beta = 0.05, default off) stops a match early once a sequential test on the pair scores, read in pair order, accepts a hypothesis; it is for authors' tuning loops only, and verifier runs stay fixed-size.
+
+### Protocol for strength claims
+
+Paired games with colours swapped, 4 random opening plies, `--threads 4`, node limits. When the candidate's cost per node differs, run equal nodes first, then the candidate at 20000 x nps_candidate/nps_opponent from the Bench ratio. Acceptance: lower 95 % bound above 0 on both verifier seeds against the current BEST_SPEC; the result against R2 is reported as well. Only the integration commit after a wave changes `Strategies.BEST_SPEC`.
+
+**Integration:** the new BEST_SPEC plays R2 and the previous BEST_SPEC, 500 pairs each on seed 43, at equal nodes and at equal cost (BEST at 20000 x nps_new/nps_old nodes, nps_old measured by Bench on the frozen build, against R2 at 20000). Both numbers are reported separately; their difference is the speed share. The parts were measured against different baselines and are not additive: investigate an interaction only when the equal-nodes result falls below the sum of the parts by more than sqrt(sum of the parts' squared half-widths + the integration run's squared half-width).
+
+**Label policy:** scores with |score| >= RACE_BASE (the racelin band, E08) are never labels or value targets; only S1 (E03) may label passed positions. Every error claim for an adjudication rule states the number of firings, the errors found by playing the games to the end and the one-sided 95 % Clopper-Pearson upper bound (0 of n: about 3.0/n; 1 of n: about 4.74/n; 2 of n: about 6.3/n).
 
 ## Algorithms for more than two players
 

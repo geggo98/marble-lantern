@@ -29,7 +29,32 @@ final class LinearWeights {
     /** Score units per logit unit; about 36 units per step of distance, near the move-limit score. */
     static final double SCALE = 100.0;
 
+    /**
+     * The live weights of {@code eval=linear} and of {@link Strategies#BEST_SPEC}. A refit replaces these values;
+     * {@link #R1} keeps the round-1 values.
+     */
     static final double[] WEIGHTS = {
+        -0.361185,   // dsum
+        -0.353700,   // dmax
+        -0.120344,   // dsq
+        0.257194,    // inGoal
+        0.0330329,   // inStart
+        0.0581328,   // spread
+        -0.0303039,  // lateral
+        0.119662,    // jumps
+        -0.00720263, // adjacent
+        0.0532558,   // steps
+        0.270701,    // dsumPhase
+        0.229450,    // tempo
+    };
+
+    /**
+     * The round-1 weights, frozen on 2026-11-07 as a literal copy of {@link #WEIGHTS} at commit cb4b750 (the
+     * last commit before round 2). They back the registry name {@code linear-r1}, the evaluator of the
+     * permanent reference player R2 ({@link ReferencePositions#R2_SPEC}). Never change these values: R2 must
+     * play the same tree in every later build, which {@code BestSpecFingerprintTest} checks.
+     */
+    static final double[] R1 = {
         -0.361185,   // dsum
         -0.353700,   // dmax
         -0.120344,   // dsq
