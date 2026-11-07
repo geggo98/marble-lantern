@@ -9,6 +9,7 @@ Implementation starts with the rules engine and a two-player alpha-beta baseline
 > **Status.** This document describes the approved plan.
 > The development environment, the TornadoVM installation and the Gradle build exist.
 > The modules `engine` and `search` (alpha-beta baseline) are implemented and tested.
+> The module `tablebase` exists with its CPU part: the rows ≥ 2 race table and the race module's interface (round-2 experiment E03, see [endgame and opening](endgame-and-opening.md#the-race-module)); its GPU part does not exist yet.
 > The other modules described below do not exist yet.
 
 How to read the claims in this document:
@@ -53,6 +54,7 @@ graph TD
     nn --> engine
     search --> engine
     search --> nn
+    search --> tablebase
     selfplay --> search
     book --> engine
     tablebase --> engine
@@ -64,16 +66,16 @@ graph TD
 
 An arrow points from a module to a module it depends on.
 The dependency edges are a *project decision* and can change during implementation.
-The alpha-beta baseline in `search` uses only `engine`; the edge from `search` to `nn` exists for MCTS.
+The alpha-beta baseline in `search` uses `engine` and, for the race module of round 2 (E03), the `RaceCounts` interface of `tablebase`; the edge from `search` to `nn` exists for MCTS.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
 | `engine` | Board geometry, rule set, move generation, Zobrist hashing, symmetries. Plain Java. Every rule-dependent method takes an immutable `RuleSet` record (see [rules](rules.md)). A small-board mode is proposed (see [below](#ruleset-and-small-board-mode)). | nothing |
 | `nn` | Network definition, CPU reference with `jdk.incubator.vector`, TornadoVM kernels for forward and backward pass, safetensors reader and writer. | `engine` (neighbour table), TornadoVM |
-| `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. Later: Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`; `nn` for MCTS only |
+| `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. The race module (`Solitaire`, `RaceMove`, `RaceAdjudication`, see [endgame and opening](endgame-and-opening.md#the-race-module)). Later: Monte Carlo tree search with PUCT, virtual loss and leaf batching. Time and simulation budgets. Strength levels. | `engine`; `tablebase` (interface `RaceCounts`) for the race module; `nn` for MCTS only |
 | `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. | `search` (and through it `engine`, `nn`) |
 | `book` | Opening book built from self-play games. | `engine`, self-play data |
-| `tablebase` | Single-player endgame database. BFS layers as a TornadoVM kernel. | `engine`, TornadoVM |
+| `tablebase` | Single-player endgame database. Exists (CPU): ranking, layered retrograde BFS, the table file format and the rows ≥ 2 race table (`RaceTable`, Git LFS). Planned: BFS layers as a TornadoVM kernel for larger regions. | `engine`; TornadoVM later |
 | `bench` | JMH benchmarks: evaluations per second per backend and batch size. | `nn` |
 | `app` | Optional web app: play against the AI, get move suggestions. | `search`, `book`, `tablebase` |
 

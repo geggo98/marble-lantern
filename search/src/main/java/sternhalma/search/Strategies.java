@@ -32,7 +32,9 @@ public final class Strategies {
             String spec = "ab:eval=" + evaluator + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(spec, Set.of(2), true, seed -> PlayerSpec.parse(spec).create()));
         }
-        for (String spec : List.of(BEST_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3")) {
+        // BEST_SPEC with race play (round-2 experiment E03, both modes) so that the contract covers RaceMove
+        for (String spec : List.of(BEST_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3", BEST_SPEC + ",race=1",
+                BEST_SPEC + ",race=2")) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));
         }

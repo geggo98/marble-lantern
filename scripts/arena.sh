@@ -6,4 +6,4 @@ set -eu
 root=${0:A:h:h}
 cd "$root"
 ./gradlew --no-build-cache -q :search:classes
-exec java -cp "$root/engine/build/classes/java/main:$root/search/build/classes/java/main" sternhalma.search.Arena "$@"
+exec java -cp "$root/engine/build/classes/java/main:$root/tablebase/build/classes/java/main:$root/search/build/classes/java/main" sternhalma.search.Arena "$@"

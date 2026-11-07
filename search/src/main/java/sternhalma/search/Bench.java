@@ -187,7 +187,8 @@ public final class Bench {
         /** A second copy of the current build in its own class loader (for testing the cross-build path). */
         static Build isolatedCopyOfCurrent() {
             return load("isolated copy of the current build",
-                    List.of(codeSource(Bench.class), codeSource(sternhalma.engine.Position.class)));
+                    List.of(codeSource(Bench.class), codeSource(sternhalma.engine.Position.class),
+                            codeSource(sternhalma.tablebase.RaceCounts.class)));
         }
 
         private static Path codeSource(Class<?> type) {

@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     api(project(":engine"))
+    implementation(project(":tablebase"))
 
     // The strategy contract (abstract jqwik tests) is shared with the modules that add strategies.
     testFixturesApi(project(":engine"))
