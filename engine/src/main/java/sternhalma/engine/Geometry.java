@@ -29,6 +29,10 @@ public final class Geometry {
     private static final int[] MIRROR = new int[CELLS];
     private static final int[] PLAYER_FLIP = new int[CELLS];
     private static final int[] ROTATE_180 = new int[CELLS];
+    /** Flat neighbour table: {@code STEP[c * DIRECTIONS + d]} is {@link #neighbor}(c, d). For the engine's hot loops. */
+    static final int[] STEP = new int[CELLS * DIRECTIONS];
+    /** Flat jump-landing table: the neighbour of the neighbour in the same direction, or -1 off the board. */
+    static final int[] LAND = new int[CELLS * DIRECTIONS];
 
     static {
         java.util.Arrays.fill(ID, -1);
@@ -75,6 +79,13 @@ public final class Geometry {
             MIRROR[c] = id(s, r);            // left-right flip: (q, r, s) -> (s, r, q)
             PLAYER_FLIP[c] = id(-s, -r);     // player symmetry: (q, r, s) -> (-s, -r, -q)
             ROTATE_180[c] = id(-q, -r);      // 180-degree rotation
+        }
+        for (int c = 0; c < CELLS; c++) {
+            for (int d = 0; d < DIRECTIONS; d++) {
+                int over = NEIGHBOR[c][d];
+                STEP[c * DIRECTIONS + d] = over;
+                LAND[c * DIRECTIONS + d] = over < 0 ? -1 : NEIGHBOR[over][d];
+            }
         }
     }
 
@@ -138,6 +149,11 @@ public final class Geometry {
     /** Neighbour of a cell in a direction (0 to 5), or -1 off the board. */
     public static int neighbor(int cell, int direction) {
         return NEIGHBOR[cell][direction];
+    }
+
+    /** The cell two steps away in a direction (the landing cell of a single jump), or -1 off the board. */
+    public static int jumpLanding(int cell, int direction) {
+        return LAND[cell * DIRECTIONS + direction];
     }
 
     /** Clockwise index of the corner that contains the cell, or -1 for the central hexagon. */

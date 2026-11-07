@@ -57,6 +57,15 @@ Two tests pin what the alpha-beta players search, so that a speed optimisation c
 
 An identical-tree change (round-2 experiments E01, E02, E13) must keep every constant. A tree-changing feature is off by default and keeps them too while it is off. A change of the `linear` weights (E04) re-records only the `BEST_*` constants. Every re-record needs a written reason in the commit message and in docs/search-and-evaluation.md ("Round 2 yardstick"). On a failure, `./gradlew :search:fingerprint --args='<spec>'` prints one line per position on each build; the first differing line shows where the trees part.
 
+Two equivalence tests pin the parts of the tree that the fingerprint samples only sparsely (added by E02):
+
+| Test | Compares | Positions |
+|---|---|---|
+| `MoveOrderEquivalenceTest` (engine) | `Position.generate` against `LegacyMoveGenerator`, a verbatim copy of the pre-E02 generator: the same moves in the same order (array equality); also the piece lists and goal counters against a recount, after every make and unmake on a sample, and the move set against `ReferenceGenerator` on every 64th position | over 1.28 M from random and greedy playouts and from constructed positions with an almost full goal, for the four rule variants above plus blockade `NONE` with suicide moves illegal, suicide moves legal, and two three-player variants. The test fails if the Definition-2 test rejected fewer than 1000 moves, so the suicide pre-check is checked where it matters. |
+| `LinearEvaluatorEquivalenceTest` (search) | `LinearEvaluator` against `LinearEvaluatorReference`, the pre-E02 code: raw IEEE bits of the 12 features and the integer score for the live, the R1 and three random weight sets | over 1.1 M, both leaveGoal values, plus three-player positions |
+
+Both reference classes are old code kept on purpose; do not optimise them. A change that alters the move order or a value on purpose must say so and re-record the fingerprint (see above).
+
 `BenchTest` checks the speed tool: the same spec in a second, isolated copy of the build searches identical trees, different specs are reported as different trees, and the load rule refuses above the core count. Its test `theFrozenBuildSearchesTheSameTreesAsR2` compares R2 with the frozen pre-round jars in `.reference/`; it is skipped on machines without them.
 
 The contract covers the frozen alias `linear-r1` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.

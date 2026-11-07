@@ -17,7 +17,13 @@ public final class Layout {
     private final int[] startCorner;
     private final int[] goalCorner;
     private final int[] goalPlayer = new int[6];
+    /** The player whose goal holds the cell, per cell, or -1. */
+    private final int[] goalPlayerOfCell = new int[Geometry.CELLS];
     private final boolean[][] allowed;
+    /** Per player, index cell * 6 + direction: the neighbour if the player may enter it, else -1. */
+    private final int[][] stepTo;
+    /** Per player, index cell * 6 + direction: the jump landing if the player may enter it, else -1. */
+    private final int[][] jumpTo;
     private final int[][] distance;
     private final int[] maxDistance;
 
@@ -32,6 +38,10 @@ public final class Layout {
             goalCorner[p] = Corner.ofIndex(startCorner[p]).opposite().ordinal();
             goalPlayer[goalCorner[p]] = p;
         }
+        for (int c = 0; c < Geometry.CELLS; c++) {
+            int corner = Geometry.cornerOf(c);
+            goalPlayerOfCell[c] = corner < 0 ? -1 : goalPlayer[corner];
+        }
         this.allowed = new boolean[players][Geometry.CELLS];
         this.distance = new int[players][Geometry.CELLS];
         this.maxDistance = new int[players];
@@ -41,6 +51,16 @@ public final class Layout {
                 allowed[p][c] = corner < 0 || corner == startCorner[p] || corner == goalCorner[p];
             }
             computeDistances(p);
+        }
+        this.stepTo = new int[players][Geometry.CELLS * Geometry.DIRECTIONS];
+        this.jumpTo = new int[players][Geometry.CELLS * Geometry.DIRECTIONS];
+        for (int p = 0; p < players; p++) {
+            for (int i = 0; i < Geometry.CELLS * Geometry.DIRECTIONS; i++) {
+                int step = Geometry.STEP[i];
+                int land = Geometry.LAND[i];
+                stepTo[p][i] = step >= 0 && allowed[p][step] ? step : -1;
+                jumpTo[p][i] = land >= 0 && allowed[p][land] ? land : -1;
+            }
         }
     }
 
@@ -98,6 +118,21 @@ public final class Layout {
     /** The player whose goal is the given corner, or -1 if nobody's goal is there. */
     public int goalPlayer(int corner) {
         return corner < 0 ? -1 : goalPlayer[corner];
+    }
+
+    /** The player whose goal corner contains the cell, or -1 (central hexagon or nobody's goal). */
+    public int goalPlayerOfCell(int cell) {
+        return goalPlayerOfCell[cell];
+    }
+
+    /** Flat step table of a player with the allowed cells folded in (see {@link #stepTo}). Shared, read-only. */
+    int[] stepTable(int player) {
+        return stepTo[player];
+    }
+
+    /** Flat jump-landing table of a player with the allowed cells folded in. Shared, read-only. */
+    int[] jumpTable(int player) {
+        return jumpTo[player];
     }
 
     /** Whether the player may stand on the cell: central hexagon, own start corner or own goal corner. */

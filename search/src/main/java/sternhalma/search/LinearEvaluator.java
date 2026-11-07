@@ -25,6 +25,10 @@ import sternhalma.engine.Position;
  * </ol>
  * plus {@code dsumPhase}: the {@code dsum} difference times the total remaining distance / 100 (lets the
  * weight of the race change with the game phase), and {@code tempo}: a constant 1 for the side to move.
+ *
+ * <p>Implementation (experiment E02): integer sums over the position's piece lists with precomputed per-player
+ * tables, then the doubles in the order of the original cell-scanning code, so features and scores are
+ * bit-identical to it ({@code LinearEvaluatorEquivalenceTest}). Only players 0 and 1 are evaluated.
  */
 public final class LinearEvaluator implements Evaluator {
 
@@ -34,22 +38,87 @@ public final class LinearEvaluator implements Evaluator {
         "dsumPhase", "tempo"
     };
 
-    private static final int[][] NEIGHBOR = new int[Geometry.CELLS][Geometry.DIRECTIONS];
+    /** Flat neighbour and jump-landing tables, index {@code cell * DIRECTIONS + direction}. */
+    private static final int[] STEP = new int[Geometry.CELLS * Geometry.DIRECTIONS];
+    private static final int[] LAND = new int[Geometry.CELLS * Geometry.DIRECTIONS];
     private static final int[] LATERAL = new int[Geometry.CELLS];
+    /** Bit in {@link #GOOD}: the neighbour is an allowed cell closer to the goal than the piece. */
+    private static final int STEP_CLOSER = 1;
+    /** Bit in {@link #GOOD}: the jump landing is an allowed cell closer to the goal than the piece. */
+    private static final int JUMP_CLOSER = 2;
+    /** Per layout (index players - 2) and player: {@code STEP_CLOSER | JUMP_CLOSER} per (cell, direction). */
+    private static final byte[][][] GOOD = new byte[2][][];
+    /** Per layout and player: the single-agent distance per cell. */
+    private static final int[][][] DIST = new int[2][][];
+    /** Per layout and player: 1 for a goal cell, 2 for a start cell, 0 otherwise. */
+    private static final byte[][][] KIND = new byte[2][][];
+    private static final int IN_GOAL = 1;
+    private static final int IN_START = 2;
 
     static {
         for (int c = 0; c < Geometry.CELLS; c++) {
             for (int d = 0; d < Geometry.DIRECTIONS; d++) {
-                NEIGHBOR[c][d] = Geometry.neighbor(c, d);
+                STEP[c * Geometry.DIRECTIONS + d] = Geometry.neighbor(c, d);
+                LAND[c * Geometry.DIRECTIONS + d] = Geometry.jumpLanding(c, d);
             }
             LATERAL[c] = Math.abs(Geometry.q(c) - Geometry.s(c));
         }
+        for (int players = 2; players <= 3; players++) {
+            Layout layout = Layout.of(players);
+            byte[][] good = new byte[players][Geometry.CELLS * Geometry.DIRECTIONS];
+            int[][] dist = new int[players][Geometry.CELLS];
+            byte[][] kind = new byte[players][Geometry.CELLS];
+            for (int p = 0; p < players; p++) {
+                for (int c = 0; c < Geometry.CELLS; c++) {
+                    dist[p][c] = layout.distance(p, c);
+                    int corner = Geometry.cornerOf(c);
+                    kind[p][c] = (byte) (corner == layout.goalCorner(p) ? IN_GOAL
+                            : corner == layout.startCorner(p) ? IN_START : 0);
+                    if (!layout.allowed(p, c)) {
+                        continue; // a piece of p never stands here
+                    }
+                    int here = layout.distance(p, c);
+                    for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                        int i = c * Geometry.DIRECTIONS + d;
+                        int bits = 0;
+                        if (closer(layout, p, STEP[i], here)) {
+                            bits |= STEP_CLOSER;
+                        }
+                        if (closer(layout, p, LAND[i], here)) {
+                            bits |= JUMP_CLOSER;
+                        }
+                        good[p][i] = (byte) bits;
+                    }
+                }
+            }
+            GOOD[players - 2] = good;
+            DIST[players - 2] = dist;
+            KIND[players - 2] = kind;
+        }
     }
+
+    private static boolean closer(Layout layout, int p, int cell, int here) {
+        return cell >= 0 && layout.allowed(p, cell) && layout.distance(p, cell) < here;
+    }
+
+    // per-side integer sums, indices into the scratch array of side()
+    private static final int DSUM = 0;
+    private static final int DMAX = 1;
+    private static final int DMIN = 2;
+    private static final int DSQ = 3;
+    private static final int GOAL = 4;
+    private static final int START = 5;
+    private static final int LAT = 6;
+    private static final int JUMPS = 7;
+    private static final int ADJ = 8;
+    private static final int STEPS = 9;
+    private static final int COUNT = 10;
+    private static final int SIDE_SUMS = 11;
 
     private final double[] weights;
     private final double scale;
     private final double[] scratch = new double[FEATURES];
-    private final int[][] cells = new int[2][Position.PIECES];
+    private final int[] sums = new int[SIDE_SUMS];
 
     public LinearEvaluator() {
         this(LinearWeights.WEIGHTS, LinearWeights.SCALE);
@@ -66,7 +135,7 @@ public final class LinearEvaluator implements Evaluator {
 
     @Override
     public int evaluate(Position position) {
-        features(position, scratch, cells);
+        features(position, scratch, sums);
         double sum = 0;
         for (int i = 0; i < FEATURES; i++) {
             sum += weights[i] * scratch[i];
@@ -76,37 +145,49 @@ public final class LinearEvaluator implements Evaluator {
 
     /** The feature vector of a position (side to move minus opponent), into {@code out}. */
     public static void features(Position position, double[] out) {
-        features(position, out, new int[2][Position.PIECES]);
+        features(position, out, new int[SIDE_SUMS]);
     }
 
-    private static void features(Position position, double[] out, int[][] cells) {
+    /**
+     * Integer sums per side from the piece lists and the tables, then the doubles in exactly the order of the
+     * original cell-scanning code (LinearEvaluatorReference in the tests), so that every feature and the rounded
+     * score stay bit-identical: out[i] = 0.0 + me + (-1 * opponent), dsq as dsq / 10.0 per side.
+     */
+    private static void features(Position position, double[] out, int[] sums) {
         int me = position.sideToMove();
-        int n0 = 0;
-        int n1 = 0;
-        int[] c0 = cells[0];
-        int[] c1 = cells[1];
-        for (int c = 0; c < Geometry.CELLS; c++) {
-            int o = position.owner(c);
-            if (o == 0) {
-                if (n0 < Position.PIECES) {
-                    c0[n0++] = c;
-                }
-            } else if (o == 1 && n1 < Position.PIECES) {
-                c1[n1++] = c;
-            }
-        }
+        int layout = position.rules().players() - 2;
         java.util.Arrays.fill(out, 0, 10, 0.0);
-        Layout layout = position.layout();
-        int dMe = side(position, layout, me, cells[me], me == 0 ? n0 : n1, out, 1);
-        int dOpp = side(position, layout, 1 - me, cells[1 - me], me == 0 ? n1 : n0, out, -1);
+        side(position, layout, me, sums);
+        int dMe = sums[DSUM];
+        add(out, sums, 1);
+        side(position, layout, 1 - me, sums);
+        int dOpp = sums[DSUM];
+        add(out, sums, -1);
         out[10] = out[0] * (dMe + dOpp) / 100.0;
         out[11] = 1.0;
     }
 
-    /** Adds {@code sign} times the per-side features of player p to out[0..9]; returns the distance sum. */
-    private static int side(Position position, Layout layout, int p, int[] pieces, int n, double[] out, int sign) {
-        int goal = layout.goalCorner(p);
-        int start = layout.startCorner(p);
+    /** Adds {@code sign} times the per-side features to out[0..9], with the operations of the original code. */
+    private static void add(double[] out, int[] s, int sign) {
+        int n = s[COUNT];
+        out[0] += sign * s[DSUM];
+        out[1] += sign * s[DMAX];
+        out[2] += sign * (s[DSQ] / 10.0);
+        out[3] += sign * s[GOAL];
+        out[4] += sign * s[START];
+        out[5] += sign * (n == 0 ? 0 : s[DMAX] - s[DMIN]);
+        out[6] += sign * s[LAT];
+        out[7] += sign * s[JUMPS];
+        out[8] += sign * s[ADJ];
+        out[9] += sign * s[STEPS];
+    }
+
+    /** The integer sums of player p into {@code s}, over at most {@link Position#PIECES} pieces in cell order. */
+    private static void side(Position position, int layout, int p, int[] s) {
+        byte[] good = GOOD[layout][p];
+        int[] dist = DIST[layout][p];
+        byte[] kind = KIND[layout][p];
+        int n = Math.min(position.pieceCount(p), Position.PIECES);
         int dsum = 0;
         int dmax = 0;
         int dmin = Integer.MAX_VALUE;
@@ -118,52 +199,49 @@ public final class LinearEvaluator implements Evaluator {
         int adjacent = 0;
         int steps = 0;
         for (int i = 0; i < n; i++) {
-            int c = pieces[i];
-            int d = layout.distance(p, c);
+            int c = position.pieceCell(p, i);
+            int d = dist[c];
             dsum += d;
             dsq += d * d;
             dmax = Math.max(dmax, d);
             dmin = Math.min(dmin, d);
-            int corner = Geometry.cornerOf(c);
-            if (corner == goal) {
+            int k = kind[c];
+            if (k == IN_GOAL) {
                 inGoal++;
-            } else if (corner == start) {
+            } else if (k == IN_START) {
                 inStart++;
             }
             lateral += LATERAL[c];
-            int[] nb = NEIGHBOR[c];
+            int base = c * Geometry.DIRECTIONS;
             for (int dir = 0; dir < Geometry.DIRECTIONS; dir++) {
-                int a = nb[dir];
+                int a = STEP[base + dir];
                 if (a < 0) {
                     continue;
                 }
                 int owner = position.owner(a);
+                int g = good[base + dir];
                 if (owner < 0) {
-                    if (layout.allowed(p, a) && layout.distance(p, a) < d) {
-                        steps++;
-                    }
+                    steps += g & STEP_CLOSER;
                 } else {
                     if (owner == p && a > c) {
                         adjacent++;
                     }
-                    int land = NEIGHBOR[a][dir];
-                    if (land >= 0 && position.owner(land) < 0 && layout.allowed(p, land)
-                            && layout.distance(p, land) < d) {
+                    if ((g & JUMP_CLOSER) != 0 && position.owner(LAND[base + dir]) < 0) {
                         jumps++;
                     }
                 }
             }
         }
-        out[0] += sign * dsum;
-        out[1] += sign * dmax;
-        out[2] += sign * (dsq / 10.0);
-        out[3] += sign * inGoal;
-        out[4] += sign * inStart;
-        out[5] += sign * (n == 0 ? 0 : dmax - dmin);
-        out[6] += sign * lateral;
-        out[7] += sign * jumps;
-        out[8] += sign * adjacent;
-        out[9] += sign * steps;
-        return dsum;
+        s[DSUM] = dsum;
+        s[DMAX] = dmax;
+        s[DMIN] = dmin;
+        s[DSQ] = dsq;
+        s[GOAL] = inGoal;
+        s[START] = inStart;
+        s[LAT] = lateral;
+        s[JUMPS] = jumps;
+        s[ADJ] = adjacent;
+        s[STEPS] = steps;
+        s[COUNT] = n;
     }
 }

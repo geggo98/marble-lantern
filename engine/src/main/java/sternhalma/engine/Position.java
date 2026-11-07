@@ -42,6 +42,17 @@ public final class Position {
     private final int[] goalOccupied;
     /** Cells of goal(p) that hold a piece of p. */
     private final int[] goalOwn;
+    /**
+     * The cells of each player's pieces, ascending; kept by {@link #put}, {@link #make} and {@link #unmake}.
+     * A row has room for {@link #PIECES} entries and grows only if a setup places more.
+     */
+    private final int[][] pieceCells;
+    private final int[] pieceCount;
+    /** For an occupied cell, its index in its owner's row of {@link #pieceCells}; undefined for empty cells. */
+    private final int[] slot = new int[Geometry.CELLS];
+    /** Per player the layout's step and jump tables with the allowed cells folded in (shared, read-only). */
+    private final int[][] stepTo;
+    private final int[][] jumpTo;
     private int sideToMove;
     private int ply;
     private long hash;
@@ -49,8 +60,6 @@ public final class Position {
     private long[] hashes = new long[65];
 
     // scratch space for move generation
-    private final int[] visited = new int[Geometry.CELLS];
-    private int stamp;
     private final int[] stack = new int[Geometry.CELLS];
 
     private Position(RuleSet rules) {
@@ -58,6 +67,14 @@ public final class Position {
         this.layout = Layout.of(rules.players());
         this.goalOccupied = new int[rules.players()];
         this.goalOwn = new int[rules.players()];
+        this.pieceCells = new int[rules.players()][PIECES];
+        this.pieceCount = new int[rules.players()];
+        this.stepTo = new int[rules.players()][];
+        this.jumpTo = new int[rules.players()][];
+        for (int p = 0; p < rules.players(); p++) {
+            stepTo[p] = layout.stepTable(p);
+            jumpTo[p] = layout.jumpTable(p);
+        }
         Arrays.fill(owner, (byte) -1);
         this.hash = SIDE_KEY[0];
     }
@@ -83,6 +100,11 @@ public final class Position {
         System.arraycopy(owner, 0, c.owner, 0, owner.length);
         System.arraycopy(goalOccupied, 0, c.goalOccupied, 0, goalOccupied.length);
         System.arraycopy(goalOwn, 0, c.goalOwn, 0, goalOwn.length);
+        for (int p = 0; p < pieceCells.length; p++) {
+            c.pieceCells[p] = pieceCells[p].clone();
+        }
+        System.arraycopy(pieceCount, 0, c.pieceCount, 0, pieceCount.length);
+        System.arraycopy(slot, 0, c.slot, 0, slot.length);
         c.sideToMove = sideToMove;
         c.ply = ply;
         c.hash = hash;
@@ -114,7 +136,50 @@ public final class Position {
         owner[cell] = (byte) player;
         hash ^= PIECE_KEY[player][cell];
         updateGoalCounts(player, cell, +1);
+        insertPiece(player, cell);
         return this;
+    }
+
+    /** Inserts a cell into the sorted piece list of a player (setup only). */
+    private void insertPiece(int player, int cell) {
+        int n = pieceCount[player];
+        if (n == pieceCells[player].length) {
+            pieceCells[player] = Arrays.copyOf(pieceCells[player], n + PIECES);
+        }
+        int[] cells = pieceCells[player];
+        int i = n;
+        while (i > 0 && cells[i - 1] > cell) {
+            cells[i] = cells[i - 1];
+            slot[cells[i]] = i;
+            i--;
+        }
+        cells[i] = cell;
+        slot[cell] = i;
+        pieceCount[player] = n + 1;
+    }
+
+    /** Replaces {@code from} by {@code to} in the sorted piece list of a player, keeping it sorted. */
+    private void movePiece(int player, int from, int to) {
+        int[] cells = pieceCells[player];
+        int i = slot[from];
+        if (to > from) {
+            int last = pieceCount[player] - 1;
+            while (i < last && cells[i + 1] < to) {
+                int c = cells[i + 1];
+                cells[i] = c;
+                slot[c] = i;
+                i++;
+            }
+        } else {
+            while (i > 0 && cells[i - 1] > to) {
+                int c = cells[i - 1];
+                cells[i] = c;
+                slot[c] = i;
+                i--;
+            }
+        }
+        cells[i] = to;
+        slot[to] = i;
     }
 
     /** Places a piece at axial coordinates. */
@@ -175,28 +240,39 @@ public final class Position {
         return owner[cell];
     }
 
-    /** The cells of a player's pieces in ascending order. */
+    /** The cells of a player's pieces in ascending order, as a new array. */
     public int[] pieces(int player) {
-        int[] result = new int[PIECES];
-        int n = 0;
-        for (int c = 0; c < Geometry.CELLS; c++) {
-            if (owner[c] == player) {
-                if (n == PIECES) {
-                    throw new IllegalStateException("player " + player + " has more than " + PIECES + " pieces");
-                }
-                result[n++] = c;
-            }
+        int n = pieceCount[player];
+        if (n > PIECES) {
+            throw new IllegalStateException("player " + player + " has more than " + PIECES + " pieces");
         }
-        return n == PIECES ? result : Arrays.copyOf(result, n);
+        return Arrays.copyOf(pieceCells[player], n);
+    }
+
+    /** Number of pieces of a player on the board. */
+    public int pieceCount(int player) {
+        return pieceCount[player];
+    }
+
+    /**
+     * The cell of a player's piece number {@code index}, counted in ascending cell order
+     * ({@code 0 <= index < pieceCount(player)}). Allocation-free access to {@link #pieces}.
+     */
+    public int pieceCell(int player, int index) {
+        return pieceCells[player][index];
+    }
+
+    /** Number of cells of the player's goal corner that hold a piece of any player. */
+    public int goalOccupied(int player) {
+        return goalOccupied[player];
     }
 
     /** Sum of the single-agent distances of all pieces of a player. */
     public int distanceSum(int player) {
+        int[] cells = pieceCells[player];
         int sum = 0;
-        for (int c = 0; c < Geometry.CELLS; c++) {
-            if (owner[c] == player) {
-                sum += layout.distance(player, c);
-            }
+        for (int i = 0, n = pieceCount[player]; i < n; i++) {
+            sum += layout.distance(player, cells[i]);
         }
         return sum;
     }
@@ -220,6 +296,7 @@ public final class Position {
         hash ^= PIECE_KEY[p][from] ^ PIECE_KEY[p][to];
         updateGoalCounts(p, from, -1);
         updateGoalCounts(p, to, +1);
+        movePiece(p, from, to);
         int next = (p + 1) % rules.players();
         hash ^= SIDE_KEY[p] ^ SIDE_KEY[next];
         sideToMove = next;
@@ -241,12 +318,13 @@ public final class Position {
         owner[from] = (byte) p;
         updateGoalCounts(p, to, -1);
         updateGoalCounts(p, from, +1);
+        movePiece(p, to, from);
         sideToMove = p;
         hash = hashes[ply];
     }
 
     private void updateGoalCounts(int player, int cell, int delta) {
-        int q = layout.goalPlayer(Geometry.cornerOf(cell));
+        int q = layout.goalPlayerOfCell(cell);
         if (q >= 0) {
             goalOccupied[q] += delta;
             if (q == player) {
@@ -266,51 +344,94 @@ public final class Position {
     /**
      * Writes the legal moves of the side to move into {@code out} and returns their number.
      * The buffer needs room for {@link #MAX_MOVES} entries. Each (start, end) pair appears once.
+     *
+     * <p>Order: pieces by ascending cell; per piece the steps by direction, then the jump landings in the
+     * order of the depth-first search in {@link #addJumps}. The search tree depends on this order.
      */
     public int generate(int[] out) {
         int p = sideToMove;
+        int[] steps = stepTo[p];
+        int[] jumps = jumpTo[p];
+        int goal = layout.goalCorner(p);
+        boolean leaveForbidden = rules.leaveGoal() == LeaveGoal.FORBIDDEN;
+        // Definition 2 can only forbid a move when an opponent's goal already holds 9 of its 10 cells: a move
+        // adds at most one piece to another goal. Below that, handsOpponentTheWin is false for every move.
+        boolean suicideCheck = rules.suicideMoves() == SuicideMoves.ILLEGAL && opponentGoalNearlyFull(p);
+        int[] cells = pieceCells[p];
+        int pieces = pieceCount[p];
         int count = 0;
-        for (int from = 0; from < Geometry.CELLS; from++) {
-            if (owner[from] != p) {
-                continue;
-            }
+        for (int i = 0; i < pieces; i++) {
+            int from = cells[i];
+            boolean stayInGoal = leaveForbidden && Geometry.cornerOf(from) == goal;
             owner[from] = -1; // the moving piece leaves its cell, so the cell counts as empty during jumps
+            int base = from * Geometry.DIRECTIONS;
             for (int d = 0; d < Geometry.DIRECTIONS; d++) {
-                int n = Geometry.neighbor(from, d);
-                if (n >= 0 && owner[n] < 0 && layout.allowed(p, n) && endLegal(p, from, n)) {
+                int n = steps[base + d];
+                if (n >= 0 && owner[n] < 0
+                        && (!stayInGoal || Geometry.cornerOf(n) == goal)
+                        && (!suicideCheck || !handsOpponentTheWin(p, from, n))) {
                     out[count++] = Move.of(from, n);
                 }
             }
-            count = addJumps(p, from, out, count);
+            count = addJumps(p, from, out, count, jumps, stayInGoal ? goal : NO_CORNER, suicideCheck);
             owner[from] = (byte) p;
         }
         return count;
     }
 
-    /** Breadth-first search over jump landings; the visited mark deduplicates (start, end) pairs. */
-    private int addJumps(int p, int from, int[] out, int countIn) {
+    /** A corner index that no cell has (corner indices are -1 to 5). */
+    private static final int NO_CORNER = -2;
+
+    /** Whether some opponent's goal holds at least {@code CORNER_SIZE - 1} pieces. */
+    private boolean opponentGoalNearlyFull(int p) {
+        for (int q = 0; q < goalOccupied.length; q++) {
+            if (q != p && goalOccupied[q] >= Geometry.CORNER_SIZE - 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Depth-first search over jump landings; the visited set deduplicates (start, end) pairs. It is a 128-bit
+     * set in two longs (cells 0 to 120), kept in registers; a shift by {@code cell} uses {@code cell mod 64}.
+     * {@code requiredCorner} is the goal corner if the piece may not leave it, else {@link #NO_CORNER}.
+     */
+    private int addJumps(int p, int from, int[] out, int countIn, int[] jumps, int requiredCorner,
+            boolean suicideCheck) {
         int count = countIn;
-        if (++stamp == Integer.MAX_VALUE) {
-            Arrays.fill(visited, 0);
-            stamp = 1;
+        long low = 0;
+        long high = 0;
+        if (from < 64) {
+            low = 1L << from;
+        } else {
+            high = 1L << from;
         }
         int top = 0;
         stack[top++] = from;
-        visited[from] = stamp;
         while (top > 0) {
             int c = stack[--top];
+            int base = c * Geometry.DIRECTIONS;
             for (int d = 0; d < Geometry.DIRECTIONS; d++) {
-                int over = Geometry.neighbor(c, d);
-                if (over < 0 || owner[over] < 0) {
+                int land = jumps[base + d]; // -1 if off the board or not allowed; then the old code skipped it too
+                if (land < 0 || owner[Geometry.STEP[base + d]] < 0 || owner[land] >= 0) {
                     continue;
                 }
-                int land = Geometry.neighbor(over, d);
-                if (land < 0 || owner[land] >= 0 || visited[land] == stamp || !layout.allowed(p, land)) {
-                    continue;
+                long bit = 1L << land;
+                if (land < 64) {
+                    if ((low & bit) != 0) {
+                        continue;
+                    }
+                    low |= bit;
+                } else {
+                    if ((high & bit) != 0) {
+                        continue;
+                    }
+                    high |= bit;
                 }
-                visited[land] = stamp;
                 stack[top++] = land;
-                if (endLegal(p, from, land)) {
+                if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                        && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
                     out[count++] = Move.of(from, land);
                 }
             }
@@ -318,20 +439,10 @@ public final class Position {
         return count;
     }
 
-    /** Rules that depend on the start and end cell only: leaveGoal and suicideMoves. */
-    private boolean endLegal(int p, int from, int to) {
-        int goal = layout.goalCorner(p);
-        if (rules.leaveGoal() == LeaveGoal.FORBIDDEN
-                && Geometry.cornerOf(from) == goal && Geometry.cornerOf(to) != goal) {
-            return false;
-        }
-        return rules.suicideMoves() != SuicideMoves.ILLEGAL || !handsOpponentTheWin(p, from, to);
-    }
-
     /** Whether the move would meet the winning condition of another player (Definition 2). */
     private boolean handsOpponentTheWin(int p, int from, int to) {
-        int fromGoal = layout.goalPlayer(Geometry.cornerOf(from));
-        int toGoal = layout.goalPlayer(Geometry.cornerOf(to));
+        int fromGoal = layout.goalPlayerOfCell(from);
+        int toGoal = layout.goalPlayerOfCell(to);
         for (int q = 0; q < rules.players(); q++) {
             if (q == p) {
                 continue;

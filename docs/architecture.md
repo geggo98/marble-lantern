@@ -135,6 +135,8 @@ The engine stores it as follows (*project decision*, unless a citation says othe
   Only the pair (start, end) defines a move, so the generator removes duplicates by that pair.
 - **Hashing.** Zobrist hashing for the transposition table and the opening book [CPW].
 
+**As implemented (2026-11-07, experiment E02):** `Position` stores an owner byte per cell plus a sorted piece list per player, not bitboards. The generator walks the piece list with flat per-player step and jump-landing tables (allowed cells folded in) and a 128-bit visited set in two `long` values; the jump search is depth-first with an explicit stack, and its order fixes the move order that the search-tree fingerprints pin. Bitboards remain an option for later.
+
 Why bitboards: according to [Sturtevant2023], legal-move generation dominates run time in Chinese Checkers, and bitboards together with the BMI2 instructions PDEP and PEXT give considerable gains.
 
 **Open question.** Java exposes PDEP and PEXT as `Long.expand` and `Long.compress`.
