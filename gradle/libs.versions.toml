@@ -1,9 +1,12 @@
 [versions]
 junit = "6.1.3"
 jqwik = "1.10.2"
+# Compile-time fallback when the TornadoVM SDK is missing; must match scripts/setup-tornado.sh.
+tornadovm = "7.3.1-jdk22plus"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 jqwik = { module = "net.jqwik:jqwik", version.ref = "jqwik" }
+tornado-api = { module = "io.github.beehive-lab:tornado-api", version.ref = "tornadovm" }
