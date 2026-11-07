@@ -43,6 +43,7 @@ public final class AlphaBeta {
     private final int[][] orderKeys = new int[MAX_DEPTH + 1][Position.MAX_MOVES];
 
     private long nodes;
+    private long nodeLimit;
     private long deadlineNanos;
     private boolean stopped;
     private boolean timed;
@@ -77,11 +78,18 @@ public final class AlphaBeta {
         return search(position, depth, Long.MAX_VALUE);
     }
 
-    /**
-     * Iterative deepening up to {@code maxDepth} plies or until the time limit passes. An unfinished
-     * iteration is discarded, so the result always comes from a completed depth (depth 1 always completes).
-     */
+    /** Iterative deepening with a time limit only; see {@link #search(Position, int, long, long)}. */
     public SearchResult search(Position position, int maxDepth, long timeLimitMillis) {
+        return search(position, maxDepth, timeLimitMillis, Long.MAX_VALUE);
+    }
+
+    /**
+     * Iterative deepening up to {@code maxDepth} plies, until the time limit passes or until {@code maxNodes}
+     * nodes are visited, whichever comes first. An unfinished iteration is discarded, so the result always
+     * comes from a completed depth (depth 1 always completes). A node limit makes a search independent of
+     * machine load, which is what tournaments between evaluation variants need.
+     */
+    public SearchResult search(Position position, int maxDepth, long timeLimitMillis, long maxNodes) {
         if (position.rules().players() != 2) {
             throw new UnsupportedOperationException("alpha-beta supports two players only");
         }
@@ -89,6 +97,7 @@ public final class AlphaBeta {
             throw new IllegalArgumentException("maxDepth must be in 1.." + MAX_DEPTH);
         }
         root = position.copy();
+        nodeLimit = maxNodes;
         nodes = 0;
         stopped = false;
         deadlineNanos = timeLimitMillis == Long.MAX_VALUE
@@ -151,7 +160,7 @@ public final class AlphaBeta {
 
     private int negamax(int depth, int alphaIn, int betaIn, int height) {
         nodes++;
-        if (timed && (nodes & 2047) == 0 && System.nanoTime() > deadlineNanos) {
+        if (timed && (nodes >= nodeLimit || ((nodes & 2047) == 0 && System.nanoTime() > deadlineNanos))) {
             stopped = true;
         }
         if (stopped) {
