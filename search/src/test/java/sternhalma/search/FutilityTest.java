@@ -74,8 +74,9 @@ class FutilityTest {
         // alpha a mate score or beyond the ordinary band
         assertFalse(AlphaBeta.futilityAllowed(pos, 1, AlphaBeta.MATE - 5, EVAL));
         assertFalse(AlphaBeta.futilityAllowed(pos, 1, -(AlphaBeta.MATE - 5), EVAL));
-        assertFalse(AlphaBeta.futilityAllowed(pos, 1, AlphaBeta.FUTILITY_SCORE_LIMIT, EVAL));
-        assertFalse(AlphaBeta.futilityAllowed(pos, 1, -AlphaBeta.FUTILITY_SCORE_LIMIT, EVAL));
+        assertFalse(AlphaBeta.futilityAllowed(pos, 1, Scores.RACE_BASE, EVAL));
+        assertFalse(AlphaBeta.futilityAllowed(pos, 1, -Scores.RACE_BASE, EVAL));
+        assertTrue(AlphaBeta.futilityAllowed(pos, 1, Scores.RACE_BASE - 1, EVAL));
         // the evaluator's race-band hook
         Evaluator unsafe = new Evaluator() {
             @Override

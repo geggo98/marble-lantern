@@ -47,13 +47,6 @@ public final class AlphaBeta {
     private static final int HISTORY_MAX = (1 << 20) - 1;
     /** Beyond this half-width an aspiration window becomes the full window. */
     private static final int ASPIRATION_MAX = 2000;
-    /**
-     * Futility pruning stays off while |alpha| reaches this value: such scores are not ordinary evaluations
-     * (move-limit outcomes scale with {@link #END_SCALE}, mates with {@link #MATE}), so the per-step bound says
-     * nothing about them. Equal to the planned race band {@code RACE_BASE} of round-2 experiment E08, which
-     * futility must not see either; E08 replaces this constant by its own.
-     */
-    static final int FUTILITY_SCORE_LIMIT = 5000;
 
     private final Evaluator evaluator;
     private final boolean useTable;
@@ -221,7 +214,9 @@ public final class AlphaBeta {
         boolean complete = true;
         for (int depth = 1; depth <= maxDepth; depth++) {
             timed = depth > 1; // depth 1 always completes, so there is always a move to return
-            int[] iteration = options.aspiration() > 0 && depth > 1 && Math.abs(bestScore) < MATE_BOUND
+            // a previous score outside the ordinary band (a mate, or a race value of E08's racelin) gets the full
+            // window: a narrow window around such a value fails and would only be widened until it is full anyway
+            int[] iteration = options.aspiration() > 0 && depth > 1 && Scores.kind(bestScore) == Scores.Kind.ORDINARY
                     ? aspirationRoot(depth, bestMove, bestScore)
                     : searchRoot(depth, bestMove, -MATE - 1, MATE + 1);
             if (stopped && depth > 1) {
@@ -457,14 +452,18 @@ public final class AlphaBeta {
      *   <li>near the move limit: the game would end within {@code depth} plies with a distance score at
      *       {@link #END_SCALE};</li>
      *   <li>with repetition draws: a child may end as a draw scored by distance;</li>
-     *   <li>where the evaluator says so ({@link Evaluator#futilitySafe}, the race band of E08);</li>
-     *   <li>when |alpha| is a mate score or at least {@link #FUTILITY_SCORE_LIMIT}.</li>
+     *   <li>where the evaluator says so ({@link Evaluator#futilitySafe}: {@link RaceEvaluator} returns false where a
+     *       race value can appear within {@code depth} plies);</li>
+     *   <li>when alpha is not an ordinary score ({@link Scores#kind}): a mate, a race value or a move-limit outcome
+     *       (which scale with {@link #END_SCALE}); the per-step bound says nothing about those.</li>
      * </ul>
      * Never called at the root, which {@link #searchRoot} searches without futility. The no-moves terminal is not
-     * excluded: with 10 pieces a child without a legal move is practically unreachable (accepted gap).
+     * excluded: with 10 pieces a child without a legal move is practically unreachable (accepted gap). A table entry
+     * from a deeper iteration can return any value for a child; that lies outside the bound's scope for ordinary and
+     * race values alike.
      */
     static boolean futilityAllowed(Position pos, int depth, int alpha, Evaluator evaluator) {
-        if (Math.abs(alpha) >= FUTILITY_SCORE_LIMIT) {
+        if (Scores.kind(alpha) != Scores.Kind.ORDINARY) {
             return false;
         }
         int nearWin = Geometry.CORNER_SIZE - depth;

@@ -170,9 +170,35 @@ final class Report {
             }
         }
         out.println("  margin firings in passed positions (must be 0): " + passedMarginLabels);
+        out.println("  margin firings backed by a race-band score (must be 0): " + raceBackedMarginLabels(games));
         diversity(games, out);
         colour(games, out);
         cost(games, out);
+    }
+
+    /**
+     * Margin firings whose backing scores (the labelled player's own moves right before the firing ply, every second
+     * stored score) include a race-band score or a move without a search score; the label policy says 0. The layer
+     * resets its streak on such scores, so a count above 0 is a bug in the tool, not in the data.
+     */
+    static long raceBackedMarginLabels(List<GameRecord> games) {
+        long bad = 0;
+        for (GameRecord g : games) {
+            if (g.margin() == null) {
+                continue;
+            }
+            int ply = g.margin().ply();
+            int moverMoves = 0;
+            for (int i = ply - 1; i >= 0 && moverMoves < Adjudication.Config.DEFAULT.marginMoves(); i -= 2) {
+                int s = g.scores()[i];
+                if (s == GameRecord.NO_SCORE || Scores.kind(s) == Scores.Kind.RACE) {
+                    bad++;
+                    break;
+                }
+                moverMoves++;
+            }
+        }
+        return bad;
     }
 
     private static long count(List<GameRecord> games, Layer l) {

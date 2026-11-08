@@ -93,6 +93,15 @@ public final class AlphaBetaPlayer implements Player {
     }
 
     /**
+     * The band of the last search score ({@link Scores#kind}), or null when the last move came from the race module
+     * or no move was chosen since the last {@link #clearSearch}. Label consumers use only {@link Scores.Kind#ORDINARY}
+     * and {@link Scores.Kind#MATE} scores; a {@link Scores.Kind#RACE} score (E08's racelin) is "no information".
+     */
+    public Scores.Kind lastScoreKind() {
+        return lastResult == null ? null : Scores.kind(lastResult.score());
+    }
+
+    /**
      * Forgets the transposition table, the killers, the history and the last result, so that the next game plays
      * exactly as with a fresh player of the same spec (checked by the self-play tool's tests). The counters
      * ({@link #totalNodes()} and the others) keep counting.
