@@ -87,6 +87,30 @@ final class StrengthEstimate {
     private StrengthEstimate() {
     }
 
+    /**
+     * The smallest node limit above 1 that is a rung of its own. {@code AlphaBeta.search} always completes depth 1
+     * (the node limit is checked only from depth 2 on), so every limit below the cost of a full depth-1 search plays
+     * exactly the depth-1 moves: measured on 100 random positions, {@code BEST_SPEC} with 1, 5 or 20 nodes chose the
+     * same move as {@code depth=1} in 100 of 100 (a depth-1 search costs 47 nodes on average); with 100 nodes 94 of
+     * 100 are the same, with 400 nodes 75. Rung 1 is therefore "depth 1", the weakest rung, and 2 to 99 are refused
+     * instead of repeating it.
+     */
+    static final int MIN_RUNG_ABOVE_ONE = 100;
+
+    /** Refuses a ladder with a rung in 2 to {@link #MIN_RUNG_ABOVE_ONE} - 1, which would repeat rung 1. */
+    static void requireDistinctRungs(List<Integer> ladder) {
+        for (int nodes : ladder) {
+            if (nodes < 1 || nodes > 1 && nodes < MIN_RUNG_ABOVE_ONE) {
+                throw new IllegalArgumentException("a ladder rung is 1 (depth 1: the search always completes depth 1)"
+                        + " or at least " + MIN_RUNG_ABOVE_ONE + " nodes; " + nodes + " nodes would play the same"
+                        + " moves as rung 1");
+            }
+        }
+        if (new java.util.HashSet<>(ladder).size() != ladder.size()) {
+            throw new IllegalArgumentException("a ladder rung is listed twice: " + ladder);
+        }
+    }
+
     /** The spec text of a rung. */
     static String spec(String base, int nodes) {
         return base + ",nodes=" + nodes + ",tt=16";

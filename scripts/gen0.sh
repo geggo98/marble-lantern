@@ -1,5 +1,5 @@
 #!/bin/zsh
-# usage: scripts/gen0.sh run DATA RUN [options] | run --status RUN | strength RUN [options] | monitor-report RUN
+# usage: scripts/gen0.sh run DATA RUN [options] | run --status RUN | strength RUN [options] | proxies RUN --data DIR [options] | monitor-report RUN
 # (see selfplay/src/main/java/sternhalma/selfplay/Gen0.java)
 # Builds the selfplay module and runs the generation-0 training tool in the repository root. DATA is a directory of
 # teacher shards from 'scripts/selfplay.sh run --teacher-depth D'. A second 'run' on the same RUN resumes; one after

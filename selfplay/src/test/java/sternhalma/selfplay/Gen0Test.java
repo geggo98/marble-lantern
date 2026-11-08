@@ -370,7 +370,7 @@ class Gen0Test {
     void anEloEstimateCutShortByAStopIsNotCountedAsAnEvent() throws Exception {
         Path run = shared.resolve("elo-stopped");
         // one ask per step (4), then the first pairs of the estimate at step 4 run, a later pair sees the stop
-        Result r = train(run, stopAfter(6), base("--elo-every", "1", "--elo-pairs", "4", "--ladder", "20",
+        Result r = train(run, stopAfter(6), base("--elo-every", "1", "--elo-pairs", "4", "--ladder", "1",
                 "--ladder-spec", "ab:eval=distance"));
         assertEquals(130, r.code, r.err);
         RunMonitor.Report report = RunMonitor.report(run);
@@ -384,7 +384,7 @@ class Gen0Test {
     @Test
     void theEloEstimateRunsInTheLoopAtTheCheckpointsAndIsSkippedWhenDone() throws Exception {
         Path run = shared.resolve("elo");
-        List<String> options = base("--elo-every", "1", "--elo-pairs", "2", "--ladder", "20,40", "--ladder-spec",
+        List<String> options = base("--elo-every", "1", "--elo-pairs", "2", "--ladder", "1,100", "--ladder-spec",
                 "ab:eval=distance", "--elo-seed", "9");
         Result first = train(run, () -> false, options);
         assertEquals(0, first.code, first.err);
@@ -394,7 +394,7 @@ class Gen0Test {
                     s.map(f -> f.getFileName().toString()).sorted().toList());
         }
         assertTrue(StrengthEstimate.complete(strength.resolve("step-00000008.jsonl"), "ab:eval=distance",
-                List.of(20, 40), 2, 9));
+                List.of(1, 100), 2, 9));
         RunMonitor.Report report = RunMonitor.report(run);
         assertEquals(3, report.row(RunMonitor.Category.STRENGTH, "elo").count());
         assertFalse(report.row(RunMonitor.Category.STRENGTH, "elo").separateProcess());
@@ -421,11 +421,11 @@ class Gen0Test {
         Path copyDir = Files.createDirectory(shared.resolve("copy"));
         Path copy = copyDir.resolve("some-name.safetensors");
         Files.copy(Checkpoint.file(trainDir(run), 8), copy);
-        String[] args = {run.toString(), "--checkpoint", copy.toString(), "--elo-pairs", "2", "--ladder", "20",
+        String[] args = {run.toString(), "--checkpoint", copy.toString(), "--elo-pairs", "2", "--ladder", "1",
                 "--ladder-spec", "ab:eval=distance", "--elo-seed", "3", "--elo-threads", "2"};
         Result r = gen0(() -> false, "strength", args);
         assertEquals(0, r.code, r.err);
-        assertTrue(r.out.contains("step 8 vs 20 nodes: Elo"), r.out);
+        assertTrue(r.out.contains("step 8 vs 1 nodes: Elo"), r.out);
         Path file = run.resolve("gen-0000").resolve("strength").resolve("step-00000008.jsonl");
         assertTrue(Files.exists(file));
         byte[] bytes = Files.readAllBytes(file);
@@ -437,7 +437,7 @@ class Gen0Test {
         assertTrue(again.err.contains("1 skip") && again.err.contains("nothing more to do"), again.err);
         assertArrayEquals(bytes, Files.readAllBytes(file));
         // with no --checkpoint the newest one is used; a stop discards the estimate and exits 130
-        Result newest = gen0(stopAfter(1), "strength", run.toString(), "--elo-pairs", "4", "--ladder", "20",
+        Result newest = gen0(stopAfter(1), "strength", run.toString(), "--elo-pairs", "4", "--ladder", "1",
                 "--ladder-spec", "ab:eval=distance", "--elo-seed", "3");
         assertEquals(130, newest.code, newest.err);
         // the cut-short estimate is no event of the Elo kind: its time is booked as partial, with count 0
@@ -449,7 +449,7 @@ class Gen0Test {
         try (FileChannel ch = FileChannel.open(run.resolve(".strength.lock"), StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE); FileLock lock = ch.tryLock()) {
             assertTrue(lock != null);
-            Result locked = gen0(() -> false, "strength", run.toString(), "--elo-pairs", "2", "--ladder", "20",
+            Result locked = gen0(() -> false, "strength", run.toString(), "--elo-pairs", "2", "--ladder", "1",
                     "--ladder-spec", "ab:eval=distance");
             assertEquals(75, locked.code, locked.err);
         }
@@ -459,6 +459,109 @@ class Gen0Test {
         Result wrong = gen0(() -> false, "strength", run.toString(), "--checkpoint",
                 Checkpoint.file(trainDir(stranger), 8).toString());
         assertEquals(1, wrong.code, wrong.err);
+    }
+
+    @Test
+    void theStrengthStepAcceptsAPlainNetworkFileAndRefusesOneOfAnotherRunOrWithoutMetadata() throws Exception {
+        Path run = shared.resolve("plain-network");
+        assertEquals(0, train(run).code);
+        String[] options = {"--elo-pairs", "2", "--ladder", "1", "--ladder-spec", "ab:eval=distance", "--elo-seed", "3"};
+        List<String> args = new ArrayList<>(List.of(run.toString(), "--checkpoint", candidate(run).toString()));
+        args.addAll(List.of(options));
+        Result r = gen0(() -> false, "strength", args.toArray(String[]::new));
+        assertEquals(0, r.code, r.err);
+        assertTrue(r.out.contains("step " + STEPS + " vs 1 nodes: Elo"), r.out + r.err);
+        assertTrue(Files.exists(run.resolve("gen-0000").resolve("strength").resolve("step-00000012.jsonl")));
+        // the same network as a checkpoint gives the same estimate (same step, so it is a skip now)
+        assertEquals(StrengthEstimate.file(run.resolve("gen-0000").resolve("strength"), STEPS),
+                run.resolve("gen-0000").resolve("strength").resolve("step-00000012.jsonl"));
+        // a network file of another run, and one without the metadata that names run and step
+        Path stranger = shared.resolve("plain-stranger");
+        assertEquals(0, train(stranger, "--seed", "6").code);
+        Result other = gen0(() -> false, "strength", run.toString(), "--checkpoint", candidate(stranger).toString());
+        assertEquals(1, other.code, other.err);
+        assertTrue(other.err.contains("another configuration"), other.err);
+        Path bare = shared.resolve("bare.safetensors");
+        Parameters.init(Parameters.load(candidate(run)).config(), 1).save(bare);
+        Result none = gen0(() -> false, "strength", run.toString(), "--checkpoint", bare.toString());
+        assertEquals(1, none.code, none.err);
+        assertTrue(none.err.contains("run_config_sha256"), none.err);
+        // not a network at all
+        Path junk = Files.writeString(shared.resolve("junk.safetensors"), "not safetensors");
+        Result bad = gen0(() -> false, "strength", run.toString(), "--checkpoint", junk.toString());
+        assertEquals(1, bad.code, bad.err);
+        assertTrue(bad.err.contains("neither a training checkpoint"), bad.err);
+    }
+
+    @Test
+    void aLadderRungThatRepeatsRungOneIsRefused() throws Exception {
+        Path run = shared.resolve("ladder-refused");
+        assertEquals(0, train(run).code);
+        Result r = gen0(() -> false, "strength", run.toString(), "--ladder", "1,5,20");
+        assertEquals(2, r.code, r.err);
+        assertTrue(r.err.contains("same moves as rung 1"), r.err);
+        assertEquals(2, gen0(() -> false, "strength", run.toString(), "--ladder", "100,100").code);
+        assertEquals(2, train(shared.resolve("ladder-run"), () -> false, base("--ladder", "50")).code);
+    }
+
+    @Test
+    void theDefaultNumberOfProxySamplesIsTwentyFiveHundred() {
+        assertEquals(2500, Gen0.cadence(Map.of()).evalSamples());
+        assertEquals(40, Gen0.cadence(Map.of("eval-samples", "40")).evalSamples());
+    }
+
+    @Test
+    void theProxiesStepEvaluatesACheckpointOrTheCandidateInItsOwnProcessLikeTheLoopDoes() throws Exception {
+        Path run = shared.resolve("proxies-step");
+        Result trained = train(run);
+        assertEquals(0, trained.code, trained.err);
+        // the loop evaluated step 12 on 40 samples; the separate step must give the same numbers
+        String loopLine = trained.err.lines().filter(l -> l.startsWith("gen 0 proxies at step 12 ")).findFirst()
+                .orElseThrow();
+        java.util.regex.Pattern numbers = java.util.regex.Pattern.compile(
+                "policy KL (?<kl>\\S+), top-1 (?<top1>\\S+)%, value loss (?<vl>\\S+), winner (?<w>\\S+)%");
+        java.util.regex.Matcher loop = numbers.matcher(loopLine);
+        assertTrue(loop.find(), loopLine);
+        for (Path file : List.of(Checkpoint.file(trainDir(run), 12), candidate(run))) {
+            Result r = gen0(() -> false, "proxies", run.toString(), "--data", data.toString(), "--checkpoint",
+                    file.toString(), "--samples", "40", "--threads", "1");
+            assertEquals(0, r.code, r.err);
+            assertTrue(r.out.startsWith("step 12 proxies on 40 of "), r.out);
+            java.util.regex.Matcher m = numbers.matcher(r.out);
+            assertTrue(m.find(), r.out);
+            for (String g : List.of("kl", "top1", "vl", "w")) {
+                assertEquals(loop.group(g), m.group(g), g + " of " + file + ": " + r.out + " against " + loopLine);
+            }
+        }
+        // no --checkpoint: the candidate; more samples than there are: all of them, and the count says so
+        Result all = gen0(() -> false, "proxies", run.toString(), "--data", data.toString(), "--samples", "100000");
+        assertEquals(0, all.code, all.err);
+        java.util.regex.Matcher count = java.util.regex.Pattern.compile("on (\\d+) of (\\d+) held-out").matcher(all.out);
+        assertTrue(count.find(), all.out);
+        assertEquals(count.group(2), count.group(1), "capped at the size of the held-out set");
+        assertTrue(Integer.parseInt(count.group(1)) > 40, all.out);
+        assertTrue(all.out.contains("+-"), "the standard error of the winner prediction is printed: " + all.out);
+        // it writes nothing
+        assertFalse(Files.exists(run.resolve(".proxies.lock")));
+    }
+
+    @Test
+    void theProxiesStepNeedsTheDataOfTheRunAndACheckpointOfIt() throws Exception {
+        Path run = shared.resolve("proxies-errors");
+        assertEquals(0, train(run).code);
+        assertEquals(2, gen0(() -> false, "proxies", run.toString()).code, "--data is needed");
+        Path other = Files.createDirectory(shared.resolve("other-data"));
+        SyntheticShards.write(other, "samples-s9-0000.safetensors", 9, 0, 20, 8, 5);
+        Result wrongData = gen0(() -> false, "proxies", run.toString(), "--data", other.toString());
+        assertEquals(1, wrongData.code, wrongData.err);
+        assertTrue(wrongData.err.contains("not the data of this run"), wrongData.err);
+        Path stranger = shared.resolve("proxies-stranger");
+        assertEquals(0, train(stranger, "--seed", "6").code);
+        Result wrongNet = gen0(() -> false, "proxies", run.toString(), "--data", data.toString(), "--checkpoint",
+                candidate(stranger).toString());
+        assertEquals(1, wrongNet.code, wrongNet.err);
+        assertEquals(1, gen0(() -> false, "proxies", shared.resolve("no-run").toString(), "--data", data.toString())
+                .code);
     }
 
     @Test

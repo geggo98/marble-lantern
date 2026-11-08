@@ -48,11 +48,12 @@ import sternhalma.search.Strategies;
  *   Gen0 run DATA RUN [--preset small|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3]
  *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
- *                     [--eval-samples 500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
+ *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
  *                     [--elo-pairs 50] [--elo-seed 1] [--elo-threads 1] [--monitor 1|0]
  *   Gen0 run --status RUN
  *   Gen0 strength RUN [--checkpoint FILE] [--ladder 200] [--ladder-spec SPEC] [--elo-pairs 50] [--elo-seed 1]
  *                     [--elo-threads 4] [--progress-seconds 10]
+ *   Gen0 proxies RUN --data DIR [--checkpoint FILE] [--samples 2500] [--threads 4]
  *   Gen0 monitor-report RUN
  * </pre>
  *
@@ -82,6 +83,9 @@ public final class Gen0 {
     static final String FORMAT = "sternhalma-gen0";
     /** Mixed into the split so it is not the same function as any other hash of the game id. */
     static final long SPLIT_SALT = 0x6A09E667F3BCC908L;
+
+    /** Held-out samples per proxy evaluation: the standard error of the winner prediction is about 0.9 points. */
+    static final int DEFAULT_EVAL_SAMPLES = 2500;
 
     static final int EXIT_OK = 0;
     static final int EXIT_ERROR = 1;
@@ -160,7 +164,7 @@ public final class Gen0 {
      */
     static int run(String[] args, PrintStream out, PrintStream err, BooleanSupplier testStop) throws Exception {
         if (args.length == 0) {
-            err.println("usage: Gen0 run DATA RUN | run --status RUN | strength RUN | monitor-report RUN"
+            err.println("usage: Gen0 run DATA RUN | run --status RUN | strength RUN | proxies RUN | monitor-report RUN"
                     + " (see the class comment)");
             return EXIT_USAGE;
         }
@@ -184,6 +188,7 @@ public final class Gen0 {
                 case "run" -> opts.containsKey("status") ? status(runDir(positional, 0), JOB, out)
                         : train(opts, positional, out, err, testStop);
                 case "strength" -> strength(opts, runDir(positional, 0), out, err, testStop);
+                case "proxies" -> proxiesCommand(opts, runDir(positional, 0), out, err);
                 case "monitor-report" -> monitorReport(runDir(positional, 0), out, err);
                 default -> {
                     err.println("unknown command " + args[0]);
@@ -237,17 +242,15 @@ public final class Gen0 {
         List<Integer> ladder = new ArrayList<>();
         for (String s : str(o, "ladder", "200").split(",")) {
             int nodes = Integer.parseInt(s.strip());
-            if (nodes < 1) {
-                throw new IllegalArgumentException("a ladder rung needs at least 1 node");
-            }
             ladder.add(nodes);
         }
+        StrengthEstimate.requireDistinctRungs(ladder);
         return ladder;
     }
 
     static Cadence cadence(Map<String, String> o) {
         Cadence c = new Cadence(lng(o, "checkpoint-steps", 200), dbl(o, "checkpoint-seconds", 120), integer(o, "keep", 2),
-                dbl(o, "progress-seconds", 10), integer(o, "eval-samples", 500), integer(o, "proxy-every", 1), dbl(o, "proxy-seconds", 120),
+                dbl(o, "progress-seconds", 10), integer(o, "eval-samples", DEFAULT_EVAL_SAMPLES), integer(o, "proxy-every", 1), dbl(o, "proxy-seconds", 120),
                 integer(o, "elo-every", 0), dbl(o, "elo-seconds", 500), str(o, "ladder-spec", Strategies.BEST_SPEC), ladder(o),
                 integer(o, "elo-pairs", 50), lng(o, "elo-seed", 1), integer(o, "elo-threads", 1),
                 flag(o, "monitor", true), integer(o, "threads", Math.min(4, Runtime.getRuntime().availableProcessors())));
@@ -803,6 +806,128 @@ public final class Gen0 {
         }
     }
 
+    // ---- network files ----
+
+    /** A network of this run: its parameters and the training step it stands for. */
+    record NetworkFile(Parameters parameters, long step) {
+    }
+
+    /**
+     * Reads a training checkpoint ({@code gen-0000/train/step-*.safetensors}) or a plain network file (parameters
+     * only, such as {@code candidate.safetensors}) of the run whose {@code run.json} hashes to {@code runSha}. Both
+     * carry the run's hash and the step: the checkpoint in its optimiser state, the network file in the metadata keys
+     * {@code step} and {@code run_config_sha256} that this tool writes. A network file without them is refused,
+     * because its run and its step are unknown.
+     */
+    static NetworkFile loadNetworkFile(Path file, String runSha) throws IOException {
+        Checkpoint.Loaded checkpoint;
+        try {
+            checkpoint = Checkpoint.read(file);
+        } catch (IOException notACheckpoint) {
+            Parameters plain;
+            try {
+                plain = Parameters.load(file);
+            } catch (IOException notANetwork) {
+                notANetwork.addSuppressed(notACheckpoint);
+                throw new IOException("neither a training checkpoint (" + notACheckpoint.getMessage()
+                        + ") nor a network file (" + notANetwork.getMessage() + ")", notANetwork);
+            }
+            Map<String, String> md = plain.extraMetadata();
+            String fileSha = md.get("run_config_sha256");
+            String stepText = md.get("step");
+            if (fileSha == null || stepText == null) {
+                throw new IOException("a network file without the metadata run_config_sha256 and step; it does not"
+                        + " say which run and step it belongs to");
+            }
+            if (!fileSha.equals(runSha)) {
+                throw new IOException("belongs to another configuration than this run's run.json");
+            }
+            try {
+                return new NetworkFile(plain, Long.parseLong(stepText));
+            } catch (NumberFormatException e) {
+                throw new IOException("step metadata is not a number: " + stepText, e);
+            }
+        }
+        if (!checkpoint.runConfigSha256().equals(runSha)) {
+            throw new IOException("belongs to another configuration than this run's run.json");
+        }
+        return new NetworkFile(checkpoint.parameters(), checkpoint.optimizer().steps());
+    }
+
+    // ---- the separate proxies step ----
+
+    /**
+     * {@code Gen0 proxies RUN --data DIR [--checkpoint FILE] [--samples N] [--threads T]}: the held-out proxies of one
+     * network on N samples (default {@link #DEFAULT_EVAL_SAMPLES}), in this process, written to stdout. It reads the
+     * data directory and the split of {@code run.json} (the data path is not part of the configuration, hence
+     * {@code --data}; its fingerprint must match). Without {@code --checkpoint} the candidate is used, or the newest
+     * checkpoint if there is none. It takes no lock and writes nothing.
+     */
+    private static int proxiesCommand(Map<String, String> opts, Path run, PrintStream out, PrintStream err)
+            throws IOException {
+        Path runJson = run.resolve("run.json");
+        if (!Files.isRegularFile(runJson)) {
+            err.println("gen0 proxies: no run.json in " + run + "; this is not a gen0 run directory");
+            return EXIT_ERROR;
+        }
+        if (!opts.containsKey("data")) {
+            throw new IllegalArgumentException("--data DIR is needed: run.json does not record where the data is");
+        }
+        int samples = integer(opts, "samples", DEFAULT_EVAL_SAMPLES);
+        int threads = integer(opts, "threads", Math.min(4, Runtime.getRuntime().availableProcessors()));
+        if (samples < 1 || threads < 1) {
+            throw new IllegalArgumentException("--samples and --threads must be >= 1");
+        }
+        String runText = Files.readString(runJson);
+        Map<String, String> cfg = RunMonitor.parse(runText);
+        if (cfg == null || !cfg.containsKey("holdout") || !cfg.containsKey("data_sha256")) {
+            err.println("gen0 proxies: " + runJson + " is not a run configuration");
+            return EXIT_ERROR;
+        }
+        List<Path> files = Files.isDirectory(Path.of(opts.get("data"))) ? dataFiles(Path.of(opts.get("data")))
+                : List.of();
+        if (files.isEmpty() || !dataFingerprint(files).equals(cfg.get("data_sha256"))) {
+            err.println("gen0 proxies: the files in " + opts.get("data") + " are not the data of this run"
+                    + " (no samples-*.safetensors, or another fingerprint than run.json)");
+            return EXIT_ERROR;
+        }
+        Path file;
+        Path genDir = run.resolve("gen-0000");
+        if (opts.containsKey("checkpoint")) {
+            file = Path.of(opts.get("checkpoint"));
+        } else if (Files.isRegularFile(genDir.resolve("candidate.safetensors"))) {
+            file = genDir.resolve("candidate.safetensors");
+        } else {
+            List<Path> all = Checkpoint.list(genDir.resolve("train"));
+            if (all.isEmpty()) {
+                err.println("gen0 proxies: no candidate and no checkpoint in " + genDir);
+                return EXIT_ERROR;
+            }
+            file = all.get(all.size() - 1);
+        }
+        NetworkFile net;
+        try {
+            net = loadNetworkFile(file, sha256Hex(runText.strip().getBytes(StandardCharsets.UTF_8)));
+        } catch (IOException e) {
+            err.println("gen0 proxies: cannot use " + file + ": " + e.getMessage());
+            return EXIT_ERROR;
+        }
+        double holdout = Double.parseDouble(cfg.get("holdout"));
+        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false);
+        held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
+        if (held.size() == 0) {
+            err.println("gen0 proxies: the split leaves no held-out sample");
+            return EXIT_ERROR;
+        }
+        HeldOutMetrics.Metrics m = HeldOutMetrics.evaluate(new Network(net.parameters()), held, samples, threads);
+        double se = Math.sqrt(m.winnerAccuracy() * (1 - m.winnerAccuracy()) / Math.max(1, m.winnerSamples()));
+        out.printf(Locale.ROOT, "step %d proxies on %d of %d held-out samples: policy KL %.3f, top-1 %.1f%%,"
+                + " value loss %.3f, winner %.1f%% +- %.1f of %d (yardstick 78.8%%)%n", net.step(), m.samples(),
+                held.size(), m.klPolicy(), 100 * m.top1(), m.valueLoss(), 100 * m.winnerAccuracy(), 100 * se,
+                m.winnerSamples());
+        return EXIT_OK;
+    }
+
     // ---- the separate strength step ----
 
     private static int strength(Map<String, String> opts, Path run, PrintStream out, PrintStream err,
@@ -839,18 +964,14 @@ public final class Gen0 {
             Path statusFile = run.resolve("." + STRENGTH_JOB + ".status");
             writeStatus(statusFile, start, null);
             int cleanup = removeTemporaries(run.resolve("gen-0000").resolve("strength"), FOREIGN_TEMP_AGE);
-            Checkpoint.Loaded loaded;
+            NetworkFile loaded;
             try {
-                loaded = Checkpoint.read(file);
+                loaded = loadNetworkFile(file, sha);
             } catch (IOException e) {
-                err.println("gen0 strength: cannot read " + file + ": " + e.getMessage());
+                err.println("gen0 strength: cannot use " + file + ": " + e.getMessage());
                 return EXIT_ERROR;
             }
-            if (!loaded.runConfigSha256().equals(sha)) {
-                err.println("gen0 strength: " + file + " belongs to another configuration than " + runJson);
-                return EXIT_ERROR;
-            }
-            long step = loaded.optimizer().steps();
+            long step = loaded.step();
             Path result = StrengthEstimate.file(run.resolve("gen-0000").resolve("strength"), step);
             if (StrengthEstimate.complete(result, cad.ladderBase(), cad.ladder(), cad.eloPairs(), cad.eloSeed())) {
                 err.printf(Locale.ROOT, "gen 0 strength: 0 ok, 1 skip, 0 error, %d cleanup; step %d is estimated"

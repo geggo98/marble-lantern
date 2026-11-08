@@ -98,6 +98,46 @@ class StrengthEstimateTest {
     }
 
     @Test
+    void aNodeLimitBelowACompleteDepthOneSearchPlaysTheDepthOneMovesSoSuchRungsAreRefused() {
+        // measured on BEST_SPEC (docs/training.md, "Generation 0 run 1"): 1, 5 and 20 nodes choose the depth-1 move in
+        // 100 of 100 positions. The same holds for any evaluator, because depth 1 always completes: here the
+        // distance evaluator, on positions of random play.
+        RuleSet rules = RuleSet.defaults(2);
+        java.util.Random random = new java.util.Random(11);
+        int differentAt400 = 0;
+        for (int i = 0; i < 40; i++) {
+            Position p = Position.initial(rules);
+            for (int plies = 2 + random.nextInt(60); plies > 0 && p.outcome() == null; plies--) {
+                int[] moves = p.legalMoves();
+                p.make(moves[random.nextInt(moves.length)]);
+            }
+            if (p.outcome() != null) {
+                continue;
+            }
+            int depthOne = move(BASE + ",depth=1,nodes=1000000000,tt=12", p);
+            for (int nodes : new int[] {1, 5, 20}) {
+                assertEquals(depthOne, move(BASE + ",nodes=" + nodes + ",tt=12", p), nodes + " nodes, position " + i);
+            }
+            if (move(BASE + ",nodes=400,tt=12", p) != depthOne) {
+                differentAt400++;
+            }
+        }
+        assertTrue(differentAt400 > 0, "400 nodes is a rung of its own: it differs from depth 1 somewhere");
+        // the ladder check
+        StrengthEstimate.requireDistinctRungs(List.of(1, 100, 400));
+        StrengthEstimate.requireDistinctRungs(List.of(200));
+        for (List<Integer> bad : List.of(List.of(5), List.of(1, 20), List.of(99), List.of(0), List.of(100, 100),
+                List.of(-3))) {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> StrengthEstimate.requireDistinctRungs(bad), bad.toString());
+        }
+    }
+
+    private static int move(String spec, Position p) {
+        return sternhalma.search.PlayerSpec.parse(spec).create().choose(p.copy());
+    }
+
+    @Test
     void aStopDiscardsTheWholeEstimate() {
         AtomicInteger asked = new AtomicInteger();
         List<Rung> result = StrengthEstimate.estimate(network(1), BASE, List.of(20), 6, 1, 1,
