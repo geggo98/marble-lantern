@@ -68,25 +68,25 @@ public final class LinearEvaluator implements Evaluator {
     }
 
     /** Flat neighbour and jump-landing tables, index {@code cell * DIRECTIONS + direction}. */
-    private static final int[] STEP = new int[Geometry.CELLS * Geometry.DIRECTIONS];
-    private static final int[] LAND = new int[Geometry.CELLS * Geometry.DIRECTIONS];
-    private static final int[] LATERAL = new int[Geometry.CELLS];
+    static final int[] STEP = new int[Geometry.CELLS * Geometry.DIRECTIONS];
+    static final int[] LAND = new int[Geometry.CELLS * Geometry.DIRECTIONS];
+    static final int[] LATERAL = new int[Geometry.CELLS];
     /** Bit in {@link #GOOD}: the neighbour is an allowed cell closer to the goal than the piece. */
-    private static final int STEP_CLOSER = 1;
+    static final int STEP_CLOSER = 1;
     /** Bit in {@link #GOOD}: the jump landing is an allowed cell closer to the goal than the piece. */
-    private static final int JUMP_CLOSER = 2;
+    static final int JUMP_CLOSER = 2;
     /** Per layout (index players - 2) and player: {@code STEP_CLOSER | JUMP_CLOSER} per (cell, direction). */
-    private static final byte[][][] GOOD = new byte[2][][];
+    static final byte[][][] GOOD = new byte[2][][];
     /** Per layout and player: the single-agent distance per cell. */
-    private static final int[][][] DIST = new int[2][][];
+    static final int[][][] DIST = new int[2][][];
     /** Per layout and player: 1 for a goal cell, 2 for a start cell, 0 otherwise. */
-    private static final byte[][][] KIND = new byte[2][][];
+    static final byte[][][] KIND = new byte[2][][];
     /** Per layout and player: the step target per (cell, direction) if it is an allowed cell, else -1. */
     private static final int[][][] STEP_ALLOWED = new int[2][][];
     /** Per layout and player: the jump landing per (cell, direction) if it is an allowed cell, else -1. */
     private static final int[][][] LAND_ALLOWED = new int[2][][];
-    private static final int IN_GOAL = 1;
-    private static final int IN_START = 2;
+    static final int IN_GOAL = 1;
+    static final int IN_START = 2;
 
     static {
         for (int c = 0; c < Geometry.CELLS; c++) {
@@ -143,18 +143,18 @@ public final class LinearEvaluator implements Evaluator {
     }
 
     // per-side integer sums, indices into the scratch array of side()
-    private static final int DSUM = 0;
-    private static final int DMAX = 1;
-    private static final int DMIN = 2;
-    private static final int DSQ = 3;
-    private static final int GOAL = 4;
-    private static final int START = 5;
-    private static final int LAT = 6;
-    private static final int JUMPS = 7;
-    private static final int ADJ = 8;
-    private static final int STEPS = 9;
-    private static final int COUNT = 10;
-    private static final int SIDE_SUMS = 11;
+    static final int DSUM = 0;
+    static final int DMAX = 1;
+    static final int DMIN = 2;
+    static final int DSQ = 3;
+    static final int GOAL = 4;
+    static final int START = 5;
+    static final int LAT = 6;
+    static final int JUMPS = 7;
+    static final int ADJ = 8;
+    static final int STEPS = 9;
+    static final int COUNT = 10;
+    static final int SIDE_SUMS = 11;
 
     private final double[] weights;
     private final double scale;
@@ -162,6 +162,7 @@ public final class LinearEvaluator implements Evaluator {
     private final GainMode gain;
     private final double[] scratch = new double[FEATURES];
     private final int[] sums = new int[SIDE_SUMS];
+    private final int[] otherSums = new int[SIDE_SUMS];
     private final GainSearch gainSearch = new GainSearch();
 
     public LinearEvaluator() {
@@ -199,20 +200,31 @@ public final class LinearEvaluator implements Evaluator {
 
     @Override
     public int evaluate(Position position) {
-        features(position, scratch, sums);
+        features(position, scratch, sums, otherSums);
+        return score(scratch, gain == null ? 0.0 : gainFeature(position, gain, gainSearch));
+    }
+
+    /** The rounded score of the 12 features and, for a {@link #GAIN_FEATURES} evaluator, the {@code bestGain} value. */
+    int score(double[] features, double bestGain) {
         double sum = 0;
         for (int i = 0; i < FEATURES; i++) {
-            sum += weights[i] * scratch[i];
+            sum += weights[i] * features[i];
         }
         if (gain != null) {
-            sum += weights[BEST_GAIN] * gainFeature(position, gain, gainSearch);
+            sum += weights[BEST_GAIN] * bestGain;
         }
         return (int) Math.round(scale * sum);
     }
 
+    /** A state that keeps the sums of the features up to date along a line of play (E13). */
+    @Override
+    public EvalState incremental() {
+        return new IncrementalLinear(this);
+    }
+
     /** The feature vector of a position (side to move minus opponent), into {@code out}. */
     public static void features(Position position, double[] out) {
-        features(position, out, new int[SIDE_SUMS]);
+        features(position, out, new int[SIDE_SUMS], new int[SIDE_SUMS]);
     }
 
     /**
@@ -220,7 +232,7 @@ public final class LinearEvaluator implements Evaluator {
      * {@code bestGain} in the given mode at index {@link #BEST_GAIN}.
      */
     public static void features(Position position, double[] out, GainMode mode) {
-        features(position, out, new int[SIDE_SUMS]);
+        features(position, out, new int[SIDE_SUMS], new int[SIDE_SUMS]);
         out[BEST_GAIN] = gainFeature(position, mode, new GainSearch());
     }
 
@@ -476,17 +488,23 @@ public final class LinearEvaluator implements Evaluator {
      * original cell-scanning code (LinearEvaluatorReference in the tests), so that every feature and the rounded
      * score stay bit-identical: out[i] = 0.0 + me + (-1 * opponent), dsq as dsq / 10.0 per side.
      */
-    private static void features(Position position, double[] out, int[] sums) {
+    private static void features(Position position, double[] out, int[] sums, int[] otherSums) {
         int me = position.sideToMove();
         int layout = position.rules().players() - 2;
-        java.util.Arrays.fill(out, 0, 10, 0.0);
         side(position, layout, me, sums);
-        int dMe = sums[DSUM];
-        add(out, sums, 1);
-        side(position, layout, 1 - me, sums);
-        int dOpp = sums[DSUM];
-        add(out, sums, -1);
-        out[10] = out[0] * (dMe + dOpp) / 100.0;
+        side(position, layout, 1 - me, otherSums);
+        combine(sums, otherSums, out);
+    }
+
+    /**
+     * The features from the integer sums of the side to move and of the opponent (the entry point that the
+     * incremental state shares with the full computation, so that both round identically).
+     */
+    static void combine(int[] me, int[] opponent, double[] out) {
+        java.util.Arrays.fill(out, 0, 10, 0.0);
+        add(out, me, 1);
+        add(out, opponent, -1);
+        out[10] = out[0] * (me[DSUM] + opponent[DSUM]) / 100.0;
         out[11] = 1.0;
     }
 
@@ -506,7 +524,7 @@ public final class LinearEvaluator implements Evaluator {
     }
 
     /** The integer sums of player p into {@code s}, over at most {@link Position#PIECES} pieces in cell order. */
-    private static void side(Position position, int layout, int p, int[] s) {
+    static void side(Position position, int layout, int p, int[] s) {
         byte[] good = GOOD[layout][p];
         int[] dist = DIST[layout][p];
         byte[] kind = KIND[layout][p];

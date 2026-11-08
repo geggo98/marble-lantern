@@ -718,6 +718,28 @@ Both numbers are saturated (the arena clamps the Elo estimate above a score of a
 
 **Not done:** candidate E (above); the verifier's seeds 41 and 42 and the plan's seed 43; the re-validation of the self-play tool's margin layer with the new BEST (E08 noted that the layer fires far more often with futility on, and it is off by default).
 
+### Incremental evaluation (E13, identical tree, measured 2026-11-08)
+
+E13 makes the leaf evaluation of `linear-r3` (and so of `racelin1-r3`, which wraps it) cheaper without changing a move, a score or a node count. `Evaluator.incremental()` (default null, so `distance`, `stage4` and the other evaluators are unchanged) returns an `EvalState`; `AlphaBeta` plays every move through it (`make`/`unmake` around `Position.make`/`unmake`) and takes leaf and futility values from it. The full `evaluate` stays the oracle.
+
+- **Sums.** `dsum`, `dsq`, `inGoal`, `inStart` and `lateral` change for the moved piece only. `dmax` and `dmin` (for `spread`) come from a count per distance. `steps`, `jumps` and `adjacent` are sums over (piece, direction) pairs that read the neighbour and the landing, so filling or emptying one cell changes at most 18 pairs; a move is the two toggles "empty from" and "fill to" on a private copy of the board, which needs no case for from and to being near each other. The plan's variant (recompute every piece within two cells of from and to, before and after) was not used: in the dense armies of the middle game that is, by estimate, 10 to 14 pieces twice, about as much as the full evaluation.
+- **bestGain** is not local: a jump chain is as long as the board, so the plan's "recompute only near from and to" does not apply to it, and it was 65% of the leaf evaluation (860 of 1230 ns for make, evaluation and unmake of a child, measured on the children of 256 positions; 371 ns without `bestGain`). It is still searched at the leaf, but on a `JumpGraph` that the state keeps up to date: for every cell the set of landings over an occupied hurdle (twelve bit flips per move, self-inverse), so a component of the jump graph is a flood fill with 128-bit set operations instead of a walk over edge lists, and the first landings of a piece are the set `adj[from] & free`. The pieces of each side are kept sorted by distance for the search. A step gains at most 1 (neighbouring cells differ by one in distance; checked when the tables are built), so it is one mask test. `GainSearch` in `LinearEvaluator` is unchanged and serves as the oracle for this code.
+- **Same rounding.** The state forms the same integer sums as `side()` and passes them through the same `LinearEvaluator.combine` and `score`, so the doubles are produced by the same operations in the same order.
+- **Fallbacks.** `reset` refuses three players, more than ten pieces per side and pieces on cells their owner may not enter; `AlphaBeta` then evaluates from scratch.
+- **Assert mode.** `new AlphaBeta(evaluator, bits, true, options, true)` wraps the state in `VerifyingEvalState`: every evaluation is compared with the full one, and after every make and unmake the sums, the sorted piece keys, the board copy and the jump graph are compared with a recomputation.
+
+**Tests** (`IncrementalEvaluationTest`, in docs/testing.md): 1 040 000 positions along random, greedy and scattered-start playouts under both leaveGoal values, each also left through a probe move that is taken back (so 3 comparisons per position), five evaluators (live weights, random 13-weight sets in both gain modes, `linear-r3`, `racelin1-r3`); a search of the 64 reference positions in assert mode with the BEST_SPEC options returns the same move, score, depth and node count as the same search without a state. Mutation check: flipping a sign in the jump term, or turning the bit flip of the jump graph into an `or`, made two of the four tests fail. `BestSpecFingerprintTest` and all other fingerprint tests are unchanged (no constant was touched), the full build including nn, nn-tornado and selfplay is green.
+
+**Cost** (all numbers under load, 1-minute load average 7.2 to 7.9 on 16 cores, so indicative; Bench of the current BEST_SPEC against the frozen R3 jars in `.reference-r3`, which is the code of the integration commit, trees identical on 64/64 positions and 2/2 games in every run):
+
+| Run | nps current | nps R3 | Ratio (median of 3 interleaved repetitions) |
+|---|---|---|---|
+| 1 | 1 107 183 | 868 012 | 1.2715 |
+| 2 | 1 237 968 | 922 970 | 1.3223 |
+| 3 | 1 330 063 | 1 026 590 | 1.2965 |
+
+Median of the three runs: **1.2965** (acceptance in the plan: at least 1.10; drop below 1.05). The self-ratio of the same build against its own copy (`--copy`) read 0.9950, 1.0131 and 1.0076 (median 1.0076), inside the required 0.98 to 1.02. An earlier build of the same branch with the state but with `bestGain` on the old edge-list search measured 1.10; the jump graph is the larger part of the gain. Games per CPU-second of a full BEST_SPEC self-play game at 1000 nodes (30 games, 2702 plies, identical games on both builds, separate JVMs one after the other, same load): 6.69 for R3 against 9.73 for the current build (1.45 times, including the race plies that need no search).
+
 ## Results of round 2
 
 Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by its author on seeds 33 and 34 and re-measured by a verifier on seeds 41 and 42; `Strategies.BEST_SPEC` changed only in the integration commit after wave 2 ([Integration of round 2](#integration-of-round-2-measured-2026-11-08)).

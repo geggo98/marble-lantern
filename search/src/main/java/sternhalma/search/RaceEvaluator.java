@@ -211,20 +211,58 @@ public final class RaceEvaluator implements Evaluator {
 
     @Override
     public int evaluate(Position position) {
+        int score = raceValue(position);
+        return score == UNDECIDED ? base.evaluate(position) : score;
+    }
+
+    /** The race value of the position, or {@link #UNDECIDED} if the wrapped evaluator decides. */
+    private int raceValue(Position position) {
         if (table == null || !rulesApply(position.rules()) || !passed(position)) {
-            return base.evaluate(position);
+            return UNDECIDED;
         }
         int me = position.sideToMove();
         int a = count(position, me);
         if (a < 0) {
-            return base.evaluate(position);
+            return UNDECIDED;
         }
         int b = count(position, 1 - me);
         if (b < 0) {
-            return base.evaluate(position);
+            return UNDECIDED;
         }
-        int score = raceScore(a, b, position.rules().moveLimit() - position.ply());
-        return score == UNDECIDED ? base.evaluate(position) : score;
+        return raceScore(a, b, position.rules().moveLimit() - position.ply());
+    }
+
+    /** An incremental state if the wrapped evaluator has one; the race value is cheap to form from scratch. */
+    @Override
+    public EvalState incremental() {
+        EvalState inner = base.incremental();
+        return inner == null ? null : new EvalState() {
+            @Override
+            public boolean reset(Position root) {
+                return inner.reset(root);
+            }
+
+            @Override
+            public void make(Position position, int move) {
+                inner.make(position, move);
+            }
+
+            @Override
+            public void unmake(Position position) {
+                inner.unmake(position);
+            }
+
+            @Override
+            public int evaluate(Position position) {
+                int score = raceValue(position);
+                return score == UNDECIDED ? inner.evaluate(position) : score;
+            }
+
+            @Override
+            public void verify(Position position) {
+                inner.verify(position);
+            }
+        };
     }
 
     /**

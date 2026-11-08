@@ -49,6 +49,9 @@ public final class AlphaBeta {
     private static final int ASPIRATION_MAX = 2000;
 
     private final Evaluator evaluator;
+    /** The incremental state of the evaluator (E13), or null if it has none; follows {@link #root} when tracking. */
+    private final EvalState state;
+    private boolean tracking;
     private final boolean useTable;
     private final SearchOptions options;
 
@@ -122,7 +125,19 @@ public final class AlphaBeta {
     }
 
     public AlphaBeta(Evaluator evaluator, int tableBits, boolean useTable, SearchOptions options) {
+        this(evaluator, tableBits, useTable, options, false);
+    }
+
+    /**
+     * @param verifyIncremental assert mode of the incremental evaluation (E13): every evaluation is compared with the
+     *                          full one and the internal sums are checked after every move; slow, for tests
+     */
+    public AlphaBeta(Evaluator evaluator, int tableBits, boolean useTable, SearchOptions options,
+            boolean verifyIncremental) {
         this.evaluator = evaluator;
+        EvalState incremental = evaluator.incremental();
+        this.state = incremental != null && verifyIncremental ? new VerifyingEvalState(evaluator, incremental)
+                : incremental;
         this.useTable = useTable;
         this.options = options;
         int size = useTable ? 1 << tableBits : 1;
@@ -187,6 +202,7 @@ public final class AlphaBeta {
             throw new IllegalArgumentException("maxDepth must be in 1.." + MAX_DEPTH);
         }
         root = position.copy();
+        tracking = state != null && state.reset(root);
         nodeLimit = maxNodes;
         nodes = 0;
         futilityCuts = 0;
@@ -282,7 +298,7 @@ public final class AlphaBeta {
             if (i > 0) {
                 pick(moves, keys, i, count);
             }
-            root.make(moves[i]);
+            make(moves[i]);
             int score;
             if (options.pvs() && i > 0) {
                 score = -negamax(depth - 1, -alpha - 1, -alpha, 1);
@@ -292,7 +308,7 @@ public final class AlphaBeta {
             } else {
                 score = -negamax(depth - 1, -beta, -alpha, 1);
             }
-            root.unmake();
+            unmake();
             if (stopped) {
                 break;
             }
@@ -328,7 +344,7 @@ public final class AlphaBeta {
             return terminalScore(root, height);
         }
         if (depth == 0) {
-            return evaluator.evaluate(root);
+            return evaluate();
         }
         int alpha = alphaIn;
         int beta = betaIn;
@@ -384,7 +400,7 @@ public final class AlphaBeta {
                 // the rest is ordered by distance gain, so once this move cannot reach alpha, none can
                 int gain = historyTable == null ? keys[i] : keys[i] >> 20;
                 if (!standKnown) {
-                    stand = evaluator.evaluate(root);
+                    stand = evaluate();
                     standKnown = true;
                 }
                 int bound = stand + options.futilityGain() * gain + margin;
@@ -396,7 +412,7 @@ public final class AlphaBeta {
                     break;
                 }
             }
-            root.make(move);
+            make(move);
             int score;
             int reduction = lmr && i >= LMR_FULL_MOVES && move != ttMove
                     && move != killers[0] && move != killers[1] ? lmrTable[depth][i] : 0;
@@ -411,7 +427,7 @@ public final class AlphaBeta {
                     score = -negamax(depth - 1, -beta, -alpha, height + 1);
                 }
             }
-            root.unmake();
+            unmake();
             if (stopped) {
                 return 0;
             }
@@ -489,6 +505,7 @@ public final class AlphaBeta {
      */
     int searchNode(Position position, int depth, int alpha, int beta) {
         root = position.copy();
+        tracking = state != null && state.reset(root);
         nodeLimit = Long.MAX_VALUE;
         deadlineNanos = Long.MAX_VALUE;
         nodes = 0;
@@ -496,6 +513,28 @@ public final class AlphaBeta {
         stopped = false;
         timed = false;
         return negamax(depth, alpha, beta, 1);
+    }
+
+    /** Plays a move on the root position, through the incremental state when there is one. */
+    private void make(int move) {
+        if (tracking) {
+            state.make(root, move);
+        } else {
+            root.make(move);
+        }
+    }
+
+    private void unmake() {
+        if (tracking) {
+            state.unmake(root);
+        } else {
+            root.unmake();
+        }
+    }
+
+    /** The static value of the current position of {@link #root}. */
+    private int evaluate() {
+        return tracking ? state.evaluate(root) : evaluator.evaluate(root);
     }
 
     /** The slot holding {@code key}, or -1. */

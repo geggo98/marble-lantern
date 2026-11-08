@@ -16,4 +16,12 @@ public interface Evaluator {
     default boolean futilitySafe(Position position, int depth) {
         return true;
     }
+
+    /**
+     * A new incremental state for one searcher (round-2 experiment E13), or null if this evaluator has none and is
+     * evaluated from scratch at every leaf. The state's values must equal {@link #evaluate} bit for bit.
+     */
+    default EvalState incremental() {
+        return null;
+    }
 }
