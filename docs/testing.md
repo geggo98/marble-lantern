@@ -74,6 +74,15 @@ Futility pruning (E06) is not exact, so the exactness tests of `SearchOptionsTes
 
 The contract covers the frozen aliases `linear-r1` and `linear-r2` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that.
 
+The `bestGain` feature of E07 (`eval=linear-r3`) is covered by two tests:
+
+| Test | What it checks |
+|---|---|
+| `LinearEvaluatorGainTest` | The component search equals a definition taken from the engine's own move list: the largest gain of a legal move whose piece is outside the goal, floored and capped. This is checked on 60 000 player-positions from noisy greedy playouts, scattered set-ups and set-ups packed around the centre, for both `leaveGoal` values with suicide moves legal. The set must exercise the jump search: jumps decide in more than 10 % of the cases, the cap is reached in more than 2 %, and every value from 0 to 6 occurs. With the suicide rule on, the feature is never below the legal moves. Also checked: a constructed ladder of 1 to 3 jumps with its known gain; the floor and the premise of the goal skip (goal cells have distance 0); antisymmetry in mode `both` and the mover's own gain in mode `mover`; the mirror image; bit-identical first 12 features; and a zero gain weight scoring as the 12-feature evaluator. The weight files are tested too: versioned and unversioned files, the rejection of malformed ones, and the registration of `linear-r3`, of `Strategies.GAIN_SPEC` and of an unchanged `BEST_SPEC`. |
+| `LinearRefitGainTest` | 13-feature samples carry the 12 features unchanged and the gain of an independently replayed position. Labels come from the first S1 verdict: a recorded result flipped on purpose is relabelled in every game with a verdict, and kept in games without one. The fit recovers known weights with the gain column after the tempo intercept. One stored game of the data set replays move for move. On the committed held-out games (`e07-heldout-games.txt`, 120 games, 67 KB), `linear-r3` has a lower log loss than `linear-r2`, and a lower one than its own weights without the gain. |
+
+A mutation check of the component search: tables without the allowed-cell filter, the step table without it, a stamp that never renews, and the gain difference with the wrong sign were all killed. Two survivors are equivalent: "the moving piece's own cell is a hurdle" (impossible by parity, so the check was removed) and the bound "no gain above the piece's distance" (an optimisation only). `GainCost` (test sources, a `main`) measures the cost of one evaluation; it is a tool, not a test.
+
 The contract covers the frozen alias `linear-r1` automatically, because every name in `Evaluators.names()` is registered; `BestSpecFingerprintTest` asserts that. `Strategies.registered()` also lists `BEST_SPEC` with `race=1` and with `race=2`, so the race module ([endgame and opening](endgame-and-opening.md#the-race-module)) plays under the contract in every rule variant; `PlayerSpecRaceTest` asserts that and that `BEST_SPEC` itself is unchanged.
 
 ## Tests of the race module (round 2, E03)

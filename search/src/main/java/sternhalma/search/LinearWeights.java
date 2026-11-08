@@ -99,23 +99,117 @@ final class LinearWeights {
         0.282466,    // tempo
     };
 
+    /**
+     * Round-2 experiment E07, registry name {@code linear-r3}: the 12 features plus {@code bestGain} in mode
+     * {@link LinearEvaluator.GainMode#BOTH}, in the order of {@link LinearEvaluator#GAIN_NAMES}. Frozen: never
+     * change these values, add a new set instead.
+     *
+     * <p>One logistic fit ({@code LinearTraining fit-games all --gain both --s1-labels}) on 4000 moves-only
+     * self-play games of the wave-1 BEST candidate {@code ab:eval=linear-r2,<all options>,fut=1,futk=30,fut2=1,
+     * race=1} at 20000 nodes from the arena openings of seed 1008: every position from ply 6, passed positions
+     * dropped, labels from the first S1 verdict where one fires (3993 games; it changed no label), games with
+     * id % 5 == 0 held out. Held-out log loss on 62957 positions of 800 games: linear-r2 0.5478, the 12-feature
+     * refit on the same samples 0.5471, these weights 0.5423 (accuracy 0.7084, 0.7073, 0.7126). A second texel
+     * round on 4000 games of these weights was not better in the arena (-6 and +32 Elo on seeds 31 and 32) and is
+     * not used. Commands and arena results: docs/search-and-evaluation.md, "bestGain (E07)".
+     */
+    static final double[] ROUND3 = {
+        -0.259472,   // dsum
+        -0.386404,   // dmax
+        -0.234400,   // dsq
+        0.285310,    // inGoal
+        0.142903,    // inStart
+        0.0773203,   // spread
+        -0.116410,   // lateral
+        0.0949370,   // jumps
+        -0.0580585,  // adjacent
+        0.0452636,   // steps
+        0.261648,    // dsumPhase
+        0.327666,    // tempo
+        0.156608,    // bestGain
+    };
+
     private LinearWeights() {
     }
 
     /**
-     * Reads an evaluator from a text file: the scale, then the {@link LinearEvaluator#FEATURES} weights,
-     * separated by white space. Lines starting with '#' are comments. For tuning experiments only.
+     * Reads an evaluator from a text file of white-space separated tokens; lines starting with '#' are comments.
+     * For tuning experiments only. Two formats:
+     * <ul>
+     *   <li>versioned (E07): the feature count first, then for {@link LinearEvaluator#GAIN_FEATURES} the
+     *       {@code bestGain} mode ({@code both} or {@code mover}), then the scale and exactly that many weights:
+     *       {@code 12 <scale> <12 weights>} or {@code 13 both <scale> <13 weights>};</li>
+     *   <li>unversioned (before E07): the scale and the 12 weights, 13 numbers in all.</li>
+     * </ul>
+     * The two cannot be confused: a versioned 12-feature file has 14 tokens, an unversioned one 13, and a
+     * 13-feature file has a word as its second token. Anything else is rejected.
      */
     static LinearEvaluator fromFile(String file) {
         try {
-            double[] numbers = Files.readAllLines(Path.of(file)).stream()
+            String[] tokens = Files.readAllLines(Path.of(file)).stream()
                     .filter(line -> !line.isBlank() && !line.startsWith("#"))
                     .flatMap(line -> Arrays.stream(line.trim().split("\\s+")))
-                    .mapToDouble(Double::parseDouble)
-                    .toArray();
-            return new LinearEvaluator(Arrays.copyOfRange(numbers, 1, numbers.length), numbers[0]);
+                    .toArray(String[]::new);
+            return parse(tokens, file);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    static LinearEvaluator parse(String[] tokens, String source) {
+        int f = LinearEvaluator.FEATURES;
+        int g = LinearEvaluator.GAIN_FEATURES;
+        if (tokens.length == 1 + f) {
+            return new LinearEvaluator(numbers(tokens, 1, source), Double.parseDouble(tokens[0]));
+        }
+        if (tokens.length == 2 + f && tokens[0].equals(Integer.toString(f))) {
+            return new LinearEvaluator(numbers(tokens, 2, source), Double.parseDouble(tokens[1]), null);
+        }
+        if (tokens.length == 3 + g && tokens[0].equals(Integer.toString(g))) {
+            LinearEvaluator.GainMode mode = switch (tokens[1]) {
+                case "both" -> LinearEvaluator.GainMode.BOTH;
+                case "mover" -> LinearEvaluator.GainMode.MOVER;
+                default -> throw new IllegalArgumentException(source + ": unknown bestGain mode '" + tokens[1]
+                        + "', expected both or mover");
+            };
+            return new LinearEvaluator(numbers(tokens, 3, source), Double.parseDouble(tokens[2]), mode);
+        }
+        throw new IllegalArgumentException(source + ": " + tokens.length + " tokens; expected '<scale> <12 weights>', '"
+                + f + " <scale> <12 weights>' or '" + g + " both|mover <scale> <13 weights>'");
+    }
+
+    private static double[] numbers(String[] tokens, int from, String source) {
+        double[] w = new double[tokens.length - from];
+        for (int i = 0; i < w.length; i++) {
+            try {
+                w[i] = Double.parseDouble(tokens[from + i]);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(source + ": weight " + i + " is not a number: " + tokens[from + i], e);
+            }
+        }
+        return w;
+    }
+
+    /** The versioned file text of a weight set: header comment lines, then the tokens of {@link #parse}. */
+    static String toText(String comment, double scale, double[] weights, LinearEvaluator.GainMode mode) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : comment.split("\n")) {
+            sb.append("# ").append(line).append('\n');
+        }
+        String[] names = mode == null ? LinearEvaluator.NAMES : LinearEvaluator.GAIN_NAMES;
+        sb.append("# order: count");
+        if (mode != null) {
+            sb.append(", mode");
+        }
+        sb.append(", scale, ").append(String.join(" ", names)).append('\n');
+        sb.append(weights.length);
+        if (mode != null) {
+            sb.append(' ').append(mode.name().toLowerCase(java.util.Locale.ROOT));
+        }
+        sb.append('\n').append(scale).append('\n');
+        for (double w : weights) {
+            sb.append(String.format(java.util.Locale.ROOT, "%.6g%n", w));
+        }
+        return sb.toString();
     }
 }

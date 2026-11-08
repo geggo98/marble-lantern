@@ -35,6 +35,10 @@ import sternhalma.engine.RuleSet;
  *   java -cp ... sternhalma.search.LinearTraining games data/e04/r1 2000 1003 8 '&lt;spec&gt;'
  *   java -cp ... sternhalma.search.LinearTraining fit-games w.txt all [--keep-passed] data/e04/r1
  *   java -cp ... sternhalma.search.LinearTraining score-games data/e04/r1   # linear-r1 vs linear-r2, held out
+ *
+ *   # E07: the 13th feature bestGain (mode both or mover), labels from the first S1 verdict where one fires;
+ *   # also prints the 12-feature refit on the same samples; writes the versioned weight-file format
+ *   java -cp ... sternhalma.search.LinearTraining fit-games w.txt all --gain both --s1-labels data/e07/r1
  * </pre>
  *
  * <p>Generation: game g plays matchup g % k (k matchups given as {@code specA|specB}); colours alternate
@@ -99,9 +103,36 @@ public final class LinearTraining {
      * the side to move. {@code counts}, if not null, receives {kept, passed dropped}.
      */
     static List<Sample> samples(List<GameFiles.Game> games, int fromPly, boolean dropPassed, long[] counts) {
+        return samples(games, fromPly, dropPassed, counts, null, null);
+    }
+
+    /**
+     * As {@link #samples(List, int, boolean, long[])}, with the {@code bestGain} feature in mode {@code gain}
+     * ({@link LinearEvaluator#GAIN_FEATURES} values per sample; null: the 12 features) and, if {@code s1} is not
+     * null, the label of a game taken from the first S1 verdict ({@link RaceAdjudication}) of the replay instead of
+     * the played result: the verdict is the game value of the position (round-2 amendment to E03), and a won race
+     * that the players failed to convert must not label the positions before it as lost. {@code counts}, if not
+     * null and long enough, receives {kept, passed dropped, games with an S1 verdict, games whose label the
+     * verdict changed}.
+     */
+    static List<Sample> samples(List<GameFiles.Game> games, int fromPly, boolean dropPassed, long[] counts,
+            LinearEvaluator.GainMode gain, RaceAdjudication s1) {
         List<Sample> out = new ArrayList<>();
         long dropped = 0;
+        long fired = 0;
+        long changed = 0;
         for (GameFiles.Game g : games) {
+            double value0 = g.value0();
+            if (s1 != null) {
+                Double verdict = s1Value0(g, s1);
+                if (verdict != null) {
+                    fired++;
+                    if (verdict != value0) {
+                        changed++;
+                    }
+                    value0 = verdict;
+                }
+            }
             Position pos = Position.initial(RuleSet.defaults(2));
             for (int i = 0; i <= g.moves().length; i++) {
                 if (pos.outcome() != null || pos.legalMoves().length == 0) {
@@ -111,9 +142,15 @@ public final class LinearTraining {
                     if (dropPassed && passed(pos)) {
                         dropped++;
                     } else {
-                        double[] x = new double[F];
-                        LinearEvaluator.features(pos, x);
-                        double value = pos.sideToMove() == 0 ? g.value0() : -g.value0();
+                        double[] x;
+                        if (gain == null) {
+                            x = new double[F];
+                            LinearEvaluator.features(pos, x);
+                        } else {
+                            x = new double[LinearEvaluator.GAIN_FEATURES];
+                            LinearEvaluator.features(pos, x, gain);
+                        }
+                        double value = pos.sideToMove() == 0 ? value0 : -value0;
                         out.add(new Sample(g.id(), pos.ply(), (1 + value) / 2, x));
                     }
                 }
@@ -125,8 +162,32 @@ public final class LinearTraining {
         if (counts != null) {
             counts[0] = out.size();
             counts[1] = dropped;
+            if (counts.length >= 4) {
+                counts[2] = fired;
+                counts[3] = changed;
+            }
         }
         return out;
+    }
+
+    /** The value for player 0 (1 or -1) of the first S1 verdict in the replay of a game, or null if none fires. */
+    static Double s1Value0(GameFiles.Game g, RaceAdjudication s1) {
+        Position pos = Position.initial(RuleSet.defaults(2));
+        for (int i = 0; i <= g.moves().length; i++) {
+            if (pos.outcome() != null) {
+                return null;
+            }
+            if (RaceAdjudication.passed(pos)) {
+                RaceAdjudication.Verdict v = s1.adjudicate(pos);
+                if (v != null) {
+                    return v.winner() == 0 ? 1.0 : -1.0;
+                }
+            }
+            if (i < g.moves().length) {
+                pos.make(g.moves()[i]);
+            }
+        }
+        return null;
     }
 
     /**
@@ -135,32 +196,52 @@ public final class LinearTraining {
      * id % 5 == 0 held out, and reports the frozen {@link LinearWeights#R1} weights on the same held-out set.
      */
     static void fitGames(Path out, String maskSpec, String[] args) throws IOException {
-        boolean dropPassed = !Arrays.asList(args).contains("--keep-passed");
-        String[] files = Arrays.stream(args).filter(a -> !a.startsWith("--")).toArray(String[]::new);
+        List<String> argList = Arrays.asList(args);
+        boolean dropPassed = !argList.contains("--keep-passed");
+        boolean s1Labels = argList.contains("--s1-labels");
+        LinearEvaluator.GainMode gain = null;
+        List<String> fileList = new ArrayList<>();
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--gain")) {
+                gain = LinearEvaluator.GainMode.valueOf(args[++i].toUpperCase(Locale.ROOT));
+            } else if (!args[i].startsWith("--")) {
+                fileList.add(args[i]);
+            }
+        }
+        String[] files = fileList.toArray(String[]::new);
+        String[] names = gain == null ? LinearEvaluator.NAMES : LinearEvaluator.GAIN_NAMES;
         List<GameFiles.Game> games = GameFiles.readAll(files);
-        long[] counts = new long[2];
-        List<Sample> all = samples(games, 6, dropPassed, counts);
+        long[] counts = new long[4];
+        RaceAdjudication s1 = s1Labels ? new RaceAdjudication(sternhalma.tablebase.RaceTable.rows2()) : null;
+        List<Sample> all = samples(games, 6, dropPassed, counts, gain, s1);
         System.out.printf(Locale.ROOT, "games %d, samples %d, passed positions dropped %d (filter %s)%n",
                 games.size(), counts[0], counts[1], dropPassed ? "on" : "off");
+        if (s1Labels) {
+            System.out.printf(Locale.ROOT, "S1 labels: %d games with a verdict, %d labels changed by it%n", counts[2],
+                    counts[3]);
+        }
         List<Sample> train = all.stream().filter(s -> !heldOut(s)).toList();
         List<Sample> test = all.stream().filter(LinearTraining::heldOut).toList();
         System.out.printf(Locale.ROOT, "samples: %d train, %d held out (%d games held out)%n", train.size(),
                 test.size(), test.stream().mapToInt(Sample::game).distinct().count());
-        double[] base = logistic(train, mask("dsum"), 1e-6);
-        double[] w = logistic(train, mask(maskSpec), 1e-6);
+        double[] base = logistic(train, mask("dsum", names), 1e-6);
+        double[] w = logistic(train, mask(maskSpec, names), 1e-6);
         report("distance only", train, test, base);
         report("frozen R1 (linear-r1)", train, test, LinearWeights.R1);
-        report("model " + maskSpec, train, test, w);
-        StringBuilder sb = new StringBuilder();
-        sb.append("# LinearTraining fit-games, mask=").append(maskSpec).append(", passed filter ")
-                .append(dropPassed ? "on" : "off").append(", files=").append(String.join(" ", files)).append('\n');
-        sb.append("# order: scale, ").append(String.join(" ", LinearEvaluator.NAMES)).append('\n');
-        sb.append(100.0).append('\n');
-        for (int i = 0; i < F; i++) {
-            sb.append(String.format(Locale.ROOT, "%.6g%n", w[i]));
-            System.out.printf(Locale.ROOT, "  %-10s %+.6g%n", LinearEvaluator.NAMES[i], w[i]);
+        report("frozen linear-r2", train, test, LinearWeights.ROUND2);
+        if (gain != null) {
+            // the same samples without bestGain: the 12-feature refit that the new feature must beat
+            boolean[] without = mask(maskSpec, names);
+            without[LinearEvaluator.BEST_GAIN] = false;
+            report("12-feature refit, same data", train, test, logistic(train, without, 1e-6));
         }
-        Files.writeString(out, sb.toString());
+        report("model " + maskSpec + (gain == null ? "" : ", bestGain " + gain), train, test, w);
+        for (int i = 0; i < w.length; i++) {
+            System.out.printf(Locale.ROOT, "  %-10s %+.6g%n", names[i], w[i]);
+        }
+        String comment = "LinearTraining fit-games, mask=" + maskSpec + ", passed filter " + (dropPassed ? "on" : "off")
+                + ", S1 labels " + (s1Labels ? "on" : "off") + ", files=" + String.join(" ", files);
+        Files.writeString(out, LinearWeights.toText(comment, 100.0, w, gain));
     }
 
     /**
@@ -293,9 +374,17 @@ public final class LinearTraining {
         return s.game() % 5 == 0;
     }
 
-    /** Logistic regression on the masked features; returns raw-unit weights. */
+    /**
+     * Logistic regression on the masked features; returns raw-unit weights, one per mask entry (12, or 13 with
+     * {@code bestGain}; the samples must have that many values). The tempo term {@link LinearEvaluator#TEMPO} is the
+     * intercept.
+     */
     static double[] logistic(List<Sample> train, boolean[] mask, double l2) {
         int n = train.size();
+        int F = mask.length;
+        if (!mask[LinearEvaluator.TEMPO]) {
+            throw new IllegalArgumentException("the fit needs the tempo term as its intercept");
+        }
         double[] mean = new double[F];
         double[] sd = new double[F];
         for (Sample s : train) {
@@ -308,7 +397,7 @@ public final class LinearTraining {
                 sd[i] += (s.x()[i] - mean[i]) * (s.x()[i] - mean[i]) / n;
             }
         }
-        int tempo = F - 1;
+        int tempo = LinearEvaluator.TEMPO;
         int[] idx = java.util.stream.IntStream.range(0, F).filter(i -> mask[i]).toArray();
         int m = idx.length;
         double[][] z = new double[n][m];
@@ -438,14 +527,19 @@ public final class LinearTraining {
     }
 
     static boolean[] mask(String spec) {
-        boolean[] mask = new boolean[F];
+        return mask(spec, LinearEvaluator.NAMES);
+    }
+
+    /** A mask over the given feature names ({@link LinearEvaluator#NAMES} or {@link LinearEvaluator#GAIN_NAMES}). */
+    static boolean[] mask(String spec, String[] names) {
+        boolean[] mask = new boolean[names.length];
         if (spec.equals("all")) {
             Arrays.fill(mask, true);
             return mask;
         }
-        mask[F - 1] = true;
+        mask[LinearEvaluator.TEMPO] = true;
         for (String name : spec.split(",")) {
-            int i = Arrays.asList(LinearEvaluator.NAMES).indexOf(name);
+            int i = Arrays.asList(names).indexOf(name);
             if (i < 0) {
                 throw new IllegalArgumentException("unknown feature " + name);
             }

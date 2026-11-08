@@ -26,6 +26,14 @@ import sternhalma.engine.Position;
  * plus {@code dsumPhase}: the {@code dsum} difference times the total remaining distance / 100 (lets the
  * weight of the race change with the game phase), and {@code tempo}: a constant 1 for the side to move.
  *
+ * <p>Optional 13th feature (round-2 experiment E07, {@link #GAIN_FEATURES} weights): {@code bestGain}, the largest
+ * one-move distance gain {@code DIST[from] - DIST[to]} over the pieces of a side outside its goal, over steps and
+ * jump chains (any hurdle, allowed landings only, the moving piece's own cell counts as empty), floored at 0 and
+ * capped at {@link #GAIN_CAP}. {@link GainMode#BOTH} uses "side to move minus opponent", {@link GainMode#MOVER}
+ * the side to move only. The suicide rule (Definition 2) is ignored: the feature is an evaluation term, not a move
+ * list. A 12-weight evaluator never computes it, so {@code linear}, {@code linear-r1} and {@code linear-r2} keep
+ * their values and their cost.
+ *
  * <p>Implementation (experiment E02): integer sums over the position's piece lists with precomputed per-player
  * tables, then the doubles in the order of the original cell-scanning code, so features and scores are
  * bit-identical to it ({@code LinearEvaluatorEquivalenceTest}). Only players 0 and 1 are evaluated.
@@ -37,6 +45,27 @@ public final class LinearEvaluator implements Evaluator {
         "dsum", "dmax", "dsq", "inGoal", "inStart", "spread", "lateral", "jumps", "adjacent", "steps",
         "dsumPhase", "tempo"
     };
+    /** Index of the constant tempo term, in both feature sets. */
+    public static final int TEMPO = 11;
+    /** Number of features with {@code bestGain} (E07); the gain is appended after {@link #TEMPO}. */
+    public static final int GAIN_FEATURES = 13;
+    /** Index of {@code bestGain} in a {@link #GAIN_FEATURES} vector. */
+    public static final int BEST_GAIN = 12;
+    /** The names of the {@link #GAIN_FEATURES} features. */
+    public static final String[] GAIN_NAMES = {
+        "dsum", "dmax", "dsq", "inGoal", "inStart", "spread", "lateral", "jumps", "adjacent", "steps",
+        "dsumPhase", "tempo", "bestGain"
+    };
+    /** The largest {@code bestGain} reported per side; the search for a side stops once it is reached. */
+    public static final int GAIN_CAP = 6;
+
+    /** How the {@code bestGain} feature combines the two sides (E07). */
+    public enum GainMode {
+        /** The side to move's best gain minus the opponent's. */
+        BOTH,
+        /** The side to move's best gain only. */
+        MOVER
+    }
 
     /** Flat neighbour and jump-landing tables, index {@code cell * DIRECTIONS + direction}. */
     private static final int[] STEP = new int[Geometry.CELLS * Geometry.DIRECTIONS];
@@ -52,6 +81,10 @@ public final class LinearEvaluator implements Evaluator {
     private static final int[][][] DIST = new int[2][][];
     /** Per layout and player: 1 for a goal cell, 2 for a start cell, 0 otherwise. */
     private static final byte[][][] KIND = new byte[2][][];
+    /** Per layout and player: the step target per (cell, direction) if it is an allowed cell, else -1. */
+    private static final int[][][] STEP_ALLOWED = new int[2][][];
+    /** Per layout and player: the jump landing per (cell, direction) if it is an allowed cell, else -1. */
+    private static final int[][][] LAND_ALLOWED = new int[2][][];
     private static final int IN_GOAL = 1;
     private static final int IN_START = 2;
 
@@ -68,7 +101,13 @@ public final class LinearEvaluator implements Evaluator {
             byte[][] good = new byte[players][Geometry.CELLS * Geometry.DIRECTIONS];
             int[][] dist = new int[players][Geometry.CELLS];
             byte[][] kind = new byte[players][Geometry.CELLS];
+            int[][] stepAllowed = new int[players][Geometry.CELLS * Geometry.DIRECTIONS];
+            int[][] landAllowed = new int[players][Geometry.CELLS * Geometry.DIRECTIONS];
             for (int p = 0; p < players; p++) {
+                for (int i = 0; i < STEP.length; i++) {
+                    stepAllowed[p][i] = STEP[i] >= 0 && layout.allowed(p, STEP[i]) ? STEP[i] : -1;
+                    landAllowed[p][i] = LAND[i] >= 0 && layout.allowed(p, LAND[i]) ? LAND[i] : -1;
+                }
                 for (int c = 0; c < Geometry.CELLS; c++) {
                     dist[p][c] = layout.distance(p, c);
                     int corner = Geometry.cornerOf(c);
@@ -94,6 +133,8 @@ public final class LinearEvaluator implements Evaluator {
             GOOD[players - 2] = good;
             DIST[players - 2] = dist;
             KIND[players - 2] = kind;
+            STEP_ALLOWED[players - 2] = stepAllowed;
+            LAND_ALLOWED[players - 2] = landAllowed;
         }
     }
 
@@ -117,20 +158,43 @@ public final class LinearEvaluator implements Evaluator {
 
     private final double[] weights;
     private final double scale;
+    /** null for the 12-feature evaluator, which never computes {@code bestGain}. */
+    private final GainMode gain;
     private final double[] scratch = new double[FEATURES];
     private final int[] sums = new int[SIDE_SUMS];
+    private final GainSearch gainSearch = new GainSearch();
 
     public LinearEvaluator() {
         this(LinearWeights.WEIGHTS, LinearWeights.SCALE);
     }
 
-    /** @param scale score units per logit unit */
+    /**
+     * A 12-feature evaluator ({@link #FEATURES} weights), or with {@link #GAIN_FEATURES} weights one with
+     * {@code bestGain} in mode {@link GainMode#BOTH}.
+     *
+     * @param scale score units per logit unit
+     */
     public LinearEvaluator(double[] weights, double scale) {
-        if (weights.length != FEATURES) {
-            throw new IllegalArgumentException("need " + FEATURES + " weights, got " + weights.length);
+        this(weights, scale, weights.length == GAIN_FEATURES ? GainMode.BOTH : null);
+    }
+
+    /**
+     * @param gain null for the 12 features ({@link #FEATURES} weights), else the mode of {@code bestGain}
+     *             ({@link #GAIN_FEATURES} weights)
+     */
+    public LinearEvaluator(double[] weights, double scale, GainMode gain) {
+        int need = gain == null ? FEATURES : GAIN_FEATURES;
+        if (weights.length != need) {
+            throw new IllegalArgumentException("need " + need + " weights, got " + weights.length);
         }
         this.weights = weights.clone();
         this.scale = scale;
+        this.gain = gain;
+    }
+
+    /** The mode of {@code bestGain}, or null for the 12-feature evaluator. */
+    public GainMode gainMode() {
+        return gain;
     }
 
     @Override
@@ -140,12 +204,271 @@ public final class LinearEvaluator implements Evaluator {
         for (int i = 0; i < FEATURES; i++) {
             sum += weights[i] * scratch[i];
         }
+        if (gain != null) {
+            sum += weights[BEST_GAIN] * gainFeature(position, gain, gainSearch);
+        }
         return (int) Math.round(scale * sum);
     }
 
     /** The feature vector of a position (side to move minus opponent), into {@code out}. */
     public static void features(Position position, double[] out) {
         features(position, out, new int[SIDE_SUMS]);
+    }
+
+    /**
+     * The {@link #GAIN_FEATURES} features: the 12 of {@link #features(Position, double[])} (bit-identical) and
+     * {@code bestGain} in the given mode at index {@link #BEST_GAIN}.
+     */
+    public static void features(Position position, double[] out, GainMode mode) {
+        features(position, out, new int[SIDE_SUMS]);
+        out[BEST_GAIN] = gainFeature(position, mode, new GainSearch());
+    }
+
+    private static double gainFeature(Position position, GainMode mode, GainSearch search) {
+        int me = position.sideToMove();
+        search.begin(position);
+        int mine = search.bestGain(position, me);
+        return mode == GainMode.MOVER ? mine : mine - search.bestGain(position, 1 - me);
+    }
+
+    /**
+     * The largest one-move distance gain of player {@code p} over its pieces outside its goal (steps and jump
+     * chains to allowed free cells), floored at 0 and capped at {@link #GAIN_CAP}; see the class comment.
+     */
+    public static int bestGain(Position position, int p) {
+        GainSearch search = new GainSearch();
+        search.begin(position);
+        return search.bestGain(position, p);
+    }
+
+    /** Per layout: whether all players may stand on the same cells (two players: centre and both main corners). */
+    private static final boolean[] SHARED_CELLS = new boolean[2];
+    /**
+     * Per layout and player, the jumps from each allowed cell as a compressed list: the jumps of cell c are
+     * {@code EDGES[e]} for {@code EDGE_START[c] <= e < EDGE_START[c + 1]}, each {@code hurdle << 8 | landing}, with
+     * the landing an allowed cell. Cells are below 128, so 8 bits each suffice.
+     */
+    private static final int[][][] EDGE_START = new int[2][][];
+    private static final int[][][] EDGES = new int[2][][];
+
+    static {
+        for (int players = 2; players <= 3; players++) {
+            Layout layout = Layout.of(players);
+            boolean shared = true;
+            for (int p = 1; p < players; p++) {
+                for (int c = 0; c < Geometry.CELLS; c++) {
+                    shared &= layout.allowed(p, c) == layout.allowed(0, c);
+                }
+            }
+            SHARED_CELLS[players - 2] = shared && players == 2; // the shared graph keeps minima for two players
+            if (players == 2 && !shared) {
+                throw new AssertionError("two-player layout: players may stand on different cells");
+            }
+            EDGE_START[players - 2] = new int[players][Geometry.CELLS + 1];
+            EDGES[players - 2] = new int[players][];
+            for (int p = 0; p < players; p++) {
+                int[] start = EDGE_START[players - 2][p];
+                int[] list = new int[Geometry.CELLS * Geometry.DIRECTIONS];
+                int count = 0;
+                for (int c = 0; c < Geometry.CELLS; c++) {
+                    start[c] = count;
+                    if (!layout.allowed(p, c)) {
+                        continue;
+                    }
+                    for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                        int land = LAND_ALLOWED[players - 2][p][c * Geometry.DIRECTIONS + d];
+                        if (land >= 0) {
+                            list[count++] = STEP[c * Geometry.DIRECTIONS + d] << 8 | land;
+                        }
+                    }
+                }
+                start[Geometry.CELLS] = count;
+                EDGES[players - 2][p] = java.util.Arrays.copyOf(list, count);
+            }
+        }
+    }
+
+    /**
+     * The {@code bestGain} search, by jump components instead of one jump search per piece. A jump chain moves over
+     * the free allowed cells along the edges "X to Y = X + 2e over an occupied hurdle X + e"; these edges are
+     * symmetric, so the cells reachable by a chain from a piece on A are the connected components of A's first
+     * landings. The moving piece leaves A, but that changes nothing: A is never a hurdle of its own chain (every
+     * landing lies at an even offset from A, every hurdle of a jump between such cells at an odd one), and landing
+     * on A again only leads back to A's first landings. The components depend only on the occupancy and the allowed
+     * cells, so each is labelled once per position, with its smallest distance for every player, and shared by all
+     * pieces and (two players: the same allowed cells) both sides. Components are labelled lazily, when a first
+     * landing reaches them; a stamp per evaluation marks the valid labels, so nothing is cleared.
+     */
+    private static final class GainSearch {
+        private static final int MAX_PLAYERS = 3;
+        /** At most one component per free cell. */
+        private static final int MAX_COMPONENTS = Geometry.CELLS;
+        /** Occupied cells (any player) as a 128-bit set, cells 0 to 63 in {@code occLo}, 64 to 120 in {@code occHi}. */
+        private long occLo;
+        private long occHi;
+        /** Per graph (one shared graph, or one per player): the cells of each labelled component, as 128-bit sets. */
+        private final long[][] compLo = new long[MAX_PLAYERS][MAX_COMPONENTS];
+        private final long[][] compHi = new long[MAX_PLAYERS][MAX_COMPONENTS];
+        /** Per graph: the union of its labelled components. */
+        private final long[] doneLo = new long[MAX_PLAYERS];
+        private final long[] doneHi = new long[MAX_PLAYERS];
+        /**
+         * Per graph, per component: the smallest distance of the graph's player (a graph per player), or of player 0
+         * in the shared graph; {@link #minB}: of player 1 in the shared graph.
+         */
+        private final int[][] minA = new int[MAX_PLAYERS][MAX_COMPONENTS];
+        private final int[] minB = new int[MAX_COMPONENTS];
+        private final int[] components = new int[MAX_PLAYERS];
+        private final int[] stack = new int[Geometry.CELLS];
+        private final int[] order = new int[Position.PIECES];
+
+        /** Starts a new position: no component labelled, the occupancy from the piece lists. */
+        void begin(Position position) {
+            long lo = 0;
+            long hi = 0;
+            int players = position.rules().players();
+            for (int p = 0; p < players; p++) {
+                for (int i = 0, n = position.pieceCount(p); i < n; i++) {
+                    int c = position.pieceCell(p, i);
+                    if (c < 64) {
+                        lo |= 1L << c;
+                    } else {
+                        hi |= 1L << c; // the shift uses c mod 64
+                    }
+                }
+            }
+            occLo = lo;
+            occHi = hi;
+            for (int g = 0; g < MAX_PLAYERS; g++) {
+                components[g] = 0;
+                doneLo[g] = 0;
+                doneHi[g] = 0;
+            }
+        }
+
+        /** Bit c of the 128-bit set (lo, hi). */
+        private static boolean has(long lo, long hi, int c) {
+            return ((c < 64 ? lo : hi) >>> c & 1L) != 0;
+        }
+
+        int bestGain(Position position, int p) {
+            int layout = position.rules().players() - 2;
+            boolean shared = SHARED_CELLS[layout];
+            int g = shared ? 0 : p;
+            int[] dist = DIST[layout][p];
+            byte[] kind = KIND[layout][p];
+            int[] edgeStart = EDGE_START[layout][p];
+            int[] edges = EDGES[layout][p];
+            int[] steps = STEP_ALLOWED[layout][p];
+            int[] mins = shared && p == 1 ? minB : minA[g];
+            long lo = occLo;
+            long hi = occHi;
+            // pieces outside the goal by falling distance (packed distance << 8 | cell), so that the gain found
+            // early lets the bound "no gain above the piece's distance" skip the rest
+            int n = Math.min(position.pieceCount(p), Position.PIECES);
+            int m = 0;
+            for (int i = 0; i < n; i++) {
+                int c = position.pieceCell(p, i);
+                if (kind[c] == IN_GOAL) {
+                    continue;
+                }
+                int key = dist[c] << 8 | c;
+                int j = m++;
+                while (j > 0 && order[j - 1] < key) {
+                    order[j] = order[j - 1];
+                    j--;
+                }
+                order[j] = key;
+            }
+            int best = 0;
+            for (int i = 0; i < m; i++) {
+                int from = order[i] & 0xFF;
+                int d0 = order[i] >>> 8;
+                if (d0 <= best) {
+                    break; // every later piece is at most as far: none can gain more
+                }
+                int base = from * Geometry.DIRECTIONS;
+                for (int dir = 0; dir < Geometry.DIRECTIONS; dir++) {
+                    int a = steps[base + dir];
+                    if (a >= 0 && !has(lo, hi, a) && d0 - dist[a] > best) {
+                        best = d0 - dist[a];
+                    }
+                }
+                for (int e = edgeStart[from], end = edgeStart[from + 1]; e < end; e++) {
+                    int land = edges[e] & 0xFF;
+                    if (!has(lo, hi, land) && has(lo, hi, edges[e] >>> 8)) {
+                        int gain = d0 - mins[componentOf(layout, shared, g, edgeStart, edges, land)];
+                        if (gain > best) {
+                            best = gain;
+                        }
+                    }
+                }
+                if (best >= GAIN_CAP) {
+                    return GAIN_CAP;
+                }
+            }
+            return best;
+        }
+
+        /**
+         * The component of the free cell {@code start} in graph g, labelled now (with its smallest distances) if it
+         * is in no labelled component yet. The graph's edge lists are those of its player (of any player for the
+         * shared graph).
+         */
+        private int componentOf(int layout, boolean shared, int g, int[] edgeStart, int[] edges, int start) {
+            long[] cl = compLo[g];
+            long[] ch = compHi[g];
+            if (has(doneLo[g], doneHi[g], start)) {
+                for (int k = 0; ; k++) {
+                    if (has(cl[k], ch[k], start)) {
+                        return k;
+                    }
+                }
+            }
+            long lo = occLo;
+            long hi = occHi;
+            // blocked = occupied or already in this component
+            long bLo = lo;
+            long bHi = hi;
+            if (start < 64) {
+                bLo |= 1L << start;
+            } else {
+                bHi |= 1L << start;
+            }
+            int[] distA = DIST[layout][g];
+            int[] distB = DIST[layout][1];
+            int lowA = Integer.MAX_VALUE;
+            int lowB = Integer.MAX_VALUE;
+            int top = 0;
+            stack[top++] = start;
+            while (top > 0) {
+                int c = stack[--top];
+                lowA = Math.min(lowA, distA[c]);
+                lowB = Math.min(lowB, distB[c]);
+                for (int e = edgeStart[c], end = edgeStart[c + 1]; e < end; e++) {
+                    int y = edges[e] & 0xFF;
+                    if (has(bLo, bHi, y) || !has(lo, hi, edges[e] >>> 8)) {
+                        continue;
+                    }
+                    if (y < 64) {
+                        bLo |= 1L << y;
+                    } else {
+                        bHi |= 1L << y;
+                    }
+                    stack[top++] = y;
+                }
+            }
+            int k = components[g]++;
+            cl[k] = bLo & ~lo; // the component's cells: blocked minus occupied
+            ch[k] = bHi & ~hi;
+            doneLo[g] |= cl[k];
+            doneHi[g] |= ch[k];
+            minA[g][k] = lowA;
+            if (shared) {
+                minB[k] = lowB; // the shared graph serves both players of a two-player game
+            }
+            return k;
+        }
     }
 
     /**

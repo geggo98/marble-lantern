@@ -26,6 +26,9 @@ public final class Evaluators {
         put("linear-r1", () -> new LinearEvaluator(LinearWeights.R1, LinearWeights.SCALE));
         // round-2 refit on passed-filtered BEST self-play (E04); BEST_SPEC changes only in an integration commit
         put("linear-r2", () -> new LinearEvaluator(LinearWeights.ROUND2, LinearWeights.SCALE));
+        // E07: the 13th feature bestGain (both sides), refitted on passed-filtered self-play with race play
+        put("linear-r3", () -> new LinearEvaluator(LinearWeights.ROUND3, LinearWeights.SCALE,
+                LinearEvaluator.GainMode.BOTH));
         REGISTRY.put("stage4", Stage4Evaluator::of);
     }
 
