@@ -295,7 +295,7 @@ public final class RaceReplay {
                     lines.add(RaceAdversary.line(fire, v, RaceAdversary.chaser(v)));
                     lines.add(RaceAdversary.line(fire, v, RaceAdversary.random(g.index())));
                     lines.add(RaceAdversary.line(fire, v,
-                            PlayerSpec.parse(Strategies.BEST_SPEC + ",nodes=2000,tt=14").create()));
+                            PlayerSpec.parse(Strategies.BEST_R1_SPEC + ",nodes=2000,tt=14").create()));
                     RaceAdversary.Result exhaustive = loMoves <= exhaustiveLoMoves
                             ? RaceAdversary.exhaustive(fire, v, cap) : null;
                     return new Attack(g.index(), loMoves, exhaustive, lines);

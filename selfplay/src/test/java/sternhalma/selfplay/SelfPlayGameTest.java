@@ -29,7 +29,8 @@ import sternhalma.selfplay.Adjudication.Layer;
 /** Games, searcher reuse, control games, labels and samples of the self-play tool. */
 class SelfPlayGameTest {
 
-    static final String SPEC = Strategies.BEST_SPEC + ",nodes=1000,tt=16";
+    /** The round-1 BEST (no race play; the tests add {@code race=1} themselves where they need it). */
+    static final String SPEC = Strategies.BEST_R1_SPEC + ",nodes=1000,tt=16";
 
     static SelfPlayGame.Settings settings(String spec, double control, boolean reuse, Adjudication.Config adj) {
         return new SelfPlayGame.Settings(spec, 1006, adj, control, OpeningSampler.Mode.UNIFORM, 4, 10, 30, 1, 0.05,

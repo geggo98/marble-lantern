@@ -22,11 +22,13 @@ import sternhalma.engine.Position;
  *       nearly always reports exactly its limit, so only the fixed-depth count measures the size of the tree;</li>
  *   <li>{@link #game(String, long)} at 1000 and at 5000 nodes: the move sequence and the node totals of a full
  *       self-play game from {@link ReferencePositions#gameOpening(int) full-game opening} 0, with the players
- *       keeping their tables between moves as in the arena.</li>
+ *       keeping their tables between moves as in the arena. A move of the race module (E03) enters the move
+ *       sequence like any other and costs no nodes, so race play changes the checksum through both.</li>
  * </ul>
- * {@code BestSpecFingerprintTest} records these for R2 ({@link ReferencePositions#R2_SPEC}) and for
- * {@link Strategies#BEST_SPEC}. Run this class to print them with one line per position, which shows where
- * two trees diverge:
+ * {@code BestSpecFingerprintTest} records these for R2 ({@link ReferencePositions#R2_SPEC}), for R3
+ * ({@link ReferencePositions#R3_SPEC}) and for {@link Strategies#BEST_SPEC}. Run this class to print them with one
+ * line per position, which shows where two trees diverge; the lines also name the {@link Scores.Kind band} of every
+ * score and mark the moves the race module chose, which the checksum covers only through moves and node counts:
  * <pre>
  *   devenv shell -- ./gradlew --no-build-cache :search:fingerprint --args='&lt;spec&gt;'
  * </pre>
@@ -96,7 +98,7 @@ public final class Fingerprint {
             h = h * 31 + e.fixedMove();
             h = h * 31 + e.fixedScore();
             h = h * 31 + e.fixedNodes();
-            lines.add(e.toString());
+            lines.add(e.toString() + " | kinds " + Scores.kind(e.score()) + "/" + Scores.kind(e.fixedScore()));
         }
         return new Part(h, List.copyOf(lines));
     }
@@ -112,15 +114,21 @@ public final class Fingerprint {
         long h = 17;
         List<String> lines = new ArrayList<>();
         StringBuilder line = new StringBuilder();
+        StringBuilder kinds = new StringBuilder();
         while (pos.outcome() == null && pos.legalMoves().length > 0) {
-            int m = players[pos.sideToMove()].choose(pos);
+            AlphaBetaPlayer player = players[pos.sideToMove()];
+            int m = player.choose(pos);
             h = h * 31 + m;
+            Scores.Kind kind = player.lastScoreKind();
+            kinds.append(kind == null ? 'r' : kind.name().charAt(0));
             line.append(Move.toString(m)).append(' ');
             pos.make(m);
         }
         h = h * 31 + players[0].totalNodes() * 7 + players[1].totalNodes();
         lines.add("moves " + line.toString().trim());
         lines.add("plies=" + pos.ply() + " nodes=" + players[0].totalNodes() + "/" + players[1].totalNodes());
+        lines.add("kinds " + kinds + " (O ordinary, R race band, M mate, r race move) race-moves="
+                + players[0].raceMoves() + "/" + players[1].raceMoves());
         return new Part(h, List.copyOf(lines));
     }
 
@@ -146,10 +154,10 @@ public final class Fingerprint {
         return p;
     }
 
-    /** Prints the three parts of the fingerprint of each spec given (default: R2 and BEST_SPEC). */
+    /** Prints the three parts of the fingerprint of each spec given (default: R2, R3 and BEST_SPEC). */
     public static void main(String[] args) {
         List<String> specs = args.length == 0
-                ? List.of(ReferencePositions.R2_SPEC, Strategies.BEST_SPEC + ",nodes=20000")
+                ? List.of(ReferencePositions.R2_SPEC, ReferencePositions.R3_SPEC, Strategies.BEST_SPEC + ",nodes=20000")
                 : List.of(args);
         for (String spec : specs) {
             System.out.println("spec " + spec);

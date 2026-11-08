@@ -26,7 +26,8 @@ import sternhalma.search.Strategies;
 /** Resume, abort, cleanup, settings check, lock and status of the self-play job, in process. */
 class JobTest {
 
-    static final String SPEC = Strategies.BEST_SPEC + ",nodes=300,tt=12";
+    /** The round-1 BEST (no race play, no table to load), as when the tool was written. */
+    static final String SPEC = Strategies.BEST_R1_SPEC + ",nodes=300,tt=12";
     static final int GAMES = 12;
     static final int SHARD = 3;
 

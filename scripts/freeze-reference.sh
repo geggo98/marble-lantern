@@ -1,14 +1,16 @@
 #!/bin/zsh
 # usage: scripts/freeze-reference.sh [--force] [<dir>]
 #
-# Freezes the cost reference of round 2 (docs/search-and-evaluation.md, "Round 2 yardstick"): builds
-# engine.jar and search.jar from the current checkout and copies them into <dir> (default: .reference/
-# in the repository root, which git ignores), together with REFERENCE.txt (commit id, build date, JDK,
-# SHA-256 of both jars). Bench loads the jars from -Dsternhalma.reference.dir (default: that directory)
-# in a separate class loader to measure nps_old.
+# Freezes a cost reference (docs/search-and-evaluation.md, "Round 2 yardstick"): builds engine.jar,
+# tablebase.jar and search.jar from the current checkout and copies them into <dir> (default: .reference/
+# in the repository root; .reference/ and .reference-*/ are ignored by git), together with REFERENCE.txt
+# (commit id, build date, JDK, SHA-256 of the jars). Bench loads the jars from -Dsternhalma.reference.dir
+# (default: .reference) in a separate class loader to measure nps_old. Race tables are not copied: the
+# frozen build reads tablebase/tables/ of the checkout it runs in, like the current build.
 #
 # Run it inside the devenv shell, on a clean checkout of the commit to freeze:
-#   devenv shell -- scripts/freeze-reference.sh
+#   devenv shell -- scripts/freeze-reference.sh                 # the pre-round reference (.reference)
+#   devenv shell -- scripts/freeze-reference.sh .reference-r3   # the round-2 reference R3
 # A frozen reference is never overwritten silently: an existing <dir>/REFERENCE.txt needs --force.
 # The commit id comes from `git rev-parse HEAD` and the tree must be clean (`git status --porcelain`,
 # tracked files only); set REFERENCE_COMMIT=<id> to skip both git calls and record that id instead.
@@ -39,9 +41,9 @@ if [[ -e $dir/REFERENCE.txt && $force == 0 ]]; then
   exit 1
 fi
 
-./gradlew --no-build-cache -q :engine:jar :search:jar
+./gradlew --no-build-cache -q :engine:jar :tablebase:jar :search:jar
 mkdir -p "$dir"
-for jar in engine/build/libs/engine.jar search/build/libs/search.jar; do
+for jar in engine/build/libs/engine.jar tablebase/build/libs/tablebase.jar search/build/libs/search.jar; do
   cp "$jar" "$dir/${jar:t}.tmp.$$"
   mv "$dir/${jar:t}.tmp.$$" "$dir/${jar:t}"
 done
@@ -50,7 +52,7 @@ done
   print "tree=$tree"
   print "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   print "jdk=$(java -version 2>&1 | head -n 1)"
-  (cd "$dir" && shasum -a 256 engine.jar search.jar) | perl -lane 'print "sha256 $F[1]=$F[0]"'
+  (cd "$dir" && shasum -a 256 engine.jar tablebase.jar search.jar) | perl -lane 'print "sha256 $F[1]=$F[0]"'
 } > "$dir/REFERENCE.txt.tmp.$$"
 mv "$dir/REFERENCE.txt.tmp.$$" "$dir/REFERENCE.txt"
 cat "$dir/REFERENCE.txt"

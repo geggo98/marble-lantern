@@ -35,10 +35,29 @@ public final class Evaluators {
         // the RACE score band; racelin reads the committed rows>=2 table, racelin1 the rows>=1 table (E09; loaded from
         // tablebase/tables/ or built into the cache on first use, like racerows=1). The one weight, wout=1, estimates
         // the counts of pieces behind the region (RaceEvaluator). No racelin-r1: the R2 fingerprint stays untouched.
-        REGISTRY.put("racelin", weights -> RaceEvaluator.of(new LinearEvaluator(LinearWeights.ROUND2,
-                LinearWeights.SCALE), RaceTable.rows2(), RaceTable.ROWS2.minRow(), weights));
-        REGISTRY.put("racelin1", weights -> RaceEvaluator.of(new LinearEvaluator(LinearWeights.ROUND2,
-                LinearWeights.SCALE), RaceTable.rows1(), RaceTable.ROWS1.minRow(), weights));
+        REGISTRY.put("racelin", race("linear-r2", 2));
+        REGISTRY.put("racelin1", race("linear-r2", 1));
+        // integration of round 2: the race arithmetic of E08 over the bestGain evaluator of E07 (the evaluator of
+        // Strategies.BEST_SPEC and of the reference player R3, ReferencePositions.R3_SPEC). Frozen like its parts.
+        REGISTRY.put("racelin1-r3", race("linear-r3", 1));
+    }
+
+    /**
+     * Prefixes for a race evaluator over any registered base evaluator, for experiments without a rebuild:
+     * {@code eval=racelin1:linear-r3} is {@code racelin1-r3}, {@code eval=racelin:linear} wraps the live weights with
+     * the rows&gt;=2 table. The weights of the spec ({@code wout}) go to the race evaluator; the base takes none.
+     */
+    static final String RACELIN_PREFIX = "racelin:";
+    static final String RACELIN1_PREFIX = "racelin1:";
+
+    /**
+     * A {@link RaceEvaluator} over the registered evaluator {@code base} with the race table of the region
+     * {@code rows} (2: the committed rows&gt;=2 table; 1: the rows&gt;=1 table of E09, loaded from
+     * tablebase/tables/ or built into the cache on first use, like {@code racerows=1}).
+     */
+    private static Function<Map<String, Integer>, Evaluator> race(String base, int rows) {
+        return weights -> RaceEvaluator.of(byName(base), rows == 1 ? RaceTable.rows1() : RaceTable.rows2(),
+                rows == 1 ? RaceTable.ROWS1.minRow() : RaceTable.ROWS2.minRow(), weights);
     }
 
     /** Registers an evaluator without weights; weights given in a spec are then an error. */
@@ -76,6 +95,12 @@ public final class Evaluators {
                 throw new IllegalArgumentException("'" + LINEAR_FILE + "' takes no weights, got " + weights.keySet());
             }
             return LinearWeights.fromFile(name.substring(LINEAR_FILE.length()));
+        }
+        if (name.startsWith(RACELIN1_PREFIX)) {
+            return race(name.substring(RACELIN1_PREFIX.length()), 1).apply(weights);
+        }
+        if (name.startsWith(RACELIN_PREFIX)) {
+            return race(name.substring(RACELIN_PREFIX.length()), 2).apply(weights);
         }
         Function<Map<String, Integer>, Evaluator> factory = REGISTRY.get(name);
         if (factory == null) {

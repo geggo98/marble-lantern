@@ -417,6 +417,8 @@ class LinearEvaluatorGainTest {
         assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith("ab:eval=linear-r3,nodes=")));
         assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith(Strategies.GAIN_SPEC + ",")));
         assertTrue(Strategies.GAIN_SPEC.contains("futk=20") && Strategies.GAIN_SPEC.contains("race=1"));
-        assertTrue(!Strategies.BEST_SPEC.contains("linear-r3"), "BEST_SPEC changes only in an integration commit");
+        // the integration commit of round 2 put the evaluator (wrapped by the race arithmetic of E08) into BEST_SPEC
+        assertTrue(Strategies.BEST_SPEC.contains("eval=racelin1-r3,"), Strategies.BEST_SPEC);
+        assertTrue(!Strategies.BEST_R1_SPEC.contains("r3"), "the round-1 BEST keeps the round-1 weights");
     }
 }

@@ -3,6 +3,7 @@ package sternhalma.search;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -455,7 +456,22 @@ class RaceEvaluatorTest {
         assertEquals(1, PlayerSpec.parse(Strategies.RACELIN_SPEC).race(), "the contract spec plays races too");
         assertTrue(PlayerSpec.parse(Strategies.RACELIN_SPEC).options().futilityOn());
         assertEquals("ab:eval=linear,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1",
-                Strategies.BEST_SPEC, "BEST_SPEC changes only in the integration commit");
+                Strategies.BEST_R1_SPEC, "the round-1 BEST keeps its text under its own name");
+        // the integration of round 2: the race evaluator over the bestGain evaluator linear-r3 (E07), registered as
+        // racelin1-r3 and reachable for any base through the prefix racelin1:<name>
+        assertTrue(Evaluators.names().contains("racelin1-r3"));
+        RaceEvaluator r3 = (RaceEvaluator) Evaluators.byName("racelin1-r3");
+        assertEquals(1, ((RaceTable) r3.table()).minRow());
+        assertEquals(LinearEvaluator.GainMode.BOTH, ((LinearEvaluator) r3.base()).gainMode());
+        assertEquals(Evaluators.byName("linear-r3").evaluate(Position.initial(RULES)),
+                r3.evaluate(Position.initial(RULES)));
+        RaceEvaluator prefixed = (RaceEvaluator) Evaluators.byName("racelin1:linear-r3", java.util.Map.of("wout", 1));
+        assertEquals(LinearEvaluator.GainMode.BOTH, ((LinearEvaluator) prefixed.base()).gainMode());
+        assertTrue(prefixed.estimatesOutside());
+        assertEquals(2, ((RaceTable) ((RaceEvaluator) Evaluators.byName("racelin:linear-r1")).table()).minRow());
+        assertThrows(IllegalArgumentException.class, () -> Evaluators.byName("racelin1:no-such-evaluator"));
+        assertEquals("racelin1-r3", PlayerSpec.parse(Strategies.BEST_SPEC).evaluator());
+        assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith("ab:eval=racelin1-r3,")));
         // racelin1 reads the rows>=1 table (committed with Git LFS; built into the cache when only a pointer exists)
         RaceEvaluator r1 = (RaceEvaluator) Evaluators.byName("racelin1");
         RaceCounts rows1 = r1.table();

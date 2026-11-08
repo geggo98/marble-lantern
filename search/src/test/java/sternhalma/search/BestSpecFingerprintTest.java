@@ -13,20 +13,23 @@ import org.junit.jupiter.api.Test;
 import sternhalma.engine.Position;
 
 /**
- * Pins the search trees of the reference player R2 ({@link ReferencePositions#R2_SPEC}, the frozen alias
- * {@code linear-r1}) and of {@link Strategies#BEST_SPEC} at 20000 nodes: for each spec the {@link Fingerprint}
- * over the 64 {@link ReferencePositions} (move, score, completed depth and node count of the node-limited search,
- * and move, score and exact node count of a depth-4 search) and over the move sequences and node totals of one
- * self-play game at 1000 and one at 5000 nodes. The constants were recorded with the code of commit cb4b750 plus
- * round-2 experiment E00 (which only adds code); at that point both specs search the same tree, because
- * {@code linear-r1} and {@code linear} hold the same weights.
+ * Pins the search trees of the reference players R2 ({@link ReferencePositions#R2_SPEC}, the frozen alias
+ * {@code linear-r1}) and R3 ({@link ReferencePositions#R3_SPEC}, the frozen evaluator {@code racelin1-r3}) and of
+ * {@link Strategies#BEST_SPEC} at 20000 nodes: for each spec the {@link Fingerprint} over the 64
+ * {@link ReferencePositions} (move, score, completed depth and node count of the node-limited search, and move,
+ * score and exact node count of a depth-4 search) and over the move sequences and node totals of one self-play
+ * game at 1000 and one at 5000 nodes. The R2 constants were recorded with the code of commit cb4b750 plus round-2
+ * experiment E00 (which only adds code); the R3 constants by the integration commit of round 2, which also
+ * re-recorded the BEST constants, because it switched BEST_SPEC. At each freeze the new reference and BEST_SPEC
+ * search the same tree, so their constants are equal until the next integration moves BEST_SPEC.
  *
- * <p><b>Rule.</b> An identical-tree optimisation keeps all six constants unchanged. A feature that changes the
- * tree is off by default (a new spec key), so it changes neither constant set while it is off. Changing the
- * weights of {@code linear} (E04) legitimately changes the {@code BEST_*} constants and never the {@code R2_*}
- * constants. Any re-record needs a written reason in the commit message and in docs/search-and-evaluation.md
- * ("Round 2 yardstick"); the {@code R2_*} constants change only when the engine legitimately changes what R2
- * plays (for example its hashing or the rules), and then the frozen jar stays the cost reference.
+ * <p><b>Rule.</b> An identical-tree optimisation keeps all nine constants unchanged. A feature that changes the
+ * tree is off by default (a new spec key), so it changes no constant while it is off. Changing the weights of
+ * {@code linear} legitimately changes the {@code BEST_*} constants only while BEST_SPEC uses {@code linear} (it did
+ * until the integration of round 2); the {@code R2_*} and {@code R3_*} constants change only when the engine
+ * legitimately changes what the reference players play (for example its hashing or the rules), and then the frozen
+ * jars stay the cost references. Any re-record needs a written reason in the commit message and in
+ * docs/search-and-evaluation.md ("Round 2 yardstick").
  *
  * <p><b>How E01 and E02 use it.</b> Both speed packs claim the identical tree, so they need no arena run. Their
  * acceptance is: this test green without touching a constant (both sets: E01 changes AlphaBeta's move ordering
@@ -41,25 +44,34 @@ class BestSpecFingerprintTest {
 
     private static final String BEST_20000 = Strategies.BEST_SPEC + ",nodes=20000";
 
+    /** The recorded constants of one spec: the positions checksum and the two game checksums. */
+    private record Recorded(long positions, long game1000, long game5000) {
+    }
+
     @Test
     void referencePlayerR2SearchesTheRecordedTree() {
-        assertParts(ReferencePositions.R2_SPEC, R2_POSITIONS, R2_GAME_1000, R2_GAME_5000);
+        assertParts(ReferencePositions.R2_SPEC, R2);
+    }
+
+    @Test
+    void referencePlayerR3SearchesTheRecordedTree() {
+        assertParts(ReferencePositions.R3_SPEC, R3);
     }
 
     @Test
     void bestSpecSearchesTheRecordedTree() {
-        assertParts(BEST_20000, BEST_POSITIONS, BEST_GAME_1000, BEST_GAME_5000);
+        assertParts(BEST_20000, BEST);
     }
 
-    private static void assertParts(String spec, long positions, long game1000, long game5000) {
+    private static void assertParts(String spec, Recorded r) {
         Fingerprint.Part p = Fingerprint.positions(spec);
-        assertEquals(positions, p.checksum(), () -> "tree of " + spec + " on the reference positions changed:\n"
+        assertEquals(r.positions(), p.checksum(), () -> "tree of " + spec + " on the reference positions changed:\n"
                 + String.join("\n", p.lines()));
         Fingerprint.Part g1 = Fingerprint.game(spec, Fingerprint.GAME_NODES[0]);
-        assertEquals(game1000, g1.checksum(), () -> "game at 1000 nodes of " + spec + " changed:\n"
+        assertEquals(r.game1000(), g1.checksum(), () -> "game at 1000 nodes of " + spec + " changed:\n"
                 + String.join("\n", g1.lines()));
         Fingerprint.Part g5 = Fingerprint.game(spec, Fingerprint.GAME_NODES[1]);
-        assertEquals(game5000, g5.checksum(), () -> "game at 5000 nodes of " + spec + " changed:\n"
+        assertEquals(r.game5000(), g5.checksum(), () -> "game at 5000 nodes of " + spec + " changed:\n"
                 + String.join("\n", g5.lines()));
     }
 
@@ -101,11 +113,33 @@ class BestSpecFingerprintTest {
         assertEquals(20_000, PlayerSpec.parse(ReferencePositions.R2_SPEC).nodes());
     }
 
-    // Recorded 2026-11-07, code of commit cb4b750 plus E00. Re-record only with a written reason (see above).
-    private static final long R2_POSITIONS = -8723226000912328943L;
-    private static final long R2_GAME_1000 = -6000360130468970639L;
-    private static final long R2_GAME_5000 = -1429733491373947983L;
-    private static final long BEST_POSITIONS = -8723226000912328943L;
-    private static final long BEST_GAME_1000 = -6000360130468970639L;
-    private static final long BEST_GAME_5000 = -1429733491373947983L;
+    /**
+     * R3 is the integrated BEST of round 2 at 20000 nodes: the frozen evaluator {@code racelin1-r3} (race arithmetic
+     * from the rows&gt;=1 table over the frozen round-3 weights), futility pruning and race play with that table.
+     */
+    @Test
+    void theFrozenReferenceR3IsRegisteredAndCoveredByTheContract() {
+        PlayerSpec r3 = PlayerSpec.parse(ReferencePositions.R3_SPEC);
+        assertTrue(Evaluators.names().contains("racelin1-r3"));
+        assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith("ab:eval=racelin1-r3,")),
+                "the strategy contract must cover racelin1-r3");
+        assertEquals("racelin1-r3", r3.evaluator());
+        assertEquals(20_000, r3.nodes());
+        assertTrue(r3.options().futilityOn());
+        assertEquals(1, r3.race());
+        assertEquals(1, r3.raceRows());
+        assertTrue(r3.weights().isEmpty(), "the reference takes no live weights");
+    }
+
+    // R2: recorded 2026-11-07 with the code of commit cb4b750 plus E00. Re-record only with a written reason (see above).
+    private static final Recorded R2 = new Recorded(-8723226000912328943L, -6000360130468970639L, -1429733491373947983L);
+
+    // R3: recorded 2026-11-08 by the integration commit of round 2 (docs/search-and-evaluation.md, "Integration of
+    // round 2"). Re-record only with a written reason (see above).
+    private static final Recorded R3 = new Recorded(4852147404152522458L, 2660956470353287877L, -3579989785793258016L);
+
+    // BEST: re-recorded 2026-11-08 by the integration commit of round 2, which switched Strategies.BEST_SPEC from the
+    // round-1 player (eval=linear, the same tree as R2) to eval=racelin1-r3 with futility pruning and race play. Equal
+    // to R3 until the next integration moves BEST_SPEC. The round-1 constants live on in R2 above.
+    private static final Recorded BEST = R3;
 }

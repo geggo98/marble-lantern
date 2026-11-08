@@ -31,7 +31,8 @@ class ExhaustiveAdversaryTest {
     static final int GAMES = 220;
     static final int EXHAUSTIVE_LO_MOVES = 4;
     static final long CAP = 10_000_000L;
-    static final String SPEC = Strategies.BEST_SPEC + ",nodes=1500,tt=14";
+    /** The round-1 BEST, as in E03: a searcher that plays the race itself, so every verdict is attacked by a search. */
+    static final String SPEC = Strategies.BEST_R1_SPEC + ",nodes=1500,tt=14";
 
     private record Attack(int game, int loMoves, RaceAdversary.Result exhaustive, List<RaceAdversary.Result> lines) {
     }

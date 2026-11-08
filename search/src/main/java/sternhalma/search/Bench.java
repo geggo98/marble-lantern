@@ -180,8 +180,11 @@ public final class Bench {
             } catch (java.io.IOException e) {
                 commit = "no REFERENCE.txt";
             }
-            return load("frozen build " + dir + (commit.isEmpty() ? "" : " (" + commit + ")"),
-                    List.of(engine, searchJar));
+            // the round-2 reference R3 (.reference-r3) needs the tablebase module too; the pre-round build has none
+            Path tablebase = dir.resolve("tablebase.jar");
+            List<Path> jars = Files.isRegularFile(tablebase) ? List.of(engine, tablebase, searchJar)
+                    : List.of(engine, searchJar);
+            return load("frozen build " + dir + (commit.isEmpty() ? "" : " (" + commit + ")"), jars);
         }
 
         /** A second copy of the current build in its own class loader (for testing the cross-build path). */

@@ -206,9 +206,10 @@ R2 = `ab:eval=linear-r1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,par
 | R0 | `ab:eval=distance,nodes=20000` | sanity only (saturated at 198 of 200 games) |
 | R1 | R2 at 5000 nodes | lower rung |
 | R2 | as above | gating opponent of the round and of every network generation |
-| R3 | R2 at 80000 nodes | upper rung, sensitive gate for weight refits |
+| R2-80k | R2 at 80000 nodes | upper rung of round 2, sensitive gate for weight refits (called "R3" in the E04 and E07 sections below, which were written before the integration) |
+| R3 | `ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000` (`ReferencePositions.R3_SPEC`): the integrated BEST of round 2 | gating opponent from the integration of round 2 on; see [Integration of round 2](#integration-of-round-2-measured-2026-11-08) |
 
-Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze the new BEST as R2' with a new registry alias and fingerprint, and keep R2 in the ladder.
+Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze the new BEST as a new reference with a new registry alias and fingerprint, and keep R2 in the ladder. Applied once so far: the integration of round 2 scored 0.95 against R2 at equal CPU time and froze R3.
 
 ### Seeds
 
@@ -227,17 +228,17 @@ Official numbers use no other seeds. Seeds of round 1 and of the surveyors (1 to
 
 `ReferencePositions` generates 64 positions deterministically: 8 self-play games of R2 at 1000 nodes from 4 random plies (seed 1000), 8 distinct plies between 8 and 100 drawn from each. Two more openings start the full games. Nothing is stored on disk; the set is a list of move sequences from the start position and takes about a second to generate.
 
-`Fingerprint` computes three checksums for a spec: per position the move, score, completed depth and node count of the node-limited search plus the move, score and exact node count of a depth-4 search (a node-limited search nearly always reports exactly its limit, so only the depth-4 count measures the tree size); and the move sequence and node totals of one self-play game at 1000 and one at 5000 nodes. `BestSpecFingerprintTest` records them for R2 and for `Strategies.BEST_SPEC` at 20000 nodes. At the freeze both specs have the same values, because the weights are the same.
+`Fingerprint` computes three checksums for a spec: per position the move, score, completed depth and node count of the node-limited search plus the move, score and exact node count of a depth-4 search (a node-limited search nearly always reports exactly its limit, so only the depth-4 count measures the tree size); and the move sequence and node totals of one self-play game at 1000 and one at 5000 nodes. `BestSpecFingerprintTest` records them for R2, for R3 and for `Strategies.BEST_SPEC` at 20000 nodes. At each freeze the new reference and BEST_SPEC have the same values (R2 and BEST at E00, because the weights were the same; R3 and BEST at the integration of round 2, because R3 is that BEST).
 
 Rules:
 
-- An identical-tree change (E01, E02, E13) keeps all six constants. It needs no arena run: the fingerprint test green without touching a constant, plus the Bench ratio.
+- An identical-tree change (E01, E02, E13) keeps all nine constants. It needs no arena run: the fingerprint test green without touching a constant, plus the Bench ratio.
 - A tree-changing feature is off by default, so it changes no constant while it is off.
-- A refit of `linear` (E04) changes the `BEST_*` constants, never the `R2_*` constants.
+- A refit of `linear` changed the `BEST_*` constants, never the `R2_*` constants, while BEST_SPEC used `linear` (round 1 up to the integration of round 2). Since then BEST_SPEC and R3 are built from frozen parts (`racelin1-r3`: `LinearWeights.ROUND3` and the rows ≥ 1 table), so a refit of `linear` changes no constant; an integration that moves BEST_SPEC re-records the `BEST_*` constants and leaves `R2_*` and `R3_*` alone.
 - Every re-record needs a written reason in the commit message and in this section.
-- To find where two trees part: `devenv shell -- ./gradlew --no-build-cache :search:fingerprint --args='<spec>'` prints one line per position and the game moves; diff the output of the two builds.
+- To find where two trees part: `devenv shell -- ./gradlew --no-build-cache :search:fingerprint --args='<spec>'` prints one line per position and the game moves; diff the output of the two builds. Since the integration of round 2 the lines also name the score band of every search and mark the moves of the race module (the checksums are unchanged by this: a race move enters them through the move and through the node count, which it leaves at zero).
 
-Re-records: none so far.
+Re-records: one. The integration commit of round 2 (2026-11-08) switched BEST_SPEC from `eval=linear` to `eval=racelin1-r3` with futility pruning and race play and re-recorded the three `BEST_*` constants (positions 4852147404152522458, game at 1000 nodes 2660956470353287877, game at 5000 nodes −3579989785793258016); the same values were recorded as the new `R3_*` constants. The `R2_*` constants were reproduced unchanged on the same build before the switch. Details: [Integration of round 2](#integration-of-round-2-measured-2026-11-08).
 
 ### Cost reference: the frozen pre-round build
 
@@ -251,6 +252,18 @@ The pre-round build is frozen as `engine.jar` and `search.jar` in `.reference/` 
 | SHA-256 `search.jar` | `d46b8b89bc0ac073b53b9b5ad22e1a65db1dacfaba004d2211f12a0f58771bda` |
 
 The frozen build has no `linear-r1`; its `eval=linear` holds the same weights, and Bench uses it there automatically (it says so in its output). Bench confirms on every run that both builds search the identical trees.
+
+The round-2 reference R3 is frozen the same way in `.reference-r3/` (`devenv shell -- scripts/freeze-reference.sh .reference-r3`; `.reference-*/` is ignored by git). Since E03 the search module needs the `tablebase` module, so the script now also copies `tablebase.jar`, and Bench loads it when it is present. Bench reads this reference with `-Psternhalma.reference.dir=.reference-r3`. The frozen jars read the race tables from `tablebase/tables/` of the checkout they run in, like the current build.
+
+| Item | Value |
+|---|---|
+| Commit | `c644f78a79852c8d44309d978944b0ef7975d3f1` (the code of the integration of round 2; the documentation followed in the next commit, the jars do not depend on it) |
+| Built | 2026-11-08, OpenJDK 25.0.3 |
+| SHA-256 `engine.jar` | `2f81cd3fab410c22b02ad12bdd10a76559cfb8a2b0fbdc513767f2aae9802e11` |
+| SHA-256 `tablebase.jar` | `f3ff1dd949568dcd8bf0e65cb2485945dffbf94032c0ff3092f2d49e22aa2ea1` |
+| SHA-256 `search.jar` | `cbed337a0833860018d470089415de499bc59e44597da3f91c58a755c10e0c17` |
+
+Bench of R3 on the build of that commit against `.reference-r3`: ratio 0.9876 (repetitions 0.9926, 0.9873, 0.9876), trees identical on 64 of 64 positions and 2 of 2 games, load 5 on 16 cores.
 
 ### Bench: nodes per CPU-second
 
@@ -319,7 +332,7 @@ Median of the three runs: **1.170**. The frozen build is the E00 state, so this 
 
 Paired games with colours swapped, 4 random opening plies, `--threads 4`, node limits. When the candidate's cost per node differs, run equal nodes first, then the candidate at 20000 x nps_candidate/nps_opponent from the Bench ratio. Acceptance: lower 95 % bound above 0 on both verifier seeds against the current BEST_SPEC; the result against R2 is reported as well. Only the integration commit after a wave changes `Strategies.BEST_SPEC`.
 
-**Integration:** the new BEST_SPEC plays R2 and the previous BEST_SPEC, 500 pairs each on seed 43, at equal nodes and at equal cost (BEST at 20000 x nps_new/nps_old nodes, nps_old measured by Bench on the frozen build, against R2 at 20000). Both numbers are reported separately; their difference is the speed share. The parts were measured against different baselines and are not additive: investigate an interaction only when the equal-nodes result falls below the sum of the parts by more than sqrt(sum of the parts' squared half-widths + the integration run's squared half-width).
+**Integration:** the new BEST_SPEC plays R2 and the previous BEST_SPEC, 500 pairs each on seed 43, at equal nodes and at equal cost (BEST at 20000 x nps_new/nps_old nodes, nps_old measured by Bench on the frozen build, against R2 at 20000). Both numbers are reported separately; their difference is the speed share. The parts were measured against different baselines and are not additive: investigate an interaction only when the equal-nodes result falls below the sum of the parts by more than sqrt(sum of the parts' squared half-widths + the integration run's squared half-width). Done for round 2 with two changes the owner asked for ([Integration of round 2](#integration-of-round-2-measured-2026-11-08)): the report seeds 33 and 34 instead of 43, and "equal cost" calibrated with the arena's CPU column until the CPU time per move of both players agrees within 5 %, because race moves cost CPU but no nodes, so a nodes-per-second ratio understates a race player's budget.
 
 **Label policy:** scores with |score| >= RACE_BASE (the racelin band, E08; `Scores.kind` returns `RACE`) are never labels or value targets; only S1 (E03) may label passed positions. Every error claim for an adjudication rule states the number of firings, the errors found by playing the games to the end and the one-sided 95 % Clopper-Pearson upper bound (0 of n: about 3.0/n; 1 of n: about 4.74/n; 2 of n: about 6.3/n). The consumers that recognise the band are listed under [E08](#race-arithmetic-as-a-leaf-value-e08-racelin-and-racelin1-measured-2026-11-08).
 
@@ -574,7 +587,7 @@ Open: E07 (bestGain) changes the evaluation and must rerun DeltaProbe and the ma
 
 ### Self-play data tool (E05, measured 2026-11-07)
 
-The tool is described in [training](training.md#self-play-data-tool-round-2-e05). All official sets use seed 1005, softmax openings (4 to 10 plies, T = 30, depth 1), the default layers (S1; margin 500 on 2 own moves; layer 3 off) and `--control all`, so every game is played to its end and every label is checked against the play-out by the same players. BEST is `Strategies.BEST_SPEC` (`eval=linear`, no race play). Measured on 16 shared cores (1-minute load 7 to 120); node limits make the labels independent of the load, the CPU figures are not.
+The tool is described in [training](training.md#self-play-data-tool-round-2-e05). All official sets use seed 1005, softmax openings (4 to 10 plies, T = 30, depth 1), the default layers (S1; margin 500 on 2 own moves; layer 3 off) and `--control all`, so every game is played to its end and every label is checked against the play-out by the same players. BEST is the round-1 BEST (`eval=linear`, no race play; `Strategies.BEST_SPEC` at the time, `Strategies.BEST_R1_SPEC` since the integration of round 2). Measured on 16 shared cores (1-minute load 7 to 120); node limits make the labels independent of the load, the CPU figures are not.
 
 | Set (seed 1005) | Games | Mean plies | S1: fires, plies saved | S1 play-out disagreements | Margin: firings, wrong, CP95 upper | Margin alone saves | Combined saving |
 |---|---|---|---|---|---|---|---|
@@ -657,11 +670,57 @@ Reading the table:
 
 Deviations from the plan: `racelin` wraps `linear-r2`, not `linear` (the plan predates E04's decision to keep `linear` at the round-1 weights; wrapping `linear` would have mixed the refit into the comparison). The plan's hook ("remove the mover's rearmost piece and, for depth 2, the opponent's frontmost piece, and test passed on the rest") is condition 1 above; condition 2 is new and necessary for the gain. `AlphaBeta.FUTILITY_SCORE_LIMIT` is replaced by `Scores.kind`. `racelin1` and the weight `wout` are additions; the plan's "DeltaProbe reports that all excess deltas come from passed transitions" is reported as "from nodes the hook excludes", which is the property the search needs. The contract test loads the rows ≥ 1 table for `racelin1` (0.8 s from the Git LFS file; a build of minutes when only the pointer is present, as with `racerows=1`). Tuning used seed 31 only (32 was not needed: the decision between the variants was clear), the label-leak check seed 1008.
 
-Not done: the verifier re-measures on seeds 41 and 42; E07 (bestGain) changes the wrapped evaluator and should re-run the table above for `racelin1`.
+Not done: the verifier re-measures on seeds 41 and 42; E07 (bestGain) changes the wrapped evaluator and should re-run the table above for `racelin1` (done at the integration: `racelin1-r3`, see the next section).
 
-## Results of round 2 (in progress)
+### Integration of round 2 (measured 2026-11-08)
 
-Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by its author on seeds 33 and 34 and re-measured by a verifier on seeds 41 and 42; `Strategies.BEST_SPEC` changes only in the integration commit after a wave.
+**TL;DR:** The integration commit switches `Strategies.BEST_SPEC` to `ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1`: the race arithmetic of E08 (`racelin1`, rows ≥ 1 table) as the leaf value over the bestGain evaluator of E07 (`linear-r3`), futility pruning with E07's gain factor, and race play with the rows ≥ 1 table (E03, E09; race play in the BEST is an owner decision). Against the wave-1 candidate W1 (`linear-r2` with futility and race play) at equal CPU time per move it scores **+133.3 ± 21.3 and +129.0 ± 21.6 Elo** (seeds 33 and 34, 500 pairs), the best lower bound of the candidates. Against R2 it scores 0.9735 and 0.9690 at equal nodes (+626 ± 69, +598 ± 63) and **0.9545 and 0.9460 at equal CPU time** (+529 ± 52, +497 ± 47; 10 300 against 20 000 nodes); the round-1 BEST (`eval=linear`, the same tree as R2) gives the identical games. That is above the re-base threshold of 0.80, so the new BEST at 20 000 nodes is frozen as the reference R3 (`ReferencePositions.R3_SPEC`, fingerprint constants, jars in `.reference-r3/`). The old BEST stays constructible as `Strategies.BEST_R1_SPEC`, W1 as `Strategies.W1_SPEC`. Self-play throughput of the new BEST: 10.8, 2.64 and 0.656 games per CPU-second at 1000, 5000 and 20 000 nodes (single thread), against 24.4, 5.59 and 1.31 for the round-1 BEST (E05): one leaf costs 4 times as much and buys more than that in strength.
+
+**Candidates.** Every candidate played W1 = `ab:eval=linear-r2,<all options>,fut=1,futk=30,fut2=1,race=1` at 20 000 nodes with its own node budget, calibrated on seeds 31 and 32 until the arena's CPU time per move agreed with W1's within 5 % (race moves cost CPU but no nodes, so a nodes-per-second ratio understates a race player's budget: for BEST against R2, Bench gives 0.472 and 9446 nodes, equal CPU time needs 10 300). Report on seeds 33 and 34, 500 pairs each, 4 random opening plies, `--threads 6`; Elo of the candidate with its 95 % interval, score, CPU-ms per move candidate / W1:
+
+| Candidate | Evaluator and keys (all with `<all options>`) | Nodes | Seed 33 | Seed 34 | Lower 95 % bounds |
+|---|---|---|---|---|---|
+| W1 (base) | `linear-r2,fut=1,futk=30,fut2=1,race=1` | 20 000 | | | |
+| B = `Strategies.GAIN_SPEC` (E07) | `linear-r3,fut=1,futk=20,fut2=1,race=1` | 12 300 | +96.9 ± 21.2 (0.636; 11.58 / 11.80) | +80.3 ± 20.8 (0.614; 11.95 / 12.21) | +75.7, +59.5 |
+| C = `Strategies.RACELIN_SPEC` (E08) | `racelin1,fut=1,futk=30,fut2=1,race=1,racerows=1` | 20 000 | +51.8 ± 12.7 (0.574; 11.51 / 11.62) | +48.3 ± 13.4 (0.569; 13.51 / 13.65) | +39.1, +34.9 |
+| **D = the new BEST_SPEC** | `racelin1-r3,fut=1,futk=20,fut2=1,race=1,racerows=1` | 12 300 | **+133.3 ± 21.3** (0.683; 10.11 / 10.40) | **+129.0 ± 21.6** (0.678; 10.70 / 10.90) | **+112.0, +107.4** |
+| E = plain 12-feature refit on race-aware games (E07's finding) | not built, see below | | | | |
+
+Calibration (seeds 31 and 32, 300 pairs, Elo against W1): B at 11 000 nodes was 11 % cheaper than W1 (+47.8 ± 27.0) and at 12 300 within 2 % (+75.3 ± 26.0, +62.6 ± 25.7); C at 20 000 within 1 % (+54.9 ± 17.1, +31.4 ± 16.9); D at 12 300 within 3 % (+117.8 ± 28.4, +122.4 ± 28.0). The gain factor was re-checked on D at equal nodes: `futk=20` against `futk=30` gives −12.7 ± 24.6 and +18.0 ± 25.6 (seeds 31 and 32, 300 pairs), so E07's value stays. Provenance: the calibration runs, the futk check and the report runs of B, C (seed 33) and D were made by the first attempt at this commit, which died on an expired login before it could record them; the committed code reproduces its behaviour (D on seed 31, 150 pairs: +92.5 ± 38.3 at 10.15 against 10.35 CPU-ms per move, the same CPU ratio within the interval of the 300-pair run), and C on seed 34 and everything below was run with the committed code. Candidate E, the plain 12-feature refit on race-aware games that E07 found worth +45 to +81 over `linear-r2` at no cost, was not built: E07's game files (`data/e07/`, git-ignored) no longer exist, and E07 measured `linear-r3` +54 ± 25 above that refit at equal cost, so E cannot be expected to beat D. The refit the E04 amendment asks for stays open for a later round.
+
+D is chosen by the lower 95 % bound at equal CPU time on both report seeds. The combination adds up: D over W1 (+133 / +129) is about B over W1 (+97 / +80) plus C over W1 (+52 / +48), so the E08 gain survives the change of the wrapped evaluator, and no interaction needs investigating.
+
+**The two plan numbers** (BEST against R2 = `ab:eval=linear-r1,<all options>,nodes=20000`; 500 pairs on seeds 33 and 34, 4 random opening plies, `--threads 6`; wins / draws / losses of BEST):
+
+| Match | Seed 33 | Seed 34 | Both seeds |
+|---|---|---|---|
+| **Equal nodes:** BEST at 20 000 vs R2 at 20 000 | 0.9735 (+626.1 ± 69.0; 973 / 1 / 26) | 0.9690 (+598.0 ± 63.1; 968 / 2 / 30) | 0.9713 |
+| **Equal CPU time:** BEST at 10 300 vs R2 at 20 000 | **0.9545** (+528.7 ± 51.6; 954 / 1 / 45; 8.53 / 8.72 CPU-ms per move) | **0.9460** (+497.4 ± 47.0; 945 / 2 / 53; 8.52 / 8.69) | 0.9503 |
+| Equal CPU time: BEST at 10 300 vs the round-1 BEST (`Strategies.BEST_R1_SPEC` at 20 000) | 0.9545 (+528.7 ± 51.6; 9.65 / 9.86) | 0.9460 (+497.4 ± 47.0; 9.70 / 9.92) | the identical games as against R2: the same tree (E00) |
+
+Both numbers are saturated (the arena clamps the Elo estimate above a score of about 0.95), so the Elo values and their difference, the plan's "speed share" (about +100 Elo here), are indicative; the scores are the result. The equal-nodes matches ran at 17 to 24 CPU-ms per move for BEST against 9 to 13 for R2 (the seed-33 run under a 1-minute load of 40 from another job on the machine, so its CPU columns are indicative only; the Elo is node-limited). Equal CPU time was calibrated on seeds 31 and 32 (100 pairs): 9300 nodes left BEST 10 % cheaper than R2 (8.45 against 9.39 ms), 10 300 within 3 % (9.01 against 9.26 ms); the report runs confirm it (2 % cheaper). The plan's formula "BEST at 20000 × nps_new/nps_old against R2" would give 20 000 × 0.472 × 1.825 ≈ 17 200 nodes (0.472 from Bench of BEST against R2 on this build, 1.825 the E01/E02 ratio of R2 against the pre-round build): that is the old build's time budget per node, not equal CPU time on this build, and the owner asked for the latter.
+
+**Re-base.** The score against R2 at equal CPU time is above 0.80 on both seeds, so the yardstick's rule applies: the new BEST at 20 000 nodes is frozen as R3. `ReferencePositions.R3_SPEC` is a literal spec (not a reference to BEST_SPEC, so a later integration cannot move it) whose evaluator `racelin1-r3` is built from frozen parts only (`LinearWeights.ROUND3`, the rows ≥ 1 table with its recorded checksum); `BestSpecFingerprintTest` pins its tree, and `.reference-r3/` holds the jars of commit c644f78 (see [the cost reference](#cost-reference-the-frozen-pre-round-build)). R2 stays in the ladder; the rung "R2 at 80 000 nodes" is called R2-80k from now on, because the owner named the new reference R3.
+
+**Fingerprint re-record.** The R2 constants are unchanged and were reproduced on this build before the switch. The BEST constants are re-recorded because BEST_SPEC changed, and the same three values are the new R3 constants: positions 4852147404152522458, game at 1000 nodes 2660956470353287877, game at 5000 nodes −3579989785793258016. In the fingerprint games the race module plays the last 9 (1000 nodes) and 16 (5000 nodes) plies; one reference position (index 30, ply 84) gets a race-band score.
+
+**Throughput** (self-play tool, `--threads 1`, no adjudication, no samples, seed 1007; hygiene check right before: Bench self-ratio of the new BEST 1.0158 / 1.0128 / 1.0068 at load 4 on 16 cores, and R2 ran at 2.31 M nodes per CPU-second in the same session, the idle reference):
+
+| Nodes | Games per CPU-second | CPU-ms per game | Plies per game | Round-1 BEST (E05, 4 threads) |
+|---|---|---|---|---|
+| 1000 | **10.83** | 92.3 | 96.7 | 24.4 |
+| 5000 | **2.64** | 379 | 95.4 | 5.59 |
+| 20 000 | **0.656** | 1525 | 101.7 | 1.31 |
+
+**Cost.** Bench of the new BEST against R2 on this build: 0.4723 (repetitions 0.4717, 0.4727, 0.4723; 1.09 M against 2.31 M nodes per CPU-second, 15.9 against 8.3 CPU-ms per move at 20 000 nodes, trees different on every item as expected).
+
+**Code.** `Evaluators` registers `racelin1-r3` (`RaceEvaluator` over `linear-r3` with the rows ≥ 1 table; `RaceEvaluator` was generalised to wrap any registered evaluator, and the prefixes `racelin:<name>` and `racelin1:<name>` build such a wrapper for experiments without a rebuild). `Strategies` gains `OPTIONS`, `BEST_R1_SPEC` (the round-1 BEST, unchanged text) and `W1_SPEC`; all three BESTs and the experiment specs are registered for the contract. Existing evaluator names and specs behave as before. `scripts/freeze-reference.sh` also freezes `tablebase.jar`, and `Bench` loads it when present.
+
+**Not done:** candidate E (above); the verifier's seeds 41 and 42 and the plan's seed 43; the re-validation of the self-play tool's margin layer with the new BEST (E08 noted that the layer fires far more often with futility on, and it is off by default).
+
+## Results of round 2
+
+Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by its author on seeds 33 and 34 and re-measured by a verifier on seeds 41 and 42; `Strategies.BEST_SPEC` changed only in the integration commit after wave 2 ([Integration of round 2](#integration-of-round-2-measured-2026-11-08)).
 
 | Experiment | Change | Author, equal nodes (Elo, 95 %) | Author, equal cost | Verifier | Decision |
 |---|---|---|---|---|---|

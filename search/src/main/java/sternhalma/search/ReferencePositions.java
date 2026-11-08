@@ -33,6 +33,18 @@ public final class ReferencePositions {
     public static final String R2_SPEC =
             "ab:eval=linear-r1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,nodes=20000";
 
+    /**
+     * Reference player R3: the BEST_SPEC of the round-2 integration at 20000 nodes, frozen because it scored above
+     * 0.80 against R2 at equal CPU time (the re-base rule of the round-2 plan). The text is a literal, not a
+     * reference to {@code Strategies.BEST_SPEC}, so a later integration that moves BEST_SPEC leaves R3 where it is.
+     * Its evaluator {@code racelin1-r3} is built from frozen parts only ({@code LinearWeights.ROUND3}, the rows&gt;=1
+     * race table with its recorded checksum), so a later refit of the live weights cannot move it either; its tree
+     * is pinned by {@code BestSpecFingerprintTest}, and the jars of its build are frozen in {@code .reference-r3/}
+     * (docs/search-and-evaluation.md, "Integration of round 2"). The reference positions stay those of R2.
+     */
+    public static final String R3_SPEC = "ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,"
+            + "partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000";
+
     /** Seed of the openings and of the ply sample. Changing it changes every recorded fingerprint. */
     public static final long SEED = 1000;
     public static final int GAMES = 8;

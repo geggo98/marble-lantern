@@ -15,10 +15,10 @@ class PlayerSpecRaceTest {
 
     @Test
     void raceKeysParseAndDefaultToOff() {
-        PlayerSpec plain = PlayerSpec.parse(Strategies.BEST_SPEC);
+        PlayerSpec plain = PlayerSpec.parse(Strategies.BEST_R1_SPEC);
         assertEquals(0, plain.race());
         assertTrue(plain.raceTable());
-        PlayerSpec race = PlayerSpec.parse(Strategies.BEST_SPEC + ",race=1");
+        PlayerSpec race = PlayerSpec.parse(Strategies.BEST_R1_SPEC + ",race=1");
         assertEquals(1, race.race());
         assertTrue(race.raceTable());
         PlayerSpec beam = PlayerSpec.parse("ab:eval=linear,race=2,racetable=0,nodes=100");
@@ -35,9 +35,9 @@ class PlayerSpecRaceTest {
     /** The extended table (E09) is chosen by {@code racerows=1} only; the default stays rows&gt;=2. */
     @Test
     void theRaceRowsKeySelectsTheTableRegionAndDefaultsToRowsTwo() {
-        assertEquals(2, PlayerSpec.parse(Strategies.BEST_SPEC).raceRows());
-        assertEquals(2, PlayerSpec.parse(Strategies.BEST_SPEC + ",race=1").raceRows());
-        PlayerSpec rows1 = PlayerSpec.parse(Strategies.BEST_SPEC + ",race=1,racerows=1");
+        assertEquals(2, PlayerSpec.parse(Strategies.BEST_R1_SPEC).raceRows());
+        assertEquals(2, PlayerSpec.parse(Strategies.BEST_R1_SPEC + ",race=1").raceRows());
+        PlayerSpec rows1 = PlayerSpec.parse(Strategies.BEST_R1_SPEC + ",race=1,racerows=1");
         assertEquals(1, rows1.raceRows());
         assertEquals(1, rows1.race());
         assertEquals(2, PlayerSpec.parse("ab:race=2,racerows=2").raceRows());
@@ -47,7 +47,7 @@ class PlayerSpecRaceTest {
         assertThrows(IllegalArgumentException.class, () -> PlayerSpec.parse("ab:race=1,racetable=0,racerows=1"),
                 "racerows needs the table");
         // a created player names the extended table; creating it needs the table in the cache (never built in tests)
-        RaceMove rows2Move = PlayerSpec.parse(Strategies.BEST_SPEC + ",race=1").create().race();
+        RaceMove rows2Move = PlayerSpec.parse(Strategies.BEST_R1_SPEC + ",race=1").create().race();
         assertEquals(2, rows2Move.tableMinRow());
         assertEquals(-1, new RaceMove(null, 1).tableMinRow());
         org.junit.jupiter.api.Assumptions.assumeTrue(sternhalma.tablebase.RaceTable.rows1IfCached() != null,
@@ -87,10 +87,19 @@ class PlayerSpecRaceTest {
         assertEquals(0, PlayerSpec.parse("ab:eval=linear,nodes=300,tt=12").create().raceMoves());
     }
 
+    /**
+     * The round-1 BEST stays constructible under its old text, and since the integration commit of round 2 the
+     * BEST_SPEC plays races itself (owner decision: race play with the rows&gt;=1 table).
+     */
     @Test
-    void theRegisteredStrategiesIncludeRacePlayAndKeepBestSpecUnchanged() {
+    void theRegisteredStrategiesIncludeRacePlayAndTheRoundOneBest() {
         assertEquals("ab:eval=linear,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1",
-                Strategies.BEST_SPEC, "BEST_SPEC changes only in the integration commit");
+                Strategies.BEST_R1_SPEC, "the round-1 BEST is frozen under its own name");
+        assertEquals(1, PlayerSpec.parse(Strategies.BEST_SPEC).race(), "the integrated BEST plays races");
+        assertEquals(1, PlayerSpec.parse(Strategies.BEST_SPEC).raceRows(), "with the rows>=1 table");
+        assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith(Strategies.BEST_SPEC + ",")));
+        assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith(Strategies.BEST_R1_SPEC + ",")));
+        assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith(Strategies.W1_SPEC + ",")));
         assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().contains(",race=1,")));
         assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().contains(",race=2,")));
     }

@@ -59,10 +59,12 @@ class FutilityTest {
     }
 
     @Test
-    void theContractCoversTheFutilitySpecAndBestSpecIsUnchanged() {
+    void theContractCoversTheFutilitySpecAndTheRoundOneBestHasNoFutility() {
         assertTrue(Strategies.registered().stream().anyMatch(s -> s.name().startsWith(Strategies.FUTILITY_SPEC + ",")));
         assertTrue(PlayerSpec.parse(Strategies.FUTILITY_SPEC).options().futilityOn());
-        assertFalse(PlayerSpec.parse(Strategies.BEST_SPEC).options().futilityOn());
+        assertFalse(PlayerSpec.parse(Strategies.BEST_R1_SPEC).options().futilityOn());
+        // the integrated BEST of round 2 prunes (E06)
+        assertTrue(PlayerSpec.parse(Strategies.BEST_SPEC).options().futilityOn());
     }
 
     @Test
