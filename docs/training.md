@@ -829,6 +829,60 @@ The overhead shares as `monitor-report` printed them for these runs, and the int
 - Checkpoint cadence counts "checkpoints of this process" for `--elo-every` and `--proxy-every`; after a resume the count starts again.
 - Only generation 0 and two players. The gating, the self-play phase and three players are not in this block.
 
+### Generation 0 run 1 (measured 2026-11-08)
+
+First real generation-0 supervised run. JDK 25.0.3, Apple M3 Max, **load average 12 to 13 from other jobs during the whole run, so all timings are indicative.**
+
+**Data:** `selfplay run` with `BEST_SPEC` at `nodes=2000,tt=17`, seed 2001, `--teacher-depth 2` (tau 0.06, defaults), 4,300 games in 86 shards, 8 threads: 10 m 16 s (6.98 games/s, 84 plies per CPU second, teacher 10.2 ms per sample). The run loaded 369,934 training and 40,839 held-out samples (split by game id at 10 %).
+
+**Training:** `gen0.sh run data/teacher-s2001 data/gen0run1 --preset small --steps 5800 --batch 256 --microbatch 32 --threads 8 --seed 1 --augment 1 --monitor 1` (lr 1e-3, warm-up 200, cosine to 0.1, `c_v` 1). 5,800 steps = 1.485 M samples = about 4.0 epochs of the training samples (with mirror augmentation). Wall time 31 m 59 s (1,919 s), **3.02 steps/s = 773.6 samples/s**, 29 checkpoints. Block-2e dry run for comparison (batch 32, 4 threads, 16.3 steps/s = 523 samples/s): 1.5 times more samples per second now, from 8 threads and larger microbatches, at a much higher machine load.
+
+**Held-out proxies** (500 fixed held-out samples, 15 evaluations; yardstick for the winner prediction 78.8 %):
+
+| Step | policy KL | top-1 | value loss | winner prediction |
+|---|---|---|---|---|
+| 200 | 1.314 | 31.1 % | 0.549 | 51.2 % |
+| 600 | 1.148 | 35.3 % | 0.490 | 55.2 % |
+| 1000 | 1.078 | 38.6 % | 0.304 | 69.4 % |
+| 1400 | 1.030 | 38.4 % | 0.250 | 70.4 % |
+| 1800 | 1.015 | 39.5 % | 0.223 | 73.6 % |
+| 2600 | 0.985 | 41.1 % | 0.202 | 74.8 % |
+| 3400 | 0.973 | 39.7 % | 0.194 | 74.6 % |
+| 4200 | 0.949 | 40.4 % | 0.189 | 74.0 % |
+| 5000 | 0.927 | 40.4 % | 0.186 | 75.8 % |
+| 5400 | 0.923 | 40.6 % | 0.188 | 74.4 % |
+| 5800 (final) | 0.928 | 40.4 % | 0.186 | 75.2 % |
+
+The training loss at the end is KL about 0.80 and value about 0.17 (running means of the steps), so the gap to the held-out set is about 0.12 in KL: little overfitting after 4 epochs. KL, top-1 and value loss are flat since about step 4,600 (the learning rate is then at 0.1 to 0.3 of its peak). With 500 samples the winner prediction has a standard error of about 1.9 points, so 75.2 % is 1.9 standard errors below 78.8 %.
+
+**Strength** (raw policy against `BEST_SPEC` with `nodes=<rung>,tt=16`, 50 pairs = 100 games per rung, 2 threads; score from the network's side; Elo with 95 % interval):
+
+| Checkpoint | 1 / 5 / 20 nodes (identical) | 100 nodes | 400 nodes | 1600 nodes |
+|---|---|---|---|---|
+| step 200 | -449 +- 202 (score 0.07, 7-0-93) at 5 and 20 | -449 +- 263 | -676 +- 339 (0.02) | not run |
+| step 4800 | -191 +- 72 (0.25, 25-0-75) | -210 +- 87 (0.23) | -323 +- 98 (0.135) | not run |
+| step 5800 (candidate) | **-49 +- 64 (0.43, 43-0-57)** | -182 +- 79 (0.26) | -346 +- 107 (0.12) | -676 +- 339 (0.02) |
+
+No result is clamped; the ladder 1, 5, 20, 100, 400 is usable as it is, and 1600 only adds a bound. **The rungs 1, 5 and 20 nodes give bit-identical results** (the same wins and losses for the same checkpoint, at step 4800 and at step 5800, and at step 200 for 5 and 20): `BEST_SPEC` with at most 20 nodes plays one and the same move sequence, so these three are one rung. The cause was not investigated (a node limit that is used up before the first full iteration is the likely reason); the rungs 1 and 5 can be dropped. The candidate is about 50 Elo below the cheapest rung (+- 64) and about 180 below 100 nodes (+- 79), and its Elo against the rungs falls with the node count, as expected. Not a bug found: the numbers are consistent, but the identical rungs should be looked at before the ladder is used for gating.
+
+The `strength` command takes a training checkpoint (`gen-0000/train/step-*.safetensors`); `candidate.safetensors` is refused with `format is sternhalma-nn, expected sternhalma-train`. The checkpoint at step 4800 was copied while the run was still going, because only the last two are kept.
+
+**Overhead** (`monitor-report`, 1,919 s of loop wall time):
+
+| Category | Events | Cost per event | Share | Budget | Proposed interval |
+|---|---|---|---|---|---|
+| checkpoint | 29 | 1.8 ms | 0.003 % | 1 % | 200 ms (about 1 step) |
+| progress lines | 189 | 0.66 ms | 0.007 % | 0.1 % | 1 s |
+| the monitor's own writes | total | 61 ms | 0.003 % | none | none |
+| proxies, 500 samples, 8 threads | 15 | 359 ms | 0.28 % | 2 % | 20 s |
+| Elo estimate (separate process, 50 pairs, 4 rungs, step 200) | 1 | 55.3 s | 2.9 % | 5 % | 2000 s |
+
+All categories are inside their budgets, the total is about 3.2 % with the separate Elo step and 0.3 % without it. Proposed changes: (1) The proxies use 0.28 % of 2 %, so they could use 5 times more samples (2,500 of 40,839 held out; about 1.8 s per event, 1.4 % at 120 s apart); the standard error of the winner prediction goes from 1.9 to 0.9 points, which is what the decision against 78.8 % needs. (2) The interval of 120 s stays (one event per 400 steps at 3 steps/s is enough for the trend). (3) Checkpoints every 200 steps (66 s) stay: the report would allow more, but a checkpoint is only 1.8 ms and the kill loss of 66 s is acceptable; at 3 steps/s `--checkpoint-seconds 60` is the natural cap. (4) Progress lines every 10 s stay. (5) Elo: one separate step per checkpoint of interest, as done; with 2 threads and 5 rungs it costs about 1 minute and slows the run by no more than its load.
+
+**Is the CPU trainer a bottleneck?** For generation 0: training 32 min against data generation 10.3 min, plus about 1 min of strength steps, so one full generation is about 43 to 44 minutes and **training is about 73 % of it**. For 10 such generations: about 7.3 hours at this load, if later generations have the same data volume and step count; self-play with a network in the search will be slower than the classical teacher games, which this number does not include. Part B (GPU) would pay off first if generations become 5 times longer; at this size one generation is short enough to run overnight several times.
+
+**Decision criteria and verdict.** Winner prediction 75.2 % against 78.8 % (yardstick, -3.6 points, 1.9 standard errors): **not met yet (the curve rises slowly and is flat over the last 800 steps).** KL trend: flat (0.923 to 0.928 over the last 400 steps). Raw-policy Elo: -49 +- 64 against the 1-to-20-node rung and -182 against 100 nodes, so the network plays like a very shallow classical search without any search. Recommendation: **do not start self-play yet.** Cheapest order of changes: (a) re-measure the winner prediction with 2,500+ samples on this candidate (a second of CPU) to know whether the gap to 78.8 % is real; (b) more teacher data (the 4 epochs with a flat held-out KL and a gap of 0.12 say that data, not steps, is the limit; the teacher costs 10 minutes per 4,300 games, so 20,000 games are 50 minutes); (c) only then a bigger network or a different lr; teacher tau 0.06 is the documented optimum for depth 2 (0.05 measured), so it is not the first suspect. The top-1 agreement of 40 % with a soft target (tau 0.06, many near-equal moves) is a weak criterion on its own.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
