@@ -275,7 +275,7 @@ public final class RaceTable implements RaceCounts {
      * The table from the first valid file among {@code propertyDir/<file>}, {@code root/tablebase/tables/<file>}
      * (committed regions only) and {@code root/tablebase/build/tables/<file>}; otherwise, if {@code allowBuild}, a
      * rebuilt table that is checked against the region's SHA-256 and cached (in {@code propertyDir}, else under
-     * {@code root/tablebase/build/tables}, else in the temporary directory). Without {@code allowBuild} a missing
+     * {@code root/tablebase/build/tables}, else in the temporary directory; without propertyDir and root that cache is also searched when loading). Without {@code allowBuild} a missing
      * table gives null.
      */
     static RaceTable resolve(Region region, Path propertyDir, Path root, boolean allowBuild) {
@@ -285,6 +285,8 @@ public final class RaceTable implements RaceCounts {
                 root == null || !region.committed ? null
                         : root.resolve("tablebase").resolve("tables").resolve(region.fileName),
                 root == null ? null : root.resolve("tablebase").resolve("build").resolve("tables").resolve(region.fileName),
+                propertyDir == null && root == null
+                        ? Path.of(System.getProperty("java.io.tmpdir")).resolve("sternhalma-tablebase").resolve(region.fileName) : null,
             };
             for (Path file : candidates) {
                 RaceTable loaded = tryLoad(region, file);
