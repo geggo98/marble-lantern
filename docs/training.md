@@ -900,6 +900,24 @@ All categories are inside their budgets, the total is about 3.2 % with the separ
 
 **Decision criteria and verdict.** Winner prediction 75.2 % against 78.8 % (yardstick, -3.6 points, 1.9 standard errors): **not met yet (the curve rises slowly and is flat over the last 800 steps).** KL trend: flat (0.923 to 0.928 over the last 400 steps). Raw-policy Elo: -49 +- 64 against the 1-to-20-node rung and -182 against 100 nodes, so the network plays like a very shallow classical search without any search. Recommendation: **do not start self-play yet.** Cheapest order of changes: (a) re-measure the winner prediction with 2,500+ samples on this candidate (a second of CPU) to know whether the gap to 78.8 % is real; (b) more teacher data (the 4 epochs with a flat held-out KL and a gap of 0.12 say that data, not steps, is the limit; the teacher costs 10 minutes per 4,300 games, so 20,000 games are 50 minutes); (c) only then a bigger network or a different lr; teacher tau 0.06 is the documented optimum for depth 2 (0.05 measured), so it is not the first suspect. The top-1 agreement of 40 % with a soft target (tau 0.06, many near-equal moves) is a weak criterion on its own.
 
+## Generation 0 run 2 (measured 2026-11-08)
+
+**TL;DR:** Five times the teacher data (20,000 games, about 1.9 M samples, seed 2003, depth-3 teacher, mover at 2000 nodes) and 16,000 steps (about 2.2 epochs) improve every proxy over run 1 and lift the raw policy player (no search) from -49 Elo (run 1, against `BEST_SPEC` at depth 1) to +38 +- 45. It now plays on a par with `BEST_SPEC` at 100 nodes (+3 +- 46) and loses clearly only against 400 nodes (-166 +- 48). The winner prediction (75.7 +- 0.6 % on 5000 held-out samples) stays below the 78.8 % yardstick; the yardstick comes from another distribution, so it is a guide, not a gate. Load was 11-13 during the runs; every timing is indicative.
+
+| | Run 1 (5800 steps, 370 k samples) | Run 2 (16,000 steps, 1.9 M samples) |
+|---|---|---|
+| held-out policy KL (5000 samples) | 0.925 | 0.795 |
+| top-1 agreement with the teacher | 41.7 % | 45.8 % |
+| value loss | 0.178 | 0.163 |
+| winner prediction | 74.1 +- 0.6 % | 75.7 +- 0.6 % |
+| Elo against depth 1 (`BEST_SPEC`, rung 1) | -49 +- 64 (50 pairs) | +38 +- 45 (100 pairs) |
+| Elo against 100 nodes | -182 +- 79 | +3 +- 46 |
+| Elo against 400 nodes | -346 +- 107 | -166 +- 48 |
+
+The held-out sets differ (game ids of different data sets), so the proxy columns compare trends, not paired values. In run 2 the KL flattened at about 0.78-0.80 from step 12,000 on; the winner prediction moved between 73.3 and 75.7 % without a trend from step 5000. Training took 1h22m (3.25 steps/s, 832 samples/s with 8 threads), data generation 53 min (6.2 games/s on 8 threads at load 11-12), the strength step (300 games) 2m08s on 8 threads. The monitor in the loop stayed far inside its budgets (80 checkpoints, proxies every 120 s, no Elo in the loop).
+
+**Decision:** the raw policy is strong enough to act as a prior for the search (about depth 1 to 2 of the classical engine); the next block is MCTS with the network (block 2g), then the classical input planes (E11) as an A/B on the same data.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
