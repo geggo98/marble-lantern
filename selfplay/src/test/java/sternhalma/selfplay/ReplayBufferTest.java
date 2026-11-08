@@ -350,6 +350,47 @@ class ReplayBufferTest {
     }
 
     @Test
+    void otherSafetensorsFilesInTheDirectoryAreNeitherReadNorRenamed() throws IOException {
+        List<Sample> samples = SyntheticSamples.samples(2, 21, 8);
+        write("samples-a-0000.safetensors", 2, samples);
+        Files.writeString(dir.resolve("model.safetensors"), "a network, not samples");
+        Files.writeString(dir.resolve("samples.safetensors.tmp.123"), "leftover");
+        ReplayBuffer.Loaded loaded = new ReplayBuffer(2, 100, false).addGeneration(0, dir);
+        assertEquals(1, loaded.files());
+        assertTrue(loaded.skipped().isEmpty());
+        assertTrue(loaded.quarantined().isEmpty());
+        assertEquals("a network, not samples", Files.readString(dir.resolve("model.safetensors")));
+        assertTrue(Files.exists(dir.resolve("samples.safetensors.tmp.123")));
+        assertFalse(Files.exists(dir.resolve("model.safetensors.corrupt")));
+    }
+
+    @Test
+    void aGenerationWhoseFilesAllFailCanBeRetriedAfterARepair() throws IOException {
+        List<Sample> samples = SyntheticSamples.samples(2, 22, 8);
+        Path file = dir.resolve("samples-a-0000.safetensors");
+        Files.writeString(file, "junk");
+        ReplayBuffer b = new ReplayBuffer(2, 100, false);
+        assertEquals(0, b.addGeneration(4, dir).samples());
+        assertTrue(Files.exists(dir.resolve("samples-a-0000.safetensors.corrupt")));
+        write("samples-a-0000.safetensors", 2, samples);
+        ReplayBuffer.Loaded retry = b.addGeneration(4, dir);
+        assertEquals(8, retry.samples());
+        assertEquals(List.of(4), b.generations());
+        assertThrows(IllegalArgumentException.class, () -> b.addGeneration(4, dir), "now it is consumed");
+    }
+
+    @Test
+    void aPlayerCountMismatchRenamesNoEarlierFile() throws IOException {
+        write("samples-a-0001.safetensors", 3, SyntheticSamples.samples(3, 23, 5));
+        Files.writeString(dir.resolve("samples-a-0000.safetensors"), "junk"); // sorts first, would be renamed
+        ReplayBuffer b = new ReplayBuffer(2, 100, false);
+        assertThrows(IllegalArgumentException.class, () -> b.addGeneration(0, dir));
+        assertTrue(Files.exists(dir.resolve("samples-a-0000.safetensors")), "not renamed");
+        assertFalse(Files.exists(dir.resolve("samples-a-0000.safetensors.corrupt")));
+        assertEquals(0, b.size());
+    }
+
+    @Test
     void listVariantSkipsButDoesNotRename() throws IOException {
         Path bad = dir.resolve("bad.safetensors");
         Files.writeString(bad, "junk");

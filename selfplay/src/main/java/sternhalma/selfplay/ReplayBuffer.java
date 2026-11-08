@@ -109,7 +109,9 @@ public final class ReplayBuffer {
 
     /**
      * Loads the files {@code samples-*.safetensors} of a directory in name order as one generation; a file that
-     * fails validation is renamed to {@code *.corrupt} and reported in {@link Loaded#quarantined()}.
+     * fails validation is renamed to {@code *.corrupt} and reported in {@link Loaded#quarantined()},
+     * after the whole call succeeded (a file of another player count throws before any rename). If no file loads, the
+     * generation number stays free for a retry.
      */
     public Loaded addGeneration(int generation, Path directory) throws IOException {
         List<Path> files;
@@ -140,11 +142,6 @@ public final class ReplayBuffer {
                 block = parse(generation, SampleFile.read(file));
             } catch (IOException e) {
                 skipped.add(file);
-                if (quarantine) {
-                    Path target = file.resolveSibling(file.getFileName() + ".corrupt");
-                    Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
-                    quarantined.add(target);
-                }
                 continue;
             }
             if (block.size > 0) {
@@ -153,7 +150,18 @@ public final class ReplayBuffer {
             read++;
             samples += block.size;
         }
-        lastGeneration = generation;
+        // Renames come last, so a wrong-players file (thrown above) leaves every file as it was.
+        if (quarantine) {
+            for (Path file : skipped) {
+                Path target = file.resolveSibling(file.getFileName() + ".corrupt");
+                Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+                quarantined.add(target);
+            }
+        }
+        // A generation of which no file loaded is not consumed: after a repair the same number can be retried.
+        if (read > 0) {
+            lastGeneration = generation;
+        }
         blocks.addAll(loaded);
         while (generations().size() > 1 && size(blocks) > window) {
             int oldest = blocks.get(0).generation;

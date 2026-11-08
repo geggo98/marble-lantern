@@ -88,7 +88,7 @@ p_m    = exp(l_m - logZ)
 
 This is the cross-entropy of the masked softmax of [network](network.md#policy-head-and-move-logits); `Encoder.moveLogit` computes l_m. Terms with pi_m = 0 are skipped, never computed as 0 · (something). The batch builder also stores the target entropy H_s = −sum over pi_m > 0 of pi_m log pi_m, so that the trainer can report the KL divergence Lp_s − H_s ≥ 0. The KL divergence is the number to watch: the cross-entropy cannot go below H_s.
 
-A sample without legal moves has no policy loss: the builder sets wp_s = 0. A sample with one legal move has Lp_s = 0 and a zero gradient; the self-play writer sets wp_s = 0 for it to save work (**proposal**).
+A sample without legal moves has no policy loss: the builder sets wp_s = 0. A sample with one legal move has Lp_s = 0 and a zero gradient; the E05 self-play writer does not special-case it: wp_s = 1 except for random opening plies (wp_s = 0), which is harmless because the gradient is zero.
 
 #### Value loss
 
