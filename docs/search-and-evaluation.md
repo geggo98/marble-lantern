@@ -220,7 +220,7 @@ Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze th
 | 41, 42 | verifier (300 pairs; 500 when the claimed gain is below +50 Elo) |
 | 43 | integration match |
 | 1002 to 1005 | data sets (E03: 1002, E04: 1003 and 1004, E05: 1005 for every official set) |
-| 1006 and up | other data: E05 tuning 1006, E05 throughput runs 1007, E07 refit games 1008 (both texel rounds) |
+| 1006 and up | other data: E05 tuning 1006, E05 throughput runs 1007, E07 refit games 1008 (both texel rounds), E10 teacher check 1010 (quality set), 1011 (cost games), 1012 (temperature sweep) |
 
 Official numbers use no other seeds. Seeds of round 1 and of the surveyors (1 to 4, 9, 11 to 13, 21 to 25, 77, 1001) are not reused. The reference positions below use the fixed generator seed 1000; they produce no Elo number, only trees and speed.
 
@@ -739,6 +739,30 @@ E13 makes the leaf evaluation of `linear-r3` (and so of `racelin1-r3`, which wra
 | 3 | 1 330 063 | 1 026 590 | 1.2965 |
 
 Median of the three runs: **1.2965** (acceptance in the plan: at least 1.10; drop below 1.05). The self-ratio of the same build against its own copy (`--copy`) read 0.9950, 1.0131 and 1.0076 (median 1.0076), inside the required 0.98 to 1.02. An earlier build of the same branch with the state but with `bestGain` on the old edge-list search measured 1.10; the jump graph is the larger part of the gain. Games per CPU-second of a full BEST_SPEC self-play game at 1000 nodes (30 games, 2702 plies, identical games on both builds, separate JVMs one after the other, same load): 6.69 for R3 against 9.73 for the current build (1.45 times, including the race plies that need no search).
+
+### Exact root scores and teacher samples (E10, measured 2026-11-08)
+
+`AlphaBeta.rootScores(Position, depth)` returns, for every move of `Position.legalMoves()` (same order), the negamax score of the child after `depth - 1` further plies, each searched with the full window, so every entry is the exact depth value and not the bound that the later root moves of an alpha-beta search carry. The searcher must have futility and late move reductions off (`SearchOptions.exactRoot()`, `exact()`; otherwise `IllegalStateException`); PVS, killers, history, the replacement scheme and `mate=1` stay allowed because they do not change values inside a window. No aspiration window, no node limit. The score bands are untouched: a consumer asks `Scores.kind`.
+
+- **The table cannot make a result depend on earlier calls.** Every call mixes a fresh salt into the table keys (the entries of other calls are invisible; the incremental evaluation state is reset as in `search`), counts a new table generation (without it the depth-preferred table treats generation 0 as "empty" and the table would be dead in a fresh searcher), clears history and killers, and accepts only entries of exactly the depth asked for. `RootScoresTest` compares against a plain negamax for 2 evaluators, depths 1 to 5 and positions from ply 0 to 80; asks one reused searcher for depth 3, 2, 1 and other positions in turn and demands the scores and the node count of a fresh searcher; checks that an ordinary search in between changes nothing; and that a win in one move scores `MATE - 1`.
+- **Cost:** no pruning at the root and none by futility or LMR inside: depth 3 visits about 14,000 nodes per position (BEST_SPEC evaluator), depth 2 about 3,300.
+
+**Teacher quality and cost** (`SelfPlay teacher-check`; BEST_SPEC at its 20,000 nodes plays the games, S1 adjudication, one position per game at a ply uniform in 10 to min(90, cut - 1); reference move from BEST_SPEC at 100,000 nodes, the same engine, so a within-family proxy; one thread, CPU time per thread; **indicative**: load average 7.3 to 7.6 on 16 cores during the runs, no Bench self-ratio taken):
+
+| Seed 1010 (300 positions) | depth 2 (tau 0.06) | depth 3 (tau 0.1) | target |
+|---|---|---|---|
+| policy NLL of the 100k-node move | 2.917 | 2.157 | <= 2.8 / <= 2.2 |
+| the same, one-hot (1 - 0.05 on the 20k-node move) | 3.061 | 3.061 | teacher below one-hot |
+| uniform | 4.030 | 4.030 | |
+| teacher top-1 = 100k-node move | 33.8% | 37.5% | (20k-node move: 57.0%) |
+| value log loss of the blended target vs result | 0.195 | 0.195 | <= 0.45 |
+| value log loss of the pure sigma(score/75) vs result | 0.522 | 0.524 | |
+| winner by the sign of the best score | 75.9% | 75.5% | |
+| teacher CPU per sample (positions of the quality set / all positions of 20 games, seed 1011) | 1.97 / 1.52 ms | 10.7 / 9.1 ms | <= 1.5 / <= 7 ms |
+
+A second set (seed 1012, 300 positions) agrees: NLL 2.850 and 2.293 (one-hot 2.628, because the 20k-node move equals the 100k-node move in 63.3%), blended log loss 0.197 and 0.202. Tau sweep (NLL of the 100k-node move; seed 1010 / seed 1012): depth 3: 0.04 2.090 / 2.226, 0.05 1.978 / 2.115, **0.06 1.941 / 2.077**, 0.08 2.000 / 2.135, 0.10 2.157 / 2.293, 0.15 2.723 / 2.852; depth 2: 0.04 2.864 / 2.861, **0.05 2.851 / 2.819**, 0.06 2.917 / 2.850, 0.08 3.185 / 3.043, 0.10 3.548 / 3.332. The temperatures of the plan (0.1, 0.06) are one grid step sharper than the NLL optimum on both sets (0.06 at depth 3 and 0.05 at depth 2 are better by 0.08 to 0.22 nats at depth 3 and 0.03 to 0.07 at depth 2); the defaults of the tool stay at the plan's values and the owner can switch them with `--teacher-tau`. **Open tuning item:** the NLL optimum (0.06 at depth 3, 0.05 at depth 2) is not adopted; whether the sharper or the softer target trains a better network is a stage-2 question. The depth-2 NLL misses its target (2.8) even at its best tau (2.85 and 2.82). Where the one-hot target is as good as the teacher (seed 1012, depth 2) the reason is that the played 20k-node move and the reference share an engine and agree in 63% of the positions; the proxy favours one-hot targets and says nothing about what a network learns from them (the stage-2 measurement of the plan).
+
+**Cost of a 1M-sample teacher set** (20 games of seed 1011, 1,804 samples; the game itself, with BEST_SPEC at 20,000 nodes for the mover, costs 13.6 ms per sample): teacher alone 1.52 ms (depth 2) and 9.09 ms (depth 3) per sample, that is **0.42 and 2.53 core-hours per million samples**; with the game's own search 4.19 and 6.29 core-hours. The target "1M samples in <= 4 core-hours at depth 3" holds for the labels (2.53 h) and not for labels plus a 20,000-node mover (6.29 h); the mover search is a free parameter (labels do not depend on it), 5,000 nodes would cost roughly a quarter of the 13.6 ms (estimate, not measured). Cost per sample against the targets: depth 2 is 1.0x to 1.3x (1.52 against 1.5 in the cost games, 1.97 on the quality positions, which lie in the middle game with more moves), depth 3 is 1.3x of 7 ms; both are inside the 2x failure bound. There is no exact way to make the labels cheaper: every root move needs its own full window.
 
 ## Results of round 2
 

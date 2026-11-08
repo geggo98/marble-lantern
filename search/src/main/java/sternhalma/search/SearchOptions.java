@@ -64,6 +64,21 @@ public record SearchOptions(boolean pvs, boolean killers, boolean history, int l
                 margin1, gain, margin2);
     }
 
+    /**
+     * Whether a search with these options has no pruning that makes root scores inexact: futility and late move
+     * reductions off. Principal variation search, killers, history, the table and the move ordering keep every
+     * score in the window exact; aspiration only concerns {@code search}, which {@code rootScores} does not use.
+     */
+    public boolean exactRoot() {
+        return lmr == 0 && !futilityOn();
+    }
+
+    /** These options with futility and late move reductions off: what {@code AlphaBeta.rootScores} requires. */
+    public SearchOptions exact() {
+        return new SearchOptions(pvs, killers, history, 0, aspiration, depthPreferred, mateFix, partial, 0,
+                DEFAULT_FUTILITY_GAIN, 0);
+    }
+
     /** Whether futility pruning is on at any depth. */
     public boolean futilityOn() {
         return futility > 0 || futility2 > 0;

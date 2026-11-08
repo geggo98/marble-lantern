@@ -14,6 +14,7 @@ import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.Evaluators;
 import sternhalma.search.IllegalMoveException;
 import sternhalma.search.PlayerSpec;
+import sternhalma.search.RaceAdjudication;
 import sternhalma.search.SearchResult;
 import sternhalma.selfplay.Adjudication.Firing;
 import sternhalma.selfplay.Adjudication.Layer;
@@ -36,16 +37,26 @@ public final class SelfPlayGame {
      * @param openingMode     uniform or softmax
      * @param epsilon         policy target: 1 - epsilon on the played move, epsilon spread over all legal moves
      * @param samples         whether to build samples
+     * @param teacher         teacher samples of generation 0 (E10): policy and value targets from exact root scores,
+     *                        or null for the bootstrap targets
      */
     public record Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
             OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
-            int openingDepth, double epsilon, boolean samples, boolean reuse) {
+            int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher) {
+
+        public Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
+                OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
+                int openingDepth, double epsilon, boolean samples, boolean reuse) {
+            this(spec, seed, adjudication, controlFraction, openingMode, openingMin, openingMax, openingTemperature,
+                    openingDepth, epsilon, samples, reuse, null);
+        }
 
         public String describe() {
             return "spec=" + spec + ";seed=" + seed + ";adjudication=" + adjudication.describe() + ";control="
                     + controlFraction + ";opening=" + openingMode.name().toLowerCase(java.util.Locale.ROOT) + ","
                     + openingMin + "-" + openingMax + ",T=" + openingTemperature + ",depth=" + openingDepth
-                    + ";epsilon=" + epsilon + ";samples=" + (samples ? 1 : 0);
+                    + ";epsilon=" + epsilon + ";samples=" + (samples ? 1 : 0)
+                    + (teacher == null ? "" : ";teacher=" + teacher.describe());
         }
     }
 
@@ -56,11 +67,13 @@ public final class SelfPlayGame {
     private final PlayerSpec spec;
     private final Adjudication adjudication;
     private final OpeningSampler openings;
+    private final Teacher teacher;
     private AlphaBetaPlayer[] players;
 
     public SelfPlayGame(Settings settings) {
         this.settings = settings;
         this.spec = PlayerSpec.parse(settings.spec());
+        this.teacher = settings.teacher() == null ? null : new Teacher(settings.teacher(), spec);
         Adjudication.Config a = settings.adjudication();
         this.adjudication = new Adjudication(a, rules.players(), a.s1() ? RaceTable.rows2() : null,
                 a.evalThreshold() > 0 ? Evaluators.byName(spec.evaluator(), spec.weights()) : null);
@@ -68,6 +81,11 @@ public final class SelfPlayGame {
                 settings.openingTemperature(), settings.openingDepth(),
                 settings.openingMode() == OpeningSampler.Mode.SOFTMAX
                         ? Evaluators.byName(spec.evaluator(), spec.weights()) : null);
+    }
+
+    /** The teacher of this instance, or null without teacher samples. */
+    public Teacher teacher() {
+        return teacher;
     }
 
     /** Whether game {@code id} is a control game (played on after the adjudication). */
@@ -160,7 +178,7 @@ public final class SelfPlayGame {
         double[] labelValues = cut == null ? outcome.values().clone() : win(cut.winner());
         long nodes = ps[0].totalNodes() + ps[1].totalNodes() - nodes0;
         GameRecord.Samples samples = settings.samples()
-                ? samples(played, opening.length, labelPly, labelValues, label != Layer.NONE, settings.epsilon())
+                ? samples(played, opening.length, labelPly, labelValues, label != Layer.NONE, settings.epsilon(), teacher)
                 : null;
         return new GameRecord(id, opening.length, played, Arrays.copyOf(scores, n), label, labelPly, labelValues,
                 playedOut, playedOut ? pos.ply() : -1, playedOut ? outcome.values().clone() : null,
@@ -174,9 +192,14 @@ public final class SelfPlayGame {
         return v;
     }
 
-    /** The samples of the positions before ply {@code cut}, replayed from the start position. */
+    /**
+     * The samples of the positions before ply {@code cut}, replayed from the start position. With a teacher the policy
+     * target is its softmax over the exact root scores (flag bit 0; weight 0 for the random opening plies, as their
+     * played move carries no information about the teacher, and for positions whose best score is in the race band,
+     * which get the bootstrap target and no bit 0) and the value target the blend of the label and the teacher.
+     */
     static GameRecord.Samples samples(int[] moves, int openingPlies, int cut, double[] labelValues,
-            boolean adjudicated, double epsilon) {
+            boolean adjudicated, double epsilon, Teacher teacher) {
         RuleSet rules = RuleSet.defaults(2);
         int players = rules.players();
         Position pos = Position.initial(rules);
@@ -191,6 +214,7 @@ public final class SelfPlayGame {
         byte[] flags = new byte[n];
         int total = 0;
         int[][] legalPerSample = new int[n][];
+        float[][] teacherPolicy = new float[n][];
         for (int s = 0; s < n; s++) {
             Orientation o = Orientation.of(pos);
             for (int c = 0; c < Geometry.CELLS; c++) {
@@ -211,13 +235,24 @@ public final class SelfPlayGame {
             if (playedIndex[s] < 0) {
                 throw new IllegalStateException("move " + s + " is not legal on replay");
             }
+            double[] z = new double[players];
             for (int r = 0; r < players; r++) {
-                value[s * players + r] = (float) labelValues[o.absolutePlayer(r)];
+                z[r] = labelValues[o.absolutePlayer(r)];
             }
             boolean random = s < openingPlies;
-            wp[s] = random ? 0f : 1f;
+            boolean full = false;
+            if (teacher != null) {
+                Teacher.Label label = teacher.label(pos);
+                z = teacher.config().value(z, pos.ply(), label.best(), RaceAdjudication.passed(pos));
+                teacherPolicy[s] = label.policy();
+                full = label.policy() != null;
+            }
+            for (int r = 0; r < players; r++) {
+                value[s * players + r] = (float) z[r];
+            }
+            wp[s] = random || (teacher != null && !full) ? 0f : 1f;
             wv[s] = 1f;
-            flags[s] = (byte) ((adjudicated ? 2 : 0) | (random ? 4 : 0));
+            flags[s] = (byte) ((full ? 1 : 0) | (adjudicated ? 2 : 0) | (random ? 4 : 0));
             pos.make(moves[s]);
         }
         byte[] from = new byte[total];
@@ -232,7 +267,8 @@ public final class SelfPlayGame {
                 int cm = o.toCanonicalMove(legal[i]);
                 from[k] = (byte) sternhalma.engine.Move.from(cm);
                 to[k] = (byte) sternhalma.engine.Move.to(cm);
-                target[k] = (float) (epsilon / legal.length + (i == playedIndex[s] ? 1 - epsilon : 0));
+                target[k] = teacherPolicy[s] != null ? teacherPolicy[s][i]
+                        : (float) (epsilon / legal.length + (i == playedIndex[s] ? 1 - epsilon : 0));
                 k++;
             }
             replay.make(moves[s]);

@@ -23,11 +23,12 @@ import sternhalma.search.PlayerSpec;
  *                [--eval-threshold 0|P] [--eval-plies 4]
  *                [--opening uniform|softmax] [--opening-min 4] [--opening-max 10] [--opening-temp 30]
  *                [--opening-depth 1|2] [--tt auto|spec] [--epsilon 0.05] [--samples 1|0] [--reuse 1|0]
- *                [--progress SECONDS]
+ *                [--teacher-depth D [--teacher-tau T] [--teacher-alpha START,END,PLIES]] [--progress SECONDS]
  *   SelfPlay run --status --out DIR
  *   SelfPlay report DIR... [--sweep 300,500,700] [--check-s1 1]
  *   SelfPlay strong-check --from DIR... --out DIR --spec SPEC [--limit 300] [--threads T]
  *   SelfPlay strong-check --status --out DIR
+ *   SelfPlay teacher-check --out DIR --seed S [--spec SPEC] [--positions 300] [--depths 2,3] [--cost-games 20]
  * </pre>
  *
  * <p>Exit codes: 0 done or nothing to do, 1 error, 2 usage, 75 running already, 130/143 aborted (SIGINT/SIGTERM).
@@ -45,7 +46,7 @@ public final class SelfPlay {
 
     static int run(String[] args, PrintStream out, PrintStream err) throws Exception {
         if (args.length == 0) {
-            err.println("usage: SelfPlay run|report|strong-check ... (see the class comment)");
+            err.println("usage: SelfPlay run|report|strong-check|teacher-check ... (see the class comment)");
             return 2;
         }
         String command = args[0];
@@ -71,6 +72,7 @@ public final class SelfPlay {
                 case "run" -> runCommand(opts, err);
                 case "report" -> Report.run(positional, opts, out, err);
                 case "strong-check" -> StrongCheck.run(opts, err);
+                case "teacher-check" -> TeacherCheck.run(opts, out, err);
                 default -> {
                     err.println("unknown command " + command);
                     yield 2;
@@ -139,7 +141,35 @@ public final class SelfPlay {
         return new SelfPlayGame.Settings(spec, Long.parseLong(require(opts, "seed")), adj,
                 control(opts.getOrDefault("control", "0.1")), mode, intOpt(opts, "opening-min", 4),
                 intOpt(opts, "opening-max", 10), doubleOpt(opts, "opening-temp", 30), intOpt(opts, "opening-depth", 1),
-                doubleOpt(opts, "epsilon", 0.05), intOpt(opts, "samples", 1) == 1, intOpt(opts, "reuse", 1) == 1);
+                doubleOpt(opts, "epsilon", 0.05), intOpt(opts, "samples", 1) == 1, intOpt(opts, "reuse", 1) == 1,
+                teacher(opts));
+    }
+
+    /**
+     * The teacher of {@code --teacher-depth D [--teacher-tau T] [--teacher-alpha START,END,PLIES]}, or null without
+     * {@code --teacher-depth}. Without {@code --teacher-tau} the temperature measured for the depth (3: 0.1, 2: 0.06).
+     */
+    static Teacher.Config teacher(Map<String, String> opts) {
+        String depth = opts.get("teacher-depth");
+        if (depth == null) {
+            if (opts.containsKey("teacher-tau") || opts.containsKey("teacher-alpha")) {
+                throw new IllegalArgumentException("--teacher-tau and --teacher-alpha need --teacher-depth");
+            }
+            return null;
+        }
+        int d = Integer.parseInt(depth);
+        double tau = opts.containsKey("teacher-tau") ? Double.parseDouble(opts.get("teacher-tau"))
+                : Teacher.Config.defaultTau(d);
+        String alpha = opts.get("teacher-alpha");
+        if (alpha == null) {
+            return new Teacher.Config(d, tau);
+        }
+        String[] a = alpha.split(",");
+        if (a.length != 3) {
+            throw new IllegalArgumentException("--teacher-alpha takes START,END,PLIES");
+        }
+        return new Teacher.Config(d, tau, Double.parseDouble(a[0]), Double.parseDouble(a[1]),
+                Integer.parseInt(a[2]));
     }
 
     static int runCommand(Map<String, String> opts, PrintStream err) throws IOException, InterruptedException {
@@ -161,6 +191,7 @@ public final class SelfPlay {
         final SelfPlayGame.Settings settings;
         private final java.util.concurrent.atomic.AtomicLong cpuNanos = new java.util.concurrent.atomic.AtomicLong();
         private final java.util.concurrent.atomic.AtomicLong plies = new java.util.concurrent.atomic.AtomicLong();
+        private final List<Teacher> teachers = new java.util.concurrent.CopyOnWriteArrayList<>();
 
         GamesJob(Path dir, SelfPlayGame.Settings settings, int games, int shardSize, int threads, PrintStream err) {
             super(dir, JOB, games, shardSize, threads, err);
@@ -199,6 +230,9 @@ public final class SelfPlay {
         Supplier<Worker<GameRecord>> workers() {
             return () -> {
                 SelfPlayGame game = new SelfPlayGame(settings);
+                if (game.teacher() != null) {
+                    teachers.add(game.teacher());
+                }
                 return id -> {
                     GameRecord r = game.play(id);
                     cpuNanos.addAndGet(r.cpuNanos());
@@ -210,7 +244,15 @@ public final class SelfPlay {
 
         @Override
         String progressExtra() {
-            return String.format(Locale.ROOT, "  %.0f plies/CPU-s", plies.get() / (cpuNanos.get() / 1e9));
+            String extra = String.format(Locale.ROOT, "  %.0f plies/CPU-s", plies.get() / (cpuNanos.get() / 1e9));
+            long teacherSamples = 0;
+            long teacherNanos = 0;
+            for (Teacher t : teachers) {
+                teacherSamples += t.samples();
+                teacherNanos += t.cpuNanos();
+            }
+            return teacherSamples == 0 ? extra : extra + String.format(Locale.ROOT, "  teacher %.2f ms/sample",
+                    teacherNanos / 1e6 / teacherSamples);
         }
 
         @Override

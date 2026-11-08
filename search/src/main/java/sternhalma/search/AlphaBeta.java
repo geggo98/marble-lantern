@@ -111,6 +111,14 @@ public final class AlphaBeta {
     private boolean stopped;
     private boolean timed;
     private Position root;
+    /**
+     * Mixed into every table key; 0 in {@link #search}. {@link #rootScores} sets a new value per call, so that the
+     * entries of earlier calls (other depths, other roots) are never found and the scores cannot depend on them.
+     */
+    private long keySalt;
+    /** Only table entries of exactly the depth asked for count; set by {@link #rootScores}. */
+    private boolean exactDepth;
+    private long saltCounter;
 
     public AlphaBeta(Evaluator evaluator) {
         this(evaluator, 20, true);
@@ -348,7 +356,7 @@ public final class AlphaBeta {
         }
         int alpha = alphaIn;
         int beta = betaIn;
-        long key = root.hash();
+        long key = root.hash() ^ keySalt;
         int ttMove = -1;
         if (useTable) {
             int slot = probe(key);
@@ -357,7 +365,7 @@ public final class AlphaBeta {
                 int storedDepth = stored >>> 24;
                 int flag = (stored >>> 22) & 3;
                 ttMove = (stored & 0x1FFFFF) - 1;
-                if (storedDepth >= depth) {
+                if (exactDepth ? storedDepth == depth : storedDepth >= depth) {
                     int s = options.mateFix() ? fromTable(scores[slot], height) : scores[slot];
                     if (flag == EXACT) {
                         return s;
@@ -513,6 +521,73 @@ public final class AlphaBeta {
         stopped = false;
         timed = false;
         return negamax(depth, alpha, beta, 1);
+    }
+
+    /**
+     * The exact score of every root move at a fixed depth (round-2 plan E10, teacher samples). Entry {@code i} is the
+     * score, from the side to move at the root, of the {@code i}-th move of {@link Position#legalMoves()}: the
+     * negamax value of the child after {@code depth - 1} further plies, searched with the full window, so each score
+     * is exact and not a bound as the later root moves of {@link #search} are. The searcher must have futility and
+     * late move reductions off ({@link SearchOptions#exactRoot()}); otherwise this throws, because pruned subtrees
+     * give scores that are not the depth-{@code depth} value. No aspiration window is used.
+     *
+     * <p>The table is used but cannot make a result depend on earlier calls: every call mixes a fresh salt into the
+     * table keys, so entries of other calls are invisible, and only entries of exactly the depth asked for count
+     * inside the call. The history table is cleared and the killers are reset, as for a fresh searcher. The scores
+     * are in the bands of {@link Scores}; a consumer that makes labels from them asks {@link Scores#kind(int)}.
+     * Without legal moves or at a finished game the result is empty.
+     *
+     * @param depth plies from the root, at least 1
+     */
+    public int[] rootScores(Position position, int depth) {
+        if (position.rules().players() != 2) {
+            throw new UnsupportedOperationException("alpha-beta supports two players only");
+        }
+        if (depth < 1 || depth > MAX_DEPTH) {
+            throw new IllegalArgumentException("depth must be in 1.." + MAX_DEPTH);
+        }
+        if (!options.exactRoot()) {
+            throw new IllegalStateException("rootScores needs futility and late move reductions off, got "
+                    + options.describe());
+        }
+        root = position.copy();
+        tracking = state != null && state.reset(root);
+        nodeLimit = Long.MAX_VALUE;
+        deadlineNanos = Long.MAX_VALUE;
+        nodes = 0;
+        futilityCuts = 0;
+        stopped = false;
+        timed = false;
+        generation++;
+        if (generation == 0) {
+            generation = 1; // 0 marks an empty entry
+        }
+        clearKillers();
+        if (historyTable != null) {
+            Arrays.fill(historyTable, 0);
+        }
+        saltCounter++;
+        keySalt = saltCounter * 0x9E3779B97F4A7C15L;
+        exactDepth = true;
+        try {
+            int[] moves = new int[Position.MAX_MOVES];
+            int count = root.outcome() == null ? root.generate(moves) : 0;
+            int[] result = new int[count];
+            for (int i = 0; i < count; i++) {
+                make(moves[i]);
+                result[i] = -negamax(depth - 1, -MATE - 1, MATE + 1, 1);
+                unmake();
+            }
+            return result;
+        } finally {
+            keySalt = 0;
+            exactDepth = false;
+        }
+    }
+
+    /** Nodes visited by the last search or {@link #rootScores} call. */
+    public long nodes() {
+        return nodes;
     }
 
     /** Plays a move on the root position, through the incremental state when there is one. */

@@ -49,6 +49,13 @@ public final class GameShard {
         m.put("shard", Integer.toString(shard));
         m.put("first_game", Integer.toString(firstGame));
         m.put("games", Integer.toString(games));
+        Teacher.Config t = settings.teacher();
+        if (t != null) {
+            // E10: the labels are exact root scores of the teacher search, not the options the players moved with
+            m.put("teacher_search", Teacher.searchDescription(settings.spec(), t));
+            m.put("teacher_depth", Integer.toString(t.depth()));
+            m.put("teacher_labels", t.describe());
+        }
         return m;
     }
 
