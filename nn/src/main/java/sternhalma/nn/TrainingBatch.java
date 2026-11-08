@@ -161,6 +161,49 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
     }
 
     /**
+     * A new batch of the samples with the given indices, in that order; an index may occur several times. This is
+     * how a seeded sample of a pool becomes a training batch ({@link BatchSampler}).
+     *
+     * @throws IllegalArgumentException if {@code indices} is empty or an index is outside 0 to size - 1
+     */
+    public TrainingBatch select(int[] indices) {
+        if (indices.length == 0) {
+            throw new IllegalArgumentException("no indices");
+        }
+        int n = indices.length;
+        int[] offsets = new int[n + 1];
+        for (int i = 0; i < n; i++) {
+            int s = indices[i];
+            if (s < 0 || s >= size) {
+                throw new IllegalArgumentException("index " + s + " is outside 0 to " + (size - 1));
+            }
+            offsets[i + 1] = offsets[i] + (moveOffsets[s + 1] - moveOffsets[s]);
+        }
+        float[] newInput = new float[n * Encoder.INPUT_SIZE];
+        int[] from = new int[offsets[n]];
+        int[] to = new int[offsets[n]];
+        float[] target = new float[offsets[n]];
+        float[] z = new float[n * players];
+        float[] wp = new float[n];
+        float[] wv = new float[n];
+        double[] entropy = new double[n];
+        for (int i = 0; i < n; i++) {
+            int s = indices[i];
+            int first = moveOffsets[s];
+            int count = moveOffsets[s + 1] - first;
+            System.arraycopy(input, s * Encoder.INPUT_SIZE, newInput, i * Encoder.INPUT_SIZE, Encoder.INPUT_SIZE);
+            System.arraycopy(moveFrom, first, from, offsets[i], count);
+            System.arraycopy(moveTo, first, to, offsets[i], count);
+            System.arraycopy(moveTarget, first, target, offsets[i], count);
+            System.arraycopy(valueTarget, s * players, z, i * players, players);
+            wp[i] = policyWeight[s];
+            wv[i] = valueWeight[s];
+            entropy[i] = targetEntropy[s];
+        }
+        return new TrainingBatch(n, players, newInput, offsets, from, to, target, z, wp, wv, entropy);
+    }
+
+    /**
      * The value targets of a game result in relative player order: {@code z_i = values[(mover + i) mod P]}
      * (docs/training.md, "Value loss"). {@code values} are the absolute {@code Outcome.values}.
      */

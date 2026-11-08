@@ -29,6 +29,16 @@ tasks.register<JavaExec>("benchmark") {
     jvmArgs("--add-modules", "jdk.incubator.vector")
 }
 
+// Cost of checkpoints and their share of a 500-step SMALL run (a main method in the test sources, not a test).
+// Run: ./gradlew --no-build-cache :nn:checkpointBenchmark. See CheckpointBenchmark and docs/training.md, "As implemented (block 2b)".
+tasks.register<JavaExec>("checkpointBenchmark") {
+    group = "verification"
+    description = "Measures the cost of checkpoints for TINY and SMALL and their share of a 500-step SMALL run."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.CheckpointBenchmark")
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+
 // Benchmark of the CPU reference trainer (a main method in the test sources, not a test).
 // Run: ./gradlew --no-build-cache :nn:trainerBenchmark. See TrainerBenchmark and docs/training.md, "As implemented".
 tasks.register<JavaExec>("trainerBenchmark") {
