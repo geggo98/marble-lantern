@@ -63,7 +63,7 @@ public final class ReferenceOps {
     }
 
     /** Gather entry k of a cell: the cell for k = 0, else its neighbour in direction k - 1 or the padding row. */
-    private static int gatherRow(int cell, int k) {
+    static int gatherRow(int cell, int k) {
         if (k == 0) {
             return cell;
         }

@@ -9,7 +9,7 @@ This document builds on [network](network.md) (layers, tensor layout, tolerance)
 The labels follow [network](network.md#how-to-read-this-document):
 
 - **Project decision (owner):** fixed by the project owner. This document only cites such decisions from other documents.
-- **Proposal:** a detail that this document fixes so that parallel implementations agree. Nothing in this document has been implemented yet (2026-11-07). The owner can change any proposal.
+- **Proposal:** a detail that this document fixes so that parallel implementations agree. Of this document, only work plan steps A1 to A3 and E05 are implemented (see the "As implemented" paragraphs). The owner can change any proposal.
 - **Project reasoning:** a conclusion that the project derives itself.
 - **To measure:** a number that only an experiment can settle. The text gives a starting value.
 
@@ -589,6 +589,41 @@ An earlier review found that weak tests were the main risk ([network](network.md
 - **One SGD step lowers the loss, by the predicted amount:** on a fixed batch of 16 encoded positions, with lr chosen so that the predicted decrease lr · |g|² lies between 1e-4 and 1e-2 of the loss (far above the float rounding of the loss, far below the range where second-order terms matter), the loss after one step must be lower, and the decrease must match the first-order prediction lr · |g|² within 10 %. A gradient with the wrong sign fails the first check; a gradient with a wrong factor (2 g, or g / N twice) still lowers the loss but fails the second.
 - **Overfitting 8 positions reaches the target entropy:** a teacher network of the same config (TINY with `Parameters.uniform` and a bound chosen so that the mean target entropy is at most 0.6 of the mean log of the move count) produces the policy and value targets for 8 positions. The targets are then exactly representable, which matters: the factorised logit from + to cannot represent every distribution over moves ([network](network.md#policy-head-and-move-logits)), so arbitrary targets could not be fitted. A student from `Parameters.init` with another seed trains with AdamW (lr 1e-2, at most 3,000 steps). Pass: mean policy KL below 0.02 nats and value MSE below 1e-3 (to measure on the first implementation and tighten).
 - **Resume equivalence:** see [Checkpoints](#checkpoints).
+
+### As implemented (block 2a)
+
+**Work plan steps A1 to A3** are in module `nn`, package `sternhalma.nn` (measured and tested 2026-11-08). A4 and later are not.
+
+| Class | Content |
+|---|---|
+| `ReferenceBackward` | The rules of [Operations](#operations): `reluBackward`, `tanhBackward`, `addBackward` (residual), `pointwiseBackward` (1×1 convolution), `denseBackward`, `meanBackward`, `hexConvBackward` (scatter form). The gather form is `permutedWeights` (W') with the table `PI` and `hexConvInputGradientGather`. |
+| `ReferenceLoss` | `policy` (masked, factorised softmax cross-entropy in double, gradient into `dPolicy`), `entropy`, `value`. The KL divergence is `policy` minus `entropy`. |
+| `TrainingBatch` | The record of [Batch layout](#batch-layout), validated in the constructor, plus `Builder` (normalises the targets in double, computes H_s) and `relativeValues(Outcome.values, mover)`. |
+| `ReferenceTrainer` | Forward pass with stored activations, backward pass in the documented order, `Gradients` (one `double[]` per tensor), `accumulate(batch, microbatch or sizes, threads)` returning `Result(loss, policyLoss, valueLoss, kl)`. |
+
+Deviations and details that the text above leaves open:
+
+- **Gradient activations are `double[]`.** Parameter gradients are double as documented; so are the gradient activations (dx, dt, dP), which keeps the adjoint tests at 1e-6 of the bound with room to spare. Part B computes them in float and is compared against this oracle with the tolerances of [Verification against Part A](#verification-against-part-a).
+- **Every backward rule adds (`+=`) to its gradient outputs**, including `din`; the caller zeroes buffers. An operation that owns a whole activation gradient (`meanBackward`, `hexConvBackward`, the gather form) sets row 121 to 0 and never adds to it.
+- **The value loss returns the gradient with respect to y**, with the tanh derivative inside (`dy_i` of [Loss to network outputs](#loss-to-network-outputs)). The trainer therefore starts the backward pass at `head_value.dense2` and never calls `tanhBackward`; that rule exists for the finite-difference test.
+- **`hexConvBackward` skips terms with dz = 0** (about half of them after a ReLU). They add 0; the only difference is that a NaN in the input behind such a term no longer turns the gradient to NaN. The loss check catches NaN activations anyway.
+- **The trainer computes the data term of the loss only.** The L2 term enters through the optimiser (`g + lambda * theta` for SGD, decay for AdamW), as the optimiser formulas of this document already say. c_v is a constructor argument.
+- **`TrainingBatch` has one more field, `players`**, and copies its arrays on construction; the accessors return the internal arrays without copying. Further checks: targets sum to 1 ± 1e-5 when wp > 0, the stored entropy equals the entropy of the targets ± 1e-5, input finite with row 121 equal to 0, value targets in [−1, 1].
+- **Microbatches:** `accumulate` takes the sizes of consecutive microbatches (or one size). Each microbatch has its own gradient buffers and runs sample by sample in ascending order; the buffers are added to the trainer's in microbatch order, also with several threads, with at most 2 * threads results waiting at a time (the oldest is merged first when the window is full) (a test checks bit-identical gradients for 1, 2 and 8 threads). Calling `accumulate` again adds to the gradients until `zeroGradients()`. NaN or infinity in a loss or in a gradient element raises `IllegalStateException`; the gradients are undefined afterwards.
+- `ReferenceOps.gatherRow` became package-private so that the scatter form computes its rows from `Geometry.neighbor` like the forward oracle, not from the `HexGrid` table.
+
+**Tests:** 42 new tests (`ReferenceBackwardTest` 14, `ReferenceLossTest` 10, `TrainingBatchTest` 5, `ReferenceTrainerTest` 13) of the lists in [Tests of Part A](#tests-of-part-a), "Per operation" and "Whole network". Measured errors, as a fraction of the bound: adjoint tests at most 0.007; scatter against gather 3e-7; finite differences over every parameter of TINY at most 0.0003 (2 players, 1,684 parameters) and 0.003 (3 players, 1,717 parameters), none skipped by the kink guard. A configuration with 3 blocks (C = 4, 2 and 3 players) is checked too, because TINY has one block and cannot show a bug that acts only from the second block on; the microbatch and thread tests use 3 blocks as well. The finite-difference batch has a fifth, synthetic sample whose moves touch cells 0 and 120: without it, real positions leave the gradient of the last cell of the policy head at 0, and a bug there survived a mutation check. Test-only helpers: `DoubleNetwork` (double-precision forward pass from the layer table, agrees with `Network` within 0.04 of a 1e-5 relative bound), `TestBatches`.
+
+**Mutation checks:** 27 deliberate bugs (the 22 listed, plus: swap of the gradient buffers only in the first block iteration, block 0's conv1 weights in every block, newest-first merge of microbatch results, and the two new `Builder.add` length checks removed) in the backward code, the losses, the batch validation and the trainer (identity π, missing 1/121, overwrite instead of add in the convolution weight gradient, the policy gradient and the microbatch merge, ReLU mask `<0` instead of `<= 0`, residual identity path dropped, `1 − v` instead of `1 − v²`, softmax shifted by the first logit, division by a wrong N, transposed 1×1 weight gradient, bias gradient of one cell, scatter into row 121 or into the own cell, lost factor 2/P, missing ReLU mask of `conv_in`, skipped mean backward, unchecked duplicate move, stale `dt`, residual add from the wrong slot, unpermuted W', policy head without its last cell) were all caught (the whole set was re-run after the review additions); the first run of the last one survived and led to the synthetic sample above.
+
+**Speed (measured, `devenv shell -- ./gradlew --no-build-cache :nn:trainerBenchmark`, one thread, batch of 16, about 30 legal moves per sample, Apple M3 Max, JDK 25.0.3, load average 8 on 16 cores, so indicative):**
+
+| Preset | Samples/s (median of 5) | Range | Matrix work |
+|---|---|---|---|
+| TINY | 4,075 | 3,962 to 4,169 | 3.5 GFLOP/s |
+| SMALL | 114 | 112 to 115 | 4.9 GFLOP/s |
+
+SMALL is 3 times faster than the estimate of [Expected speed](#expected-speed) (about 35 samples/s), mostly because the double accumulation of the convolution gradients skips zero gradients. LARGE was not measured.
 
 ## Open questions
 

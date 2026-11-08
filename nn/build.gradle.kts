@@ -28,3 +28,13 @@ tasks.register<JavaExec>("benchmark") {
     mainClass.set("sternhalma.nn.NetworkBenchmark")
     jvmArgs("--add-modules", "jdk.incubator.vector")
 }
+
+// Benchmark of the CPU reference trainer (a main method in the test sources, not a test).
+// Run: ./gradlew --no-build-cache :nn:trainerBenchmark. See TrainerBenchmark and docs/training.md, "As implemented".
+tasks.register<JavaExec>("trainerBenchmark") {
+    group = "verification"
+    description = "Measures training samples per second of the CPU reference trainer, single thread."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.TrainerBenchmark")
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
