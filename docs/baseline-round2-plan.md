@@ -366,3 +366,21 @@ Measurements: [search and evaluation](search-and-evaluation.md#race-arithmetic-a
 - **DeltaProbe.** The tool now puts the moves at nodes where the evaluator's hook forbids pruning into their own tables; for `linear-r2` nothing changes. The plan's statement "all excess deltas come from passed transitions" is reported as "all excess above the linear tables lies at nodes the hook excludes", which is what the search needs; the main tables of `racelin` and `racelin1` equal those of `linear-r2`.
 - **Seeds and sizes.** Tuning on seed 31 only (150 pairs per run; seed 32 was not needed, the differences between the variants were clear); report seeds 33 and 34 at 300 pairs; the label-leak check on 200 games of seed 1008 (1007 was E05's throughput seed) with `racelin,wout=1` without race play, so that the search itself scores passed positions: 115 race-band scores seen by the margin layer, 0 labels backed by one, 0 margin labels in passed positions.
 - **`Strategies.RACELIN_SPEC`** registers the accepted configuration (`racelin1`, race play, `racerows=1`, futility) for the contract tests; BEST_SPEC is unchanged.
+
+### Wave 2 (2026-11-07 and 2026-11-08): results
+
+| Experiment | Verified result (independent verifier, seeds 41 and 42, 500 pairs) | Merged |
+|---|---|---|
+| E05 self-play data tool | S1: 0 label errors in 23,000 and 28,000 fully played-out games, 7.9% of the plies saved; margin layer 1.3% saved, bound reached only by extending the run | yes, margin layer off by default |
+| E06 futility pruning | +108.3 and +128.6 Elo at equal cost; adversarial positions (win in one, only defence, move limit) all pass | yes |
+| E07 `linear-r3` (bestGain) | +44.0 and +52.9 at "equal cost" (11,876 against 20,000 nodes); the arena CPU column shows A at +11% CPU per move, so about +35 to +45 at truly equal CPU; +155 and +159 at equal nodes. Cost: 0.59 x nodes per CPU second, below the plan's 0.65 | yes |
+| E08 `racelin1` (race arithmetic as a leaf value) | +56.8 and +37.0 at equal nodes, +50.0 and +62.5 at equal cost; all lower 95% bounds above 0 | yes |
+| E09 rows>=1 table | exact on an independent check of every state; +5.6 and +4.9 Elo, justified by exactness and coverage (88.7% of race plies with exact table moves against 68.0%) | yes, committed with Git LFS by owner decision |
+
+Notes:
+
+- **E07 verification was completed from the verifier's own arena files.** The verifier started its four arena runs, could not wait for them and could not clean up. The runs finished afterwards and are the verifier's own measurements (seeds 41 and 42, 500 pairs). The verifier's report said "not confirmed" only because those numbers were not yet available when it returned.
+- **Equal cost is not equal CPU when race play is on.** Race moves cost CPU but count zero nodes, so a node-limited match that is "equal cost" by the nodes-per-second ratio can differ in CPU time per move. The arena's CPU column is the check; the integration match must calibrate the node count until the CPU time per move agrees within about 5%.
+- **E07: a plain refit is worth most of it.** A 12-feature refit on the same race-aware games gains +45 to +81 Elo against `linear-r2` at no cost. `linear-r3` adds about +54 over that refit at equal cost (one seed). E13 (incremental evaluation) is the way to make `bestGain` cheaper.
+- **E08 changes an existing behaviour slightly.** The aspiration condition changed from `abs(bestScore) < MATE_BOUND` to `Scores.kind(bestScore) == ORDINARY`, so scores between the race band and the mate bound (for example move-limit scores) now get a full window in every spec. The fingerprints are unchanged.
+- **Integration still open:** `racelin1` wraps `linear-r2`; `linear-r3` is a different wrapped evaluator. Whether `racelin1` on top of `linear-r3` adds up, and which futility margin fits that combination, is measured at integration.
