@@ -29,6 +29,7 @@ import sternhalma.search.PlayerSpec;
  *   SelfPlay strong-check --from DIR... --out DIR --spec SPEC [--limit 300] [--threads T]
  *   SelfPlay strong-check --status --out DIR
  *   SelfPlay teacher-check --out DIR --seed S [--spec SPEC] [--positions 300] [--depths 2,3] [--cost-games 20]
+ *   SelfPlay monitor-report RUN
  * </pre>
  *
  * <p>Exit codes: 0 done or nothing to do, 1 error, 2 usage, 75 running already, 130/143 aborted (SIGINT/SIGTERM).
@@ -73,6 +74,12 @@ public final class SelfPlay {
                 case "report" -> Report.run(positional, opts, out, err);
                 case "strong-check" -> StrongCheck.run(opts, err);
                 case "teacher-check" -> TeacherCheck.run(opts, out, err);
+                case "monitor-report" -> {
+                    if (positional.size() != 1) {
+                        throw new IllegalArgumentException("monitor-report needs one run directory");
+                    }
+                    yield Gen0.run(new String[] {"monitor-report", positional.get(0)}, out, err);
+                }
                 default -> {
                     err.println("unknown command " + command);
                     yield 2;

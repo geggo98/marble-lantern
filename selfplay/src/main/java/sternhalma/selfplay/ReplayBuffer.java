@@ -8,10 +8,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.SplittableRandom;
 import java.util.stream.Stream;
 
 import sternhalma.nn.BatchSampler;
+import sternhalma.nn.BatchSource;
 import sternhalma.nn.Encoder;
 import sternhalma.nn.HexGrid;
 import sternhalma.nn.ReferenceLoss;
@@ -41,7 +43,7 @@ import sternhalma.selfplay.SampleFile.Contents;
  *
  * <p>Not thread-safe: one thread adds generations and builds batches.
  */
-public final class ReplayBuffer {
+public final class ReplayBuffer implements BatchSource {
 
     /** Mixed into the run seed so the mirror coins are independent of the indices. */
     private static final long MIRROR_SALT = 0x5DEECE66DL * 0x9E3779B97F4A7C15L;
@@ -53,7 +55,8 @@ public final class ReplayBuffer {
     /** The samples of one file, validated, in compact form. */
     private record Block(int generation, int size, byte[] cells, short[] ply, short[] moveLimit, int[] moveOffsets,
             byte[] moveFrom, byte[] moveTo, float[] moveTarget, float[] value, float[] policyWeight,
-            float[] valueWeight, double[] entropy) {
+            float[] valueWeight, double[] entropy,
+            byte[] result) {
     }
 
     private final int players;
@@ -78,6 +81,39 @@ public final class ReplayBuffer {
         this.players = players;
         this.window = window;
         this.augment = augment && players == 2;
+    }
+
+    /** Which games of a file a buffer takes (see {@link #addGeneration(int, List, GameFilter)}). */
+    @FunctionalInterface
+    public interface GameFilter {
+
+        /**
+         * @param metadata the metadata of the file ({@code seed}, ...)
+         * @param gameId   the value of the tensor {@code game_id} of the game
+         */
+        boolean accepts(Map<String, String> metadata, int gameId);
+    }
+
+    @Override
+    public int players() {
+        return players;
+    }
+
+    /**
+     * The result of the game of sample {@code index}, seen by the player to move there: +1 if the game label says
+     * that the mover wins, -1 if it loses, 0 for a draw or when the file had no game tensors or the buffer is not
+     * for two players.
+     *
+     * @throws IllegalArgumentException if the index is outside the buffer
+     */
+    public int result(int index) {
+        if (index < 0 || index >= size()) {
+            throw new IllegalArgumentException("index " + index + " outside 0 to " + (size() - 1));
+        }
+        int b = Arrays.binarySearch(starts, 0, blocks.size() + 1, index);
+        b = b >= 0 ? b : -b - 2;
+        Block block = blocks.get(b);
+        return block.result == null ? 0 : block.result[index - starts[b]];
     }
 
     /** Samples in the buffer. */
@@ -118,15 +154,24 @@ public final class ReplayBuffer {
         try (Stream<Path> s = Files.list(directory)) {
             files = s.filter(f -> f.getFileName().toString().matches("samples-.*\\.safetensors")).sorted().toList();
         }
-        return add(generation, files, true);
+        return add(generation, files, true, null);
     }
 
     /** Loads the given files, in the given order, as one generation; files that fail are skipped and left alone. */
     public Loaded addGeneration(int generation, List<Path> files) throws IOException {
-        return add(generation, files, false);
+        return add(generation, files, false, null);
     }
 
-    private Loaded add(int generation, List<Path> files, boolean quarantine) throws IOException {
+    /**
+     * Like {@link #addGeneration(int, List)}, but takes only the samples of the games that the filter accepts, and
+     * keeps their results for {@link #result}. Needs the game tensors of the shard layout; a file without them is a
+     * wrong configuration (IllegalArgumentException), not corrupt. Files are never renamed.
+     */
+    public Loaded addGeneration(int generation, List<Path> files, GameFilter filter) throws IOException {
+        return add(generation, files, false, Objects.requireNonNull(filter, "filter"));
+    }
+
+    private Loaded add(int generation, List<Path> files, boolean quarantine, GameFilter filter) throws IOException {
         if (generation <= lastGeneration) {
             throw new IllegalArgumentException("generation " + generation + " is not after generation "
                     + lastGeneration);
@@ -139,16 +184,18 @@ public final class ReplayBuffer {
         for (Path file : files) {
             Block block;
             try {
-                block = parse(generation, SampleFile.read(file));
+                Contents contents = SampleFile.read(file);
+                block = parse(generation, contents);
+                block = withGames(block, contents, filter);
             } catch (IOException e) {
                 skipped.add(file);
                 continue;
             }
-            if (block.size > 0) {
+            if (block != null && block.size > 0) {
                 loaded.add(block);
+                samples += block.size;
             }
             read++;
-            samples += block.size;
         }
         // Renames come last, so a wrong-players file (thrown above) leaves every file as it was.
         if (quarantine) {
@@ -362,7 +409,114 @@ public final class ReplayBuffer {
             }
             entropy[s] = ReferenceLoss.entropy(normalised, first, end);
         }
-        return new Block(generation, n, cells, ply, limit, offsets, from, to, normalised, value, wp, wv, entropy);
+        return new Block(generation, n, cells, ply, limit, offsets, from, to, normalised, value, wp, wv, entropy, null);
+    }
+
+    /**
+     * Applies the game filter and attaches the game results. Needs the tensors {@code game} (game index of each
+     * sample), {@code game_id} and {@code game_values} (label values, absolute players) of the E05 shard layout.
+     *
+     * @return the block restricted to the accepted games (null if the filter takes none of them), with
+     *         {@link Block#result}
+     * @throws IllegalArgumentException if a filter is given and a game tensor is missing
+     * @throws IOException              if the game tensors do not fit the samples
+     */
+    private Block withGames(Block block, Contents c, GameFilter filter) throws IOException {
+        boolean present = c.tensors().containsKey("game") && c.tensors().containsKey("game_id")
+                && c.tensors().containsKey("game_values");
+        if (!present) {
+            if (filter != null) {
+                throw new IllegalArgumentException("a game filter needs the tensors game, game_id and game_values");
+            }
+            return block;
+        }
+        int[] game = c.tensor("game").i32();
+        int[] id = c.tensor("game_id").i32();
+        float[] gameValues = c.tensor("game_values").f32();
+        int games = id.length;
+        if (game.length != block.size || gameValues.length != (long) players * games) {
+            throw new IOException("game tensors do not fit " + block.size + " samples and " + games + " games");
+        }
+        byte[] result = new byte[block.size];
+        boolean[] keep = new boolean[block.size];
+        boolean[] accepted = new boolean[games];
+        for (int g = 0; g < games; g++) {
+            accepted[g] = filter == null || filter.accepts(c.metadata(), id[g]);
+        }
+        int kept = 0;
+        for (int s = 0; s < block.size; s++) {
+            if (game[s] < 0 || game[s] >= games) {
+                throw new IOException("sample " + s + ": game index " + game[s]);
+            }
+            keep[s] = accepted[game[s]];
+            kept += keep[s] ? 1 : 0;
+            if (players == 2) {
+                // two players alternate from player 0, so the mover of ply p is p mod 2
+                int mover = block.ply[s] & 1;
+                double diff = (double) gameValues[2 * game[s] + mover] - gameValues[2 * game[s] + 1 - mover];
+                result[s] = (byte) Math.signum(diff);
+            }
+        }
+        if (players != 2) {
+            result = null;
+        }
+        Block withResult = new Block(block.generation, block.size, block.cells, block.ply, block.moveLimit,
+                block.moveOffsets, block.moveFrom, block.moveTo, block.moveTarget, block.value, block.policyWeight,
+                block.valueWeight, block.entropy, result);
+        if (kept == block.size) {
+            return withResult;
+        }
+        return kept == 0 ? null : subset(withResult, keep, kept);
+    }
+
+    /** The samples of {@code b} with {@code keep[s]}, in order. */
+    private static Block subset(Block b, boolean[] keep, int kept) {
+        int pl = b.value.length / b.size;
+        byte[] cells = new byte[kept * HexGrid.CELLS];
+        short[] ply = new short[kept];
+        short[] limit = new short[kept];
+        int[] offsets = new int[kept + 1];
+        float[] value = new float[kept * pl];
+        float[] wp = new float[kept];
+        float[] wv = new float[kept];
+        double[] entropy = new double[kept];
+        byte[] result = b.result == null ? null : new byte[kept];
+        int moves = 0;
+        for (int s = 0; s < b.size; s++) {
+            if (keep[s]) {
+                moves += b.moveOffsets[s + 1] - b.moveOffsets[s];
+            }
+        }
+        byte[] from = new byte[moves];
+        byte[] to = new byte[moves];
+        float[] target = new float[moves];
+        int k = 0;
+        int m = 0;
+        for (int s = 0; s < b.size; s++) {
+            if (!keep[s]) {
+                continue;
+            }
+            System.arraycopy(b.cells, s * HexGrid.CELLS, cells, k * HexGrid.CELLS, HexGrid.CELLS);
+            ply[k] = b.ply[s];
+            limit[k] = b.moveLimit[s];
+            int first = b.moveOffsets[s];
+            int count = b.moveOffsets[s + 1] - first;
+            System.arraycopy(b.moveFrom, first, from, m, count);
+            System.arraycopy(b.moveTo, first, to, m, count);
+            System.arraycopy(b.moveTarget, first, target, m, count);
+            m += count;
+            offsets[k + 1] = m;
+            System.arraycopy(b.value, s * pl, value, k * pl, pl);
+            wp[k] = b.policyWeight[s];
+            wv[k] = b.valueWeight[s];
+            entropy[k] = b.entropy[s];
+            if (result != null) {
+                result[k] = b.result[s];
+            }
+            k++;
+        }
+        return new Block(b.generation, kept, cells, ply, limit, offsets, from, to, target, value, wp, wv, entropy,
+                result);
     }
 
     @Override

@@ -77,7 +77,7 @@ public final class TrainingRun {
      * @param optimizer         must belong to {@code parameters}; its step count is the step the run starts at
      *                          (a resumed run) and must be 0 for the first run of a generation: use a fresh
      *                          optimiser per generation
-     * @param pool              the samples that the batches are drawn from
+     * @param source            where the batches come from: a pool of samples or a replay buffer
      * @param batchSize         samples per step
      * @param microbatch        samples per microbatch of the trainer
      * @param threads           threads of the trainer
@@ -87,19 +87,27 @@ public final class TrainingRun {
      * @param plannedSteps      the run ends when the optimiser has completed this many steps in total
      */
     public record Setup(Parameters parameters, Optimizer optimizer, LearningRateSchedule schedule,
-            TrainingBatch pool, int batchSize, int microbatch, int threads, double valueCoefficient, long runSeed,
+            BatchSource source, int batchSize, int microbatch, int threads, double valueCoefficient, long runSeed,
             int generation, long plannedSteps) {
+
+        /** A setup that draws from one pool of samples. */
+        public Setup(Parameters parameters, Optimizer optimizer, LearningRateSchedule schedule, TrainingBatch pool,
+                int batchSize, int microbatch, int threads, double valueCoefficient, long runSeed, int generation,
+                long plannedSteps) {
+            this(parameters, optimizer, schedule, BatchSource.ofPool(pool), batchSize, microbatch, threads,
+                    valueCoefficient, runSeed, generation, plannedSteps);
+        }
 
         public Setup {
             Objects.requireNonNull(parameters, "parameters");
             Objects.requireNonNull(optimizer, "optimizer");
             Objects.requireNonNull(schedule, "schedule");
-            Objects.requireNonNull(pool, "pool");
+            Objects.requireNonNull(source, "source");
             if (optimizer.parameters() != parameters) {
                 throw new IllegalArgumentException("the optimizer belongs to other parameters");
             }
-            if (pool.players() != parameters.config().players()) {
-                throw new IllegalArgumentException("pool has " + pool.players() + " players, network "
+            if (source.players() != parameters.config().players()) {
+                throw new IllegalArgumentException("batch source has " + source.players() + " players, network "
                         + parameters.config().players());
             }
             if (batchSize < 1 || microbatch < 1 || threads < 1) {
@@ -321,7 +329,7 @@ public final class TrainingRun {
             stepMeter.begin();
             long index = optimizer.steps();
             double lr = setup.schedule().rate(setup.generation(), index);
-            TrainingBatch batch = BatchSampler.batch(setup.pool(), setup.runSeed(), setup.generation(), index,
+            TrainingBatch batch = setup.source().batch(setup.runSeed(), setup.generation(), index,
                     setup.batchSize());
             trainer.zeroGradients();
             ReferenceTrainer.Result result = trainer.accumulate(batch, setup.microbatch(), setup.threads());

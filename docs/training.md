@@ -448,6 +448,23 @@ The job follows the [long-running-job conventions](architecture.md#long-running-
 - **Summary:** counts of SUCCESS, SKIP, ERROR and CLEANUP per phase, and what a further run would do, for example `gen 3: 2000 games skip, 4000 steps ok, 0 error, 1 cleanup; next: gating`.
 - **Exit codes:** 0 done or nothing to do, 1 error, 75 running already, 130 or 143 aborted.
 
+#### Run monitor
+
+**Project decision (owner):** every training run produces regular (a) checkpoints, (b) ETA estimates and (c) playing-strength estimates, not necessarily at the same cadence. The overhead of this is measured, and the cadences are adjusted to it; after every run the report is checked and the starting values below are changed if it asks for it.
+
+`RunMonitor` (module `selfplay`) measures the wall time and the thread CPU time of six categories (`train`, `selfplay`, `checkpoint`, `progress`, `strength`, `gate`) and appends JSON lines to `data/<run>/metrics.jsonl`. The file is for display only; no decision of a run is derived from it. `monitor-report <run>` prints the share of each category against its budget and proposes an interval: **interval = cost per event / budget share, rounded up to 1, 2 or 5 times a power of ten.**
+
+| What | Category | Budget (share of the wall time of the training loop) | Starting cadence (changed by the measurements of block 2e, see below) |
+|---|---|---|---|
+| (a) checkpoint (parameters and optimiser state, atomic, the last 2 kept) | `checkpoint` | 1 % | every 200 steps or 120 s, the earlier one |
+| (b) progress line with ETA on stderr | `progress` | 0.1 % | every 10 s |
+| (c1) cheap proxies on a fixed held-out set: policy KL to the teacher, top-1 agreement with the teacher, value loss, winner prediction (yardstick 78.8 %) | `strength` / `proxy` | 2 % | at the first and the last checkpoint and else at least 120 s apart |
+| (c2) Elo estimate: raw policy of the network against a fixed classical ladder, 50 pairs, Elo with a 95 % interval | `strength` / `elo` | 5 % | a separate step on a copy of a checkpoint; in the loop only on request, at least 500 s apart |
+
+The cadences are command-line options and are not part of the run configuration hash: a run with other cadences gives the same network, bit for bit, because the resume is bit-exact.
+
+The loop's own metering is not duplicated: `TrainingRun.Timing` supplies the time of the steps, the checkpoints and the progress lines, and the monitor measures what the loop cannot see (the strength estimates) with the same `TrainingRun.Clock`. Indirect costs (cache, garbage collection) show up in the comparison of the samples per second with the monitor on and off.
+
 ## Part B: the GPU trainer with TornadoVM
 
 Part B implements Part A as TornadoVM kernels. The forward kernels are those of the inference path (`docs/tornado.md`, written in parallel), with one change: the training variant writes each layer's output to its own slot of an activation store instead of reusing two buffers.
@@ -725,6 +742,92 @@ Deviations and details that the text above leaves open:
 | 3 | 256 | 726,000 | 709,000 to 780,000 |
 
 Batch building is more than 5,000 times faster than the CPU trainer on SMALL (114 samples/s), so it never limits the CPU path. The compact form takes per sample 121 bytes of cells, 2 + 2 + 4 of ply, move limit and offset, 8 + 8 + 8 of values, weights and entropy for two players, and 6 bytes plus a float target per legal move (1 + 1 + 4): about 0.43 kB at 46 moves, so W = 500,000 costs about 215 MB (computed, not measured).
+
+### As implemented (block 2e)
+
+**Work plan steps A9 and A10 for generation 0** (the gating and the self-play phases of A10 are not in this block). Measured and tested 2026-11-08, JDK 25.0.3, Apple M3 Max, load average 4.5 to 8.6 during the dry run, so the timings are indicative.
+
+| Class | Module | Content |
+|---|---|---|
+| `Gen0` | `selfplay` | The tool (`scripts/gen0.sh`): `run DATA RUN`, `run --status RUN`, `strength RUN`, `monitor-report RUN`. |
+| `RunMonitor` | `selfplay` | Categories, `metrics.jsonl`, `monitor-report` (also `selfplay.sh monitor-report RUN`). |
+| `HeldOutMetrics` | `selfplay` | The cheap proxies (c1). |
+| `RawPolicyPlayer`, `StrengthEstimate` | `selfplay` | The raw-policy player and the mini-arena (c2). |
+| `BatchSource` | `nn` | `TrainingRun.Setup` takes a batch source (a pool or a `ReplayBuffer`) instead of one expanded pool; the old constructor with a pool stays. |
+| `ReplayBuffer` | `selfplay` | Implements `BatchSource`; `addGeneration(generation, files, GameFilter)` takes only the games that the filter accepts; `result(index)` is the result of the game for the mover. |
+
+```text
+gen0.sh run DATA RUN [--preset small|tiny] [--steps 4000] [--batch 64] [--microbatch 16] [--threads 4] [--lr 1e-3]
+        [--warmup 200] [--seed 1] [--holdout 0.1] [--augment 1] [--value-coefficient 1]
+        [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
+        [--eval-samples 500] [--proxy-every 1] [--proxy-seconds 120]
+        [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec BEST_SPEC] [--elo-pairs 50]
+        [--elo-seed 1] [--elo-threads 1] [--monitor 1]
+        # --monitor 0 also switches off the proxies and the Elo estimate in the loop (they report through the
+        # monitor); the run prints a note. Elo estimates of checkpoints stay available with `gen0.sh strength`.
+gen0.sh strength RUN [--checkpoint FILE] [--ladder 100,400,1600] [--elo-pairs 50] [--elo-threads 4]
+```
+
+- **Data and split.** DATA is a directory of `samples-*.safetensors` from `selfplay run --teacher-depth D`. Two `ReplayBuffer`s read the files, one with the games that are not held out (mirror augmentation on) and one with the held-out games (never mirrored). A game is held out iff `u(seed, game id) < holdout`, with `u` in [0, 1) from `BatchSampler.mix` of a fixed salt, the `seed` of the file and the `game_id`. The split depends only on these two numbers, so it does not depend on the file order, the run or the sample order, and a game is in exactly one set. The data enters the run configuration as a SHA-256 over `name:size` of its files.
+- **Training.** SMALL (or `--preset tiny`), AdamW, the generation-0 schedule (warm-up and cosine to 0.1 lr), `c_v` = 1, through `TrainingRun` with `generation` 0. Run directory: `run.json` (written once; any other configuration or data in the same directory is refused with 1), `gen-0000/train/step-*.safetensors`, `gen-0000/candidate.safetensors` (a plain network file with `step` and `run_config_sha256` as extra metadata; the training phase is done when it reads and says the planned step), `gen-0000/strength/step-*.jsonl`, `metrics.jsonl`, `.gen0.lock`, `.gen0.status`. The run configuration holds the preset, seed, steps, batch, microbatch, lr, warm-up, `c_v`, augmentation, holdout and the data fingerprint. The thread count is not in it (the trainer adds its microbatches in microbatch order, so the result does not depend on it); the cadences are not in it.
+- **Job conventions.** The state comes from the artefacts; a checkpoint that does not read is renamed to `.corrupt` (CLEANUP) and the next older one is used; `*.tmp` leftovers are removed (in the generation directory at once, in the run directory and in `strength/` only when older than 10 minutes, because a separate strength process writes there under its own lock; a file that cannot be removed is not an error); `FileChannel.tryLock` on `.gen0.lock` (75 if held); SIGINT and SIGTERM stop between steps, write the final checkpoint, print the summary and end the JVM with 130 and 143. A second run after success exits with 0 before it loads any data. Strength steps use their own lock `.strength.lock`.
+- **ETA of the whole run.** The progress line is the one of `TrainingRun` (rate from the steps of this process only). In addition each phase prints a summary line with `whole run: L steps left, ETA ...`: `gen 0 load:` (rate of an earlier run, read from `metrics.jsonl`, else "ETA unknown"), `gen 0 train:` (the rate of this process) and `gen 0 finish:`. The ETA covers the checkpoints and the proxies, because the rate is steps over wall time.
+- **Proxies (c1)** (`HeldOutMetrics`), on `--eval-samples` evenly spaced samples of the held-out buffer, the same ones at every checkpoint, forward passes on `--threads` threads (the sums are added in batch order, so the result does not depend on the thread count): KL = `sum(wp KL) / sum(wp)` over samples with a policy weight (random opening plies have none); top-1 = the share (by `wp`) where the highest-logit legal move is the highest-target move; value loss = `sum(wv MSE) / sum(wv)`; winner prediction = among the samples whose game has a winner for one of the two players, the share with `sign(v_mover - v_opponent)` = result of the game (a tie of the two outputs is wrong). The result is the label of the game (`game_values`, absolute players) seen by the mover; the mover of ply p is p mod 2 for two players. `game_values` is [G, P] with P the player count of the buffer; the winner results exist for two players only. The yardstick of 78.8 % is a winner prediction on the same kind of data. Proxies run at the first and at the last checkpoint of the process whatever `--proxy-every` says, and else at every `--proxy-every`-th checkpoint when at least `--proxy-seconds` have passed.
+- **Elo estimate (c2)** (`StrengthEstimate`, `RawPolicyPlayer`). The player takes the legal move with the highest masked policy logit (`Encoder.moveLogit`, first of equal ones; deterministic, two players). A rung of the ladder is `BEST_SPEC` with `nodes=<rung>,tt=16`; `--ladder` lists the node limits (default 200). Each rung plays `--elo-pairs` pairs (50): the same seeded random 4-ply opening (`seed * 1000003 + pair`, as `Arena`) twice with the colours swapped, the pair score is the mean of `(1 + value) / 2`, and `Elo.fromScore`, `Elo.standardError` and `Elo.confidence95` give the Elo difference to the rung with its 95 % interval (`clamped` when the score is exactly 0 or 1: the Elo is then only a bound). The result of a checkpoint is `strength/step-<8 digits>.jsonl`, one line per rung, written atomically; a rerun with the same ladder, pairs and seed skips it. `gen0 strength RUN [--checkpoint FILE]` runs it as its own process on any checkpoint file of the run (also a copy; the run configuration hash must match); SIGINT discards the estimate and ends with 130. An estimate cut short by a stop writes no result and no `elo` cost line; its time is booked as the kind `elo-partial` with count 0, so that the cost per event stays that of finished estimates. In the loop it runs only with `--elo-every K` (every K-th checkpoint of this process and at least `--elo-seconds` apart).
+- **Contract.** `RawPolicyContractTest` runs the `StrategyContract` of the search module against the raw-policy player of untrained TINY networks (the registry of `Strategies` is in a module that does not know the networks). The player is registered as deliberately weak (`mustBeatRandom` false, like the random player): an untrained network does not beat a random player, so the "beats a random player" property is skipped (aborted by `Assume`) and the self-play property (never an illegal move, clean games from 120 varied start positions) runs. `RawPolicyPlayerTest` adds: the chosen move has the highest prior of `Evaluator`; a network that puts huge logits on cells without legal moves still plays a legal move (the best legal one by an independent computation); a non-finite logit is an error.
+
+**Tests:** 44 new tests in `selfplay` (`Gen0Test` 14, `Gen0ProcessTest` 2, `RunMonitorTest` 9, `ReplayBufferGamesTest` 6, `HeldOutMetricsTest` 4, `StrengthEstimateTest` 4, `RawPolicyPlayerTest` 3, `RawPolicyContractTest` 2 of which 1 skipped); `selfplay` had 114 tests of which 1 skipped (not 113 plus a skipped one) and `nn` 271, all green. The review follow-up (block 2e2) added 9 tests: `selfplay` has 123 tests of which 1 skipped (openings differ per pair, the evenly spaced held-out samples by index, ties of the teacher target and of the raw-policy logits, the clamped flag at score 1, the cleanup of foreign temporary files, the first proxy checkpoint, the partial Elo cost line, three-player game values). Mutation check of the follow-up: the reviewer mutants M2, M5, M9, M13, M18 and 6 of the changes (the proxy cadence, the temporary-file age, the partial cost, the player count, the monitor note) were caught; the one survivor, a tie of equal logits in the top-1 proxy (taking the last instead of the first), is outside the documented behaviour.
+
+- **Resume.** For aborts after 0, 1, 3, 4, 5, 8 and 11 of 12 steps the second run ends with 0, says `start at step k`, and its candidate equals the candidate of an uninterrupted run tensor for tensor (`Gen0Test`); the same for a kill without the final checkpoint, a half-written `.tmp` file, a truncated newest checkpoint (renamed `.corrupt`, the older one used) and a run that died after the last step but before the candidate. The cadences (checkpoint steps and seconds, keep, proxy cadence, progress interval, threads) and `--monitor 0` change no tensor. A second run after success changes no file and adds no metric line.
+- **Processes** (`Gen0ProcessTest`): a second process gets 75, `--status` names the pid of the first, SIGINT gives 130, SIGTERM after the restart gives 143 with `start at step N`, no `.tmp` file is left, and the strength step stops with 130 and keeps no half result.
+- **Split:** disjoint and complete over three files of two seeds with overlapping game ids, deterministic, independent of the file order, keyed on (seed, id), about the held-out fraction.
+- **Monitor arithmetic** with injected numbers: shares, status against the budget, cost per event, proposed interval and steps, several processes, a separate process, `ceil125` (including the floating-point noise of 0.5 / 0.1), the conversion of `TrainingRun.Timing` (strength time is subtracted from the observer time), concurrent appends from four threads, a torn line.
+- **Proxies against a hand-computed case** (four samples: an opening ply, a sample without moves, tie of the two value outputs; computed outside the code): KL 0.81786, top-1 1/3, value loss 0.58, winner prediction 2/3; flipping the sign gives 0 and a tie is wrong.
+
+**Mutation checks:** 33 deliberate bugs. 32 were caught by the first run and the missing one (the score of the mini-arena taken from the opponent's side, hidden behind a condition that did not hold in the test) was caught after the test was changed to unconditional bounds. Split: the comparison inverted, seed ignored, the training buffer or the held-out buffer taking every game. Proxies: wrong winner sign, a tie counted as right, entropy not subtracted, policy weight ignored, lowest instead of highest logit in the top-1, value weights not summed. Tool: checkpoint ignored on resume, off by one at the planned step, checkpoint cadence N + 1, proxies before their interval, no proxy at the last checkpoint, a checkpoint option read as the batch size (cadence in the configuration), ETA multiplied instead of divided, the earlier rate computed wrong, the candidate step off by one, exit code 76 for a second process, an abort reported as success, progress lines not counted. Monitor: share over wall plus cost, interval multiplied by the budget, rounding 2 to 3, strength time counted twice, cost per run instead of per event, budget status inverted. Raw policy: lowest logit. Strength: other seed accepted in a result file. Results: mover of the wrong parity, results lost in the subset.
+
+#### Dry run for the overhead (2026-11-08)
+
+Data: 100 games of `BEST_SPEC` with `nodes=150` and `--teacher-depth 2` (`selfplay run`, seed 2026, 3 s on 6 threads): 9,774 samples in 10 shards, of which 9,194 training and 580 held-out samples (the split by game id at 10 %). Training: SMALL, 800 steps, batch 32, microbatch 8, 4 threads, a checkpoint every 100 steps (8), proxies on 500 held-out samples.
+
+| Variant | Steps/s | Samples/s | vs monitor off |
+|---|---|---|---|
+| monitor off (two runs) | 16.77, 16.63 | 536.5, 532.2 | 0 |
+| on, proxies at all 8 checkpoints, 1 thread (first version; two runs) | 12.39, 12.29 | 396.6, 393.2 | -26 % |
+| on, proxies at all 8 checkpoints, 4 threads | 15.33 | 490.5 | -8 % |
+| on, defaults (proxies at the first and the last checkpoint) | 16.33 | 522.7 | -2 % |
+| on, defaults, and the Elo estimate in the loop twice (50 pairs against `BEST_SPEC` at 200 nodes, 1 thread) | 8.76 | 280.2 | -48 % |
+| on, defaults, and a separate strength process (2 threads, 50 pairs) for 11 s of the run | 16.36 | 523.6 | -2 %, no more than the defaults |
+
+The overhead shares as `monitor-report` printed them for these runs, and the intervals it proposes (cost per event over the budget, rounded up to 1, 2 or 5 times a power of ten):
+
+| Category | Events | Cost per event | Share | Budget | Proposed interval |
+|---|---|---|---|---|---|
+| checkpoint | 8 | 1.7 to 2.1 ms (731 kB with state) | 0.015 to 0.034 % | 1 % | 0.2 to 0.5 s (5 to 10 steps) |
+| progress lines | 5 to 7 | 0.6 to 0.7 ms | 0.004 to 0.008 % | 0.1 % | 1 s |
+| the monitor's own writes | total | 6 to 12 ms | 0.01 to 0.02 % | none | none |
+| proxies, 500 samples, 1 thread | 8 | 2.1 to 2.2 s | 26.6 % | 2 % | 200 s |
+| proxies, 500 samples, 4 threads | 8 | 0.57 s | 8.7 % at every checkpoint (6.5 s apart), 2.3 % with 2 events in 49 s | 2 % | 50 s |
+| Elo estimate, 50 pairs, 1 thread | 2 | 21.3 s | 46.6 % (2 in 91 s) | 5 % | 500 s |
+| Elo estimate, 50 pairs, 2 threads, separate process | 1 | 11.3 s | no loss of training speed measured | 5 % | 500 s |
+
+**Changes of the defaults that follow:**
+
+- **Checkpoints:** the report allows a checkpoint every 0.2 s; the starting values of the plan (500 steps or 10 min) were far inside the budget. The default is now every 200 steps or 120 s, the earlier one: a kill then loses at most about 12 s of SMALL training (0.02 % overhead).
+- **Proxies:** the cost is 4 ms per sample and thread, not "cheap". The default is 500 samples (was planned as the whole held-out set), forward passes on the training threads, and at least 120 s apart (about 0.5 % at 0.57 s per event); the first and the last checkpoint are always evaluated. A cadence in checkpoints alone would have taken 26 % at the plan's starting values.
+- **Elo:** off in the loop by default (`--elo-every 0`); when on, at least 500 s apart. The normal way is the separate step on a copy of a checkpoint.
+- **Progress lines:** 10 s stay (the budget would allow 1 s).
+
+**What the dry run says about the network:** after 800 steps (about 2.8 epochs of the training samples) the held-out proxies are KL 0.629, top-1 44.2 %, value loss 0.443 and winner prediction 51.8 % of 500 positions (yardstick 78.8 %); at step 100 they were KL 0.823, top-1 35.1 %, winner 50.2 %. These runs are for the overhead and not for strength: the 9.8k samples and 800 steps are far below what generation 0 needs. The Elo estimate was clamped (0 wins in 100 games against `BEST_SPEC` at 200 nodes, at step 400 and 800); a ladder for early checkpoints needs weaker rungs than 200 nodes.
+
+**Known limits:**
+
+- `Timing` covers the loop thread only: the CPU column of `monitor-report` shows the loop thread's CPU time, so the `train` row has almost none; the budgets use wall time.
+- The Elo of a strength step that runs in another process costs the training run throughput only while it runs and shares cores; the report shows it as a separate row with its wall time against the loop's wall time, which is an upper bound.
+- The mini-arena has no opponent weaker than a classical search; a raw policy that loses every game gives only a bound.
+- The "beats a random player" property of the strategy contract does not run for the untrained networks of `RawPolicyContractTest` (see above); it needs a trained network.
+- Checkpoint cadence counts "checkpoints of this process" for `--elo-every` and `--proxy-every`; after a resume the count starts again.
+- Only generation 0 and two players. The gating, the self-play phase and three players are not in this block.
 
 ## Open questions
 

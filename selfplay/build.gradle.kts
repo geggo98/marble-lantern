@@ -10,6 +10,9 @@ dependencies {
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
+    // The strategy contract (abstract jqwik tests) runs against the raw-policy player.
+    testImplementation(testFixtures(project(":search")))
+    testImplementation(libs.jqwik)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
