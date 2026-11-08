@@ -27,3 +27,12 @@ tasks.register<JavaExec>("selfplay") {
     mainClass = "sternhalma.selfplay.SelfPlay"
     workingDir = rootDir
 }
+
+// Samples per second of ReplayBuffer.batch (a main method in the test sources, not a test).
+// Run: ./gradlew --no-build-cache :selfplay:replayBenchmark. See ReplayBufferBenchmark and docs/training.md, "As implemented (block 2c)".
+tasks.register<JavaExec>("replayBenchmark") {
+    group = "verification"
+    description = "Measures training samples per second of ReplayBuffer.batch, single thread."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.selfplay.ReplayBufferBenchmark")
+}
