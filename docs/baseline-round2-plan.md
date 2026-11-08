@@ -340,3 +340,15 @@ Measurements: [search and evaluation](search-and-evaluation.md#self-play-data-to
 - **S1 play-outs.** Following the E03 amendment, S1 labels stay labels when the play-out ends otherwise (245 such games over the three sets), and each such verdict is checked against the plan instead (0 failures).
 
 The race table (about 12.5 MB) is stored with Git LFS. A table build without the LFS file takes 12 s on an idle machine and 33 to 58 s under load, not the 16 s that the plan assumed. Since E09 the builder needs roughly half the CPU time (merge-based ranks, no sort; 9.5 s on 4 threads under load against 11.9 s on 8 threads before, both on the shared machine), and the rows ≥ 2 table is reproduced byte for byte.
+
+### E07 (wave 2): deviations of the author run
+
+Measurements: [search and evaluation](search-and-evaluation.md#bestgain-e07-evallinear-r3-measured-2026-11-08).
+
+- **Delivered as `linear-r3`**, a new frozen weight set with 13 features (`LinearWeights.ROUND3`), not as a change of `linear` with `FEATURES = 13`. `LinearEvaluator.FEATURES` stays 12. The 13-feature path is a separate constructor mode, so `linear`, `linear-r1` and `linear-r2` compute nothing new, and their fingerprints and costs are unchanged. The registered spec with the re-tuned margins is `Strategies.GAIN_SPEC`.
+- **Implementation.** The plan's jump search per piece cost 4.5 evaluations. It is replaced by jump components labelled once per position and shared by all pieces and both sides; this is exact, see the measurements. It still costs 4.05 evaluations, and nodes per CPU-second fall to 0.605 of the candidate's. This misses the plan's 0.65. Under the plan's fallback rule, the gain at equal cost decides, and it is positive on both report seeds.
+- **Data.** 4000 games instead of 2000, seed 1008: the first free data seed, since 1007 holds E05's throughput runs. The player is the wave-1 BEST candidate named by the owner, with `fut=1,futk=30,fut2=1,race=1`. Labels come from the first S1 verdict (`--s1-labels`), because S1 verdicts are game values. They changed no label in these games.
+- **Texel rounds.** Round 2, a fit on 4000 games of the round-1 fit, scored −6 and +32 against round 1 on the tuning seeds, so the round-1 weights are kept.
+- **Margins.** DeltaProbe changed far more than the 20 % threshold. One tuning pass on seeds 31 and 32 chose `futk=20`, with `fut=1,fut2=1` unchanged.
+- **Gate.** Independent gate on author seed 33, as E04 did: `stage4` with all options and `race=1` at equal cost from Bench, and R3. Seeds 41 and 42 are left to the verifier.
+- **Finding for the integration.** A plain 12-feature refit on the same games is worth +45 to +81 Elo against `linear-r2` at no cost. The E04 amendment asks for this refit with race play at integration. `linear-r3` beats it by +54 ± 25 at equal cost (seed 33).

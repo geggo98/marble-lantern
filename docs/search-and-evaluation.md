@@ -219,7 +219,7 @@ Re-base rule: when BEST scores above 0.80 against R2 (about +240 Elo), freeze th
 | 41, 42 | verifier (300 pairs; 500 when the claimed gain is below +50 Elo) |
 | 43 | integration match |
 | 1002 to 1005 | data sets (E03: 1002, E04: 1003 and 1004, E05: 1005 for every official set) |
-| 1006 and up | other data: E05 tuning 1006, E05 throughput runs 1007 |
+| 1006 and up | other data: E05 tuning 1006, E05 throughput runs 1007, E07 refit games 1008 (both texel rounds) |
 
 Official numbers use no other seeds. Seeds of round 1 and of the surveyors (1 to 4, 9, 11 to 13, 21 to 25, 77, 1001) are not reused. The reference positions below use the fixed generator seed 1000; they produce no Elo number, only trees and speed.
 
@@ -461,7 +461,114 @@ Tests: `WinInOneTest` covers a gain-1 winning goal entry behind gain-2 jumps, an
 
 Deviations from the plan: the plan's comparison is `BEST_SPEC,race=1` against the same with futility. E03 is not in this branch, and the owner chose `linear-r2` without `race` as the base. The near-win threshold at depth 2 is 8, not 9 (see the table above). The repetition-draw exclusion is added. The tuning grid was extended to `fut2=1` and `futk=40`; seeds 31 and 32 only.
 
-Open: E07 (bestGain) and E08 (racelin) change the evaluation and must rerun DeltaProbe and the margins. The verifier re-measures on seeds 41 and 42.
+Open: E08 (racelin) changes the evaluation and must rerun DeltaProbe and the margins (E07 did so for `linear-r3`, see the next section). The verifier re-measures on seeds 41 and 42.
+
+### bestGain (E07, `eval=linear-r3`, measured 2026-11-08)
+
+**TL;DR:** `linear-r3` adds a 13th feature, `bestGain`: the largest one-move distance gain of a side over steps and jump chains, side to move minus opponent, capped at 6. Refitted on 4000 passed-filtered games of the wave-1 BEST candidate and run with the futility gain factor re-tuned to `futk=20`, it beats that candidate by **+78.9 ± 27.8 and +85.7 ± 27.2 Elo at equal cost** (seeds 33 and 34, 300 pairs, 12 108 against 20 000 nodes from the Bench ratio 0.605), +203 at equal nodes. A plain 12-feature refit on the same games is worth +45 of that (seed 33), and `linear-r3` beats that refit by +54 ± 25 at equal cost. The feature costs: one evaluation is 4.05 times as expensive, nodes per CPU-second fall to 0.605 of the candidate's, below the plan's 0.65. `linear`, `linear-r1`, `linear-r2` and `Strategies.BEST_SPEC` are unchanged; the tuned spec is registered as `Strategies.GAIN_SPEC`.
+
+Players (all with `pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1`):
+
+| Name | Spec |
+|---|---|
+| B (the wave-1 BEST candidate) | `eval=linear-r2,fut=1,futk=30,fut2=1,race=1` |
+| C (`Strategies.GAIN_SPEC`) | `eval=linear-r3,fut=1,futk=20,fut2=1,race=1` |
+| B0, C0 (futility off) | B and C without the three `fut` keys |
+| refit12 | `eval=linear-file:data/e07/w1-12.txt,fut=1,futk=30,fut2=1,race=1`: the 12 features fitted on the same samples as `linear-r3` |
+
+**Feature.** For each piece of a side outside its goal: the largest `DIST[from] - DIST[to]` over its steps and over every cell that a chain of jumps reaches (any piece is a hurdle; only allowed cells are landings). The maximum over the pieces is floored at 0 and capped at 6. The suicide rule (Definition 2) is ignored. Mode `both` (registered) uses side to move minus opponent. Mode `mover` (side to move only) is available in weight files.
+
+**Implementation.** A jump search per piece cost 4.5 times one evaluation. The final code labels jump components once per position instead. Two cells are joined when one is a jump landing from the other over an occupied hurdle. These edges are symmetric, so the cells that a chain from a piece reaches are the components of the piece's first landings. The piece's own cell, which it leaves, is never a hurdle of its own chain: landings lie at even offsets from it, hurdles at odd ones. Each component is labelled lazily with its smallest distance for both players, as a 128-bit set. Both sides share the components, because two players may stand on the same cells. Pieces are visited by falling distance, and the loop stops once a piece's distance cannot beat the best gain. The cost stayed high. `GainCost` (test sources) measured one evaluation, on the 64 reference positions and all their children, interleaved and in thread CPU time: `linear-r2` 307 ns, `linear-r3` 1245 ns (4.05 x), mover mode 690 ns (2.25 x). Labelling the components costs about half of the extra time. Several cheaper variants (an early exit in the labelling, bit sets instead of arrays) did not help.
+
+Data and fit (`LinearTraining fit-games ... --gain both --s1-labels`). The game files are in the git-ignored `data/e07/`:
+
+```bash
+devenv shell -- ./gradlew --no-build-cache :search:testClasses
+CP=engine/build/classes/java/main:tablebase/build/classes/java/main:search/build/classes/java/main:search/build/classes/java/test
+O=pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1
+java -cp $CP sternhalma.search.LinearTraining games data/e07/r1 4000 1008 6 "ab:eval=linear-r2,$O,fut=1,futk=30,fut2=1,race=1,nodes=20000"
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e07/w1-both.txt all --gain both --s1-labels data/e07/r1   # linear-r3
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e07/w1-mover.txt all --gain mover --s1-labels data/e07/r1
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e07/w1-12.txt all --s1-labels data/e07/r1               # refit12
+# second texel round (not adopted): games of the round-1 fit, same openings
+java -cp $CP sternhalma.search.LinearTraining games data/e07/r2 4000 1008 6 "ab:eval=linear-file:data/e07/w1-both.txt,$O,fut=1,futk=30,fut2=1,race=1,nodes=20000"
+java -cp $CP sternhalma.search.LinearTraining fit-games data/e07/w2-both.txt all --gain both --s1-labels data/e07/r2
+```
+
+`--s1-labels` labels a game with its first S1 verdict, because the verdict is the game value (E03 amendment). In these games, race play converted every won race, so the verdict changed no label (3993 of 4000 games had one). Fits write the versioned weight-file format: the feature count first, then for 13 features the mode (`13 both <scale> <13 weights>`). Files without a version are still read as 12-feature files.
+
+Held-out prediction (every position from ply 6, passed positions dropped, game id % 5 == 0 held out):
+
+| Data set | Positions (games) | `linear-r2` | refit12 | 13 features, mover | 13 features, both |
+|---|---|---|---|---|---|
+| Round 1 (games of B) | 62 957 (800) | 0.5478 / 0.7084 | 0.5471 / 0.7073 | 0.5446 / 0.7101 | **0.5423 / 0.7126** (`linear-r3`) |
+| Round 2 (games of the round-1 fit) | 62 526 (800) | 0.5523 / 0.7160 | 0.5514 / 0.7151 | | 0.5461 / 0.7181 (round-2 fit) |
+
+Log loss / accuracy. The gain lowers the log loss by 0.005 over the 12-feature refit on the same samples. The surveyor measured 0.004.
+
+Bound (DeltaProbe, 2419 positions, 112 486 moves, `futk=30`). The excess over `30 x gain` rises markedly with the gain feature, far more than the plan's 20 %. Depth-1 column "cut", `linear-r2` against `linear-r3`: gain 0: 3 against 67; gain 1: 6 against 87; gain 2: 25 against 88; gain 4: 7 against 28. The 99.9 % quantile at gain 0: −12 against 27. A move changes both sides' best gain, and the static value already contains the gain of the best move. The margins were therefore re-tuned once, at equal nodes, 200 pairs, against the same evaluator with E06's `fut=1,futk=30,fut2=1`:
+
+| Change | Seed 31 | Seed 32 |
+|---|---|---|
+| `fut=30,fut2=30` | −26.1 ± 33.6 | |
+| `futk=40` | +0.0 ± 31.4 | |
+| `futk=20` | +14.8 ± 29.9 | +33.1 ± 33.7 |
+| `futk=10` against `futk=20` | −35.7 ± 31.7 | |
+
+The arena again prefers the small margins over the probe's bound. `futk=20` is chosen.
+
+Tuning (seeds 31 and 32, 200 pairs, all before the margin re-tuning, so with `futk=30`; nodes from tuning Bench runs under load 5 to 14):
+
+| Match | Nodes A / B | Seed 31 | Seed 32 |
+|---|---|---|---|
+| round-1 fit, both, vs B | 11 170 / 20 000 | +59.6 ± 31.6 | |
+| round-1 fit, mover, vs B | 14 100 / 20 000 | +57.9 ± 31.1 | |
+| refit12 vs B | 20 000 / 20 000 | +81.4 ± 30.1 | |
+| both vs refit12, equal nodes | 20 000 / 20 000 | +146.1 ± 34.2 | |
+| both vs refit12, equal cost | 11 170 / 20 000 | +18.2 ± 29.5 | |
+| mover vs refit12, equal cost | 14 100 / 20 000 | +14.8 ± 29.5 | |
+| both vs mover, equal cost | 15 860 / 20 000 | | +11.3 ± 29.9 |
+| round-2 fit vs round-1 fit (`futk=20` both) | 20 000 / 20 000 | −6.1 ± 31.8 | +32.2 ± 30.6 |
+
+Both modes play alike at equal cost. `both` is kept: it has the lower log loss, and the plan names it. The second texel round is not better: −6 and +32, about +13 ± 22 combined. The loop stops after it, and `linear-r3` keeps the round-1 weights.
+
+Cost (Bench, current build, 20 000 nodes; self-ratio of C with `--copy` 0.9945, 0.9899, 0.9901, load 4.7 to 8.5 on 16 cores):
+
+| Pair | Runs | Median |
+|---|---|---|
+| C against B | 0.6005, 0.6067, 0.6054 | **0.605**: C gets 12 108 nodes |
+| C0 against B0 | 0.4586, 0.4582, 0.4581 | **0.458**: C0 gets 9 164 nodes |
+| C against R2 | 0.4535 (one run) | C gets 9 070 nodes |
+| `stage4` (all options, `race=1`) against B | 1.3448 (one run) | `stage4` gets 26 896 nodes |
+
+Report (seeds 33 and 34, 300 pairs, `--threads 4`; Elo of A, 95 %):
+
+| Match | Seed 33 | Seed 34 |
+|---|---|---|
+| **C (12 108) vs B (20 000), equal cost** | **+78.9 ± 27.8** (0.612; 12.05 vs 11.96 CPU-ms per move) | **+85.7 ± 27.2** (0.621; 15.46 vs 15.28) |
+| C0 (9 164) vs B0 (20 000), equal cost | +26.1 ± 25.3 (0.538; 8.53 vs 8.53) | +27.9 ± 26.1 (0.540; 8.42 vs 8.34) |
+| C vs B, equal nodes (20 000) | +203.4 ± 30.7 (0.763) | |
+| C (12 108) vs refit12 (20 000), equal cost | +54.3 ± 25.1 (0.578) | |
+| refit12 vs B, equal nodes | +44.9 ± 25.0 (0.564) | |
+| C (9 070) vs R2 (`linear-r1`, 20 000), equal cost | +434.3 ± 55.5 (0.924; saturated) | |
+
+Independent gate (seed 33, 300 pairs). C and B each play the same two opponents. The candidate must not score below B by more than the combined interval:
+
+| Opponent | C | B |
+|---|---|---|
+| `stage4,ws=15,wq=6,wj=3`, all options, `race=1`, 26 896 nodes | 0.925 ± 0.010 (+436) | 0.903 ± 0.012 (+388) |
+| R3 (`linear-r1`, 80 000 nodes) | 0.840 ± 0.014 (+288) | 0.787 ± 0.015 (+227) |
+
+Findings:
+
+- **The feature is worth much per node and costs almost as much.** It adds +146 at equal nodes over the 12-feature refit on the same data. With E06's margins, the cost of 0.56 left only +18 ± 30 at equal cost. With `futk=20` the margin is +54 ± 25.
+- **Futility interacts with the feature.** With futility the gain at equal cost is +79 and +86 against B. Without futility it is +26 and +28 against B0, at a cost ratio of 0.458, below the plan's failure line of 0.5. The static value with `bestGain` already anticipates the best move, so a smaller gain factor in the bound is enough.
+- **Part of the gain is the new data.** The 12-feature refit on games with race play and futility gives +45 (seed 33) and +81 (seed 31) against `linear-r2` at no cost. The E04 amendment asks for this refit at integration. If the integration does not take `linear-r3`, it should take this refit.
+- The plan's cost criterion (nodes per second at least 0.65 of BEST) is not met: 0.605. The plan then requires the gain to exceed the cost at equal cost, which it does on both report seeds.
+
+Tests: `LinearEvaluatorGainTest`, `LinearRefitGainTest`; see [testing](testing.md).
+
+Not done: the verifier re-measures the fut-on pair on seeds 41 and 42.
 
 ### Self-play data tool (E05, measured 2026-11-07)
 
@@ -501,8 +608,8 @@ Each experiment of [the round-2 plan](baseline-round2-plan.md) is measured by it
 |---|---|---|---|---|---|
 | E03 race module | `race=1`: table or solitaire plan instead of a search in passed positions; S1 adjudication (labels only) | +66.8 ± 16.0 (seed 33), +58.5 ± 15.5 (seed 34) against BEST_SPEC | +46.6 ± 25.7, +44.2 ± 24.6 (A at 0.924 of B's nodes, still 12 % cheaper per move) | pending | author: merge; `race=1` for BEST_SPEC at integration |
 | E05 self-play data tool | module `selfplay`: S1 plus score margin, control games, openings, sample files | no Elo claim; 8.87 % of the plies saved on BEST games at 20 000 nodes (S1 7.86 %), margin 993 firings, 1 wrong, bound 0.477 %; 24.4 games per CPU-second at 1000 nodes | - | pending | author: merge ([measurements](#self-play-data-tool-e05-measured-2026-11-07)) |
-
 | E09 rows ≥ 1 table | generic builder; the 254 M-state table, committed with Git LFS as `tablebase/tables/rows1.bin` and rebuilt into the cache when only a pointer exists, selected by `racerows=1`; rows ≥ 2 stays the default | +5.8 ± 5.0 (seed 33), +2.3 ± 3.2 (seed 34), `race=1,racerows=1` against `race=1`, 300 pairs each | same cost (CPU-ms per move 11.1 vs 11.4 and 11.7 vs 12.0) | pending | author: merge as an optional table and label source; no change of BEST_SPEC; exact table moves in 88.7 % instead of 68.0 % of the race plies |
+| E07 bestGain | `eval=linear-r3`: 13th feature `bestGain` (both sides), refit on 4000 passed-filtered games of the wave-1 BEST candidate, `futk=20` re-tuned (`Strategies.GAIN_SPEC`) | +203.4 ± 30.7 (seed 33) against `linear-r2,fut=1,futk=30,fut2=1,race=1` | **+78.9 ± 27.8, +85.7 ± 27.2** (A at 0.605 of B's nodes); futility off +26.1 ± 25.3, +27.9 ± 26.1 (0.458) | pending | author: merge as a new evaluator; candidate for BEST_SPEC at integration ([measurements](#bestgain-e07-evallinear-r3-measured-2026-11-08)) |
 
 E03's soundness evidence (proof, lemma tests, exhaustive adversary over 997 verdicts, mutation check) and the self-play figures (S1 fires in 99.7 % of BEST games at mean ply 86.0 and saves 7.9 % of the plies; 68.5 % and 2.6 % on games of `ab:eval=distance,nodes=1000`) are in [endgame and opening](endgame-and-opening.md#measurements-e03). E09's build cost (305.6 s on 4 threads, 113.1 s on 8, 579 MB peak), its validation (every one of the 254,186,856 entries layer-consistent with the engine's moves; never longer than rows ≥ 2 on the 13.1 M shared states) and its coverage figures are in [endgame and opening](endgame-and-opening.md#the-rows--1-table-e09-optional) and [its measurements](endgame-and-opening.md#measurements-e09-the-rows--1-table-in-race-play).
 

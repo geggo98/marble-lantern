@@ -31,6 +31,15 @@ public final class Strategies {
     public static final String FUTILITY_SPEC =
             "ab:eval=linear-r2,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=30,fut2=1";
 
+    /**
+     * Round-2 experiment E07: the evaluator {@code linear-r3} (13th feature bestGain) with the futility margins re-tuned
+     * on its scale ({@code futk=20}) and race play (docs/search-and-evaluation.md, "bestGain (E07)"). Registered so
+     * that the strategy contract covers the new evaluator together with pruning and race play; it is not the
+     * BEST_SPEC, which only an integration commit changes.
+     */
+    public static final String GAIN_SPEC =
+            "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1";
+
     private Strategies() {
     }
 
@@ -42,8 +51,8 @@ public final class Strategies {
             list.add(new Strategy(spec, Set.of(2), true, seed -> PlayerSpec.parse(spec).create()));
         }
         // BEST_SPEC with race play (round-2 experiment E03, both modes) so that the contract covers RaceMove
-        for (String spec : List.of(BEST_SPEC, FUTILITY_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3", BEST_SPEC + ",race=1",
-                BEST_SPEC + ",race=2")) {
+        for (String spec : List.of(BEST_SPEC, FUTILITY_SPEC, GAIN_SPEC, "ab:eval=stage4,ws=15,wq=6,wj=3",
+                BEST_SPEC + ",race=1", BEST_SPEC + ",race=2")) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));
         }
