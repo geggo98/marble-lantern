@@ -52,7 +52,7 @@ import sternhalma.search.Strategies;
  *                     [--elo-pairs 50] [--elo-seed 1] [--elo-threads 1] [--monitor 1|0]
  *   Gen0 run --status RUN
  *   Gen0 strength RUN [--checkpoint FILE] [--ladder 200] [--ladder-spec SPEC] [--elo-pairs 50] [--elo-seed 1]
- *                     [--elo-threads 4] [--progress-seconds 10]
+ *                     [--elo-threads 4] [--progress-seconds 10] [--player raw|mcts:...]
  *   Gen0 proxies RUN --data DIR [--checkpoint FILE] [--samples 2500] [--threads 4]
  *   Gen0 monitor-report RUN
  * </pre>
@@ -67,6 +67,7 @@ import sternhalma.search.Strategies;
  *   RUN/gen-0000/train/step-*.safetensors   checkpoints
  *   RUN/gen-0000/candidate.safetensors      the network after the last step, a plain network file
  *   RUN/gen-0000/strength/step-*.jsonl      the Elo estimate of a checkpoint
+ *   RUN/gen-0000/strength/step-*.player-*.jsonl  the same for another player ({@code --player}), one file per player text
  * </pre>
  *
  * <p>Job conventions (docs/training.md, "Job conventions"): the state comes from the artefacts (the newest checkpoint
@@ -936,6 +937,15 @@ public final class Gen0 {
             return status(run, STRENGTH_JOB, out);
         }
         Cadence cad = cadence(opts);
+        String player = opts.get("player");
+        if (player != null && !NetPlayers.isNetPlayer(player)) {
+            err.println("gen0 strength: --player must be raw or mcts:..., got " + player);
+            return EXIT_USAGE;
+        }
+        if (NetPlayers.RAW.equals(player)) {
+            player = null; // the default player: the usual file and the usual monitor lines
+        }
+        final String otherPlayer = player;
         Path runJson = run.resolve("run.json");
         if (!Files.isRegularFile(runJson)) {
             err.println("gen0 strength: no run.json in " + run + "; this is not a gen0 run directory");
@@ -972,7 +982,8 @@ public final class Gen0 {
                 return EXIT_ERROR;
             }
             long step = loaded.step();
-            Path result = StrengthEstimate.file(run.resolve("gen-0000").resolve("strength"), step);
+            Path result = otherPlayer == null ? StrengthEstimate.file(run.resolve("gen-0000").resolve("strength"), step)
+                    : StrengthEstimate.playerFile(run.resolve("gen-0000").resolve("strength"), step, otherPlayer);
             if (StrengthEstimate.complete(result, cad.ladderBase(), cad.ladder(), cad.eloPairs(), cad.eloSeed())) {
                 err.printf(Locale.ROOT, "gen 0 strength: 0 ok, 1 skip, 0 error, %d cleanup; step %d is estimated"
                         + " already; nothing more to do%n", cleanup, step);
@@ -997,11 +1008,18 @@ public final class Gen0 {
                         "gen 0 strength step " + step);
                 List<StrengthEstimate.Rung>[] holder = newResult();
                 long wall0 = System.nanoTime();
-                monitor.measureAttempt(RunMonitor.Category.STRENGTH, RunMonitor.ELO, true, step, () -> {
-                    holder[0] = StrengthEstimate.estimate(new Network(loaded.parameters()), cad.ladderBase(),
-                            cad.ladder(), cad.eloPairs(), cad.eloSeed(), cad.eloThreads(), stop, pairs);
-                    return holder[0] != null;
-                });
+                if (otherPlayer == null) {
+                    monitor.measureAttempt(RunMonitor.Category.STRENGTH, RunMonitor.ELO, true, step, () -> {
+                        holder[0] = StrengthEstimate.estimate(new Network(loaded.parameters()), cad.ladderBase(),
+                                cad.ladder(), cad.eloPairs(), cad.eloSeed(), cad.eloThreads(), stop, pairs);
+                        return holder[0] != null;
+                    });
+                } else {
+                    // another player is not the run's strength metric: no monitor line, no budget accounting
+                    holder[0] = StrengthEstimate.estimate(NetPlayers.factory(otherPlayer, loaded.parameters()),
+                            cad.ladderBase(), cad.ladder(), cad.eloPairs(), cad.eloSeed(), cad.eloThreads(), stop,
+                            pairs);
+                }
                 if (holder[0] == null) {
                     err.printf(Locale.ROOT, "gen 0 strength: 0 ok, 0 skip, 0 error, %d cleanup; aborted after %s, the"
                             + " estimate is discarded; run again to redo it%n", cleanup,
@@ -1010,8 +1028,10 @@ public final class Gen0 {
                 }
                 StrengthEstimate.write(result, step, holder[0]);
                 for (StrengthEstimate.Rung r : holder[0]) {
-                    monitor.event("metric", metricFields(r, step));
-                    out.println("step " + step + " " + r);
+                    if (otherPlayer == null) {
+                        monitor.event("metric", metricFields(r, step));
+                    }
+                    out.println("step " + step + (otherPlayer == null ? " " : " [" + otherPlayer + "] ") + r);
                 }
                 err.printf(Locale.ROOT, "gen 0 strength: 1 ok, 0 skip, 0 error, %d cleanup; step %d in %s; nothing"
                         + " more to do%n", cleanup, step, duration(Math.round((System.nanoTime() - wall0) / 1e9)));

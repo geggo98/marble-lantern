@@ -6,6 +6,8 @@ plugins {
 dependencies {
     api(project(":engine"))
     implementation(project(":tablebase"))
+    // MCTS (Mcts, MctsPlayer) takes a network as policy prior and value; nn depends on engine only, so there is no cycle.
+    api(project(":nn"))
 
     // The strategy contract (abstract jqwik tests) is shared with the modules that add strategies.
     testFixturesApi(project(":engine"))
@@ -18,6 +20,12 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.jqwik)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// MctsTrainedNetworkTest uses the Vector API forward pass of a trained network (nn.Networks.fastest), 15 times faster
+// than the scalar one; without the module the test is skipped.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-modules", "jdk.incubator.vector")
 }
 
 // Yardstick tools of round 2 (docs/search-and-evaluation.md, "Round 2 yardstick"). Both run in the repository

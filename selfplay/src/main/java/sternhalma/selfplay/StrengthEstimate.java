@@ -18,6 +18,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
+import java.util.function.LongFunction;
 
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
@@ -25,6 +26,7 @@ import sternhalma.engine.RuleSet;
 import sternhalma.nn.ForwardPass;
 import sternhalma.search.Elo;
 import sternhalma.search.GameRunner;
+import sternhalma.search.Player;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.Strategies;
 
@@ -142,10 +144,21 @@ final class StrengthEstimate {
      */
     static List<Rung> estimate(ForwardPass network, String base, List<Integer> ladder, int pairs, long seed, int threads,
             BooleanSupplier stop, IntConsumer progress) {
+        RawPolicyPlayer raw = new RawPolicyPlayer(network, "raw-policy");
+        return estimate(gameSeed -> raw, base, ladder, pairs, seed, threads, stop, progress);
+    }
+
+    /**
+     * The same estimate for any player under test, e.g. {@link NetPlayers#factory}.
+     *
+     * @param subject makes the player for one game from a seed that is distinct for every game of the estimate (a
+     *                player that is stateless or deterministic ignores it); called from the thread that plays
+     */
+    static List<Rung> estimate(LongFunction<Player> subject, String base, List<Integer> ladder, int pairs, long seed,
+            int threads, BooleanSupplier stop, IntConsumer progress) {
         if (pairs < 2 || threads < 1 || ladder.isEmpty()) {
             throw new IllegalArgumentException("need pairs >= 2, threads >= 1 and a ladder");
         }
-        RawPolicyPlayer raw = new RawPolicyPlayer(network, "raw-policy");
         RuleSet rules = RuleSet.defaults(2);
         List<Rung> result = new ArrayList<>();
         AtomicInteger done = new AtomicInteger();
@@ -160,7 +173,7 @@ final class StrengthEstimate {
                             return null;
                         }
                         Position start = opening(rules, seed, index, OPENING_PLIES);
-                        PairResult r = play(start, raw, spec);
+                        PairResult r = play(start, subject, spec, (seed * 1_000_003L + index) * 2);
                         progress.accept(done.incrementAndGet());
                         return r;
                     }));
@@ -207,15 +220,16 @@ final class StrengthEstimate {
         return score <= 0 || score >= 1;
     }
 
-    private static PairResult play(Position start, RawPolicyPlayer raw, PlayerSpec spec) {
+    private static PairResult play(Position start, LongFunction<Player> subject, PlayerSpec spec, long gameSeed) {
         double sum = 0;
         int wins = 0;
         int draws = 0;
         int losses = 0;
         for (int rawIndex = 0; rawIndex < 2; rawIndex++) {
+            Player mine = subject.apply(gameSeed + rawIndex);
             GameRunner.Result r = rawIndex == 0
-                    ? GameRunner.play(start, raw, spec.create())
-                    : GameRunner.play(start, spec.create(), raw);
+                    ? GameRunner.play(start, mine, spec.create())
+                    : GameRunner.play(start, spec.create(), mine);
             Outcome outcome = r.outcome();
             sum += (1.0 + outcome.value(rawIndex)) / 2.0;
             if (outcome.hasWinner()) {
@@ -234,6 +248,12 @@ final class StrengthEstimate {
     /** The result file of a checkpoint step: {@code dir/step-<8 digits>.jsonl}. */
     static Path file(Path dir, long step) {
         return dir.resolve(String.format("step-%08d.jsonl", step));
+    }
+
+    /** The result file of a checkpoint step for a player other than the raw policy: {@code step-<8 digits>.player-<hash>.jsonl}. */
+    static Path playerFile(Path dir, long step, String player) {
+        return dir.resolve(String.format("step-%08d.player-%s.jsonl", step,
+                Gen0.sha256Hex(player.getBytes(StandardCharsets.UTF_8)).substring(0, 12)));
     }
 
     /** Writes the result file atomically (temporary name, then rename). */

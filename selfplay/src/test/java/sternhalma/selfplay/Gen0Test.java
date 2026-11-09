@@ -462,6 +462,41 @@ class Gen0Test {
     }
 
     @Test
+    void theStrengthStepCanEstimateAnMctsPlayerIntoAFileOfItsOwnWithoutTouchingTheRunsMetric() throws Exception {
+        Path run = shared.resolve("mcts-player");
+        assertEquals(0, train(run).code);
+        String player = "mcts:sims=4,batch=2,race=0";
+        String[] options = {"--elo-pairs", "2", "--ladder", "1", "--ladder-spec", "ab:eval=distance", "--elo-seed", "3",
+                "--checkpoint", Checkpoint.file(trainDir(run), 8).toString()};
+        List<String> args = new ArrayList<>(List.of(run.toString(), "--player", player));
+        args.addAll(List.of(options));
+        Result r = gen0(() -> false, "strength", args.toArray(String[]::new));
+        assertEquals(0, r.code, r.err);
+        assertTrue(r.out.contains("step 8 [" + player + "] vs 1 nodes: Elo"), r.out);
+        Path strength = run.resolve("gen-0000").resolve("strength");
+        assertFalse(Files.exists(strength.resolve("step-00000008.jsonl")), "the run's own estimate file is not written");
+        Path file = StrengthEstimate.playerFile(strength, 8, player);
+        assertTrue(Files.exists(file));
+        assertTrue(StrengthEstimate.complete(file, "ab:eval=distance", List.of(1), 2, 3));
+        assertEquals(null, RunMonitor.report(run).row(RunMonitor.Category.STRENGTH, "elo"), "no monitor line");
+        // again: a skip
+        Result again = gen0(() -> false, "strength", args.toArray(String[]::new));
+        assertEquals(0, again.code, again.err);
+        assertTrue(again.err.contains("1 skip"), again.err);
+        // the default player still writes the usual file; "raw" is the default
+        List<String> raw = new ArrayList<>(List.of(run.toString(), "--player", "raw"));
+        raw.addAll(List.of(options));
+        Result plain = gen0(() -> false, "strength", raw.toArray(String[]::new));
+        assertEquals(0, plain.code, plain.err);
+        assertTrue(Files.exists(strength.resolve("step-00000008.jsonl")));
+        assertEquals(1, RunMonitor.report(run).row(RunMonitor.Category.STRENGTH, "elo").count());
+        // something that is no player is a usage error
+        List<String> bad = new ArrayList<>(List.of(run.toString(), "--player", "ab:nodes=5"));
+        bad.addAll(List.of(options));
+        assertEquals(2, gen0(() -> false, "strength", bad.toArray(String[]::new)).code);
+    }
+
+    @Test
     void theStrengthStepAcceptsAPlainNetworkFileAndRefusesOneOfAnotherRunOrWithoutMetadata() throws Exception {
         Path run = shared.resolve("plain-network");
         assertEquals(0, train(run).code);

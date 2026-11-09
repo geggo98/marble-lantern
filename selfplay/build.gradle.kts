@@ -39,3 +39,25 @@ tasks.register<JavaExec>("replayBenchmark") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("sternhalma.selfplay.ReplayBufferBenchmark")
 }
+
+// Paired games of a network player (raw policy or MCTS) against ladder rungs, resumable per pair (docs/training.md,
+// "As implemented (block 2g)"). The Vector API forward pass needs the incubating module.
+//   ./gradlew --no-build-cache :selfplay:mctsMatch --args='--out DIR --net FILE --subject mcts:sims=100 --vs ab:100'
+tasks.register<JavaExec>("mctsMatch") {
+    group = "verification"
+    description = "Paired games of an MCTS or raw-policy player against ladder rungs; see sternhalma.selfplay.MctsMatch."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = "sternhalma.selfplay.MctsMatch"
+    workingDir = rootDir
+    jvmArgs("--add-modules", "jdk.incubator.vector", "-Xmx3g")
+}
+
+// Simulations per second of an MCTS player (docs/training.md, "As implemented (block 2g)").
+tasks.register<JavaExec>("mctsBench") {
+    group = "verification"
+    description = "Simulations per second of an MCTS player on mid-game positions; see sternhalma.selfplay.MctsBench."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = "sternhalma.selfplay.MctsBench"
+    workingDir = rootDir
+    jvmArgs("--add-modules", "jdk.incubator.vector", "-Xmx3g")
+}

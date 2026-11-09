@@ -918,6 +918,181 @@ The held-out sets differ (game ids of different data sets), so the proxy columns
 
 **Decision:** the raw policy is strong enough to act as a prior for the search (about depth 1 to 2 of the classical engine); the next block is MCTS with the network (block 2g), then the classical input planes (E11) as an A/B on the same data.
 
+## As implemented (block 2g)
+
+**TL;DR:** `Mcts`, `MctsPlayer` and `MctsSpec` in `search` play two-player games with PUCT, the network as prior and value, batched leaf evaluation with virtual loss, exact leaves for the end of the game and for S1 verdicts, and the race module at the root. With the generation-0 candidate at **100 simulations (29 ms per move) the player matches `BEST_SPEC` at about 23,000 nodes** (-10 ± 42 against 25,600 nodes, +139 ± 48 against 6400, +272 ± 66 against 1600) and beats the raw policy of the same network by +729; 25 simulations match about 3000 nodes, 400 simulations are above 25,600 nodes (+175 ± 49). At equal CPU time the classical search is still a little ahead (30 to 120 Elo, an estimate). Defaults chosen by a sweep on one seed: 100 simulations, **batch 1** (batch 16 costs 325 Elo at 100 simulations and the CPU gains nothing from batching), c = 1.0. 61 new tests, 28 of 28 mutants caught.
+
+**MCTS with PUCT for two players, with the network as prior and value** (work plan step of the architecture's "MCTS with the network in `search`"). Implemented, tested and measured 2026-11-09 with JDK 25.0.3 on an Apple M3 Max, load average 5 to 11 from other work, so the CPU times are indicative; the Elo numbers count simulations or nodes, not seconds, and do not depend on the load.
+
+**Placement.** The search lives in module `search` (package `sternhalma.search`) and the dependency `search -> nn` now exists in the build (`api`, because `Mcts` takes a `ForwardPass` in its constructor), as the [architecture](architecture.md#module-map) planned. There is no cycle: `nn` depends on `engine` only (checked in the build files). The network loading and the choice of the forward pass are not in `search`: a spec names the network file, and the module `selfplay` loads it and picks `nn.Networks.fastest` (the Vector API path when the JVM has `jdk.incubator.vector`, else the scalar path), so `search` needs no incubator module.
+
+| Class | Module | Content |
+|---|---|---|
+| `Mcts` | `search` | The search: tree, PUCT selection, virtual loss, batches, exact leaves, root noise, move choice, tree reuse. One instance per player, no shared mutable state. |
+| `MctsNode` | `search` | A node with the statistics of its edges (visits, value sum, virtual loss) and the PUCT arithmetic. Package-private. |
+| `MctsOptions`, `MctsSpec` | `search` | The options and their text form `mcts:net=PATH,sims=N,batch=B,cpuct=C,...`. |
+| `MctsPlayer`, `MctsResult` | `search` | `Player` (root race play, counters) and what a search found (visits, values, node count). |
+| `Networks` | `nn` | `Networks.fastest(Parameters)`: `VectorNetwork` if the module is present, else `Network`. |
+| `NetPlayers`, `MctsMatch`, `MctsBench` | `selfplay` | Player factories for `raw` and `mcts:...`; paired games against ladder rungs, resumable per pair; simulations per second. |
+
+### Design
+
+**One simulation.** From the root each node takes the edge with the highest `Q + c * P * sqrt(N_parent) / (1 + N)`. `Q` is the mean value of the edge for the side that plays it; an edge without visits counts as the mean value of its node minus `fpu` (the network value counts as one visit; `fpu` is 0). `N_parent` is the sum of the visits and the virtual losses of the node's edges, and at least 1, so that the priors decide the first choice of a node. Ties take the first move in move order. The walk ends at an edge whose child does not exist yet; the child is one of three things:
+
+1. **The game is over there** (`Position.outcome()`; no legal move gives `noMovesOutcome()`). Every visit backs up the engine's values of that outcome, so a draw by the 200-ply limit counts with its `SCORE_BY_DISTANCE` value, exactly as in a game, and a win is +1 and -1 (two players).
+2. **A passed position with an S1 verdict** (`RaceAdjudication.passed` and `RaceAdjudication.adjudicate`): +1 for the winner and -1 for the other player, whoever is to move. S1 is the only source of an exact value in a passed position. The race table and `RaceEvaluator` (E08, the race band) are not values here; the band rule of [E08](search-and-evaluation.md#race-arithmetic-as-a-leaf-value-e08-racelin-and-racelin1-measured-2026-11-08) (never a label from an unsound source) is kept by construction: no race-band score exists in this search at all. S1 is switched off with `s1=0` (then a passed position is an ordinary leaf).
+3. **Otherwise a leaf for the network.** The position goes into the batch; `nn.Evaluator` evaluates the batch in one forward pass and returns, per position, the legal moves, the softmax of their move logits (`Encoder.moveLogit`, so only legal moves have a prior) and the values of all players in absolute order. The prior temperature `ptemp` turns the softmax into `p^(1/ptemp)`, renormalised. The leaf is expanded with these priors and backs up the network's value of **every player**: each edge on the path adds the value of its own mover. So there is no sign to flip, and the same code serves three players (tested with a fake network; no trained three-player network exists). The value head is used as it is, `tanh` output per player, without a projection to zero sum.
+
+**Win in one.** When a node is expanded, every legal move is tried on the leaf's copy of the position; a move whose `Outcome` is a win for the mover is the node's `winEdge`. The node then backs up that exact win instead of the network's value, and its selection takes the winning edge every time (the child is an exact leaf at once). A mate in one is therefore found with one simulation whatever the network says (`win1=1`, default). Without it (`win1=0`) the exact value of the terminal child still finds the mate, but only after the move has been visited.
+
+**Batches and virtual loss.** Up to `batch` descents run before the network is called. Every edge on a path gets one virtual loss, which counts as a visit that lost, so `Q = (sum - vl) / (n + vl)` and the parent count of the U term includes the virtual losses. Backing up a leaf takes exactly its virtual losses off again and records the real visit; an exact leaf does the same at once. A descent that reaches a node that is still waiting for the network undoes its virtual loss and ends the batch without being counted (a collision), so the simulations run are exactly `sims`. Leaves are backed up in the order of the descents and each position is evaluated alone (the fake network of the tests is a function of the position, so the batch composition cannot matter), so the result does not depend on how the batch was laid out in the forward pass. After any search no virtual loss is left; a network failure (a non-finite output) drops the tree before the exception goes on.
+
+**Root.** The root can get Dirichlet noise (`noise` weight, `alpha` concentration, default 0.3, seeded Marsaglia-Tsang gamma sampler); it changes the selection priors of that search only, the stored priors stay clean. The move is the most visited one (ties: the higher mean value, then the higher prior, then the first), or with `temp > 0` a draw proportional to `visits^(1/temp)`. A position with a single legal move is returned without a search. With `race=1` or `race=2` the **player** plays a passed position with `RaceMove` (as `BEST_SPEC` does, `racerows` chooses the table) and starts no search; that move costs no simulation and is counted in `MctsPlayer.raceMoves()`. With `reuse=1` the next search starts from the subtree of the position it is asked about (found by hash and ply two plies down), if the tree has it; the carried visits count in the node, the `sims` of the new search are added.
+
+**Budgets.** `sims` simulations per move is the strength control and the default way to bound the cost (the Elo numbers below are per simulation count, so they do not depend on the load). `ms` is an optional time budget checked between batches; with it the result depends on the machine, and `sims` stays an upper bound.
+
+**Determinism.** The only randomness is one `SplittableRandom` per player from the seed (noise, sampling). With `noise=0, temp=0` (the default) the player is a function of position, options and network and ignores the seed. All state is per instance; the network is used as it is, so give each thread a thread-safe forward pass (`Network`) or its own (`VectorNetwork`: `NetPlayers` keeps one per thread). `MctsPlayerTest` plays the same games with 1, 3 and 4 threads and compares the move lists.
+
+### Options
+
+| Key | Default | Meaning |
+|---|---|---|
+| `net` | none | Network file (plain safetensors); a spec without it uses the network at hand (`gen0 strength` uses its checkpoint). |
+| `sims` | 100 | Simulations per move. |
+| `batch` | 1 | Leaves per forward pass, 1 to 64 (see the measurement: 1 on the CPU). |
+| `cpuct` | 1.0 | The constant c. |
+| `ptemp` | 1.0 | Prior temperature. |
+| `noise`, `alpha` | 0, 0.3 | Dirichlet weight and concentration at the root. |
+| `temp` | 0 | Move temperature (0 = most visited). |
+| `fpu` | 0 | First-play reduction. |
+| `race`, `racerows` | 1, 2 | Race play at the root (0 off, 1, 2 as in `PlayerSpec`) and its table (the measurements use `racerows=1`, the table of `BEST_SPEC`). |
+| `s1`, `win1`, `reuse` | 1, 1, 0 | S1 leaves, win in one, tree reuse. |
+| `ms` | none | Time per move. |
+
+**Tools.** `scripts/mctsmatch.sh --out DIR --net FILE --subject mcts:sims=100 --vs ab:100 --vs raw [--pairs 100] [--seed 3001] [--threads 6]` plays paired games (the openings and the arithmetic of the strength estimate, `StrengthEstimate`) against `ab:N` (the `--ladder-spec`, default `BEST_SPEC`, at N nodes; 1 is depth 1), `raw` or another `mcts:` spec. It follows the [job conventions](#job-conventions): one JSON line per finished pair in `DIR/pairs-<hash>.jsonl` and the state of a rerun only from those lines (a torn last line is ignored), a lock (exit 75), SIGINT and SIGTERM stop after the running pairs (130, 143), progress with ETA, and a summary that says what a rerun would do. `scripts/mctsmatch.sh bench --net FILE --subject mcts:... --threads 1,8` measures simulations per second. `scripts/gen0.sh strength RUN --player mcts:sims=100,...` estimates an MCTS player of a run's checkpoint into `strength/step-N.player-<hash>.jsonl`, outside the run's strength metric (no monitor line); without `--player` (or with `raw`) nothing changes.
+
+### Tests
+
+**52 new tests in `search` (one skipped on purpose: the beat-random property of the contract has no strong strategy in the fake-network list) and 9 in `selfplay`; the whole build has 696 tests, none failed.** Test-first, in `search` and `selfplay`. The network of most tests is `HashedNetwork`, a fake whose logits and value are a function of the encoded position alone (so every position gets the same output in any batch, order or thread, and thousands of simulations are cheap); a real `Network` (TINY, random weights) and the trained candidate are used where the claim is about them.
+
+| Test class | What it pins |
+|---|---|
+| `MctsNodeTest` (11) | The PUCT arithmetic on hand-built trees (`0.25 + 1.5 * 0.4 * sqrt(9) / (1 + 2) = 0.85`, the roles of `sqrt(N_parent)` and `1 + N`), a hand-computed `select` on a three-edge node, the first-play value, virtual loss as a lost visit in Q and in the parent count, exact add and remove (removing one that was never added fails), ties to the first move, the winning edge. |
+| `MctsTest` (27) | An **independent sequential reference** (written again in the test, 70 lines, no batches, no options) gives the same visit counts as `Mcts` with `batch=1` for 3 networks x 14 positions x 3 values of c (both movers), also with a real network; every node holds the evaluation of its own position whatever the batch composition; batch sizes never exceed the option and every node of the tree was evaluated once; a mate in one is found with 1, 2 and 8 simulations for 6 networks and has value exactly 1; without `win1` the exact terminal value finds it with 400; an immediate loss is not chosen; positions at the 30-ply limit are exact with the engine's `SCORE_BY_DISTANCE` values and cost no network call; an S1 verdict backs up +1 to the mover who wins and -1 to the mover who loses, and only S1 (or the end of the game) makes an exact leaf; the root priors stay clean, the noise is seeded, `temp` samples in proportion to the visits (600 seeds, 5 sigma) and is seeded; tree reuse; the time budget; a network that fails once (NaN) leaves no virtual loss; three players; a finished game or a network of another player count is refused. |
+| `MctsPropertyTest` (2 properties, 150 and 40 cases) | For any seed, rule variant of the contract, start (also just before the end), `sims` 1 to 90, `batch` 1 to 64, noise, `s1`, `win1`, `reuse`, c, prior temperature and `fpu`: no virtual loss is left, the root has exactly `sims` visits (plus the carried ones with reuse), every edge has `child.totalVisits + 1` visits, the sums stay within [-1, 1], the move is legal; the search is a function of its inputs. |
+| `MctsPlayerTest` (3) | The same games with 1, 3 and 4 threads (noise, sampling and race play on; a shared hashed network and a shared TINY `Network`); every move legal and the counters consistent. |
+| `MctsSpecTest` (4) | Every key, the defaults, every refusal. |
+| `MctsContractTest`, `MctsTrainedContractTest` | The strategy contract of `search` testFixtures (clean self-play from varied starts in four rule variants, beat-random): the first with the hashed network (3 strategies, flagged weak), the second with the trained candidate at 8 simulations (beat-random included; 100 + 120 games in 17 s; skipped without the file or the Vector API module). `MctsTrainedNetworkTest` runs 16 games against a random player and 6 clean self-play games at 16 simulations with batch 8. |
+| `NetPlayersTest` (4), `MctsMatchTest` (4), `Gen0Test` (+1) | The text forms; one forward pass per thread; a match writes one line per pair, a rerun skips and redoes only a missing or torn pair, the lock (75), usage errors; `gen0 strength --player` writes its own file, no monitor line, the default player unchanged. |
+
+**Contract by hand against the trained candidate.** `MctsTrainedContractTest` is that run (all of `StrategyContract`, including `strategyBeatsARandomPlayer`, 220 games at 8 simulations, no failure); a longer one was run once with the match tool: the more than 6000 games of the measurements below did not raise `IllegalMoveException` once (`GameRunner` rejects an illegal move).
+
+### Mutation check
+
+28 hand-made mutants of `Mcts` and `MctsNode`, each run against the MCTS tests; **28 caught, 0 missed**. One mutant (M05) was first missed and led to the test of the parent count with virtual losses.
+
+| Mutant | Caught by |
+|---|---|
+| M01 sign error in the backup | reference, mate in one |
+| M02 the value of player 0 for every mover (second mover not flipped) | reference, S1 signs |
+| M03 virtual loss not undone at the backup | properties |
+| M04 virtual loss not undone after a collision | properties |
+| M05 parent visits without the virtual losses of the other edges | `theParentVisitsOfTheSelection...` (the first version of the suite missed it) |
+| M06 edge visits instead of parent visits in the U term | reference |
+| M07 `1 + N` replaced by `2 + N` | reference, arithmetic |
+| M08 no square root | reference, arithmetic |
+| M09 prior temperature inverted | `thePriorTemperatureFlattens...` |
+| M10 noise not seeded | seeded noise, determinism |
+| M11 noise written into the stored priors | clean priors |
+| M12 evaluations applied in reverse order of the batch | node values equal single evaluations |
+| M13 S1 verdict with the sign swapped | S1 signs |
+| M14 move-limit outcome as zeros | the limit test |
+| M15 exact leaf not backed up | properties |
+| M16 win in one for the wrong side | mate in one |
+| M17 temperature exponent the wrong way | sampling |
+| M18 collision counted as a simulation | properties |
+| M19 virtual loss not a loss in Q | node test |
+| M20 network value of player 0 as the node value | node values |
+| M21 tree reuse without the hash | reuse |
+| M22 unvisited edge at 0 instead of the node mean | node test, reference |
+| M23 first edge instead of the most visited | reference |
+| M24 winning edge not preferred | node test, mate in one |
+| M25 end of the game not exact (goes to the network) | the limit test |
+| M26 uniform priors instead of the network's | node values, reference |
+| M27 the win probe leaves the move on the board | almost everything |
+| M28 the search priors (noise) kept after the search | clean priors |
+
+### Measurements
+
+Network: `data/gen0run2/gen-0000/candidate.safetensors` (SMALL, 2 players; its raw policy plays about like `BEST_SPEC` at 100 nodes, [run 2](#generation-0-run-2-measured-2026-11-08)). Games: the paired games of the strength estimate (4 random plies from the start, the same opening for both colours), 100 pairs = 200 games per cell, Elo with the 95 % interval of `Elo`/`StrengthEstimate`, opponent `BEST_SPEC` at a node limit (`ab:N`; `ab:1` is depth 1), both sides with race play from the rows >= 1 table. The tuning used seed 3001 only; the tables below use the new seed 3002. Everything ran with `--threads 6`, one `VectorNetwork` per thread. "CPU ms" is thread CPU time per move of the player (the 15 % of the moves that the race module plays cost almost nothing and are in the average).
+
+**Tuning (seed 3001, 100 simulations, vs `BEST_SPEC` at 400 nodes with batch 16 first, then at 1600 nodes with batch 1).** The first sweep started from batch 16 and c = 1.5 and found a low c best, which is what virtual loss does (it spreads the batch by itself); the batch sweep that followed showed that the batch itself costs strength, so c was tuned again at batch 1, the default.
+
+| Sweep | Setting: Elo (± 95 %) |
+|---|---|
+| c, batch 16, vs 400 nodes | 0.1: +291 ± 64; 0.25: +275 ± 61; **0.5: +323 ± 67**; 0.75: +230 ± 54; 1.0: +230 ± 52; 1.5: +191 ± 51; 2.5: +149 ± 47 |
+| batch, c = 0.5, vs 400 nodes | **1: +542 ± 136**; 4: +478 ± 109; 16: +323 ± 67; 64: +85 ± 43 |
+| c, batch 1, vs 1600 nodes | 0.5: +252 ± 60; **1.0: +338 ± 70**; 1.5: +269 ± 58; 2.5: +108 ± 46; 4.0: +33 ± 36 |
+| prior temperature, c = 1.0, batch 1, vs 1600 nodes | 0.7: +249 ± 57; **1.0: +338 ± 70**; 1.5: +282 ± 65; 2.5: +230 ± 54 |
+| first-play reduction, c = 1.0, batch 1 | 0: +338 ± 70; 0.2: +363 ± 76 (not different; 0 kept) |
+
+The curves are flat within the noise between c = 0.5 and 1.5 (and for the prior temperature between 1 and 1.5); c = 2.5 and above and a flattened or sharpened prior are clearly worse. On the fresh seed 3002 (below) c = 0.5 gave +372 ± 83 and c = 1.0 +272 ± 66 at batch 1, so the choice of 1.0 over 0.5 is not supported by a significant difference; both lie inside the flat part.
+
+**Defaults chosen:** `sims=100, batch=1, cpuct=1.0, ptemp=1.0, fpu=0, noise=0, temp=0, s1=1, win1=1, reuse=0, race=1, racerows=2` (the measurements use `racerows=1`, the table of `BEST_SPEC`).
+
+**Strength against the classical ladder (seed 3002, 100 pairs, `racerows=1`).** Elo of MCTS minus the rung, with the cost per move of both sides:
+
+| Opponent | 25 simulations | 100 simulations | 400 simulations |
+|---|---|---|---|
+| depth 1 (`ab:1`) | +604 ± 186 | +727 ± 303 | +798 ± 277 |
+| 100 nodes | +604 ± 186 | +727 ± 303 | +920 ± 235 |
+| 400 nodes | +323 ± 74 | +604 ± 186 | +636 ± 228 |
+| 1600 nodes | +92 ± 44 | +272 ± 66 | +463 ± 104 |
+| 6400 nodes (extra rung) | -111 ± 45 | +139 ± 48 | +350 ± 72 |
+| 25,600 nodes (extra rung) | -275 ± 61 | -10 ± 42 | +175 ± 49 |
+| raw policy (no search) | +655 ± 243 | +729 ± 298 | +1200 (200-0-0, clamped) |
+| MCTS CPU ms per move | 7.4 | 29 | 108 |
+| `BEST_SPEC` CPU ms per move at 1600 / 6400 / 25,600 nodes | 1.5 / 5.2 / 19.5 | 1.4 / 4.7 / 17.9 | 1.5 / 5.0 / 18.7 |
+
+The first two rungs repeat each other (a search of 1 to 100 nodes plays depth 1, see `StrengthEstimate.MIN_RUNG_ABOVE_ONE`); the win rate of 97 to 99 % makes their intervals wide. A cell with 0.985 or more is close to saturation, and its interval is only a rough bound.
+
+**Position of MCTS(sims) in classical nodes.** The Elo against the rungs falls by 75 to 90 per doubling of the nodes between 6400 and 25,600 nodes, and the point where the score is 50 % (linear interpolation between the two bracketing rungs on a log scale, so only a rough figure with an uncertainty of a factor 1.4 either way) is:
+
+| | Equal strength at | At equal CPU time per move |
+|---|---|---|
+| MCTS 25 simulations | about 3000 nodes of `BEST_SPEC` | the classical search gets about 7600 nodes for the same 7.4 ms: MCTS about 120 Elo behind |
+| MCTS 100 simulations | about 23,000 nodes | about 35,000 nodes for 29 ms: about 55 Elo behind |
+| MCTS 400 simulations | above 25,600 (+175 there); extrapolated with the same slope about 100,000 nodes | about 125,000 nodes for 108 ms: about 30 Elo behind (extrapolated) |
+
+**Nodes-equal and time-equal.** Counted in simulations against nodes, one simulation is worth 120 to 230 nodes: 100 simulations match 23,000 nodes, 25 simulations match 3000. That is not the fair comparison, because a simulation costs about 0.29 ms (SMALL network, Vector API, one thread) and a node of `BEST_SPEC` about 0.0008 ms, 350 times less. At equal CPU time the two are close, the classical search a little ahead (the estimates above, which carry the interpolation error); the network player has the advantage that its strength per simulation will grow with the next generations while the classical one is frozen, and that a GPU evaluates a batch of leaves for less than the sum of CPU evaluations (the batch costs strength on the CPU, see below, so that gain would have to come with a better handling of the batch). MCTS against the raw policy: +655, +729 and a clean sweep for 25, 100 and 400 simulations (the raw policy of this network was -166 against 400 nodes).
+
+**Throughput** (`MctsBench`, 40 mid-game positions, `sims=100`, no race module, SMALL, Vector API): 1 thread **3410 simulations/s**, 29.3 CPU ms per move; 8 threads **18,650 simulations/s** in all, 2330 per thread and 42.5 CPU ms per move, at a load average of 7.7 on 16 cores (the 8-thread number is lower than 8 times the single thread number because the machine was shared; indicative). In the games the average was 3200 to 3600 simulations per CPU second at 25, 100 and 400 simulations (400 simulations: 2900 to 3300). The CPU forward pass is not faster per position in a batch (batch 1: 3098 simulations per CPU second, batch 64: 3124, at c = 0.5), so batching gains nothing on the CPU.
+
+**What the options cost or gain (seed 3002, 100 simulations, vs 1600 nodes, default +272 ± 66 unless noted).**
+
+| Option | Elo | Remark |
+|---|---|---|
+| `batch=4` / `16` / `64` | +263 ± 69 / **-53 ± 47** / **-196 ± 50** | Virtual loss at a small budget costs 325 Elo at batch 16 and 470 at 64; with 100 simulations a batch of 16 is 6 rounds. |
+| `cpuct=0.5` / `2.5` | +372 ± 83 / +123 ± 46 | |
+| `race=0` (no root race play) | +238 ± 59 | -34 Elo, within the noise; CPU per move about the same (29.8 against 29.3 ms). |
+| `racerows=2` | +272 ± 66 | The same result as rows 1 (165-1-34, 93 plies): the two tables give the same moves in these games. |
+| `s1=0`, `win1=0` | +272 ± 66 each | The same 200 games as the default: neither changes a move in them. Both matter in constructed positions (tests), not in these games. |
+| `reuse=1` | +323 ± 71 | +51, within the noise; costs 11 % more CPU per move (the carried tree is larger). |
+| `noise=0.25,temp=1` (self-play settings) | **-372 ± 78** | Sampling by visits at 100 simulations is far weaker than the most visited move; for data generation only. |
+
+Determinism check: the configuration `batch=16, cpuct=0.5` against 400 nodes on seed 3001 gave +323 ± 67 (173-0-27, 94 plies) in two separate runs of different builds and the same games.
+
+### Known limits
+
+- **Batches cost strength.** At 100 simulations, batch 16 is 325 Elo weaker than batch 1 (virtual loss, collisions end the batch early); the CPU gains nothing from batching, so the default is 1. A GPU player must either use few leaves per batch with many parallel games (one search per game, many games in the batch) or add a better collision handling (for instance evaluating the colliding leaf only once).
+- **No proven results beyond one ply.** Only a win in one is recognised at expansion; a position in which every move loses at depth two still gets its visits by the PUCT rule, and a single safe move with a tiny prior can stay unvisited for hundreds of simulations (seen with a sharp fake network: 600 simulations did not find the only defence; flat priors find it). Propagating proven wins and losses up the tree (an MCTS solver) is not done.
+- **S1 and the race table.** An S1 leaf needs the S1 verdict (the rarer, sound kind); the race arithmetic of E08 is not used as a value. At the root `race=1` plays the race from the table, like `BEST_SPEC`.
+- **Tree, not a graph.** Transpositions are not merged, so the same position reached by two move orders is evaluated twice.
+- **Two players.** S1, race play and the tests with a trained network are two-player; the search itself runs with three players (fake network test) but has never played one.
+- **The time budget** makes a move depend on the machine; the strength numbers use simulations.
+- **One network, one seed per cell.** The Elo columns are for the generation-0 candidate and 100 pairs per cell (interval ±40 to ±300 near saturation); the tuning of c, the prior temperature and the first-play reduction used one seed and one opponent, and differences below about 100 Elo in these sweeps are noise.
+- **Vector API.** The Vector API forward pass needs `--add-modules jdk.incubator.vector`; without it `NetPlayers` uses the scalar network, about 15 times slower. `scripts/mctsmatch.sh`, `scripts/gen0.sh` and the Gradle tasks set the flag.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).

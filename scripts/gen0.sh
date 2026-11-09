@@ -11,4 +11,5 @@ cd "$root"
 ./gradlew --no-build-cache -q :selfplay:classes
 cp="$root/engine/build/classes/java/main:$root/tablebase/build/classes/java/main:$root/search/build/classes/java/main"
 cp="$cp:$root/nn/build/classes/java/main:$root/selfplay/build/classes/java/main"
-exec java -Xmx4g -cp "$cp" sternhalma.selfplay.Gen0 "$@"
+# the Vector API module makes "strength --player mcts:..." about 15 times faster; the training itself does not use it
+exec java -Xmx4g --add-modules jdk.incubator.vector -cp "$cp" sternhalma.selfplay.Gen0 "$@"
