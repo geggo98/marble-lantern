@@ -37,8 +37,10 @@ import sternhalma.nn.Checkpoint;
 import sternhalma.nn.Network;
 import sternhalma.nn.Optimizer;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.StepTrainer;
 import sternhalma.nn.TrainingObserver;
 import sternhalma.nn.TrainingRun;
+import sternhalma.tornado.GpuTrainers;
 import sternhalma.search.Player;
 import sternhalma.search.PlayerSpec;
 
@@ -50,7 +52,7 @@ import sternhalma.search.PlayerSpec;
  *   Loop run RUN [--init NETWORK] [--generations 3] [--games 600] [--shard-games 25] [--sims 100] [--mcts-batch 1]
  *                [--cpuct 1.0] [--noise 0.25] [--alpha 0.3] [--temp 1.0] [--temp-plies 14] [--opening-min 4]
  *                [--opening-max 10] [--race 1] [--s1 1] [--seed 1]
- *                [--lr 3e-4] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000]
+ *                [--lr 3e-4] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000] [--trainer cpu|gpu]
  *                [--augment 1] [--value-coefficient 1] [--holdout 0.1] [--teacher DIR [--teacher-files N]]
  *                [--gate-pairs 100] [--pair-shard 10] [--gate-opening 4] [--baseline-rung 1600]
  *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--ladder-spec SPEC]
@@ -466,7 +468,18 @@ public final class Loop {
                 teacherSha = Gen0.dataFingerprint(files);
                 teacherFiles = n;
             }
-            return LoopConfig.of(opts, init, teacherSha, teacherFiles);
+            Map<String, String> effective = opts;
+            if ("gpu".equals(opts.get("trainer"))) {
+                String why = GpuTrainers.unavailableReason();
+                if (why != null) {
+                    // decided here, so that run.json names the trainer that ran; a run that run.json calls gpu is not
+                    // continued on the CPU: its configuration then differs and the run is refused
+                    stderr.println("loop: --trainer gpu: " + why + "; training the candidates on the CPU instead");
+                    effective = new HashMap<>(opts);
+                    effective.put("trainer", "cpu");
+                }
+            }
+            return LoopConfig.of(effective, init, teacherSha, teacherFiles);
         }
 
         private int locked() throws Exception {
@@ -825,8 +838,17 @@ public final class Loop {
                     Math.round(cad.checkpointSeconds() * 1e9), cad.keep(), cfgSha);
             TrainingRun.Reporting reporting = new TrainingRun.Reporting(List.<TrainingObserver>of(observer), log,
                     Math.round(cad.progressSeconds() * 1e9));
-            TrainingRun trainingRun = new TrainingRun(setup, checkpointing, reporting, clock, stop);
-            TrainingRun.Summary summary = trainingRun.run();
+            TrainingRun.Summary summary;
+            try (StepTrainer stepTrainer = stepTrainer(g, parameters, optimizer)) {
+                TrainingRun trainingRun = new TrainingRun(setup, checkpointing, reporting, clock, stop, stepTrainer);
+                summary = trainingRun.run();
+            } catch (IllegalStateException e) {
+                // a NaN or infinite loss, gradient or parameter: the trainer may have applied the update (the GPU
+                // trainer always has), so the run ends here, without a checkpoint of the bad step
+                stderr.println("gen " + g + " train: stopped, " + e.getMessage() + "; the newest checkpoint is the last"
+                        + " sound state");
+                return EXIT_ERROR;
+            }
             TrainingRun.Timing timing = summary.timing();
             monitor.recordRun(timing, cfg.batch(), observer.spent(), false, sink.progressLines() - linesBefore);
             if (summary.stepsDone() > 0) {
@@ -858,6 +880,19 @@ public final class Loop {
                     Job.human(timing.loopWallNanos() / 1e9), rate, rate * cfg.batch(), summary.checkpointsWritten(),
                     observer.evaluations, candidate);
             return EXIT_OK;
+        }
+
+        /**
+         * The trainer of the run's configuration: the CPU reference trainer, or the device trainer, which holds the
+         * parameters and the optimiser state on the device and copies them back at every checkpoint.
+         */
+        private StepTrainer stepTrainer(int g, Parameters parameters, Optimizer optimizer) {
+            if (cfg.trainer().equals("gpu")) {
+                log.printf(Locale.ROOT, "gen %d train: GPU trainer on %s, batch %d in executions of %d%n", g,
+                        GpuTrainers.description(), cfg.batch(), GpuTrainers.microbatchFor(cfg.batch()));
+                return GpuTrainers.create(parameters, optimizer, cfg.batch(), cfg.valueCoefficient());
+            }
+            return StepTrainer.cpu(parameters, optimizer, cfg.valueCoefficient(), cfg.microbatch(), cad.trainThreads());
         }
 
         /**

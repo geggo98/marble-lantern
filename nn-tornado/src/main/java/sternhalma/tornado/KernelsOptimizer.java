@@ -43,8 +43,13 @@ public final class KernelsOptimizer {
     public static final int HYPER_ONE_MINUS_BETA1 = 9;
     /** Index of {@code 1 - beta2}, computed in double on the host. */
     public static final int HYPER_ONE_MINUS_BETA2 = 10;
+    /**
+     * Index of the update switch: 1 runs the update, 0 leaves the parameters and the state alone and reports no bad
+     * element. It is 0 for every microbatch of a batch but the last (gradient accumulation).
+     */
+    public static final int HYPER_APPLY = 11;
     /** Length of the {@code hyper} array. */
-    public static final int HYPER_SIZE = 11;
+    public static final int HYPER_SIZE = 12;
 
     private KernelsOptimizer() {
     }
@@ -68,10 +73,14 @@ public final class KernelsOptimizer {
         float decay = weight == 1 ? hyper.get(HYPER_WEIGHT_DECAY) : 0f;
         float correction1 = hyper.get(HYPER_CORRECTION1);
         float correction2 = hyper.get(HYPER_CORRECTION2);
+        float apply = hyper.get(HYPER_APPLY);
         for (@Parallel int c = 0; c < (n + chunk - 1) / chunk; c++) {
             int last = (c + 1) * chunk;
             if (last > n) {
                 last = n;
+            }
+            if (apply < 0.5f) {
+                last = c * chunk; // no update: the loop below is empty and the flag stays 0
             }
             float bad = 0f;
             for (int i = c * chunk; i < last; i++) {
@@ -102,10 +111,14 @@ public final class KernelsOptimizer {
         float lr = hyper.get(HYPER_LR);
         float momentum = hyper.get(HYPER_MOMENTUM);
         float l2 = weight == 1 ? hyper.get(HYPER_L2) : 0f;
+        float apply = hyper.get(HYPER_APPLY);
         for (@Parallel int c = 0; c < (n + chunk - 1) / chunk; c++) {
             int last = (c + 1) * chunk;
             if (last > n) {
                 last = n;
+            }
+            if (apply < 0.5f) {
+                last = c * chunk; // no update: the loop below is empty and the flag stays 0
             }
             float bad = 0f;
             for (int i = c * chunk; i < last; i++) {

@@ -82,16 +82,6 @@ class TornadoTrainerTest {
         }
     }
 
-    /**
-     * Gives the two scalars of a classic1 network values that keep the value outputs out of saturation: the linear
-     * evaluation is in logit units, so a random {@code prior.k} of the size of a weight saturates every tanh.
-     */
-    private static Parameters classicPrior(Parameters p) {
-        p.get(ResidualPriors.BETA).data()[0] = 0.8f;
-        p.get(ResidualPriors.K).data()[0] = 0.04f;
-        return p;
-    }
-
     /** Networks, weights and batches: plain and classic1, 2 and 3 players, TINY and SMALL, odd channel counts. */
     private static synchronized List<Fixture> fixtures() {
         if (all != null) {
@@ -110,19 +100,19 @@ class TornadoTrainerTest {
         list.add(new Fixture("tiny3-plain-big", tiny3, Parameters.uniform(tiny3, 12, 2 * TrainTesting.initBound(tiny3)),
                 TrainTesting.batch(3, PlaneSet.PLAIN, 20, 4), 0.75));
         list.add(new Fixture("tiny2-classic1", classicTiny2,
-                classicPrior(Parameters.uniform(classicTiny2, 13, TrainTesting.initBound(classicTiny2))),
+                TrainTesting.classicPrior(Parameters.uniform(classicTiny2, 13, TrainTesting.initBound(classicTiny2))),
                 TrainTesting.batch(2, PlaneSet.CLASSIC1, 24, 5), 0.75));
         list.add(new Fixture("tiny3-classic1", classicTiny3,
-                classicPrior(Parameters.uniform(classicTiny3, 14, TrainTesting.initBound(classicTiny3))),
+                TrainTesting.classicPrior(Parameters.uniform(classicTiny3, 14, TrainTesting.initBound(classicTiny3))),
                 TrainTesting.batch(3, PlaneSet.CLASSIC1, 21, 6), 1.0));
         list.add(new Fixture("small2-classic1", classicSmall2,
-                classicPrior(Parameters.uniform(classicSmall2, 15, TrainTesting.initBound(classicSmall2))),
+                TrainTesting.classicPrior(Parameters.uniform(classicSmall2, 15, TrainTesting.initBound(classicSmall2))),
                 TrainTesting.batch(2, PlaneSet.CLASSIC1, 16, 7), 1.0));
         list.add(new Fixture("small2-classic1-init", classicSmall2, Parameters.init(classicSmall2, 16),
                 TrainTesting.batch(2, PlaneSet.CLASSIC1, 16, 8), 1.0));
         list.add(new Fixture("small3-plain-init", NetworkConfig.small(3), Parameters.init(NetworkConfig.small(3), 17),
                 TrainTesting.batch(3, PlaneSet.PLAIN, 12, 9), 1.0));
-        list.add(new Fixture("odd-classic1", odd, classicPrior(Parameters.uniform(odd, 18, TrainTesting.initBound(odd))),
+        list.add(new Fixture("odd-classic1", odd, TrainTesting.classicPrior(Parameters.uniform(odd, 18, TrainTesting.initBound(odd))),
                 TrainTesting.batch(3, PlaneSet.CLASSIC1, 19, 10), 1.25));
         // A batch above 64 samples: the split-K chunks of the policy head gradient hold several samples, the last one fewer.
         list.add(new Fixture("tiny2-plain-130", tiny2, Parameters.uniform(tiny2, 20, TrainTesting.initBound(tiny2)),
@@ -130,7 +120,7 @@ class TornadoTrainerTest {
         // 300 channels and 300 hidden units: more than the 256 work items of the value head, so every work item pools
         // whole channels and handles more than one hidden unit.
         NetworkConfig wide = new NetworkConfig(300, 0, 2, 300, PlaneSet.CLASSIC1);
-        list.add(new Fixture("wide-300", wide, classicPrior(Parameters.uniform(wide, 23, TrainTesting.initBound(wide))),
+        list.add(new Fixture("wide-300", wide, TrainTesting.classicPrior(Parameters.uniform(wide, 23, TrainTesting.initBound(wide))),
                 TrainTesting.batch(2, PlaneSet.CLASSIC1, 6, 23), 1.0));
         list.add(new Fixture("tiny2-classic1-planes", planesOnly,
                 Parameters.uniform(planesOnly, 19, TrainTesting.initBound(planesOnly)),
@@ -411,14 +401,48 @@ class TornadoTrainerTest {
         return sum;
     }
 
-    /** The convolution gradients are not computed yet (B6, B7) and must read 0, not stale data. */
-    @Test
-    void theConvolutionGradientsStayZero() {
-        Fixture f = fixtures().get(0);
-        for (String name : List.of("conv_in.weight", "block0.conv1.weight", "block0.conv2.bias")) {
-            for (float v : f.trainer.gradient(name)) {
-                assertEquals(0f, v, name);
+    /** Names of the weight and bias tensors of all convolutions of a config, in network order. */
+    static List<String> convolutionTensors(NetworkConfig config) {
+        List<String> names = new ArrayList<>(List.of("conv_in.weight", "conv_in.bias"));
+        for (int i = 0; i < config.blocks(); i++) {
+            for (String conv : List.of("conv1", "conv2")) {
+                names.add("block" + i + "." + conv + ".weight");
+                names.add("block" + i + "." + conv + ".bias");
             }
+        }
+        return names;
+    }
+
+    /**
+     * The weight and bias gradients of every convolution (B6, B7: input gradient by the gather form with the permuted
+     * weight, residual path, masks, split-K weight gradient) against the gradients of the reference trainer, summed
+     * over the batch in double.
+     */
+    @Test
+    void convolutionGradientsMatchTheReferenceTrainer() {
+        for (Fixture f : fixtures()) {
+            StringBuilder report = new StringBuilder();
+            double worstOverall = 0;
+            for (String name : convolutionTensors(f.config)) {
+                double[] ref = f.reference.gradients().get(name);
+                float[] gpu = f.trainer.gradient(name);
+                assertEquals(ref.length, gpu.length, name);
+                double scale = TrainTesting.maxAbs(ref);
+                if (f.name.equals("small2-classic1-init")) {
+                    // Parameters.init starts both heads of a classic1 network at zero: nothing reaches the trunk.
+                    assertEquals(0.0, scale, f.name + " " + name);
+                } else {
+                    assertTrue(scale > 0, f.name + ": the reference gradient of " + name + " is 0");
+                }
+                Worst worst = new Worst(name);
+                TrainTesting.gradientAgrees(worst, f.name, ref, 0, gpu, 0, ref.length, scale);
+                worstOverall = Math.max(worstOverall, worst.fraction);
+                if (worst.fraction > 0.5) {
+                    report.append(worst).append("; ");
+                }
+            }
+            System.out.println("TornadoTrainer convolution gradients " + f.name + ", largest error / bound "
+                    + String.format("%.4f", worstOverall) + (report.length() > 0 ? " (over 0.5: " + report + ")" : ""));
         }
     }
 
@@ -519,7 +543,7 @@ class TornadoTrainerTest {
         int[][] shapes = {{1, 1024}, {2, 512}, {8, 1024}, {1024, 1024}};
         for (int[] shape : shapes) {
             NetworkConfig config = new NetworkConfig(shape[0], 0, 2, shape[1], PlaneSet.CLASSIC1);
-            Parameters p = classicPrior(Parameters.uniform(config, 51, TrainTesting.initBound(config)));
+            Parameters p = TrainTesting.classicPrior(Parameters.uniform(config, 51, TrainTesting.initBound(config)));
             TrainingBatch batch = TrainTesting.batch(2, PlaneSet.CLASSIC1, 256, 24);
             Sample[] reference = new Sample[batch.size()];
             for (int s = 0; s < reference.length; s++) {

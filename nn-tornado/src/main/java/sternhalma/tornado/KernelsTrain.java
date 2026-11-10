@@ -41,6 +41,18 @@ public final class KernelsTrain {
     }
 
     /**
+     * The value of a gradient element after a microbatch: {@code old + add} if {@code control[0] > 0.5} (the
+     * gradients of earlier microbatches of the batch are in the array), else {@code add}. The condition is not
+     * written as {@code old * control[0] + add}: a NaN left in {@code old} by a bad step would survive a factor of 0.
+     */
+    static float accumulate(FloatArray control, float old, float add) {
+        if (control.get(0) > 0.5f) {
+            return old + add;
+        }
+        return add;
+    }
+
+    /**
      * Adds the distance prior to the policy logits of the head, after {@link OpsKernels#policyHead}
      * (docs/network.md, "Classical planes and residual priors"): {@code policy[c][FROM] += beta * 16 * d(c)} and
      * {@code policy[c][TO] -= beta * 16 * d(c)} with d the plane {@link Encoder#DIST_OWN}. One work item per
@@ -163,9 +175,10 @@ public final class KernelsTrain {
      * @param wp      policy weights wp_s
      * @param dPolicy [batch][121][2], written
      * @param lossOut [batch][2], written at the even indices
+     * @param total   the size N of the whole batch that this one is a microbatch of; the gradient is divided by it
      */
     public static void policyLoss(FloatArray policy, IntArray offsets, IntArray from, IntArray to,
-            FloatArray target, FloatArray wp, FloatArray dPolicy, FloatArray lossOut, int batch) {
+            FloatArray target, FloatArray wp, FloatArray dPolicy, FloatArray lossOut, int batch, int total) {
         for (@Parallel int s = 0; s < batch; s++) {
             int base = s * POLICY_SIZE;
             int first = offsets.get(s);
@@ -190,7 +203,7 @@ public final class KernelsTrain {
                     sum += TornadoMath.exp(l - max);
                 }
                 float logZ = max + TornadoMath.log(sum);
-                float scale = weight / batch;
+                float scale = weight / total;
                 for (int m = first; m < end; m++) {
                     int f = base + 2 * from.get(m);
                     int t = base + 2 * to.get(m) + 1;
@@ -220,13 +233,14 @@ public final class KernelsTrain {
      * @param wv      value weights
      * @param dy      [batch][P], written
      * @param lossOut [batch][2], written at the odd indices
+     * @param total   the size N of the whole batch that this one is a microbatch of
      */
     public static void valueLoss(FloatArray values, FloatArray z, FloatArray wv, FloatArray dy, FloatArray lossOut,
-            int batch, int players, float valueCoefficient) {
+            int batch, int players, float valueCoefficient, int total) {
         for (@Parallel int s = 0; s < batch; s++) {
             float weight = wv.get(s);
             float loss = 0f;
-            float scale = valueCoefficient * weight / batch;
+            float scale = valueCoefficient * weight / total;
             for (int p = 0; p < players; p++) {
                 float g = 0f;
                 if (weight > 0f) {
@@ -313,11 +327,12 @@ public final class KernelsTrain {
      *
      * @param a  [batch][rows], the gradient of the pre-activation
      * @param x  [batch][cols], the input of the layer
-     * @param dW [rows][cols], written
+     * @param dW [rows][cols], written (or added to, see {@link #accumulate})
      * @param db [rows], written
+     * @param control {@code control[0] > 0.5} adds to the gradients that are there
      */
-    public static void denseGradient(FloatArray a, FloatArray x, FloatArray dW, FloatArray db, int batch,
-            int rows, int cols) {
+    public static void denseGradient(FloatArray a, FloatArray x, FloatArray dW, FloatArray db, FloatArray control,
+            int batch, int rows, int cols) {
         for (@Parallel int r = 0; r < rows; r++) {
             for (@Parallel int j = 0; j <= cols; j++) {
                 float sum = 0f;
@@ -325,12 +340,12 @@ public final class KernelsTrain {
                     for (int b = 0; b < batch; b++) {
                         sum += a.get(b * rows + r) * x.get(b * cols + j);
                     }
-                    dW.set(r * cols + j, sum);
+                    dW.set(r * cols + j, accumulate(control, dW.get(r * cols + j), sum));
                 } else {
                     for (int b = 0; b < batch; b++) {
                         sum += a.get(b * rows + r);
                     }
-                    db.set(r, sum);
+                    db.set(r, accumulate(control, db.get(r), sum));
                 }
             }
         }
@@ -376,8 +391,8 @@ public final class KernelsTrain {
      * Adds the chunks of {@link #policyWeightPartial} in ascending order into {@code dW} [2][C] and {@code db}
      * [2]. One work item per (k, ch) with the bias column.
      */
-    public static void policyWeightReduce(FloatArray partial, FloatArray dW, FloatArray db, int channels,
-            int splits) {
+    public static void policyWeightReduce(FloatArray partial, FloatArray dW, FloatArray db, FloatArray control,
+            int channels, int splits) {
         int width = channels + 1;
         for (@Parallel int i = 0; i < 2 * width; i++) {
             float sum = 0f;
@@ -387,9 +402,9 @@ public final class KernelsTrain {
             int k = i / width;
             int ch = i - k * width;
             if (ch < channels) {
-                dW.set(k * channels + ch, sum);
+                dW.set(k * channels + ch, accumulate(control, dW.get(k * channels + ch), sum));
             } else {
-                db.set(k, sum);
+                db.set(k, accumulate(control, db.get(k), sum));
             }
         }
     }
@@ -421,16 +436,17 @@ public final class KernelsTrain {
     }
 
     /** Adds the per-sample terms in ascending order: {@code dBeta[0]} and {@code dK[0]}. Two work items. */
-    public static void priorGradientReduce(FloatArray partial, FloatArray dBeta, FloatArray dK, int batch) {
+    public static void priorGradientReduce(FloatArray partial, FloatArray dBeta, FloatArray dK, FloatArray control,
+            int batch) {
         for (@Parallel int i = 0; i < 2; i++) {
             float sum = 0f;
             for (int s = 0; s < batch; s++) {
                 sum += partial.get(2 * s + i);
             }
             if (i == 0) {
-                dBeta.set(0, sum);
+                dBeta.set(0, accumulate(control, dBeta.get(0), sum));
             } else {
-                dK.set(0, sum);
+                dK.set(0, accumulate(control, dK.get(0), sum));
             }
         }
     }

@@ -570,6 +570,8 @@ Whole-step tests:
 
 **Project reasoning:** against the scalar reference the GPU is 300 to 1,300 times faster; against a hypothetical well-scaled vector trainer on all 16 cores it is only 1.25 to 5 times faster. The honest case for the GPU trainer is therefore the second effect: the CPU stays free for MCTS and move generation in self-play, which run at the same time.
 
+**Measured (block B6-B10, [measurements](#measurements-1)):** SMALL `classic1`, whole steps on the M3 Max: **49,300 samples/s at batch 256, 60,800 at 1,024** (the estimate was 12,000 to 47,000), at 2.1 to 2.6 TFLOP/s of matrix work, above the 0.5 to 2 TFLOP/s that the estimate assumed. The CPU trainer that exists (the scalar reference on 8 threads) does about 900 samples/s in loop run 1, so the GPU is 55 to 68 times faster; the hypothetical vector trainer of the table was never written. The LARGE figures above are still the estimate (about 10,000 samples/s by the flop count and 2.6 TFLOP/s). Inside the loop the step is limited by building the batch on the host (2.3 ms of 8.5 ms).
+
 #### Where the time goes
 
 An example generation with LARGE: 500 games of about 100 plies give 50,000 samples (to measure). With 200 MCTS simulations per move, self-play costs 10 million network evaluations, 843 TFLOP. Training with reuse factor R = 4 costs 200,000 sample passes, 50 TFLOP. Self-play is about 17 times the training work. Every ply that classical code plays instead of MCTS (see [What classical code covers](#what-classical-code-covers)) saves more GPU time than any speed-up of the training kernels can.
@@ -1391,7 +1393,7 @@ Gate scores of the other generations: 0.565 (2), 0.560 (4), 0.562 (6), 0.543 (7)
 
 ## As implemented (block B1-B5)
 
-**TL;DR:** The device now runs the training forward pass with a per-layer activation store, the float losses and the backward pass of both heads (blocks B3 to B5), and the AdamW and SGD update with a finite check (B1), each against its CPU twin. `TornadoTrainer` runs forward, losses and head backward for a `TrainingBatch` in one task graph (`run(batch)` returns the `ReferenceTrainer.Result`); `DeviceOptimizer` adds the update tasks to that graph later. Everything is float32, deterministic (bit-identical runs) and free of atomic adds, and `classic1` is supported end to end: the policy prior, the value prior and the gradients of `prior.beta` and `prior.k`. Measured for SMALL `classic1`: **forward, losses and head backward take 6.6 ms for a batch of 1,024 (155,000 samples/s) and 2.3 ms for 256 (112,000 samples/s)**; the forward convolutions alone reach 2.8 TFLOP/s of matrix work including the batch upload. 29 new tests, 193 in the module, 0 skipped; 44 of 44 mutants killed. The convolution backward (B6, B7) and the whole step (B8) are the next block; a step is then about 17 ms for 1,024 samples by estimate, against about 290 ms for 256 samples on the CPU in [loop run 1](#loop-run-1-measured-2026-11-10) (3.5 steps/s).
+**TL;DR:** The device now runs the training forward pass with a per-layer activation store, the float losses and the backward pass of both heads (blocks B3 to B5), and the AdamW and SGD update with a finite check (B1), each against its CPU twin. `TornadoTrainer` runs forward, losses and head backward for a `TrainingBatch` in one task graph (`run(batch)` returns the `ReferenceTrainer.Result`); `DeviceOptimizer` adds the update tasks to that graph later. Everything is float32, deterministic (bit-identical runs) and free of atomic adds, and `classic1` is supported end to end: the policy prior, the value prior and the gradients of `prior.beta` and `prior.k`. Measured for SMALL `classic1`: **forward, losses and head backward take 6.6 ms for a batch of 1,024 (155,000 samples/s) and 2.3 ms for 256 (112,000 samples/s)**; the forward convolutions alone reach 2.8 TFLOP/s of matrix work including the batch upload. 29 new tests, 193 in the module, 0 skipped; 44 of 44 mutants killed. The convolution backward (B6, B7) and the whole step (B8) came in [block B6-B10](#as-implemented-block-b6-b10); a step is then about 17 ms for 1,024 samples by estimate, against about 290 ms for 256 samples on the CPU in [loop run 1](#loop-run-1-measured-2026-11-10) (3.5 steps/s).
 
 Implemented, tested and measured 2026-11-10, JDK 25.0.3, Apple M3 Max, Metal, on AC power (78 %, not charging), no thermal or performance warning, load average 6 to 7 from other work: the timings are indicative.
 
@@ -1498,12 +1500,157 @@ SMALL `classic1`, two players, batches from seeded random games (10,472 moves at
 
 ### Open problems for B6 and later
 
+All of them were taken up in [block B6-B10](#as-implemented-block-b6-b10); the list stays as it was written.
+
 - **B6, B7:** the gradient buffers of all convolution tensors exist (`gradients()`, written as 0 and never transferred: TornadoVM has no device copy of an array that no task uses, [tornado](tornado.md#pitfalls) item 12) and `trunkGradient()` is dx_B; the backward needs two more [N][122][C] buffers (dx and dt) and the permuted weights W'. Every backward kernel must write all its elements (the tests fill buffers with NaN to show a skipped element).
 - **B8:** add `DeviceOptimizer.addTasks` to the trainer's graph behind the last backward kernel, send `prepare(step, lr)` before each `execute()`, check `nonFinite()`. The one-step and twenty-step comparisons with `ReferenceTrainer` and `Optimizer` need the conv gradients.
 - **Gradient accumulation** over microbatches (add instead of overwrite) and the **mirror augmentation** stay on the host (`ReplayBuffer`), already applied in the batch.
 - **B10 (loop integration):** `ReplayBuffer.batch` to `TrainingBatch` is on the host and uploads 6.5 MB per step (part of the 6.6 ms measured above); overlapping the next batch's build with the running step would hide it. `TornadoTrainer` takes the parameters of a `Parameters` and gives them back with `downloadParameters`; the optimiser state comes back with `DeviceOptimizer.firstState()` and `secondState()` after `transferToHost(stateArrays())` for a checkpoint.
 - **Inference with `classic1`** on the device (MCTS) is not supported; the training kernels show what the value head needs.
 - **Open question 8** is answered: a `double` kernel is rejected on this device and the float softmax meets the gradient bound.
+
+## As implemented (block B6-B10)
+
+**TL;DR:** The GPU trainer is complete and in the loop. The convolution backward (B6, B7), the whole step with the update in one task graph, gradient accumulation over microbatches and the finite check (B8) are on the device; `TornadoTrainer.step` is one optimiser step. SMALL `classic1` takes **5.2 ms per step at batch 256 (49,300 samples/s) and 16.9 ms at batch 1,024 (60,800 samples/s)**, against about 900 samples/s for the CPU trainer with 8 threads: 55 to 68 times faster, at 2.1 to 2.6 TFLOP/s of matrix work. The loop has `--trainer cpu|gpu` (B10); the GPU run of one generation of loop run 1 (4,936 steps, batch 256) took **42 s instead of 23 minutes**, with held-out proxies and a 100-pair gate that are not worse than the CPU candidate's. 203 tests in `nn-tornado` (10 new), 316 in `nn` (2 new), 231 in `selfplay` (1 skipped: `RawPolicyContractTest.strategyBeatsARandomPlayer`, skipped before this block) and 5 in `selfplay:gpuTest` (all new), 0 failures. Every gradient of the network agrees with `ReferenceTrainer` within the bounds of Part B (largest error 0.012 of the bound), two GPU runs give the same bits, and a run that is killed and resumed gives the same bits as one that was not. 26 of 26 mutants killed.
+
+Implemented, tested and measured 2026-11-10, JDK 25.0.3, Apple M3 Max, Metal, on AC power (78 %, not charging), no thermal or performance warning (`pmset -g therm`), load average 3 to 7 from other work: the timings are indicative.
+
+| Class | Content |
+|---|---|
+| `KernelsConvBackward` (`nn-tornado`) | `permuteWeight` (kernel 6: W' with the permutation pi), `weightPartial` (kernel 7, plain `@Parallel`, the oracle and the variant for tiny batches), `weightPartialSimdgroup` (kernel 7 on the Metal SIMD-group matrix units, with the bias column), `weightReduce` (kernel 9, fixed chunk order, replace or add), `maskGradient` and `maskInto` (the ReLU rule with the stored activation). The input gradient (kernel 8) is the forward convolution kernel of `KernelsHexConv` with W'. |
+| `TornadoTrainer` (extended) | `addConvBackward`; the constructor `TornadoTrainer(parameters, optimizer, batch, microbatch, valueCoefficient, device)`; `step(batch, lr)`, `sync()`, `steps()`; implements `nn.StepTrainer`. `run(batch)` still computes the gradients without the update. |
+| `KernelsTrain`, `KernelsOptimizer`, `DeviceOptimizer` (extended) | The loss kernels divide by the size of the whole batch (`total`); the gradient kernels take a `control` array and add instead of overwrite (`accumulate`); the update kernels read an update switch (`HYPER_APPLY`), 0 for every microbatch but the last; `DeviceOptimizer.prepare(steps, lr, apply)` and `storeInto(Optimizer)`. |
+| `GpuTrainers` (`nn-tornado`) | The entry for modules that compile without the TornadoVM API: `unavailableReason()`, `description()`, `microbatchFor(batch)`, `create(...)`. |
+| `StepTrainer` (`nn`) | The seam of `TrainingRun`: `step(batch, lr)`, `sync()`, `close()`; `StepTrainer.cpu(...)` is the CPU reference trainer and the optimiser. `TrainingRun` has a constructor that takes one and calls `sync()` before every checkpoint; `Optimizer.completeSteps` sets the step count of the host optimiser. |
+| `Loop`, `LoopConfig`, `Gen0` (`selfplay`) | `--trainer cpu|gpu`; the trainer kind in `run.json`; `scripts/loop.sh` and `scripts/gen0.sh` add the TornadoVM flags for `--trainer gpu`. `GpuCheck` (test sources) re-trains one generation of a finished run with either trainer. |
+
+### Design as built
+
+- **Backward order and buffers.** Per block, from the last: dpre = dx_{i+1} masked with u_i (into `dpre`, out of place: the first mask must not destroy dx_B, which the tests read, and a network without blocks has dx_B = dx_0); dW and db of conv2 from dpre and t_i; dt = forward convolution of dpre with W'_2 (zero bias); dz_1 = dt masked with t_i, in place; dW and db of conv1 from dz_1 and x_i; dx_i = forward convolution of dz_1 with W'_1 plus dpre (the residual argument of the forward kernel), into `dxNext`, which the next block reads as dx_{i+1}. Then `conv_in`: mask with x_0, dW and db from the input planes, no input gradient. Four extra [N][122][C] buffers (`dpre`, `dxNext`, `dt`, and `dx` of the heads), and one W' of 7 C^2 floats and one partial buffer that all convolutions share (the tasks of a graph run in order).
+- **Input gradient.** The forward kernels need no change: `KernelsHexConvLayer.addTask` with the gradient as input, W' as weight, a zero bias of C floats, and the same variant as the forward pass of that batch size (naive up to batch times channels of 128, else the SIMD-group kernel). Row 121 of dz is 0 in every buffer (the mask and the convolution write it), which is what the gather form needs for neighbours off the board.
+- **Weight gradient.** Split-K over the rows of the batch (batch times 122, so a chunk may start in the middle of a sample): `S = 32` chunks (`-Dsternhalma.tornado.convSplits`), each chunk a matrix product dz^T [C_out x rows] times the gathered input [rows x 7 C_in] for its rows. The plain kernel has one work item per (chunk, o, j) and loops over its rows; the SIMD-group kernel has a work group per (chunk, tile of 32 channels, tile of 32 columns) and per step of 32 rows gathers a 32 x 32 tile of dz and one of the input into local memory and multiplies 2 x 2 blocks of 8 x 8 per SIMD group (dz read transposed). The bias column is summed in the same kernel: the groups of the first column tile add the dz values they load (every item its own, four items per channel, added in a fixed order). `weightReduce` adds the chunks in ascending order. Nothing uses an atomic add; the order of the sums is fixed, so two runs give the same bits.
+- **One graph for a step.** Forward, losses, head backward, convolution backward and the update (`DeviceOptimizer.addTasks`) are one task graph of about 90 tasks for SMALL. Per execution the batch and the optimiser scalars go in and the 2 N losses and the 64 flag sums come back. The learning rate, the Adam step count and the bias corrections of a step are computed in double on the host (`DeviceOptimizer.prepare`) and travel in the `hyper` array, as in B1.
+- **Microbatches.** A batch of N samples is cut into N / M consecutive microbatches (`TrainingBatch.select`), each one execution of a graph built for M samples. The loss kernels divide by N, not by M, the host sums the terms of the microbatches, the gradient kernels replace (`control[0] = 0`) for the first and add for the others, and the update switch is 1 for the last only, so that the update runs in the same execution as the last backward pass. `GpuTrainers.microbatchFor` takes the whole batch up to 2,048 samples and else the largest divisor that is at most 2,048.
+- **The finite flag.** The update runs for every tensor and flags a chunk whose gradient or new parameter is NaN or infinite; it does not skip the update (B1). `step` therefore reads the flag after the last execution and throws `IllegalStateException` ("the update ran, the parameters are undefined"). A NaN loss throws as before. `Loop` catches the exception, prints "stopped" and the reason, and returns the error code 1 with the newest checkpoint as the last sound state; `TrainingRun` writes no checkpoint of the bad step.
+- **Host copy and checkpoints.** `TornadoTrainer` takes the `Parameters` and the `Optimizer` of the run, copies them to the device (the optimiser state with `DeviceOptimizer.loadState`, so a trainer built from a checkpoint continues exactly) and keeps its own step count; `Optimizer.steps()` of the host follows it. `sync()` transfers parameters and state back and writes them into the host objects, and `TrainingRun` calls it before every checkpoint and the observers: the checkpoint is the usual `Checkpoint` format, from the device state, and the proxies of the loop evaluate the synchronised parameters. It costs 1.3 ms at batch 256 (the 1.4 MB of parameters and 2.8 MB of state of SMALL), once per checkpoint.
+- **The trainer is part of the configuration.** The GPU's float sums differ from the CPU's double sums, so a GPU run and a CPU run give different networks (each is deterministic). `run.json` therefore names `"trainer":"gpu"` for a GPU run and nothing for a CPU run, so that the hash of every run that existed before is unchanged, and a run directory is refused with the other trainer ("holds another configuration"), like any other option. `--trainer gpu` without a usable device prints the reason (for example the missing TornadoVM flags) and trains on the CPU, and then `run.json` says CPU: the trainer that ran is the one that is recorded. A run that `run.json` calls GPU is not continued on the CPU.
+- **Not done: overlapping the host.** The host builds the batch (2.3 ms for 256 samples) and then the device runs the step (5.2 ms); a second thread that builds the next batch while the device runs would hide the first (1.5 times as many steps). A generation takes 42 s of training in about 30 minutes, so the gain is 15 s per generation; the code (one more thread and a hand-over of the batch, in `TrainingRun`) is not worth it yet.
+
+### Tests
+
+203 tests in `nn-tornado` (10 new), 316 in `nn` (2 new), 231 in `selfplay` (1 skipped: `RawPolicyContractTest.strategyBeatsARandomPlayer`, skipped before this block) and 5 in `selfplay:gpuTest` (all new), 0 failures. All GPU tests skip cleanly without the SDK or a device (`TornadoAssumptions`; `gpuTest` is skipped without the SDK and the plain `test` of `selfplay` excludes `*Gpu*`).
+
+| Test | What |
+|---|---|
+| `TornadoTrainerTest.convolutionGradientsMatchTheReferenceTrainer` | Weight and bias gradients of every convolution (`conv_in`, 2 per block) against `ReferenceTrainer` for the 11 fixtures of B3 to B5: TINY, SMALL, odd channels, 300 channels, a network without blocks, plain and classic1, 2 and 3 players, init and uniform weights, batches of 6 to 130 (both variants of the convolution kernels, the chunks of the split-K hold several samples above batch 64). The Parameters.init classic1 case must be exactly 0. |
+| `TornadoStepTest.oneStepFromTheSameStateAfterOneStep` | Four steps; before each, the device trainer is built from the CPU's parameters and optimiser state (m, v and the step count from the second step on), the learning rate doubles from step to step, and both take the same batch: parameters, m, v, step count and the loss terms agree. |
+| `twentyStepsOnTheSameBatchesGiveTheSameLosses` | 20 free-running steps on four batches, 5 networks: the losses agree within 1 % at every step, and decrease. |
+| `microbatchesAddUpToTheWholeBatch`, `accumulatedConvolutionGradientsAgreeWithOnePass` | A batch of 64 as 1, 2 and 4 microbatches (48 as 3): same loss, parameters as the CPU's, all convolution gradients of the accumulated sums against the reference; misuse (batch not a multiple, wrong size, `run` on a microbatch trainer). |
+| `stepsAreBitIdentical`, `resumingFromACheckpointIsBitIdentical` | Two device runs of 3 steps give the same parameters and state, bit for bit, on 5 networks; 2 steps, `sync`, `Checkpoint.write`, `Checkpoint.read`, a new trainer, 3 steps give the bits of 5 uninterrupted steps. |
+| `aNonFiniteStepThrowsAfterTheUpdateRan`, `aTrainingRunWithTheDeviceTrainerStopsOnTheFiniteFlagAndCheckpointsTheDeviceState` | A NaN weight with a batch of zero weights gives a finite loss and NaN gradients: only the flag sees it; `step` throws and the parameters on the device are NaN afterwards (the update ran). `TrainingRun` ends with the exception and no checkpoint; a sound run gives checkpoints that equal the host copy and end close to the CPU run. `runDoesNotUpdateAndStepNeedsAnOptimizer`. |
+| `twoMovesAndCornerCellsOfThePrior` | The follow-ups of the B1 to B5 review: a sample with exactly two moves (`TrainTesting.edgeBatch` has one now, as sample 5), and `prior.beta` with the whole gradient on cell 0, 60 or 120. |
+| `StepTrainerTest` (`nn`) | The run syncs before every checkpoint and once at the end and not otherwise; the CPU trainer through the seam equals the run's default; an exception of a step ends the run with the earlier checkpoints only. |
+| `LoopGpuTest` (`selfplay`, task `gpuTest`) | The loop on a TINY network with `--trainer gpu`: `run.json` names the trainer, two runs give the same bits, an abort during the training resumes at the newest checkpoint with the bits of an uninterrupted run, the other trainer is refused, a JVM without the TornadoVM flags falls back with the message and records CPU, and **real processes**: SIGKILL (exit 137) after two checkpoints, a restart that is stopped with SIGTERM, and a last restart end with the results of an uninterrupted run. |
+
+### Tolerances as measured
+
+Largest error as a fraction of the bound over all cases (bounds as in [Verification against Part A](#verification-against-part-a)).
+
+| Output | Largest error / bound | Case |
+|---|---|---|
+| weight and bias gradients of all convolutions | **0.0115** (0.0027 TINY plain, 0.0079 TINY classic1, 0.0034 SMALL classic1, 0.0115 SMALL plain `init`, 0.0042 300 channels, 0.0053 batch 130) | `small3-plain-init` |
+| parameters after one step from the same state, elements with a gradient of at least 1e-3 of the tensor's largest (bound 0.01 lr) | **0.007** of 0.01 lr, steps 1 to 4 at lr 1e-3 to 8e-3 | SMALL plain, 3 players |
+| the same, the bound for every element (2 lr, the sign of a near-zero gradient) | holds for all | |
+| m and v after one step from the same state | within `1e-6 abs + 1e-9 + 2e-7 max + 2e-3 abs + 1e-4 max` (the first terms of B1, plus the gradient's own error of 1e-3) | all |
+| losses of 20 free-running steps | 0.027 of 1 % (2.7e-4 relative) | SMALL plain, 3 players |
+| loss and parameters of a step in microbatches of 64, 32, 16 | loss identical to the double, parameters 0.001 of 0.01 lr | TINY classic1 |
+| 12 steps through `TrainingRun`, parameters against the CPU run | largest difference 5.7e-3 for lr up to 1e-3 (12 lr = 12e-3; the sign of near-zero gradients) | TINY plain |
+
+Two bounds of the table in "Verification against Part A" needed a change, each for a reason that the measurement shows:
+
+- **`head_policy.bias` in the one-step comparison.** Its exact gradient is 0 (a constant added to every logit changes nothing) and both sides hold rounding noise; an Adam step follows the sign of a noise gradient, so the parameter differs by up to 2 lr (measured 0.7 lr) and m differs by 1e-8. The test applies the 2 lr bound and leaves the bias out of the tight comparison and of the state comparison.
+- **The one-step bound of the document (2 lr for every element, 1e-3 lr for the large ones) is tightened to 0.01 lr** for the elements with a gradient of at least 1e-3 of the tensor's largest, because the measurement is 0.007 of that, and a stale or wrong learning rate (a mutant) is a multiple of it.
+
+### Mutation check
+
+26 distinct mutants of the new kernels and host code, each put in alone and run against `TornadoStepTest`, `TornadoTrainerTest` and `DeviceOptimizerTest` (the host mutants of `TrainingRun` against `StepTrainerTest`, the one of the loop against `LoopGpuTest`):
+
+| Part | Mutants (all killed) |
+|---|---|
+| Input gradient | W' built without the permutation pi; W' with the channel indices swapped; the input gradient with W instead of W'; the residual path dx_i = din + dpre dropped |
+| Masks | the ReLU mask of dz missing (in place); the ReLU mask of dpre missing; the mask of dz_1 with the activation of the wrong slot |
+| Weight gradient (split-K) | the chunk size drops the remainder (plain kernel; SIMD-group kernel); the reduction drops the last chunk; the bias column drops one of its four partial sums |
+| Accumulation | `accumulate` overwrites; the flag inverted; the flag never sent; every microbatch takes the first slice; the loss divided by the microbatch instead of the batch |
+| Step and update | a constant learning rate instead of the step's; the Adam step count off by one; the update runs after every microbatch (host switch); the update kernel ignores its switch; the finite flag ignored |
+| Resume and host copy | the second moment of a loaded checkpoint taken from m; the state never loaded into the trainer; `sync` leaves the state on the device; `TrainingRun` does not sync before a checkpoint |
+| Loop | `run.json` does not name the GPU trainer |
+
+Each is killed by several tests (the weight and input gradient mutants by `convolutionGradientsMatchTheReferenceTrainer` and the step tests, the accumulation ones by `microbatchesAddUpToTheWholeBatch`, the learning-rate and step-count ones by `oneStepFromTheSameStateAfterOneStep` and `twentyStepsOnTheSameBatches...`, the resume ones by `resumingFromACheckpointIsBitIdentical`, the flag one by `aNonFiniteStepThrowsAfterTheUpdateRan`). **Not covered by a test that would catch a mutant:** `MAX_MICROBATCH` (batches above 2,048 are cut by `GpuTrainers.microbatchFor`; the cutting itself is tested with 64 in 16s), the cut graphs of the benchmark, `GpuCheck`, and `Gen0 --trainer gpu` (see above).
+
+### Measurements
+
+SMALL `classic1`, two players, batches from seeded random games (10,472 moves at 256, 21,383 at 512, 42,208 at 1,024, 83,639 at 2,048), `Parameters.uniform`, AdamW; `:nn-tornado:trainerBenchmark --args='256 512 1024 2048'`; median of 30 runs after 10 warm-up runs; the wall time is that of `TornadoTrainer.step`: the copy of the batch into the device arrays, the one execution (batch transfer, all kernels, update, the loss and flag copy-back) and the host sums, without the profiler. The CPU figure is that of [loop run 1](#loop-run-1-measured-2026-11-10): 3.6 steps/s at batch 256 with 8 threads, about 900 samples/s (it does not change much with the batch size).
+
+| Batch | Step | Samples/s | Steps/s | Matrix work | Against the CPU | Device arrays |
+|---|---|---|---|---|---|---|
+| 256 | **5.20 ms** | **49,300** | 192 | 2,120 GFLOP/s (11.0 GFLOP) | 55 times | 56 MB |
+| 512 | 8.96 ms | 57,200 | 112 | 2,460 GFLOP/s | 64 times | 111 MB |
+| 1,024 | **16.85 ms** | **60,800** | 59 | 2,615 GFLOP/s (44.1 GFLOP) | 68 times | 219 MB |
+| 2,048 | 33.63 ms | 60,900 | 30 | 2,620 GFLOP/s | 68 times | 437 MB |
+
+"Matrix work" counts the multiply-adds of the nine convolutions of the forward pass, the weight gradient and the input gradient without `conv_in` (2 FLOP each, [How the numbers were computed](#how-the-numbers-were-computed)); the heads, losses and the update are not in it. The step reaches its speed at batch 1,024 and does not gain above it. The memory is the sum of the device arrays of the trainer (parameters, gradients, state, the store of 9 activations, the backward buffers and the batch); the Metal device has 51.8 GB, so nothing limits the batch. The numbers of the first version, with the plain weight-gradient kernel, were 64 ms and 16,000 samples/s at batch 1,024.
+
+**Where the time goes**, by difference of cut graphs (`run`, no update; the smallest batch is noisy to 0.5 ms, "heads" at 256 came out as -0.4 ms), and by the profiler's kernel times, which add up to more than the wall time (the profiler lengthens every task, [tornado](tornado.md#measured-speed) finding 1):
+
+| Part | 512 | 1,024 | 2,048 | Profiler at 2,048 and the rate of the matrix work there |
+|---|---|---|---|---|
+| forward convolutions (9) | 2.81 ms | 5.21 ms | 9.98 ms | 9.4 ms, 3.2 TFLOP/s |
+| heads (policy head, prior, value head) | 0.04 | 0.12 | 0.19 | below 0.1 each |
+| losses and head backward (13 kernels) | 0.86 | 1.14 | 2.86 | `policyWeightPartial` 0.7 ms at 1,024 is the largest |
+| convolution backward (masks, W', 9 weight gradients, 8 input gradients) | 4.93 | 10.05 | 20.16 | weight gradient 9.0 ms (3.3 TFLOP/s), input gradient 8.8 ms (3.2), masks 2.1, permute and reduce 0.1 |
+| update (AdamW, 26 tensors, the flag sum), `step` minus the cut graph | 0.3 | 0.3 | 0.4 | 0.02 |
+
+At batch 256 the profiler's numbers are the floor of about 0.5 ms per task (nine convolutions show 4.9 ms against a cut graph of 1.6 to 2.2 ms), and the whole graph of about 90 tasks runs in 5.2 ms: a task costs well under 0.1 ms when its kernel is small. All three convolution groups run at 3.0 to 3.3 TFLOP/s of matrix work inside the graph at 1,024 and 2,048. **The host side of `step`** is small: the copy of the batch into the device arrays is 0.04 ms at 256 and 0.28 ms at 2,048, the loss sums 0.01 ms, `sync()` (parameters and state to the host, once per checkpoint) 1.2 ms at 256 and 0.4 ms at 2,048. **Building the batch from the replay buffer** is the host cost that counts: 2.3 ms per batch of 256 on one thread (`GpuCheck`), which is 31 % of the 7.5 ms of host and device together, and in the real check below the step took 8.5 ms (118 steps/s) where the device alone takes 5.2 ms (192 steps/s). Building the next batch on a second thread while the device runs the current step would give at most 5.5 ms per step, about 1.5 times as many steps; it is not done (see Open problems).
+
+**Power and thermal state** (`pmset`, before and after the benchmark and the real check): AC power, 78 % and not charging, "No thermal warning level has been recorded", "No performance warning level has been recorded"; the runs are a few minutes each. No power figure in watts: `powermetrics` needs root. The load average of the machine was 4 to 6 from other work, so the timings are indicative.
+
+### Loop integration
+
+`Loop run RUN --init NETWORK ... --trainer gpu` trains the candidate of every generation on the device: the parameters from the best network, a fresh optimiser, the batches from the `ReplayBuffer` exactly as for the CPU (the same sampler, the same mirror flags, `TrainingBatch`), the checkpoints in the `Checkpoint` format every `--checkpoint-steps` steps (and every `--checkpoint-seconds`), the proxies, the ETA and the monitor categories unchanged, and the steps per second in the progress line of `TrainingRun` (`gen 1 train: 32/32 steps  15.2 steps/s ...`). One line says what trains: `gen 1 train: GPU trainer on Apple M3 Max (METAL), batch 64 in executions of 64`. `--microbatch` is the CPU's option; the device takes the whole batch up to 2,048 samples. A resume from a checkpoint works for GPU runs (the state is in the file and `DeviceOptimizer.loadState` sends it), and the abort and restart behaviour is that of the loop: SIGINT 130, SIGTERM 143, SIGKILL leaves a run that continues from the newest checkpoint that reads. The TornadoVM flags come from `scripts/loop.sh` (the SDK's `tornado-argfile`), or from Gradle (`gpuTest`, `gpuCheck`). **GPU runs are deterministic per run but not bit-identical to CPU runs**, so the trainer kind is part of `run.json` and its hash (above). **Gen0** has the same option (`Gen0 run ... --trainer gpu`), a change of the same size: the config field, the fallback and the `StepTrainer`; it is not tested beyond compiling and the shared code paths (no Gen0 run on the device was made).
+
+### The real check
+
+One generation of loop run 1, trained again on the device (`GpuCheck`, `./gradlew :selfplay:gpuCheck`): generation 10, which trained the candidate that the loop wrote from the candidate of generation 8 (the best network then, `parent` in its metadata) on the replay window of generations 8 to 10 (943,675 samples, 315,898 of them new, 34,886 games' worth held out), with the loop's configuration (`run.json` of `data/loop1`: AdamW, lr 3e-4, warm-up 100, batch 256, reuse 4, mirror augmentation) and its 4,936 steps. The start network is the candidate of generation 8, not the one named in the task (`gen-0010`, which is the CPU result of the generation): the task's start would train a network that already saw this window. The loop data was only read; the output is in `data/loopgpu1`.
+
+| Held-out proxies, 2,500 of the 34,886 samples of the 10 % of the games that the loop holds out (`HeldOutMetrics`, as in the loop's lines) | policy KL | top-1 | value loss | winner |
+|---|---|---|---|---|
+| start network (candidate of generation 8) | 0.3907 | 77.40 % | 0.4648 | 81.23 % of 2,472 |
+| CPU candidate of the loop (4,936 steps, 22.9 minutes) | 0.3985 | 76.07 % | 0.4740 | 80.78 % |
+| **GPU candidate** (4,936 steps, **41.8 s**) | **0.3985** | **76.48 %** | **0.4685** | **81.03 %** |
+
+- **Time:** 4,936 steps in 41.8 s = 118 steps/s = 30,200 samples/s inside the loop's `TrainingRun` (the batches come from the replay buffer; 5 ms of every 8.5 ms are the device), against 22.9 minutes (3.6 steps/s) for the CPU: **0.7 minutes against 23 minutes per generation, 33 times**; 10 checkpoints with the copy of parameters and state cost 2 to 5 ms each. A generation of loop run 1 took 52 minutes (8 h 45 min for ten), 43.5 % of it training; with the trainer on the device a generation takes about 30 minutes, 2 % of it training, and self-play is the larger share. Two runs of the check gave the same proxies to all printed digits.
+- **Proxies:** the GPU candidate is equal to the CPU candidate in policy KL (0.3985 both), 0.4 points better in top-1 and 0.005 better in value loss; both are a little worse than their start network on these held-out games, as the loop's own lines show for this generation. One run each: the difference between the two is not claimed to be more than the difference of two trainers.
+- **Gate** (`mctsMatch`, the loop's evaluation player `mcts:sims=100,batch=1,cpuct=1.0,noise=0,temp=0,race=1`, GPU candidate against the CPU candidate, 100 pairs, seed 3001, 83 s): **score 0.518 +- 0.027, Elo +12 +- 36 (95 %), 101 wins, 5 draws, 94 losses**. Not worse; equal within the noise, as expected for two trainers that differ in rounding.
+- Through the script of the loop (`scripts/loop.sh run ... --trainer gpu`, the SMALL network of generation 0, 8 games, batch 64) the generation trains on `Apple M3 Max (METAL)` (15 steps/s including the kernel compilation), writes the candidate and plays the gate; `LoopGpuTest` runs the same on TINY.
+
+### Deviations from the plan
+
+- **Kernel 8 is the forward kernel** and kernel 6 only builds W' (the plan's table said so); **kernel 9 reduces the bias, too**, in the same pass as the weights (one extra column of the partial buffer), and for the SIMD-group variant the bias column is summed inside kernel 7 (a separate kernel with one work item per (chunk, channel) cost 1.1 ms per convolution, 10 ms of a 27 ms step, because its reads are strided).
+- **The tiled version was needed.** The plain `@Parallel` kernel of the weight gradient took 51 of 64 ms at batch 1,024; the SIMD-group version takes 4.7 ms (11 times faster) and the step 16.8 ms. The `tiled` (non-SIMD-group) variant of the forward kernels is not used for the weight gradient; the plain kernel stays for batches whose forward pass uses the naive kernel and as the oracle.
+- **Microbatches by cutting the batch on the host** (`select`), one execution each, instead of one execution with the cut inside the graph: the graph is built for the microbatch size.
+- **`TornadoTrainer` implements `StepTrainer`** (a seam in `nn`) so that `TrainingRun` serves both trainers; the loop's CPU path goes through `StepTrainer.cpu` and is bit-identical to before (`TrainingRunTest`, `LoopTest` unchanged).
+- **The start of the real check** is the parent of the generation, as above.
+- **`ALL_STAGES` of the benchmark cuts** now includes the convolution backward; `HEADS_BACKWARD` is the old value.
+
+### Open problems
+
+- **Overlap of the host batch build and the device step** (see above): about 1.5 times, and 15 s per generation.
+- **LARGE is not measured.** By the flop count (251 MFLOP per sample) and the rate of 2.6 TFLOP/s, about 10,000 samples/s at batch 1,024; an estimate, not a measurement. The activations would be 401 MB per 1,000 samples (6.4 GB at 1,024): memory is no problem on this device, but the kernels with 64 channels (two tiles of channels per group) were run in the tests only with 300.
+- **Fusing** the masks (9 tasks, 0.8 ms at 1,024) and the permutation into the neighbouring kernels would save about 5 %. The kernel rate is 3 TFLOP/s of about 14 to 16 peak.
+- **Capacity for moves:** a batch with more than 256 moves per sample on average (`DEFAULT_MOVES_PER_SAMPLE`) is refused with `IllegalArgumentException` and the loop stops with a stack trace; the replay data of loop run 1 has 82 on average (10,472 moves in a batch of 256).
+- **`Gen0 --trainer gpu`** is wired and compiles but has not been run; `GpuCheck` covers the same code path for one generation of the loop.
+- **Inference with `classic1`** on the device (MCTS) is still not supported, so self-play stays on the CPU.
+- **An aborted GPU run** stops after the current step like the CPU one; a step takes 5 ms against 280 ms, so the stop is faster.
 
 ## Open questions
 
@@ -1540,8 +1687,8 @@ Each step ends with passing tests and can be reviewed alone. Part A steps go int
 13. **B3, training forward kernels** with stored activations, against A3 (reusing the inference kernels). Done.
 14. **B4, loss kernel** in float, against A2. Done.
 15. **B5, head backward kernels** (kernels 4, 5, 10) against A3. Done.
-16. **B6, convolution input gradient** (kernels 6, 8) against the scatter form of A1.
-17. **B7, convolution weight gradient:** split-K with `@Parallel` (kernels 7, 9), then the tiled `KernelContext` version.
-18. **B8, full step:** determinism, one-step and twenty-step comparisons with Part A.
-19. **B9, benchmark:** samples per second and GFLOP/s for SMALL and LARGE at batch 256 to 2048; replace the estimates of [Expected speed](#expected-speed) with the measurements.
-20. **B10, integration:** the training loop uses the GPU trainer when a device is present and Part A otherwise.
+16. **B6, convolution input gradient** (kernels 6, 8) against the scatter form of A1. Done in [block B6-B10](#as-implemented-block-b6-b10).
+17. **B7, convolution weight gradient:** split-K with `@Parallel` (kernels 7, 9), then the tiled `KernelContext` version. Done, both.
+18. **B8, full step:** determinism, one-step and twenty-step comparisons with Part A. Done, with gradient accumulation and the finite flag.
+19. **B9, benchmark:** samples per second and GFLOP/s for SMALL and LARGE at batch 256 to 2048; replace the estimates of [Expected speed](#expected-speed) with the measurements. Done for SMALL (LARGE is not measured).
+20. **B10, integration:** the training loop uses the GPU trainer when a device is present and Part A otherwise. Done as the option `--trainer cpu|gpu` (default cpu), with a fallback to the CPU and a message; also for Gen0.

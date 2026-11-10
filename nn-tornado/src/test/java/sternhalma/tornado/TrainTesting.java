@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import sternhalma.engine.Move;
@@ -13,6 +15,7 @@ import sternhalma.nn.Encoder;
 import sternhalma.nn.HexGrid;
 import sternhalma.nn.Network;
 import sternhalma.nn.NetworkConfig;
+import sternhalma.nn.Optimizer;
 import sternhalma.nn.Orientation;
 import sternhalma.nn.Parameters;
 import sternhalma.nn.PlaneSet;
@@ -20,6 +23,7 @@ import sternhalma.nn.ReferenceBackward;
 import sternhalma.nn.ReferenceLoss;
 import sternhalma.nn.ReferenceOps;
 import sternhalma.nn.ResidualPriors;
+import sternhalma.nn.Tensor;
 import sternhalma.nn.TrainingBatch;
 
 /**
@@ -81,7 +85,7 @@ final class TrainTesting {
     /**
      * The edge cases in one batch of {@code base} samples: sample 0 has a single legal move, sample 1 has no policy
      * weight, sample 2 no value weight, sample 3 no moves at all (and no policy weight), sample 4 moves on the extreme
-     * cells 0 and 120 that share from and to cells.
+     * cells 0 and 120 that share from and to cells, sample 5 exactly two moves.
      */
     static TrainingBatch edgeBatch(TrainingBatch base) {
         TrainingBatch.Builder builder = new TrainingBatch.Builder(base.players(),
@@ -118,10 +122,64 @@ final class TrainTesting {
                     to = new int[] {120, 0, 0, 120, 61};
                     target = new double[] {0.3, 0.2, 0.1, 0.25, 0.15};
                 }
+                case 5 -> {
+                    // exactly two moves: a kernel that treats two moves like one (end - first > 2) gets no gradient
+                    from = Arrays.copyOf(from, 2);
+                    to = Arrays.copyOf(to, 2);
+                    target = new double[] {0.7, 0.3};
+                    wp = 1.5f;
+                }
                 default -> {
                 }
             }
             builder.add(input, from, to, target, z, wp, wv);
+        }
+        return builder.build();
+    }
+
+    /** {@code base} with sample 0 cut to its first two moves with the targets 0.7 and 0.3. */
+    static TrainingBatch twoMoveBatch(TrainingBatch base) {
+        TrainingBatch.Builder builder = new TrainingBatch.Builder(base.players(),
+                base.inputPlanes() == Encoder.PLANES ? PlaneSet.PLAIN : PlaneSet.CLASSIC1);
+        for (int s = 0; s < base.size(); s++) {
+            int first = base.moveOffsets()[s];
+            int end = base.moveOffsets()[s + 1];
+            float[] input = Arrays.copyOfRange(base.input(), s * base.inputSize(), (s + 1) * base.inputSize());
+            int[] from = Arrays.copyOfRange(base.moveFrom(), first, end);
+            int[] to = Arrays.copyOfRange(base.moveTo(), first, end);
+            double[] target = new double[end - first];
+            for (int m = 0; m < target.length; m++) {
+                target[m] = base.moveTarget()[first + m];
+            }
+            if (s == 0) {
+                from = Arrays.copyOf(from, 2);
+                to = Arrays.copyOf(to, 2);
+                target = new double[] {0.7, 0.3};
+            }
+            builder.add(input, from, to, target,
+                    Arrays.copyOfRange(base.valueTarget(), s * base.players(), (s + 1) * base.players()),
+                    Math.max(base.policyWeight()[s], 1f), base.valueWeight()[s]);
+        }
+        return builder.build();
+    }
+
+    /**
+     * {@code base} with every sample made so that the gradient of {@code prior.beta} sits on one cell: the distance
+     * plane is 0 everywhere but on {@code cell}, where it is 1, and the three moves are cell to a, b to cell and b
+     * to a (with a and b elsewhere), so that cell receives a "from" and a "to" gradient that do not cancel.
+     */
+    static TrainingBatch cornerBatch(TrainingBatch base, int cell) {
+        PlaneSet planes = PlaneSet.CLASSIC1;
+        TrainingBatch.Builder builder = new TrainingBatch.Builder(base.players(), planes);
+        int a = (cell + 5) % HexGrid.CELLS;
+        int b = (cell + 9) % HexGrid.CELLS;
+        for (int s = 0; s < base.size(); s++) {
+            float[] input = Arrays.copyOfRange(base.input(), s * base.inputSize(), (s + 1) * base.inputSize());
+            for (int c = 0; c < HexGrid.CELLS; c++) {
+                input[c * base.inputPlanes() + Encoder.DIST_OWN] = c == cell ? 1f : 0f;
+            }
+            builder.add(input, new int[] {cell, b, b}, new int[] {a, cell, a}, new double[] {0.6, 0.1, 0.3},
+                    Arrays.copyOfRange(base.valueTarget(), s * base.players(), (s + 1) * base.players()), 1f, 1f);
         }
         return builder.build();
     }
@@ -289,6 +347,41 @@ final class TrainTesting {
             m = Math.max(m, Math.abs(v));
         }
         return m;
+    }
+
+    /**
+     * Gives the two scalars of a classic1 network values that keep the value outputs out of saturation: the linear
+     * evaluation is in logit units, so a random {@code prior.k} of the size of a weight saturates every tanh.
+     */
+    static Parameters classicPrior(Parameters p) {
+        p.get(ResidualPriors.BETA).data()[0] = 0.8f;
+        p.get(ResidualPriors.K).data()[0] = 0.04f;
+        return p;
+    }
+
+    /** A deep copy of the parameters. */
+    static Parameters copyOf(Parameters p) {
+        Map<String, Tensor> tensors = new LinkedHashMap<>();
+        for (Map.Entry<String, Tensor> e : p.tensors().entrySet()) {
+            Tensor t = e.getValue();
+            tensors.put(e.getKey(), new Tensor(t.name(), t.shape().clone(), t.data().clone()));
+        }
+        return Parameters.of(p.config(), tensors);
+    }
+
+    /** A deep copy of the optimiser state and step count, belonging to {@code parameters}. */
+    static Optimizer copyOf(Optimizer o, Parameters parameters) {
+        boolean adamw = o.settings().kind() == Optimizer.Kind.ADAMW;
+        return Optimizer.restore(parameters, o.settings(), o.steps(), adamw ? copyState(o.m()) : null,
+                adamw ? copyState(o.v()) : null, adamw ? null : copyState(o.u()));
+    }
+
+    private static Map<String, float[]> copyState(Map<String, float[]> state) {
+        Map<String, float[]> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, float[]> e : state.entrySet()) {
+            copy.put(e.getKey(), e.getValue().clone());
+        }
+        return copy;
     }
 
     /** The tensor bound for the init of the config, as the tests of module nn use it. */

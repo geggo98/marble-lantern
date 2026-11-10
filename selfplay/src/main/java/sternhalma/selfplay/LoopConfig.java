@@ -48,13 +48,17 @@ import sternhalma.search.Strategies;
  * @param baselineSeed     seed of those openings (the same for every network, so they are comparable)
  * @param baselineSigmas   the clause allows a drop of this many standard errors
  * @param ladderSpec       the ladder's base spec
+ * @param trainer          the trainer of the candidates: {@code cpu} (the reference trainer, the default) or {@code gpu} (the
+ *                         device trainer of module nn-tornado). Part of the hash: the GPU's float sums are not those of the
+ *                         CPU's double sums, so the two give different networks (each is deterministic). {@code run.json}
+ *                         names it only for {@code gpu}, so the hash of every CPU run is what it was before the option
  */
 record LoopConfig(String initSha256, long seed, int games, int shardGames, int sims, int mctsBatch, double cpuct,
         double noise, double alpha, double temperature, int temperaturePlies, int openingMin, int openingMax, int race,
         boolean s1, double lr, int warmup, int batch, int microbatch, double reuse, int window, boolean augment,
         double valueCoefficient, double holdout, String teacherSha256, int teacherFiles, int gatePairs, int pairShard,
         int gateOpening, int baselineRung, int baselinePairs, long baselineSeed, double baselineSigmas,
-        String ladderSpec) {
+        String ladderSpec, String trainer) {
 
     static final String FORMAT = "sternhalma-loop";
     /** Mixed into the held-out split, so it is not the same function as any other hash of a game id. */
@@ -69,6 +73,9 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
             throw new IllegalArgumentException("reuse and lr must be positive, holdout in (0, 1), sigmas >= 0");
         }
         StrengthEstimate.requireDistinctRungs(List.of(baselineRung));
+        if (!trainer.equals("cpu") && !trainer.equals("gpu")) {
+            throw new IllegalArgumentException("--trainer must be cpu or gpu, got " + trainer);
+        }
         new LoopGame.Settings(0, sims, mctsBatch, cpuct, noise, alpha, temperature, temperaturePlies, openingMin,
                 openingMax, race, adjudication()); // validates
     }
@@ -148,6 +155,9 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         f.put("baseline_seed", baselineSeed);
         f.put("baseline_sigmas", baselineSigmas);
         f.put("ladder_spec", ladderSpec);
+        if (trainer.equals("gpu")) {
+            f.put("trainer", trainer);
+        }
         return RunMonitor.json(f);
     }
 
@@ -174,7 +184,7 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 Integer.parseInt(m.get("gate_pairs")), Integer.parseInt(m.get("pair_shard")),
                 Integer.parseInt(m.get("gate_opening")), Integer.parseInt(m.get("baseline_rung")),
                 Integer.parseInt(m.get("baseline_pairs")), Long.parseLong(m.get("baseline_seed")),
-                Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"));
+                Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"), m.getOrDefault("trainer", "cpu"));
     }
 
     /** The defaults of the options that the config takes; {@code lr} 3e-4 (docs/training.md, block 2h). */
@@ -188,7 +198,7 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 dbl(o, "holdout", 0.1), teacherSha256, teacherFiles, integer(o, "gate-pairs", 100),
                 integer(o, "pair-shard", 10), integer(o, "gate-opening", 4), integer(o, "baseline-rung", 1600),
                 integer(o, "baseline-pairs", 50), lng(o, "baseline-seed", 4001), dbl(o, "baseline-sigmas", 2.0),
-                o.getOrDefault("ladder-spec", Strategies.BEST_SPEC));
+                o.getOrDefault("ladder-spec", Strategies.BEST_SPEC), o.getOrDefault("trainer", "cpu"));
     }
 
     static long lng(Map<String, String> o, String key, long def) {

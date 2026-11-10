@@ -37,8 +37,10 @@ import sternhalma.nn.NetworkConfig;
 import sternhalma.nn.PlaneSet;
 import sternhalma.nn.Optimizer;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.StepTrainer;
 import sternhalma.nn.TrainingObserver;
 import sternhalma.nn.TrainingRun;
+import sternhalma.tornado.GpuTrainers;
 import sternhalma.search.Strategies;
 
 /**
@@ -46,7 +48,7 @@ import sternhalma.search.Strategies;
  * estimates (docs/training.md, "Bootstrap" and "As implemented (block 2e)").
  *
  * <pre>
- *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3]
+ *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
  *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
  *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
@@ -102,7 +104,15 @@ public final class Gen0 {
      */
     record Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
             double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
-            String planes) {
+            String planes, String trainer) {
+
+        /** A configuration with the CPU trainer (every run before block B10). */
+        Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
+                double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
+                String planes) {
+            this(preset, seed, steps, batch, microbatch, lr, warmup, valueCoefficient, augment, holdout, dataSha256,
+                    dataFiles, planes, "cpu");
+        }
 
         /** A configuration with the plain planes (every run before E11). */
         Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
@@ -151,6 +161,9 @@ public final class Gen0 {
             f.put("holdout_salt", SPLIT_SALT);
             f.put("data_sha256", dataSha256);
             f.put("data_files", dataFiles);
+            if (trainer.equals("gpu")) {
+                f.put("trainer", trainer); // omitted for the CPU trainer, so that the run.json of older runs stays valid
+            }
             return RunMonitor.json(f);
         }
 
@@ -434,6 +447,16 @@ public final class Gen0 {
 
     // ---- the training run ----
 
+    /** {@code --trainer cpu|gpu}; gpu becomes cpu, with a message, where no device is usable (so run.json names what ran). */
+    private static String trainerKind(Map<String, String> opts, PrintStream err) {
+        String kind = str(opts, "trainer", "cpu");
+        if (kind.equals("gpu") && GpuTrainers.unavailableReason() != null) {
+            err.println("gen0: --trainer gpu: " + GpuTrainers.unavailableReason() + "; training on the CPU instead");
+            return "cpu";
+        }
+        return kind;
+    }
+
     private static int train(Map<String, String> opts, List<String> positional, PrintStream out, PrintStream err,
             BooleanSupplier testStop) throws Exception {
         Path data = runDir(positional, 0);
@@ -447,9 +470,13 @@ public final class Gen0 {
         Config cfg = new Config(str(opts, "preset", "small"), lng(opts, "seed", 1), lng(opts, "steps", 4000),
                 integer(opts, "batch", 64), integer(opts, "microbatch", 16), dbl(opts, "lr", 1e-3),
                 integer(opts, "warmup", 200), dbl(opts, "value-coefficient", 1.0), flag(opts, "augment", true),
-                dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size(), str(opts, "planes", "plain"));
+                dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size(), str(opts, "planes", "plain"),
+                trainerKind(opts, err));
         cfg.network();
         cfg.schedule();
+        if (!cfg.trainer().equals("cpu") && !cfg.trainer().equals("gpu")) {
+            throw new IllegalArgumentException("--trainer must be cpu or gpu, got " + cfg.trainer());
+        }
         if (cfg.batch < 1 || cfg.microbatch < 1 || !(cfg.holdout > 0 && cfg.holdout < 1)) {
             throw new IllegalArgumentException("batch and microbatch must be >= 1 and holdout in (0, 1)");
         }
@@ -572,7 +599,10 @@ public final class Gen0 {
         TrainingRun.Reporting reporting = new TrainingRun.Reporting(
                 monitor == null ? List.<TrainingObserver>of() : List.<TrainingObserver>of(observer), progress,
                 Math.round(cad.progressSeconds() * 1e9));
-        TrainingRun trainingRun = new TrainingRun(setup, checkpointing, reporting, clock, stop);
+        StepTrainer stepTrainer = cfg.trainer().equals("gpu")
+                ? GpuTrainers.create(parameters, optimizer, cfg.batch(), cfg.valueCoefficient())
+                : StepTrainer.cpu(parameters, optimizer, cfg.valueCoefficient(), cfg.microbatch(), cad.threads());
+        TrainingRun trainingRun = new TrainingRun(setup, checkpointing, reporting, clock, stop, stepTrainer);
 
         CountDownLatch finished = new CountDownLatch(1);
         Thread hook = new Thread(() -> {
@@ -586,7 +616,10 @@ public final class Gen0 {
         Runtime.getRuntime().addShutdownHook(hook);
         int exit;
         try {
-            TrainingRun.Summary summary = trainingRun.run();
+            TrainingRun.Summary summary;
+            try (stepTrainer) {
+                summary = trainingRun.run();
+            }
             progress.flush();
             cleanup += summary.cleanup();
             TrainingRun.Timing timing = summary.timing();

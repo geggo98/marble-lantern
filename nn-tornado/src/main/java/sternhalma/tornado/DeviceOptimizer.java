@@ -125,6 +125,14 @@ public final class DeviceOptimizer {
      * @throws IllegalArgumentException if a value is out of range
      */
     public void prepare(long completedSteps, double lr) {
+        prepare(completedSteps, lr, true);
+    }
+
+    /**
+     * {@link #prepare(long, double)} with the update switch: with {@code apply} false the tasks of the next execution
+     * leave parameters and state alone (a microbatch that is not the last of its batch).
+     */
+    public void prepare(long completedSteps, double lr, boolean apply) {
         if (completedSteps < 0) {
             throw new IllegalArgumentException("completedSteps must be >= 0, got " + completedSteps);
         }
@@ -143,6 +151,7 @@ public final class DeviceOptimizer {
         hyper.set(KernelsOptimizer.HYPER_L2, (float) settings.l2());
         hyper.set(KernelsOptimizer.HYPER_CORRECTION1, (float) (1 - StrictMath.pow(settings.beta1(), t)));
         hyper.set(KernelsOptimizer.HYPER_CORRECTION2, (float) (1 - StrictMath.pow(settings.beta2(), t)));
+        hyper.set(KernelsOptimizer.HYPER_APPLY, apply ? 1f : 0f);
     }
 
     /**
@@ -201,6 +210,30 @@ public final class DeviceOptimizer {
         System.arraycopy(a, 0, both, 0, a.length);
         System.arraycopy(b, 0, both, a.length, b.length);
         return both;
+    }
+
+    /**
+     * Copies the state, which must have been transferred to the host, into the live arrays of a host optimiser (a
+     * checkpoint is written from it). The step count is the caller's.
+     *
+     * @throws IllegalArgumentException if the optimiser is of another kind
+     */
+    void storeInto(Optimizer optimizer) {
+        if (optimizer.settings().kind() != settings.kind()) {
+            throw new IllegalArgumentException("optimiser is " + optimizer.settings().kind().id() + ", not "
+                    + settings.kind().id());
+        }
+        store(first, settings.kind() == Kind.ADAMW ? optimizer.m() : optimizer.u());
+        if (second != null) {
+            store(second, optimizer.v());
+        }
+    }
+
+    private static void store(DeviceTensors from, Map<String, float[]> to) {
+        for (String name : from.names()) {
+            float[] target = to.get(name);
+            OpsCopy.copy(from.get(name), 0, target, 0, target.length);
+        }
     }
 
     /** AdamW's m, or SGD's velocity, as host arrays (valid after the state was transferred to the host). */

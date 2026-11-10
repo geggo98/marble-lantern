@@ -154,6 +154,19 @@ public final class Optimizer {
         return steps;
     }
 
+    /**
+     * Sets the number of completed steps, for a trainer that runs the steps elsewhere (the GPU trainer): it copies
+     * the parameters and the live arrays of {@link #m()}, {@link #v()} or {@link #u()} from its device, then calls this.
+     *
+     * @throws IllegalArgumentException if {@code steps} is below the current count
+     */
+    public void completeSteps(long steps) {
+        if (steps < this.steps) {
+            throw new IllegalArgumentException("steps went back from " + this.steps + " to " + steps);
+        }
+        this.steps = steps;
+    }
+
     /** AdamW first moment, per tensor, live. */
     public Map<String, float[]> m() {
         return view(Kind.ADAMW, first);

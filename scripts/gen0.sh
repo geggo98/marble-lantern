@@ -10,6 +10,11 @@ root=${0:A:h:h}
 cd "$root"
 ./gradlew --no-build-cache -q :selfplay:classes
 cp="$root/engine/build/classes/java/main:$root/tablebase/build/classes/java/main:$root/search/build/classes/java/main"
-cp="$cp:$root/nn/build/classes/java/main:$root/selfplay/build/classes/java/main"
+cp="$cp:$root/nn/build/classes/java/main:$root/nn-tornado/build/classes/java/main:$root/selfplay/build/classes/java/main"
+# the TornadoVM runtime flags of the SDK, only for --trainer gpu (see scripts/loop.sh)
+tornado=()
+if [[ " $* " == *" --trainer gpu "* && -n ${TORNADOVM_HOME:-} && -f $TORNADOVM_HOME/tornado-argfile ]]; then
+  tornado=(@"$TORNADOVM_HOME/tornado-argfile" --sun-misc-unsafe-memory-access=allow)
+fi
 # the Vector API module makes "strength --player mcts:..." about 15 times faster; the training itself does not use it
-exec java -Xmx4g --add-modules jdk.incubator.vector -cp "$cp" sternhalma.selfplay.Gen0 "$@"
+exec java -Xmx4g "${tornado[@]}" --add-modules jdk.incubator.vector -cp "$cp" sternhalma.selfplay.Gen0 "$@"

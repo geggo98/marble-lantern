@@ -13,16 +13,19 @@ import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 /**
- * The training loop of the CPU reference trainer with checkpoints, progress lines and a measurement hook: every
- * training run goes through it, so that every run can be observed by a {@link TrainingObserver} and the time
- * that checkpoints and observers cost is known (docs/training.md, "As implemented (block 2b)").
+ * The training loop with checkpoints, progress lines and a measurement hook, for the CPU reference trainer or any other
+ * {@link StepTrainer} (the GPU trainer): every training run goes through it, so that every run can be observed by a
+ * {@link TrainingObserver} and the time that checkpoints and observers cost is known (docs/training.md, "As
+ * implemented (block 2b)").
  *
- * <p>One step: the learning rate of {@link LearningRateSchedule}, the batch of {@link BatchSampler}, the gradients
- * of {@link ReferenceTrainer}, the update of {@link Optimizer}. After it: the observers, then a checkpoint if one
- * is due, then a progress line if one is due. A checkpoint is due when the number of completed steps is a multiple
- * of {@code everySteps}, or when {@code everyNanos} have passed since the last checkpoint (or since the start),
- * whichever comes first; a last one is written when the run ends with steps that no checkpoint covers, also after a
- * stop. Old checkpoints beyond {@code keep} are deleted.
+ * <p>One step: the learning rate of {@link LearningRateSchedule}, the batch of {@link BatchSource}, then
+ * {@link StepTrainer#step} (on the CPU the gradients of {@link ReferenceTrainer} and the update of {@link Optimizer}).
+ * After it: the observers, then a checkpoint if one is due, then a progress line if one is due. A checkpoint is due
+ * when the number of completed steps is a multiple of {@code everySteps}, or when {@code everyNanos} have passed
+ * since the last checkpoint (or since the start), whichever comes first; a last one is written when the run ends with
+ * steps that no checkpoint covers, also after a stop. {@link StepTrainer#sync()} runs before every checkpoint, so the
+ * parameters and the optimiser state that the checkpoint and the observers see are those of the trainer. Old
+ * checkpoints beyond {@code keep} are deleted.
  *
  * <p>The progress line follows docs/training.md, "Progress": at most one per interval, on the given stream, with
  * no carriage return. The rate counts only the steps done by this run (not the steps that a checkpoint
@@ -248,7 +251,7 @@ public final class TrainingRun {
     private final Reporting reporting;
     private final Clock clock;
     private final BooleanSupplier stop;
-    private final ReferenceTrainer trainer;
+    private final StepTrainer trainer;
 
     private final Meter stepMeter = new Meter();
     private final Meter checkpointMeter = new Meter();
@@ -272,12 +275,24 @@ public final class TrainingRun {
      */
     public TrainingRun(Setup setup, Checkpointing checkpointing, Reporting reporting, Clock clock,
             BooleanSupplier stop) {
+        this(setup, checkpointing, reporting, clock, stop, StepTrainer.cpu(setup.parameters(), setup.optimizer(),
+                setup.valueCoefficient(), setup.microbatch(), setup.threads()));
+    }
+
+    /**
+     * A run with another {@link StepTrainer}, for example the GPU trainer; it must work on the parameters and the
+     * optimiser of {@code setup}. The caller closes it.
+     *
+     * @param stop asked between steps; true ends the run after the current step with a checkpoint
+     */
+    public TrainingRun(Setup setup, Checkpointing checkpointing, Reporting reporting, Clock clock,
+            BooleanSupplier stop, StepTrainer trainer) {
         this.setup = Objects.requireNonNull(setup, "setup");
         this.checkpointing = Objects.requireNonNull(checkpointing, "checkpointing");
         this.reporting = Objects.requireNonNull(reporting, "reporting");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.stop = Objects.requireNonNull(stop, "stop");
-        this.trainer = new ReferenceTrainer(setup.parameters(), setup.valueCoefficient());
+        this.trainer = Objects.requireNonNull(trainer, "trainer");
     }
 
     /** The time so far; after {@link #run} the final figures. */
@@ -331,9 +346,7 @@ public final class TrainingRun {
             double lr = setup.schedule().rate(setup.generation(), index);
             TrainingBatch batch = setup.source().batch(setup.runSeed(), setup.generation(), index,
                     setup.batchSize());
-            trainer.zeroGradients();
-            ReferenceTrainer.Result result = trainer.accumulate(batch, setup.microbatch(), setup.threads());
-            optimizer.step(trainer.gradients(), lr);
+            ReferenceTrainer.Result result = trainer.step(batch, lr);
             long stepNanos = stepMeter.end();
             long done = optimizer.steps();
             stepsDone = done - start;
@@ -390,6 +403,7 @@ public final class TrainingRun {
     private void checkpoint(long step) throws IOException {
         Path file = Checkpoint.file(checkpointing.directory(), step);
         checkpointMeter.begin();
+        trainer.sync();
         long bytes = Checkpoint.write(file, setup.parameters(), setup.optimizer(), setup.generation(),
                 checkpointing.runConfigSha256());
         Checkpoint.keepLast(checkpointing.directory(), checkpointing.keep());
