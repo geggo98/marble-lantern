@@ -475,7 +475,7 @@ Every kernel writes each output element from exactly one thread. No kernel uses 
 
 | # | Kernel | Threads | Work per thread | Part A twin |
 |---|---|---|---|---|
-| 1 | expand: cells, ply, mirror flag → input planes | B · 122 | 7 writes | batch builder |
+| 1 | expand: cells, ply, mirror flag → input planes (**not built**: the host builds the planes and uploads them, [block B1-B5](#as-implemented-block-b1-b5)) | B · 122 | 7 writes | batch builder |
 | 2 | forward: `conv_in`, block convolutions (bias, residual, ReLU fused), policy head, mean, dense1, dense2 | as inference | as inference | trainer forward |
 | 3 | loss: masked softmax and cross-entropy per sample → dP, per-sample Lp | B | loop over the sample's moves, sequential | loss to outputs |
 | 4 | value loss and value-head backward per sample → dy, dz1, dpooled | B | P · H + H · C multiply-adds | steps 2 to 4 |
@@ -525,7 +525,7 @@ The parameters, gradients and optimiser state stay on the device across steps; t
 
 **Proposal:** float32 everywhere on the device: master weights, Adam state, activations, gradients.
 
-- **No double on the GPU.** The Metal Shading Language has no 64-bit floating-point type (to verify how TornadoVM's Metal backend reacts to `double` in a kernel). Kernel 3 therefore computes the softmax in float: maximum, then the sum of exp(l − max), each term in (0, 1]. With at most a few hundred legal moves the float sum has a relative error of about 1e-5, which the tolerance below covers. The move logit f + t is formed in float; float logits near the float limit could overflow, but such logits mean broken weights, and the finite check of kernel 11 stops the run.
+- **No double on the GPU.** The Metal Shading Language has no 64-bit floating-point type (verified in block B1-B5: a `double` kernel fails at the first execution with `TornadoDeviceFP64NotSupported`). Kernel 3 therefore computes the softmax in float: maximum, then the sum of exp(l − max), each term in (0, 1]. With at most a few hundred legal moves the float sum has a relative error of about 1e-5, which the tolerance below covers. The move logit f + t is formed in float; float logits near the float limit could overflow, but such logits mean broken weights, and the finite check of kernel 11 stops the run.
 - **bfloat16 or float16 (option, not planned).** TornadoVM has a half-float array type, and Apple GPUs compute in float16. Storing activations in 16 bits would halve the memory traffic of kernels 7 and 8. It needs loss scaling against gradient underflow and new tolerances for every kernel test. It is worth trying only if a measurement shows that the step is limited by memory bandwidth.
 
 ### Verification against Part A
@@ -1389,6 +1389,122 @@ Gate scores of the other generations: 0.565 (2), 0.560 (4), 0.562 (6), 0.543 (7)
 - Timings are indicative (load 10 to 12 from other jobs); simulation-limited Elo is robust.
 - Not measured: the effect of the learning rate (only 3e-4), of more simulations per move, of the window size, and a LARGE network.
 
+## As implemented (block B1-B5)
+
+**TL;DR:** The device now runs the training forward pass with a per-layer activation store, the float losses and the backward pass of both heads (blocks B3 to B5), and the AdamW and SGD update with a finite check (B1), each against its CPU twin. `TornadoTrainer` runs forward, losses and head backward for a `TrainingBatch` in one task graph (`run(batch)` returns the `ReferenceTrainer.Result`); `DeviceOptimizer` adds the update tasks to that graph later. Everything is float32, deterministic (bit-identical runs) and free of atomic adds, and `classic1` is supported end to end: the policy prior, the value prior and the gradients of `prior.beta` and `prior.k`. Measured for SMALL `classic1`: **forward, losses and head backward take 6.6 ms for a batch of 1,024 (155,000 samples/s) and 2.3 ms for 256 (112,000 samples/s)**; the forward convolutions alone reach 2.8 TFLOP/s of matrix work including the batch upload. 29 new tests, 193 in the module, 0 skipped; 44 of 44 mutants killed. The convolution backward (B6, B7) and the whole step (B8) are the next block; a step is then about 17 ms for 1,024 samples by estimate, against about 290 ms for 256 samples on the CPU in [loop run 1](#loop-run-1-measured-2026-11-10) (3.5 steps/s).
+
+Implemented, tested and measured 2026-11-10, JDK 25.0.3, Apple M3 Max, Metal, on AC power (78 %, not charging), no thermal or performance warning, load average 6 to 7 from other work: the timings are indicative.
+
+| Class (module `nn-tornado`) | Content |
+|---|---|
+| `TornadoTrainer` | One task graph for a fixed batch size: `conv_in`, the block convolutions (the inference kernels of `KernelsHexConvLayer.addTask`, each output in its own slot of the store), the policy head (`OpsKernels.policyHead`), the prior, the training value head, the loss kernels and the head backward. `run(TrainingBatch)`, `reload()`, `gradient(name)`, `downloadParameters(Parameters)`, `close()`. Package-private: `activation(slot)`, `trunkGradient()`, `buffer(name)`, `download(array)`, the interface for B6. |
+| `KernelsTrain` | The kernels: `policyPrior`, `valueHead` (stores pooled and hidden, adds the value prior), `policyLoss`, `valueLoss`, `valueHiddenGradient`, `valuePooledGradient`, `trunkGradient`, `denseGradient`, `policyWeightPartial` and `policyWeightReduce` (split-K), `priorGradientPartial` and `priorGradientReduce`. |
+| `KernelsOptimizer` | `adamw`, `sgd` (one tensor, 16 elements per work item, finite flag per chunk) and `sumFlags`. |
+| `DeviceOptimizer` | The state (m and v, or the velocity), the per-step scalars (`prepare(steps, lr)`: the bias corrections and 1 - beta in double, sent in an 11-float array), `addTasks(graph)` (one task per tensor plus the flag sum), `nonFinite()`, `loadState(Optimizer)` for a checkpoint, `firstState()` and `secondState()`. |
+| `DeviceTensors` | One zero-filled `FloatArray` per tensor in `Parameters.shapes` order (gradients, optimiser state), `flatten()` and `unflatten()`. |
+| `OpsParameters` (extended) | `declareHostReadback`, `arrays()` and `storeInto(Parameters)`: the parameters can be read back on demand. |
+| `DeviceMath.notFinite` | The finite test on the exponent bits ([tornado](tornado.md#pitfalls), item 11). |
+
+### Design as built
+
+- **Input planes come from the host** (decision of this block): the replay buffer's `TrainingBatch` is uploaded as `float[N][122][planes]` plus the CSR moves, targets, weights (about 6.5 MB for 1,024 samples with 13 planes). Kernel 1 (expand) of the table is not written, and step B2 of the work plan is dropped.
+- **Per-tensor device arrays, not one flat buffer.** The forward kernels read one array per tensor, so parameters, gradients and optimiser state are one `FloatArray` per tensor in the order of `Parameters.shapes`; "the flat order" is that order, and `DeviceTensors.flatten()` gives the file-order copy.
+- **Activation store.** `1 + 2 B` arrays [N][122][C]: x_0, then t_i and u_i of each block; the residual of conv2 reads x_i from its slot and the output goes to u_i. Row 121 is 0 in every slot (the convolution kernel writes it). One batch of 1,024 for SMALL holds 9 arrays of 16 MB (144 MB).
+- **Loss kernels** (kernels 3 and 4): one work item per sample loops over its moves in float (maximum, sum of exp, `Lp`, then `g_m = wp/N (p_m - pi_m)` into the row of `dPolicy` that the item zeroed first: moves that share a cell accumulate in one item, no atomics). `Lp` is written unweighted per sample, with `Lv`; the host forms the weighted sums, the KL and the finite test in double and returns the `ReferenceTrainer.Result`. A sample with `wp = 0`, no moves or a single move gets 0 and a zero gradient. The value backward is three small kernels (`dy` with the loss, `dz1`, `dpooled`).
+- **Head backward** (kernels 5 and 10): `trunkGradient` writes dx_B = `dpooled / 121 + Wp^T dP` (row 121 = 0) for B6; the dense layers' weight and bias gradients are one work item per element summing over the batch in ascending order; the policy head weight (2 x C, 124,000 terms per element at batch 1,024) is split-K over 64 chunks of samples and a second kernel adds the chunks in order. The gradients of `prior.beta` and `prior.k` are per-sample terms plus a two-item ordered sum.
+- **Update kernel** (kernel 11): a work item updates 16 consecutive elements of one tensor and writes one flag for the chunk (a gradient or an updated parameter is NaN or infinite); `sumFlags` adds the flags to 64 floats that come back each step. A bad element is flagged, **not skipped** (the parameters are undefined afterwards, as after `Optimizer.step` threw). The learning rate and the corrections change every step, so they travel in a small array that is sent before every execution; scalar kernel arguments are fixed at compile time.
+- **Transfers per execution:** the batch and the 11 optimiser scalars in, the `2 N` per-sample losses and the 64 flag sums out. Parameters, gradients, state and every activation stay on the device; tests and `gradient(name)` read arrays on demand (`TornadoExecutionResult.transferToHost`).
+
+### Tests
+
+29 new tests, all skipped cleanly without the SDK (`TornadoAssumptions`; checked with `TORNADOVM_HOME` unset: the task is skipped with the module's message); 193 tests in `nn-tornado` pass, 0 skipped. TINY, SMALL, an odd channel count (5), 300 channels with 300 hidden units, plain, `classic1` and `classic1-planes`, two and three players, `Parameters.uniform` at the init bound (also 2 times it) and `Parameters.init`, batches of 6 to 256.
+
+| Test class | Tests | What |
+|---|---|---|
+| `TornadoTrainerTest` | 15 | Per fixture (11 networks): every slot of the store, policy with prior, pooled, hidden, values against the reference forward pass (B3); per-sample losses, `dPolicy` and `dy` on the device's own logits against `ReferenceLoss`, and the batch result against `ReferenceTrainer` (B4); `dz1`, `dpooled`, dx_B and the gradients of the head tensors and priors against `ReferenceTrainer` (B5); not-degenerate data; edge samples (one move, `wp = 0`, `wv = 0`, no moves, moves on cells 0 and 120 that share cells); extreme logits (head weights times 500); NaN in a weight (the reference's exception; nothing read with zero weights); bit-identical repeated runs and a new trainer; `reload()`; misuse; a second batch does not leak; value head barriers (C = 1, H = 1024; C = 2, H = 512; C = 8, H = 1024; C = H = 1024; batch 256, four runs). |
+| `DeviceOptimizerTest` | 10 | AdamW and SGD against `Optimizer` on 4 networks, 6 steps with different rates, from the same state and free-running; the sign-flip tolerance; learning rate 0; huge and tiny finite gradients; NaN and infinity in every tensor at its first, middle and last element; a NaN parameter and an overflow; bit-identical steps; a loaded checkpoint state before and after an execution; misuse. |
+| `DeviceFiniteTest`, `DeviceExpLogTest`, `DeviceDoubleTest` | 1, 2, 1 | The finite test on the device and the alternatives that fail; the accuracy of Metal's `exp` and `log`; a `double` kernel is rejected with `TornadoDeviceFP64NotSupported`. |
+
+### Tolerances as measured
+
+Largest error as a fraction of the bound over all cases (bounds as in [Verification against Part A](#verification-against-part-a)):
+
+| Output | Largest error / bound | Case |
+|---|---|---|
+| store slots x_0, t_i, u_i | 0.020 | SMALL `classic1`, `Parameters.init` |
+| policy logits with the prior | 0.014 | SMALL, 3 players, `init` |
+| pooled, hidden, values | 0.0005, 0.0026, 0.0036 | |
+| per-sample `Lp`, `Lv` (device inputs) | 0.0003, 0.0001 | |
+| `dPolicy` on the device's own logits | 0.0031 (0.27 with logits that differ by hundreds) | 3 players; extreme |
+| `dy`, `dz1`, `dpooled` | 0.0002, 0.0022, 0.0017 | |
+| dx_B | 0.0041 | TINY |
+| batch loss, policy, value, KL (bound 1e-4 + 1e-3 abs) | 0.0003 | |
+| gradients `head_policy.weight`, `dense1.weight`, `dense2.weight` | 0.016, 0.0026, 0.0026 | |
+| gradients of the three biases | 0.35 (policy bias, see below), 0.0012, 0.0010 | |
+| gradients `prior.beta`, `prior.k` | 0.0004, 0.0002 | |
+| value head barrier shapes | 0.0054 | C = 1, H = 1024 |
+| SGD update from the same state (bound 1e-6 abs + 1e-9) | 0.11 | |
+| **AdamW update from the same state** | **1.13 of the bound of the document**, 0.11 of the bound below | one element |
+| AdamW and SGD, 6 steps free-running | 0.040 of the bound below | |
+| m, v, u (bound below) | 0.15, 0.007; 0.34 and 0.02 free-running | |
+
+Three bounds of the table above had to change, each for a reason that the measurement shows:
+
+- **AdamW update, same float gradient and state: `|gpu - ref| <= 1e-6 |ref| + 1e-9 + 1e-5 lr`.** The bound of the document is exceeded by up to 1.13 times for single elements (about 1.8e-8 against 1.7e-9, at lr 0.005). The cause is the float rounding of m, `m = b1 m + (1 - b1) g`, which is relative to the two terms; when they cancel, the result is small but its absolute error is not, and the step `m / (sqrt(v) + eps)` carries it as a fraction of lr. SGD stays within the document's bound (0.11). The device computes `1 - beta` in double on the host: `1f - 0.999f` is 1.3e-5 off and had put every AdamW step 5e-6 relative off.
+- **State m, v, u: `1e-6 |ref| + 1e-9 + 2e-7 max |ref|`** (the max over the tensor), for the same reason: an element of the state that is the difference of two terms of the tensor's size has their rounding error.
+- **Free-running steps:** parameters within `1e-6 |ref| + 1e-9 + 1e-3 (sum of lr so far)`: the sign-flip term of the document, scaled to the steps taken. In the sign-flip test (gradients from 1e-12 to 1e-1 plus a perturbation of 1e-4 of the largest) 32,702 of 351,000 elements flipped; the largest difference was 0.9993 of 2 lr, and the elements with `|g| >= 1e-3 max |g|` (12,688) stayed within 0.0045 of 1e-3 lr.
+- **Gradient of `head_policy.bias`:** the exact value is 0 (the logit of a move is `f + t`, so a constant added to f or t changes nothing), the reference holds 1e-9 of rounding noise, and the document's bound `1e-4 max |ref|` would be 1e-13. The test scales the bound by 1e-2 of the sum of the absolute terms `|dP|` instead; the device value is a few ulps of the terms (1.8e-7 for terms of size 1).
+
+### Mutation check
+
+44 distinct mutants of the kernels and the host class, each put in alone and run against the three test classes: all 44 killed (the 41 of the first round in 5 to 7 seconds each, the barrier mutants with three runs each). Groups:
+
+| Part | Mutants (all killed) |
+|---|---|
+| Priors | wrong sign of the "to" term of the policy prior; sign of the player-1 value prior; gradient of `prior.k` with the wrong sign; gradient of `prior.beta` without the distance scale |
+| Value head | pooling divided by 122 (both paths, only the path with C < 256 is reached by most fixtures, the path with C >= 256 by `wide-300`); hidden stored at the wrong index; **the barrier after the pooling and the barrier after dense1 removed (survived all tests until `theValueHeadBarriersHoldUnderLoad` was added; 3 of 3 runs each killed since)**; the barrier after the partial sums removed |
+| Policy loss | missing 1/N; wrong sign of the cross-entropy; the "to" gradient overwrites instead of adds; single move not special-cased; CSR end off by one; the `wp = 0` mask missing |
+| Value loss and backward | wrong tanh derivative (`1 - v`); c_v missing; the `wv = 0` mask missing; the ReLU mask of dz1 missing; dense1 weight transposed |
+| Head backward | pooling part of dx_B divided by 122; padding row of dx_B not zeroed; the "to" row of the policy head with the "from" weight; `denseGradient` transposed; split-K chunk size drops the remainder; last chunk not clamped; the reduction drops the last chunk |
+| Optimiser | decay on biases (AdamW) and L2 on biases (SGD); no bias correction; sqrt missing; no momentum; the flags of all tensors share one base; the flag sum skips the first group; wrong exponent mask in `notFinite`; step count off by one; `1 - beta2` taken from beta1; loaded state never sent after an execution |
+| Trainer | residual of conv2 from the wrong slot; value prior switched off; KL without the target entropy; policy weights uploaded from the value weights; c_v dropped in the batch loss |
+
+Two tests exist because mutants survived or the measurement failed: batches above 64 samples (the split-K chunk logic holds several samples only then: `tiny2-plain-130`), and C = 300 with H = 300 (`wide-300`). Without the first, "chunk size drops the remainder" cannot show.
+
+### Measurements
+
+SMALL `classic1`, two players, batches from seeded random games (10,472 moves at 256, 42,208 at 1,024), `Parameters.uniform`; `:nn-tornado:trainerBenchmark`; median of 30 runs after 10 warm-up runs; the wall time is that of `run()`: batch copy and upload, all kernels, the loss copy-back and the host sums, without the profiler. The graph was cut to measure by difference.
+
+| Batch | Convolutions only | + heads | + losses and head backward (whole `run`) | Samples/s |
+|---|---|---|---|---|
+| 256 | 1.55 ms (2.4 TFLOP/s) | 1.78 ms | **2.30 ms** | 111,500 |
+| 1,024 | 5.36 ms (2.8 TFLOP/s) | 5.39 ms | **6.62 ms** | 154,700 |
+
+- The "TFLOP/s" counts the matrix work of the 9 convolutions (3.73 GFLOP at 256, 14.93 GFLOP at 1,024) over the wall time of the cut graph, so it includes the batch upload; the kernel benchmark of [tornado](tornado.md#measured-kernel-speed) had 2.2 to 3 TFLOP/s for the best convolution kernel and the inference forward pass reached 1.7 TFLOP/s at batch 1,024 ([tornado](tornado.md#measured-speed), measured under load 8 to 18). The forward pass of the trainer is therefore as fast as the inference kernels allow; it has no extra transfer and no readback.
+- The losses and the head backward cost 0.5 ms at 256 and 1.2 ms at 1,024 (19 % of the 6.6 ms). At 1,024 the profiler's per-task times add up to that: `policyWeightPartial` 0.71 ms, `policyLoss` 0.10 ms, `priorGradientPartial` 0.08 ms, `trunkGradient` 0.08 ms, the dense gradients 0.04 ms each, the rest below 0.03 ms. `policyWeightPartial` is the one kernel worth tuning: 4,224 work items with 1,936 terms each; more chunks (S = 256) would give more items with shorter loops.
+- **The profiler's per-task numbers are not trustworthy below about 0.5 ms.** At 256 the nine convolutions show 0.56 to 0.59 ms each, 4.9 ms in all, against a wall time of 1.55 ms for the whole cut graph; at 1,024 they show 0.54 to 0.58 ms and add up to 4.7 ms of 5.4 ms. A fixed cost per task of about 0.5 ms is in these numbers ([tornado](tornado.md#measured-speed), finding 1). The differences between cut graphs are the honest figures.
+- Estimate for the step: the convolution backward has as many multiply-adds as the forward pass twice over (input gradient and weight gradient, [How the numbers were computed](#how-the-numbers-were-computed)); at the measured 2.4 to 2.8 TFLOP/s that is about 10 ms at 1,024, so a step of 1,024 samples takes about 17 ms (60,000 samples/s), the CPU trainer of loop run 1 about 3.5 steps/s at 256 (900 samples/s). Not measured until B8.
+
+### Deviations from the plan
+
+- **No kernel 1, no flat device buffer** (see Design). Step B2 of the work plan is dropped; the "flat order" is the tensor order of `Parameters.shapes`.
+- **The value head for training is a new kernel** (`KernelsTrain.valueHead`), a copy of `OpsKernels.valueHead` that also stores pooled and hidden and adds the value prior. `TornadoNetwork` is unchanged and **still refuses `classic1`** for inference: adding the priors to the inference value head would mean a prior argument in the shared kernel; the training copy shows how (about 6 lines), but the inference side was not needed for the loop's trainer.
+- **The loss output is per sample and unweighted**; the weighted sums, KL and finite test of the loss are on the host (B floats per step).
+- **Kernel 4 is five kernels** (`valueLoss`, `valueHiddenGradient`, `valuePooledGradient`, two `denseGradient` calls) instead of one work item per sample; the single-item version would have P H + H C sequential multiply-adds per item.
+- **Gradients are overwritten, not accumulated**, so microbatches (the doc's kernel 9 adding into the buffer) are not available yet.
+- **Capacity for moves:** the CSR arrays have a fixed size (`maxMoves`, default 256 per sample), because a task graph fixes array sizes; a batch with more moves is refused.
+- **No skip of a bad step:** the update runs for every tensor and the flag says that the parameters are undefined.
+- **Tolerances** changed as in "Tolerances as measured".
+
+### Open problems for B6 and later
+
+- **B6, B7:** the gradient buffers of all convolution tensors exist (`gradients()`, written as 0 and never transferred: TornadoVM has no device copy of an array that no task uses, [tornado](tornado.md#pitfalls) item 12) and `trunkGradient()` is dx_B; the backward needs two more [N][122][C] buffers (dx and dt) and the permuted weights W'. Every backward kernel must write all its elements (the tests fill buffers with NaN to show a skipped element).
+- **B8:** add `DeviceOptimizer.addTasks` to the trainer's graph behind the last backward kernel, send `prepare(step, lr)` before each `execute()`, check `nonFinite()`. The one-step and twenty-step comparisons with `ReferenceTrainer` and `Optimizer` need the conv gradients.
+- **Gradient accumulation** over microbatches (add instead of overwrite) and the **mirror augmentation** stay on the host (`ReplayBuffer`), already applied in the batch.
+- **B10 (loop integration):** `ReplayBuffer.batch` to `TrainingBatch` is on the host and uploads 6.5 MB per step (part of the 6.6 ms measured above); overlapping the next batch's build with the running step would hide it. `TornadoTrainer` takes the parameters of a `Parameters` and gives them back with `downloadParameters`; the optimiser state comes back with `DeviceOptimizer.firstState()` and `secondState()` after `transferToHost(stateArrays())` for a checkpoint.
+- **Inference with `classic1`** on the device (MCTS) is not supported; the training kernels show what the value head needs.
+- **Open question 8** is answered: a `double` kernel is rejected on this device and the float softmax meets the gradient bound.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
@@ -1398,7 +1514,7 @@ Gate scores of the other generations: 0.565 (2), 0.560 (4), 0.562 (6), 0.543 (7)
 5. **Three players.** No classical teacher and no `BEST_SPEC` exist for three players. Which baseline gates three-player generations?
 6. **Race endgames in self-play.** The rule of [What classical code covers](#what-classical-code-covers) needs a conservative contact test and exact solitaire distances. Which of the two arrives first, and what share of plies does it save?
 7. **Distance input plane.** Answered by E11: the distance planes are an addition, not a replacement (planes 3 to 5 stay), as the plane set `classic1` with format version 2; the A/B of [block 2f](#as-implemented-block-2f--e11) shows a faster and better policy. Still open: whether planes 3 to 5 can go.
-8. **Float softmax on Metal.** Confirm that TornadoVM rejects `double` on Metal and that the float softmax meets the gradient bound.
+8. **Float softmax on Metal.** Answered by [block B1-B5](#as-implemented-block-b1-b5): TornadoVM rejects a `double` kernel on the M3 Max with `TornadoDeviceFP64NotSupported`, and the float softmax meets the gradient bound (largest error 0.0031 of the bound for ordinary logits, 0.27 for logits that differ by hundreds).
 9. **Integer dtypes in safetensors.** Extend the project's reader for sample files (U8, I16, I32), while `Parameters.load` stays F32-only? E05 keeps a typed reader and writer in module `selfplay` (`SampleFile`) and leaves `nn.Safetensors` unchanged.
 10. **Replay window and reuse.** W = 500,000 samples and R = 4 are starting values. The demo trained with W = 500,000 (three to four generations of 24,000 samples) and R = 4 (370 steps per generation) without trouble; for generations of 1,000 to 4,000 games W = 1,000,000 is recommended ([block 2h](#as-implemented-block-2h)); R is still unmeasured.
 11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item. E05 verified 130 and 143 on JDK 25 with a shutdown hook (`SignalExitTest`).
@@ -1419,11 +1535,11 @@ Each step ends with passing tests and can be reviewed alone. Part A steps go int
 8. **A8, replay buffer and batch builder.** Tests: window drops whole generations; the same seed and step give the same batch.
 9. **A9, bootstrap:** teacher games with `BEST_SPEC`, generation 0 training on the CPU with SMALL on a small data set. Check: value winner prediction against the 78.8 % yardstick.
 10. **A10, training loop:** run directory, state from artefacts, lock, status, abort, progress, gating; CPU only, TINY, a few games. Tests: abort and restart at each phase; a second run after success does nothing and exits with 0; a second process exits with 75. Done in [block 2h](#as-implemented-block-2h).
-11. **B1, flat buffers and update kernel** against A4.
-12. **B2, expand kernel** against A7.
-13. **B3, training forward kernels** with stored activations, against A3 (reusing the inference kernels).
-14. **B4, loss kernel** in float, against A2.
-15. **B5, head backward kernels** (kernels 4, 5, 10) against A3.
+11. **B1, flat buffers and update kernel** against A4. Done in [block B1-B5](#as-implemented-block-b1-b5) (per-tensor arrays in the flat order).
+12. **B2, expand kernel** against A7. Dropped: the host computes the planes ([block B1-B5](#as-implemented-block-b1-b5)).
+13. **B3, training forward kernels** with stored activations, against A3 (reusing the inference kernels). Done.
+14. **B4, loss kernel** in float, against A2. Done.
+15. **B5, head backward kernels** (kernels 4, 5, 10) against A3. Done.
 16. **B6, convolution input gradient** (kernels 6, 8) against the scatter form of A1.
 17. **B7, convolution weight gradient:** split-K with `@Parallel` (kernels 7, 9), then the tiled `KernelContext` version.
 18. **B8, full step:** determinism, one-step and twenty-step comparisons with Part A.

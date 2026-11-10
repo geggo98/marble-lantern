@@ -164,3 +164,22 @@ tasks.register<JavaExec>("benchmark") {
         reason == null
     }
 }
+
+// Time of the training forward pass, the losses and the head backward on the device (SMALL classic1), wall time
+// and per kernel (a main in the test sources). Arguments: batch sizes. See docs/training.md, "As implemented
+// (block B1-B5)". Run: ./gradlew --no-build-cache :nn-tornado:trainerBenchmark
+tasks.register<JavaExec>("trainerBenchmark") {
+    group = "verification"
+    description = "Measures the training kernels (forward, loss, head backward) on the device."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.tornado.TrainerBenchmark")
+    tornadoJvm()
+    systemProperty("tornado.recover.bailout", "False")
+    val reason = sdkMissingReason
+    onlyIf("the TornadoVM SDK is installed") {
+        if (reason != null) {
+            Logging.getLogger("nn-tornado").warn("nn-tornado: skipping trainerBenchmark: {}", reason)
+        }
+        reason == null
+    }
+}

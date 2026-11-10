@@ -112,6 +112,37 @@ public final class OpsParameters {
     }
 
     /**
+     * Declares every array for transfer to the host on demand ({@link DataTransferMode#UNDER_DEMAND}): after an
+     * execution that updated the parameters on the device, {@code TornadoExecutionResult.transferToHost} with
+     * {@link #arrays()} brings them back, and {@link #storeInto} copies them into a {@link Parameters}.
+     */
+    TaskGraph declareHostReadback(TaskGraph graph) {
+        return graph.transferToHost(DataTransferMode.UNDER_DEMAND, (Object[]) all);
+    }
+
+    /** All arrays in {@link Parameters#shapes} order (the live arrays). */
+    FloatArray[] arrays() {
+        return all.clone();
+    }
+
+    /**
+     * Copies the host side of the arrays into the tensors of {@code target}, which must have the config of this
+     * object. Valid after the arrays were transferred to the host.
+     *
+     * @throws IllegalArgumentException if the config differs
+     */
+    public void storeInto(Parameters target) {
+        if (!target.config().equals(config())) {
+            throw new IllegalArgumentException("target is for " + target.config() + ", not " + config());
+        }
+        int i = 0;
+        for (Tensor t : target.tensors().values()) {
+            float[] data = t.data();
+            OpsCopy.copy(all[i++], 0, data, 0, data.length);
+        }
+    }
+
+    /**
      * Copies the current values of the {@link Parameters} given to the constructor into the arrays, for
      * example after an in-place training step. Plans see the new values at their next execution, through
      * {@link Residency#beforeExecute()}.

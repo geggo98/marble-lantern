@@ -40,4 +40,16 @@ final class DeviceMath {
     static float tanh(float x) {
         return x > TANH_SATURATION ? 1f : (x < -TANH_SATURATION ? -1f : TornadoMath.tanh(x));
     }
+
+    /**
+     * True for NaN and +-infinity: the exponent bits of the float are all 1. Written on the bits because every
+     * floating-point formulation failed somewhere on the Metal backend of TornadoVM 7.3.1: {@code x - x != 0},
+     * {@code x != x} and {@code Float.isNaN(x)} give "finite" for NaN, and so does {@code !Float.isFinite(x)} when its
+     * result is used as a value ({@code ? 1 : 0}); it worked only as the condition of an {@code if}, probably because the
+     * negated comparison is turned into the opposite comparison, which is false for NaN too (docs/tornado.md,
+     * "Pitfalls", item 11).
+     */
+    static boolean notFinite(float x) {
+        return (Float.floatToRawIntBits(x) & 0x7f800000) == 0x7f800000;
+    }
 }
