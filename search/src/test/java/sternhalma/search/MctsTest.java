@@ -467,6 +467,45 @@ class MctsTest {
         assertArrayEquals(clean, root.prior, 0f);
     }
 
+    /**
+     * The mixing weights of the root noise, {@code (1 - noise) * prior + noise * d}, against the Dirichlet sample of the same
+     * seeded generator that the test draws itself: noise 1 is the sample, noise 0 the prior, noise 0.25 the exact blend. A
+     * swapped blend ({@code noise * prior + (1 - noise) * d}) fails the 0.25 case and the two extremes.
+     */
+    @Test
+    void theNoiseMixesPriorAndDirichletSampleWithTheDocumentedWeights() {
+        HashedNetwork net = new HashedNetwork(2, 5);
+        float[] prior = {0.5f, 0.2f, 0.15f, 0.1f, 0.05f};
+        long seed = 4242;
+        double alpha = 0.3;
+        // the sample that a generator with this seed gives: one gamma draw per move, normalised
+        var random = java.util.random.RandomGeneratorFactory.of("SplittableRandom").create(seed);
+        double[] g = new double[prior.length];
+        double sum = 0;
+        for (int i = 0; i < g.length; i++) {
+            g[i] = Mcts.gamma(random, alpha);
+            sum += g[i];
+        }
+        double[] sample = new double[g.length];
+        for (int i = 0; i < g.length; i++) {
+            sample[i] = g[i] / sum;
+        }
+        assertNotEquals(sample[0], prior[0], 0.01, "the sample must differ from the prior, or the test shows nothing");
+        float[] full = new Mcts(net, PLAIN.withNoise(1.0), seed).noisy(prior);
+        float[] none = new Mcts(net, PLAIN.withNoise(0.0), seed).noisy(prior);
+        float[] quarter = new Mcts(net, PLAIN.withNoise(0.25), seed).noisy(prior);
+        for (int i = 0; i < prior.length; i++) {
+            assertEquals(sample[i], full[i], 1e-6, "noise 1 is the Dirichlet sample, move " + i);
+            assertEquals(prior[i], none[i], 1e-7, "noise 0 is the prior, move " + i);
+            assertEquals(0.75 * prior[i] + 0.25 * sample[i], quarter[i], 1e-6, "noise 0.25, move " + i);
+        }
+        float total = 0;
+        for (float f : quarter) {
+            total += f;
+        }
+        assertEquals(1f, total, 1e-6f);
+    }
+
     @Test
     void noisyPriorsAreADistributionAndGammaHasTheRightMean() {
         SplittableRandom r = new SplittableRandom(1);
@@ -575,6 +614,41 @@ class MctsTest {
         plain.search(p);
         plain.search(p);
         assertEquals(50, plain.root().totalVisits);
+    }
+
+    /**
+     * The hash does not contain the ply, so the same board with the same side to move can come up at another ply (every
+     * piece goes back where it was after four plies). The tree of the first position must not be reused for the later
+     * one: its exact leaves and move-limit values depend on the ply. A reuse by hash alone would carry the old visits.
+     */
+    @Test
+    void reuseNeedsTheSamePlyNotOnlyTheSameHash() {
+        HashedNetwork net = new HashedNetwork(2, 8);
+        Position start = Position.initial(RuleSet.defaults(2));
+        Position later = start.copy();
+        int[] first = later.legalMoves();
+        int a = first[0];
+        later.make(a);
+        int b = later.legalMoves()[0];
+        later.make(b);
+        int aBack = Move.of(Move.to(a), Move.from(a));
+        assertTrue(Arrays.stream(later.legalMoves()).anyMatch(m -> m == aBack), "the first move can be undone");
+        later.make(aBack);
+        int bBack = Move.of(Move.to(b), Move.from(b));
+        assertTrue(Arrays.stream(later.legalMoves()).anyMatch(m -> m == bBack), "the reply can be undone");
+        later.make(bBack);
+        assertEquals(start.hash(), later.hash(), "the same board and side to move");
+        assertEquals(4, later.ply());
+        assertEquals(0, start.ply());
+
+        Mcts mcts = new Mcts(net, PLAIN.withSims(60).withReuse(true), 1);
+        mcts.search(start);
+        assertEquals(60, mcts.root().totalVisits);
+        mcts.search(later);
+        assertEquals(60, mcts.root().totalVisits, "another ply is another position: nothing is carried over");
+        // the same ply (the same position searched again) is reused, so the test can tell the two cases apart
+        mcts.search(later);
+        assertEquals(120, mcts.root().totalVisits);
     }
 
     @Test

@@ -7,6 +7,7 @@ import sternhalma.engine.Position;
 import sternhalma.nn.Encoder;
 import sternhalma.nn.ForwardPass;
 import sternhalma.nn.Orientation;
+import sternhalma.nn.PlaneSet;
 import sternhalma.search.Player;
 
 /**
@@ -33,8 +34,9 @@ public final class RawPolicyPlayer implements Player {
         if (legal.length == 0) {
             throw new IllegalArgumentException("the position has no legal move");
         }
-        float[] input = new float[Encoder.INPUT_SIZE];
-        Encoder.encode(position, input, 0);
+        PlaneSet planes = network.config().planes();
+        float[] input = new float[planes.inputSize()];
+        Encoder.encode(planes, position, input, 0);
         float[] policy = new float[Encoder.POLICY_SIZE];
         float[] values = new float[network.config().players()];
         network.forward(input, 1, policy, values);

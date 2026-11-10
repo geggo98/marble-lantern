@@ -115,7 +115,9 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
      * @param device   the device that runs the kernels
      * @param maxBatch positions per execution at most, at least 1; larger batches are split
      * @throws NullPointerException     if an argument is null
-     * @throws IllegalArgumentException if maxBatch is below 1, or so large that an activation [maxBatch][122][C]
+     * @throws IllegalArgumentException if the config has residual priors ({@link sternhalma.nn.PlaneSet#CLASSIC1}), which the device
+     *                                  value head cannot add before its tanh, or if maxBatch is below 1, or so large
+     *                                  that an activation [maxBatch][122][C]
      *                                  would not fit into an int-indexed array
      */
     public TornadoNetwork(Parameters parameters, TornadoDevice device, int maxBatch) {
@@ -143,6 +145,11 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             throw new IllegalArgumentException("maxBatch must be >= 1, got " + maxBatch);
         }
         this.config = parameters.config();
+        if (config.planes().residualPriors()) {
+            // The value prior enters before the tanh, which the device value head applies: not done on the device yet.
+            throw new IllegalArgumentException("TornadoNetwork does not support residual priors (planes "
+                    + config.planes() + "); use the plain or the classic1-planes set, or a CPU forward pass");
+        }
         // FloatArray sizes are ints: the largest buffer is an activation [maxBatch][122][C].
         if ((long) maxBatch * HexGrid.ROWS * config.channels() > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("maxBatch " + maxBatch + " is too large for " + config.channels()
@@ -212,13 +219,13 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
         if (batch < 1) {
             throw new IllegalArgumentException("batch must be >= 1, got " + batch);
         }
-        requireLength("input", input, (long) batch * Encoder.INPUT_SIZE);
+        requireLength("input", input, (long) batch * config.inputSize());
         requireLength("policyLogits", policyLogits, (long) batch * Encoder.POLICY_SIZE);
         requireLength("values", values, (long) batch * players);
         // Check every position before anything runs, as the reference rejects a dirty padding row too.
         for (int b = 0; b < batch; b++) {
-            int pad = b * Encoder.INPUT_SIZE + HexGrid.PADDING * Encoder.PLANES;
-            for (int plane = 0; plane < Encoder.PLANES; plane++) {
+            int pad = b * config.inputSize() + HexGrid.PADDING * config.inputPlanes();
+            for (int plane = 0; plane < config.inputPlanes(); plane++) {
                 if (input[pad + plane] != 0) {
                     throw new IllegalArgumentException("padding row of input " + b + " is not zero in plane "
                             + plane + ": " + input[pad + plane]);
@@ -378,7 +385,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             this.batch = batch;
             int c = config.channels();
             int activation = batch * HexGrid.ROWS * c;
-            input = new FloatArray(batch * Encoder.INPUT_SIZE);
+            input = new FloatArray(batch * config.inputSize());
             input.init(0f);
             out = new FloatArray(OpsKernels.outputSize(batch, config.players()));
             FloatArray x = new FloatArray(activation);
@@ -391,7 +398,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             GridScheduler grids = new GridScheduler();
             KernelsHexConvLayer.addTask(graph, grids, variant, "conv_in", input, gather,
                     parameters.get("conv_in.weight"), parameters.get("conv_in.bias"), noResidual, x, batch,
-                    Encoder.PLANES, c, false, true);
+                    config.inputPlanes(), c, false, true);
             // x is the block input; conv1 writes t, conv2 reads t and adds x into u; then u is the next x.
             for (int i = 0; i < config.blocks(); i++) {
                 String block = "block" + i;
@@ -417,7 +424,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
         /** Computes positions {@code first .. first + n - 1} of the caller's arrays, n &lt;= batch. */
         void run(float[] in, int first, int n, float[] policyLogits, float[] values) {
             int players = config.players();
-            OpsCopy.copy(in, first * Encoder.INPUT_SIZE, input, 0, n * Encoder.INPUT_SIZE);
+            OpsCopy.copy(in, first * config.inputSize(), input, 0, n * config.inputSize());
             residency.beforeExecute();
             TornadoProfilerResult result = plan.execute().getProfilerResult();
             if (profiled) {

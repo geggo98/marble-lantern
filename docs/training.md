@@ -757,7 +757,7 @@ Batch building is more than 5,000 times faster than the CPU trainer on SMALL (11
 | `ReplayBuffer` | `selfplay` | Implements `BatchSource`; `addGeneration(generation, files, GameFilter)` takes only the games that the filter accepts; `result(index)` is the result of the game for the mover. |
 
 ```text
-gen0.sh run DATA RUN [--preset small|tiny] [--steps 4000] [--batch 64] [--microbatch 16] [--threads 4] [--lr 1e-3]
+gen0.sh run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes] [--steps 4000] [--batch 64] [--microbatch 16] [--threads 4] [--lr 1e-3]
         [--warmup 200] [--seed 1] [--holdout 0.1] [--augment 1] [--value-coefficient 1]
         [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
         [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120]
@@ -1093,6 +1093,108 @@ Determinism check: the configuration `batch=16, cpuct=0.5` against 400 nodes on 
 - **One network, one seed per cell.** The Elo columns are for the generation-0 candidate and 100 pairs per cell (interval ±40 to ±300 near saturation); the tuning of c, the prior temperature and the first-play reduction used one seed and one opponent, and differences below about 100 Elo in these sweeps are noise.
 - **Vector API.** The Vector API forward pass needs `--add-modules jdk.incubator.vector`; without it `NetPlayers` uses the scalar network, about 15 times slower. `scripts/mctsmatch.sh`, `scripts/gen0.sh` and the Gradle tasks set the flag.
 
+## As implemented (block 2f / E11)
+
+**TL;DR:** The network can read six classical planes (single-agent distance of both sides, one-move reachability of both sides, passed flag, linear evaluation) and adds a classical prior to its outputs (`beta` times the distance gain to the policy logits, `k` times the linear evaluation inside the value's tanh, both learnable), selected by the plane set `classic1` ([network.md](network.md#classical-planes-and-residual-priors-format-version-2); file format version 2, version 1 files read as the plain network). On the same 20,000 teacher games, the same seed, the same batches and the same 16,000 steps as [run 2](#generation-0-run-2-measured-2026-11-08), the SMALL network with `classic1` **reaches every held-out KL level in half the steps or less** (KL 0.9 at about 1,900 steps instead of 3,700, the final KL of run 2 at about 5,500 steps), ends better (held-out KL 0.717 against 0.795, top-1 48.8 % against 45.8 %, value loss 0.158 against 0.163), and its raw policy gains **+135, +124 and +62 Elo** against the same rungs (depth 1, 100 nodes, 400 nodes); the MCTS player of block 2g gains **+78 Elo** against 1600 nodes of `BEST_SPEC` (+350 ± 77 against +272 ± 66, inside the noise). The acceptance rule of the plan (not worse at the end, a fixed KL in fewer steps) is met; **decision: adopt `classic1` as the default plane set of the self-play loop.** 55 new tests; 38 of 38 mutants caught.
+
+**What was built** (module `nn` unless noted; details in [network.md](network.md#classical-planes-and-residual-priors-format-version-2)):
+
+| Class | Content |
+|---|---|
+| `PlaneSet` | `plain` (7 planes, format version 1), `classic1` (13 planes and the priors), `classic1-planes` (13 planes, no priors: the ablation). In `NetworkConfig.planes()`; the metadata key `planes`. |
+| `ClassicalPlanes` | The six planes from a `Position` and an `Orientation` (distance, `Position.generate` for the mover and, on a copy with the side swapped, for the next player, passed flag, the linear evaluation), with an optional mirror. `Encoder.encode(PlaneSet, ...)` and `SampleExpander.expand(PlaneSet, ...)` both call it, so the two give the same floats. |
+| `ResidualPriors` | The prior terms added by `Network`, `VectorNetwork` and the trainer; the names `prior.beta`, `prior.k` and their initial values (1 and 0.5). |
+| `NetworkConfig`, `Parameters`, `Checkpoint` | The plane set in the config and the metadata (`format_version` 1 for `plain`, 2 otherwise, plus `planes`), the wider first convolution, the two scalars at the end of the tensor list, `Parameters.init` with the output layers at zero. |
+| `ReferenceTrainer`, `TrainingBatch` | A batch has 7 or 13 planes per cell; the trainer gives `prior.beta` and `prior.k` their exact gradients. |
+| `ReplayBuffer`, `Gen0`, `RawPolicyPlayer` (`selfplay`) | The buffer recomputes the classical planes of each drawn sample at batch build time (they are never in a sample file); `gen0 run ... --planes classic1`; the planes of a network come from its config in the proxies step, the raw player and every MCTS player. `run.json` has the key `planes` only when it is not `plain`, so the `run.json` of earlier runs stays valid. |
+| `TornadoNetwork` (`nn-tornado`) | The first convolution reads `config.inputPlanes()`; `classic1` is refused (the device value head applies the tanh), `classic1-planes` runs and agrees with the reference. No kernel changed. |
+| `Mcts` (`search`) | Only `noisy(float[])` lost its `private` for the new test of part 0. MCTS and the gen0 tools load both variants through `Networks.fastest`; `ForwardPass` and `Evaluator` are unchanged for callers. |
+
+**Part 0 (two tests from the review of block 2g).** `theNoiseMixesPriorAndDirichletSampleWithTheDocumentedWeights`: for a known seeded sample, noise 1 is the Dirichlet sample, noise 0 the prior and noise 0.25 the exact blend `0.75 · prior + 0.25 · d` (a swapped blend fails all three). `reuseNeedsTheSamePlyNotOnlyTheSameHash`: the start position comes back after four plies (both sides undo their move), with the same hash and another ply; the tree of the first search must not be reused (a reuse by hash alone carries 60 visits over).
+
+### Tests
+
+**55 new tests; the whole build has 947 tests (`engine` 58, `tablebase` 21, `nn` 314, `search` 248, `selfplay` 142, `nn-tornado` 164), none failed, 2 skipped (the beat-random properties without a strong strategy, as before).**
+
+| Test class | What it pins |
+|---|---|
+| `ClassicalPlanesTest` (17) | Hand-checked distance, reachability (lone pieces, a jump chain, the leave-goal rule), passed and evaluation planes; an independent breadth-first distance and an independent landing oracle (written in the test) on 80+ positions for both sides; the identity of `Encoder.encode` and `SampleExpander.expand` for every mover of 2 and 3 players (and the passed positions), the mirror both as permuted rows and as the encoding of the mirrored position; every float of the slice written (NaN-filled buffer), offsets, the padding row. |
+| `ResidualPriorsTest` (15) | A zero network is exactly `softmax(gain)` and `tanh(0.5 · logit)` for `Network` and `VectorNetwork` and both movers; the same from `Parameters.init`; `beta` and `k` scale the terms (0, 2, negative); the prior logit of a move is `beta · gain` on top of the net logit; `Network`, `VectorNetwork` and the double-precision `DoubleNetwork` agree with priors for two and three players; the trainer's forward equals `Network` bit for bit; the finite-difference gradients of `prior.beta` and `prior.k`; a sample and its mirror give the same loss and gradients for a symmetric network; the optimiser moves the scalars (no decay); width checks of batches. |
+| `ReferenceTrainerTest` (+1) | Finite differences of **every** parameter of TINY with classical planes and priors, 2 and 3 players, with and without priors, and a deeper net (largest error / bound 0.00016 to 0.00056 over 1,134 to 2,055 parameters, none skipped by the kink guard). |
+| `PlaneSetFormatTest` (9), `CheckpointTest` (+1) | Version 1 for `plain` and 2 with `planes` last for the rest; every combination of version, `planes` and `input_planes` that must be rejected; the pinned parameter counts (TINY 1,684 / 2,020 / 2,022, SMALL 60,388 / 61,732 / 61,734); file round trips, a file whose tensors do not match its plane set, the checkpoint with the optimiser state of the scalars; `VectorNetwork.reload()` picks up `prior.beta` and `prior.k`. |
+| `ClassicalPriorsTest` (5, `search`) | `ClassicalPlanes.linearLogit` equals the weighted sum of `LinearEvaluator.features` **bit for bit** and `round(100 · logit)` equals `LinearEvaluator.evaluate` on 120,000 positions of both leave-goal rules (random and greedy playouts and scattered setups), the weights equal `LinearWeights.ROUND2`, the passed flag equals `RaceAdjudication.passed` on 80,000 positions; an untrained `classic1` network gives `tanh(0.5 · score / 100)` and `softmax(gain)` for 300 positions; it plays clean MCTS games and beats a random player (100 simulations, `mustBeatRandom`). |
+| `MctsTest` (+2) | Part 0 above. |
+| `selfplay`: `ReplayBufferEndToEndTest` (+1), `Gen0Test` (+1), `RawPolicyPlayerTest` (+1), `NetPlayersTest` (+1) | The buffer's classical planes equal the encoder's on every sample of real games, mirrored too, and train; a `classic1` run records its planes, resumes bit-identically after an abort, reports the same proxies in its own process, and cannot be resumed as `plain`; the raw player and the MCTS player of a `classic1` file. |
+| `TornadoNetworkTest` (+1) | `classic1-planes` agrees with the reference on the device (it ran on the Metal device here); `classic1` is refused. |
+
+### Mutation check
+
+38 hand-made mutants of the new code (and of the two tests of part 0), each run against the tests of the three modules; **38 caught, 0 missed.** One (M31, the trainer's width check removed) was first missed: the wrong width failed somewhere else by chance, so the test now checks the message. The script is a Python loop that applies one textual replacement, runs the tests and restores the file.
+
+| Group | Mutants (all caught) |
+|---|---|
+| Planes | reach planes swapped; the next player's moves generated without swapping the side; the next player's distance plane equal to the mover's; distance divided by 15; passed with `>=`; passed without the piece count; evaluation with the opponent added; no tempo term; mirror ignored; steps counted towards the farther cell |
+| Priors | the "to" term with the wrong sign; the plane of the next player; value sign of player 1 wrong; evaluation term subtracted in `Network`; `VectorNetwork` without `prior.beta` after packing; its evaluation term without the sign; the gradient of `beta` with from and to added or without the 16; the gradient of `k` without the evaluation factor; no policy prior in the trainer; initial `beta` and `k` changed; output layers not zeroed |
+| Plumbing | classical planes only for `classic1`; the expander without the mirror, or with the pieces on the wrong side; format version 1 for a classical file; a version 1 file with a `planes` key accepted; `input_planes` unchecked; the parameter count without the two scalars; the trainer without the width check; the evaluator, the replay buffer, the proxies step and the raw player with plain planes; `run.json` without the planes |
+| Part 0 | the noise blend swapped; the tree reused by hash without the ply |
+
+### The A/B measurement
+
+**Setup.** `data/teacher-s2003` (400 files, 20,000 games, 1,708,277 training and 196,686 held-out samples), SMALL, 2 players, `gen0 run ... --preset small --steps 16000 --batch 256 --microbatch 32 --threads 8 --seed 1 --augment 1 --monitor 1`, **and for run 3 only `--planes classic1`** (`data/gen0run3`, 1h27m33s, 3.05 steps/s = 780 samples/s at a load of 10 to 12 with other work on the machine, against 1h22m and 3.25 steps/s for run 2 at a load of 11 to 13: about 6 % slower, indicative). The batch of a step is a pure function of the run seed and the step, so **both runs trained on the same samples in the same order**; the held-out split is the same (checked by `run.json`: same data fingerprint, hold-out fraction and salt). The only differences are the 13 planes and the priors, and that the two output layers start at zero in run 3 (part of the variant).
+
+**Held-out curves at equal steps** (the monitor's proxies on 2,500 held-out samples, the same samples in both runs; the proxy steps of the two runs differ by timing, so run 2 is interpolated linearly between its own proxy steps, which are 600 steps apart; the checkpoints of run 2 other than the last two are not kept):
+
+| Step | KL run 2 / run 3 | Top-1 % | Value loss | Winner % |
+|---|---|---|---|---|
+| 200 | 1.324 / 1.273 | 33.3 / 34.1 | 0.542 / 0.204 | 58.6 / 72.9 |
+| 800 | 1.076 / 1.010 | 38.0 / 39.6 | 0.269 / 0.201 | 71.6 / 72.9 |
+| 2,000 | 0.971 / 0.893 | 41.4 / 44.2 | 0.246 / 0.203 | 72.9 / 72.2 |
+| 4,000 | 0.898 / 0.801 | 43.8 / 47.2 | 0.212 / 0.194 | 72.4 / 72.8 |
+| 8,000 | 0.826 / 0.748 | 45.3 / 47.5 | 0.179 / 0.172 | 73.7 / 74.3 |
+| 12,000 | 0.792 / 0.713 | 45.6 / 48.9 | 0.169 / 0.164 | 74.3 / 74.4 |
+| 16,000 | 0.777 / 0.700 | 46.7 / 50.2 | 0.162 / 0.159 | 74.8 / 74.6 |
+
+**Early speed.** Steps until the held-out KL first reaches a level (interpolated between proxies): 1.0 at 1,490 (run 2) and 861 (run 3); 0.95 at 2,358 and 1,171; **0.9 at 3,745 and 1,915**; 0.85 at 7,066 and 2,878. Run 3 reaches the final KL of run 2 (0.777) at about 5,500 steps and its top-1 of 46.7 % at about 3,500. The value starts calibrated: the value loss is 0.20 from the first proxy (run 2: 0.54 at step 200, 0.27 at step 800) and the training-batch value loss of the first 250 steps is 0.21 against 0.56. The training-batch KL (mean per 250 steps on the same batches) is 1.37 against 1.59 in the first 250 steps and 0.667 against 0.738 in the last 250.
+
+**Final proxies** (`gen0 proxies` on the candidates, 5,000 held-out samples, the same ones):
+
+| | Run 2 (`plain`) | Run 3 (`classic1`) |
+|---|---|---|
+| policy KL | 0.795 | **0.717** |
+| top-1 agreement | 45.8 % | **48.8 %** |
+| value loss | 0.163 | **0.158** |
+| winner prediction | 75.7 ± 0.6 % | 76.0 ± 0.6 % |
+
+**Strength** (paired games of the strength estimate, 100 pairs per cell, Elo with 95 % intervals; the ladder is `BEST_SPEC` at the given nodes; both games of a pair start from the same opening):
+
+| | Run 2 | Run 3 | Difference |
+|---|---|---|---|
+| raw policy vs depth 1 | +38 ± 45 | **+173 ± 52** | +135 |
+| raw policy vs 100 nodes | +3 ± 46 | **+127 ± 50** | +124 |
+| raw policy vs 400 nodes | -166 ± 48 | -104 ± 48 | +62 |
+| MCTS, 100 simulations (`mcts:sims=100,racerows=1`, seed 3002), vs 1600 nodes | +272 ± 66 (165-1-34) | +350 ± 77 (176-1-23) | +78 |
+
+The differences of the raw policy against depth 1 and 100 nodes are significant (z about 3.8 and 3.5, from the two 95 % half-widths); against 400 nodes (z about 1.8) and in the MCTS cell (z about 1.5) they are suggestive, not significant alone. The MCTS cell of run 2 was run again here and gives exactly the number of block 2g (same games: the search is limited by simulations and has no noise). The two MCTS lines used the same tool, seed and settings.
+
+**The classical prior alone** (the untrained `classic1` network of seed 1, SMALL: no training at all): held-out KL 1.876, top-1 19.9 %, value loss 1.526, winner prediction 50.2 % (the evaluation says "the mover wins" in almost every early position because of the tempo term, and it is confidently wrong in passed positions, where `linear-r2` was not fitted: the value base is calibrated against the value targets as a whole, MSE 0.205 at `k = 0.5`, against 0.553 for 0, but not against the game results of the weighted samples; the plain untrained network has KL 4.03 and value loss 0.752). As an MCTS player at 100 simulations (no training) it scores **+186 ± 51 against depth 1 and -449 ± 99 against 1600 nodes**, so the priors alone are a weak but sound player, about depth 1 to 2 of the classical engine, and a trained network adds about 800 Elo against 1600 nodes (+350). The trained scalars stayed near their starting values: `prior.beta = 1.051`, `prior.k = 0.592`.
+
+**Cost.** Per MCTS simulation the 13 planes and the move generation for both sides cost about 2.7 % (`MctsBench`, 100 simulations, SMALL, one thread, 2,385 and 2,381 simulations per CPU-second for the untrained `classic1` network against 2,464 and 2,434 for the `plain` candidate, two runs each at a load of 10 to 12); in training about 6 % per step (see above); the extra inference work of the priors themselves is negligible. The first convolution has 1,344 more weights (2.2 % of SMALL).
+
+### Decision
+
+**Adopt `classic1` as the default plane set of the self-play loop: yes.** It meets the rule of the plan, is not worse at the end on any measure (KL, top-1, value, winner prediction, raw policy, MCTS), and reaches a given KL in about half the steps or fewer, with a small cost. The ablation `classic1-planes` exists in the code and was **not** run: the full set did not lose, so the "keep only the planes that helped" branch of the plan was not needed, and **which part helps (the planes, the policy prior, the value base) is not measured**: the early value loss (0.20 at once) is the value base and the planes together, the policy KL gain the planes and the distance prior. If the cost of 13 planes on a GPU matters, that ablation is the next run.
+
+### Deviations from the plan and limits
+
+- **The value base is the 12-feature `linear-r2`, not `BEST_SPEC`'s 13-feature `linear-r3`** (`bestGain` needs the jump-component search of `LinearEvaluator`, which `nn` cannot call and would have to copy). The copy of the 12 features is pinned bit for bit to `LinearEvaluator`.
+- **Race counts were not added** (option (d) of the plan, "skip if it complicates"): the table lives in `tablebase`, and the counts exist in passed positions only, where the passed flag and the distance planes carry most of it. The linear evaluation is unreliable in passed positions (it was fitted without them), so a passed-position value base from the race table is the natural next step.
+- **Two players only for the value base, the passed flag and the evaluation plane** (0 for three players); the reachability and distance planes of three players cover the mover and relative player 1 only. No three-player network exists to test them beyond the identity and gradient tests.
+- **`TornadoNetwork` refuses `classic1`** (the value prior has to be added before the device's tanh); the GPU trainer of Part B does not know the planes or the priors.
+- **The planes assume the default rules.** `SampleExpander` rebuilds a position without a rule set; the sample files are written with the default rules.
+- **The A/B is one seed and one data set.** The proxies are exact, the Elo cells have intervals of ± 45 to ± 77, and the two smaller differences (raw policy vs 400 nodes, MCTS vs 1600 nodes) are not significant by themselves; the paired direction of all five strength cells and of every proxy is the same. Run 2's curve is interpolated between its proxy steps. The held-out proxies of the monitor use 2,500 samples (standard error of the winner prediction about 0.9 points); the final ones 5,000.
+- **No step-limited MCTS equal-time comparison** was made: the cells count simulations and nodes, not seconds (the loads of the runs differ).
+- **Not measured:** LARGE, three players, the ablation, a second seed, the effect on self-play generations after generation 0 (the point of E11).
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
@@ -1101,7 +1203,7 @@ Determinism check: the configuration `batch=16, cpuct=0.5` against 400 nodes on 
 4. **Teacher policy targets.** One-hot plus ε, or a multi-PV root search with exact scores for all root moves, at a higher cost?
 5. **Three players.** No classical teacher and no `BEST_SPEC` exist for three players. Which baseline gates three-player generations?
 6. **Race endgames in self-play.** The rule of [What classical code covers](#what-classical-code-covers) needs a conservative contact test and exact solitaire distances. Which of the two arrives first, and what share of plies does it save?
-7. **Distance input plane.** Replace the constant planes 3 to 5 with the single-agent distance per cell ([network open question 1](network.md#open-questions))? This is a classical feature the network would no longer need to learn, and it changes the file format version.
+7. **Distance input plane.** Answered by E11: the distance planes are an addition, not a replacement (planes 3 to 5 stay), as the plane set `classic1` with format version 2; the A/B of [block 2f](#as-implemented-block-2f--e11) shows a faster and better policy. Still open: whether planes 3 to 5 can go.
 8. **Float softmax on Metal.** Confirm that TornadoVM rejects `double` on Metal and that the float softmax meets the gradient bound.
 9. **Integer dtypes in safetensors.** Extend the project's reader for sample files (U8, I16, I32), while `Parameters.load` stays F32-only? E05 keeps a typed reader and writer in module `selfplay` (`SampleFile`) and leaves `nn.Safetensors` unchanged.
 10. **Replay window and reuse.** W = 500,000 samples and R = 4 are starting values.

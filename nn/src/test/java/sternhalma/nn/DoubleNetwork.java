@@ -45,11 +45,12 @@ final class DoubleNetwork {
         int c = config.channels();
         int rows = HexGrid.ROWS;
         List<Boolean> signs = new ArrayList<>();
-        double[] in = new double[rows * Encoder.PLANES];
+        int planes = config.inputPlanes();
+        double[] in = new double[rows * planes];
         for (int i = 0; i < in.length; i++) {
             in[i] = input[offset + i];
         }
-        double[] x = relu(conv(in, Encoder.PLANES, params.get("conv_in.weight"), params.get("conv_in.bias"), c),
+        double[] x = relu(conv(in, planes, params.get("conv_in.weight"), params.get("conv_in.bias"), c),
                 signs);
         for (int i = 0; i < config.blocks(); i++) {
             String b = "block" + i;
@@ -76,12 +77,23 @@ final class DoubleNetwork {
                 pooled[ch] += x[cell * c + ch] / HexGrid.CELLS;
             }
         }
+        boolean priors = config.planes().residualPriors();
+        if (priors) {
+            // policy[c][FROM] += beta * 16 * d(c), policy[c][TO] -= the same (docs/network.md, "Classical planes ...")
+            double beta = params.get(ResidualPriors.BETA)[0];
+            for (int cell = 0; cell < HexGrid.CELLS; cell++) {
+                double term = beta * 16 * in[cell * planes + Encoder.DIST_OWN];
+                policy[cell * 2] += term;
+                policy[cell * 2 + 1] -= term;
+            }
+        }
         double[] hidden = relu(dense(pooled, params.get("head_value.dense1.weight"),
                 params.get("head_value.dense1.bias")), signs);
         double[] y = dense(hidden, params.get("head_value.dense2.weight"), params.get("head_value.dense2.bias"));
         double[] values = new double[y.length];
         for (int i = 0; i < y.length; i++) {
-            values[i] = Math.tanh(y[i]);
+            double base = priors ? (i == 0 ? 1 : i == 1 ? -1 : 0) * in[Encoder.EVAL] : 0;
+            values[i] = Math.tanh(y[i] + (priors ? params.get(ResidualPriors.K)[0] * base : 0));
         }
         boolean[] pattern = new boolean[signs.size()];
         for (int i = 0; i < pattern.length; i++) {
@@ -140,7 +152,7 @@ final class DoubleNetwork {
         int players = config.players();
         double total = 0;
         for (int s = 0; s < batch.size(); s++) {
-            Output out = forward(batch.input(), s * Encoder.INPUT_SIZE);
+            Output out = forward(batch.input(), s * batch.inputSize());
             patterns.add(out.positive());
             int first = batch.moveOffsets()[s];
             int end = batch.moveOffsets()[s + 1];

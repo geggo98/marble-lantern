@@ -65,14 +65,16 @@ public final class Evaluator {
         if (batch == 0) {
             throw new IllegalArgumentException("no positions to evaluate");
         }
-        float[] input = new float[batch * Encoder.INPUT_SIZE];
+        PlaneSet planes = network.config().planes();
+        int inputSize = planes.inputSize();
+        float[] input = new float[batch * inputSize];
         for (int b = 0; b < batch; b++) {
             Position position = positions.get(b);
             if (position.rules().players() != players) {
                 throw new IllegalArgumentException("position " + b + " has " + position.rules().players()
                         + " players, the network has " + players);
             }
-            Encoder.encode(position, input, b * Encoder.INPUT_SIZE);
+            Encoder.encode(planes, position, input, b * inputSize);
         }
         float[] policy = new float[batch * Encoder.POLICY_SIZE];
         float[] values = new float[batch * players];

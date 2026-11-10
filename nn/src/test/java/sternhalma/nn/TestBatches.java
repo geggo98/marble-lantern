@@ -18,8 +18,13 @@ final class TestBatches {
      * value weights through 1, 2, 0.5 and 1, so that no weight is accidentally the same everywhere.
      */
     static TrainingBatch fromPositions(int players, List<Position> positions, long seed) {
+        return fromPositions(players, PlaneSet.PLAIN, positions, seed);
+    }
+
+    /** {@link #fromPositions(int, List, long)} with the input planes of the given set. */
+    static TrainingBatch fromPositions(int players, PlaneSet planes, List<Position> positions, long seed) {
         Random random = new Random(seed);
-        TrainingBatch.Builder builder = new TrainingBatch.Builder(players);
+        TrainingBatch.Builder builder = new TrainingBatch.Builder(players, planes);
         float[] policyWeights = {1f, 0.5f, 2f, 1.5f};
         float[] valueWeights = {1f, 2f, 0.5f, 1f};
         int n = 0;
@@ -29,8 +34,8 @@ final class TestBatches {
                 continue;
             }
             Orientation orientation = Orientation.of(position);
-            float[] input = new float[Encoder.INPUT_SIZE];
-            Encoder.encode(position, input, 0);
+            float[] input = new float[planes.inputSize()];
+            Encoder.encode(planes, position, input, 0);
             int[] from = new int[moves.length];
             int[] to = new int[moves.length];
             double[] target = new double[moves.length];
@@ -56,7 +61,7 @@ final class TestBatches {
      * positions seldom touch. Without it a bug at the last row of the policy head has no gradient to show.
      */
     static TrainingBatch plusCornerSample(TrainingBatch batch) {
-        TrainingBatch.Builder builder = new TrainingBatch.Builder(batch.players());
+        TrainingBatch.Builder builder = new TrainingBatch.Builder(batch.players(), planeSetOf(batch));
         for (int s = 0; s < batch.size(); s++) {
             TrainingBatch one = single(batch, s);
             double[] target = new double[one.moveCount()];
@@ -72,13 +77,18 @@ final class TestBatches {
         return builder.build();
     }
 
+    /** The plane set that matches the width of the batch (7 planes: plain, 13: classic1). */
+    private static PlaneSet planeSetOf(TrainingBatch batch) {
+        return batch.inputPlanes() == Encoder.PLANES ? PlaneSet.PLAIN : PlaneSet.CLASSIC1;
+    }
+
     /** A batch of one sample, the sample {@code s} of {@code batch}. */
     static TrainingBatch single(TrainingBatch batch, int s) {
         int first = batch.moveOffsets()[s];
         int end = batch.moveOffsets()[s + 1];
         int p = batch.players();
-        float[] input = java.util.Arrays.copyOfRange(batch.input(), s * Encoder.INPUT_SIZE,
-                (s + 1) * Encoder.INPUT_SIZE);
+        float[] input = java.util.Arrays.copyOfRange(batch.input(), s * batch.inputSize(),
+                (s + 1) * batch.inputSize());
         return new TrainingBatch(1, p, input, new int[] {0, end - first},
                 java.util.Arrays.copyOfRange(batch.moveFrom(), first, end),
                 java.util.Arrays.copyOfRange(batch.moveTo(), first, end),

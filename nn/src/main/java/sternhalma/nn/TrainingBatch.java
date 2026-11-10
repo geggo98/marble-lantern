@@ -13,7 +13,8 @@ import java.util.Objects;
  *
  * @param size           number of samples N
  * @param players        number of players P
- * @param input          encoded planes, [N][122][7], as {@link Encoder#encode} writes them; row 121 is 0
+ * @param input          encoded planes, [N][122][I] with I = 7 (plain) or 13 (classical), as {@link Encoder#encode}
+ *                       writes them; row 121 is 0
  * @param moveOffsets    [N + 1], the moves of sample s are {@code moveOffsets[s] .. moveOffsets[s + 1] - 1}
  * @param moveFrom       canonical start cells of the M moves, 0 to 120
  * @param moveTo         canonical end cells of the M moves, 0 to 120
@@ -56,7 +57,11 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
-        requireLength("input", input.length, (long) size * Encoder.INPUT_SIZE);
+        long width = (long) size * HexGrid.ROWS;
+        if (input.length % width != 0|| (input.length / width != Encoder.PLANES && input.length / width != Encoder.CLASSIC_PLANES)) {
+            throw new IllegalArgumentException("input needs " + width * Encoder.PLANES + " or " + width * Encoder.CLASSIC_PLANES
+                    + " floats for " + size + " samples, has " + input.length);
+        }
         requireLength("moveOffsets", moveOffsets.length, size + 1L);
         requireLength("valueTarget", valueTarget.length, (long) size * players);
         requireLength("policyWeight", policyWeight.length, size);
@@ -87,21 +92,22 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
         }
         int[] seen = new int[HexGrid.CELLS * HexGrid.CELLS]; // sample + 1 of the last sample that used a pair
         for (int s = 0; s < size; s++) {
-            validateSample(s, players, input, moveOffsets, moveFrom, moveTo, moveTarget, valueTarget,
+            validateSample(s, players, (int) (input.length / width), input, moveOffsets, moveFrom, moveTo, moveTarget, valueTarget,
                     policyWeight, valueWeight, targetEntropy, seen);
         }
     }
 
-    private static void validateSample(int s, int players, float[] input, int[] offsets, int[] from, int[] to,
+    private static void validateSample(int s, int players, int planes, float[] input, int[] offsets, int[] from, int[] to,
             float[] target, float[] z, float[] wp, float[] wv, double[] entropy, int[] seen) {
         int first = offsets[s];
         int end = offsets[s + 1];
-        for (int i = 0; i < Encoder.INPUT_SIZE; i++) {
-            float v = input[s * Encoder.INPUT_SIZE + i];
+        int inputSize = HexGrid.ROWS * planes;
+        for (int i = 0; i < inputSize; i++) {
+            float v = input[s * inputSize + i];
             if (!Float.isFinite(v)) {
                 throw new IllegalArgumentException("sample " + s + ": input is not finite at " + i);
             }
-            if (i >= HexGrid.CELLS * Encoder.PLANES && v != 0) {
+            if (i >= HexGrid.CELLS * planes && v != 0) {
                 throw new IllegalArgumentException("sample " + s + ": padding row of the input is not zero");
             }
         }
@@ -155,6 +161,16 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
         }
     }
 
+    /** Input planes per cell: 7 (plain) or 13 (classical). */
+    public int inputPlanes() {
+        return input.length / size / HexGrid.ROWS;
+    }
+
+    /** Floats per sample of {@link #input()}. */
+    public int inputSize() {
+        return HexGrid.ROWS * inputPlanes();
+    }
+
     /** Number of moves M of all samples. */
     public int moveCount() {
         return moveOffsets[size];
@@ -179,7 +195,8 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
             }
             offsets[i + 1] = offsets[i] + (moveOffsets[s + 1] - moveOffsets[s]);
         }
-        float[] newInput = new float[n * Encoder.INPUT_SIZE];
+        int inputSize = inputSize();
+        float[] newInput = new float[n * inputSize];
         int[] from = new int[offsets[n]];
         int[] to = new int[offsets[n]];
         float[] target = new float[offsets[n]];
@@ -191,7 +208,7 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
             int s = indices[i];
             int first = moveOffsets[s];
             int count = moveOffsets[s + 1] - first;
-            System.arraycopy(input, s * Encoder.INPUT_SIZE, newInput, i * Encoder.INPUT_SIZE, Encoder.INPUT_SIZE);
+            System.arraycopy(input, s * inputSize, newInput, i * inputSize, inputSize);
             System.arraycopy(moveFrom, first, from, offsets[i], count);
             System.arraycopy(moveTo, first, to, offsets[i], count);
             System.arraycopy(moveTarget, first, target, offsets[i], count);
@@ -222,6 +239,7 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
      */
     public static final class Builder {
         private final int players;
+        private final PlaneSet planes;
         private final List<float[]> inputs = new ArrayList<>();
         private final List<int[]> froms = new ArrayList<>();
         private final List<int[]> tos = new ArrayList<>();
@@ -230,13 +248,19 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
         private final List<float[]> weights = new ArrayList<>();
 
         public Builder(int players) {
+            this(players, PlaneSet.PLAIN);
+        }
+
+        /** A builder of samples with the given input planes. */
+        public Builder(int players, PlaneSet planes) {
             this.players = players;
+            this.planes = planes;
         }
 
         /**
          * Adds a sample.
          *
-         * @param input        {@link Encoder#INPUT_SIZE} floats
+         * @param input        the floats of one encoded position ({@link PlaneSet#inputSize()})
          * @param from         canonical start cells of the legal moves
          * @param to           canonical end cells
          * @param rawTarget    unnormalised policy targets, &gt;= 0
@@ -249,8 +273,8 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
             if (from.length != to.length || from.length != rawTarget.length) {
                 throw new IllegalArgumentException("from, to and target differ in length");
             }
-            if (input.length != Encoder.INPUT_SIZE) {
-                throw new IllegalArgumentException("input needs " + Encoder.INPUT_SIZE + " floats, has "
+            if (input.length != planes.inputSize()) {
+                throw new IllegalArgumentException("input needs " + planes.inputSize() + " floats, has "
                         + input.length);
             }
             if (value.length != players) {
@@ -281,7 +305,8 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
         public TrainingBatch build() {
             int n = inputs.size();
             int moves = froms.stream().mapToInt(a -> a.length).sum();
-            float[] input = new float[n * Encoder.INPUT_SIZE];
+            int inputSize = planes.inputSize();
+            float[] input = new float[n * inputSize];
             int[] offsets = new int[n + 1];
             int[] from = new int[moves];
             int[] to = new int[moves];
@@ -291,7 +316,7 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
             float[] wv = new float[n];
             double[] entropy = new double[n];
             for (int s = 0; s < n; s++) {
-                System.arraycopy(inputs.get(s), 0, input, s * Encoder.INPUT_SIZE, Encoder.INPUT_SIZE);
+                System.arraycopy(inputs.get(s), 0, input, s * inputSize, inputSize);
                 int at = offsets[s];
                 int len = froms.get(s).length;
                 System.arraycopy(froms.get(s), 0, from, at, len);

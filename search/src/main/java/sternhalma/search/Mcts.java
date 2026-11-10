@@ -323,7 +323,7 @@ public final class Mcts {
     }
 
     /** {@code (1 - noise) * prior + noise * Dirichlet(alpha)}. */
-    private float[] noisy(float[] prior) {
+    float[] noisy(float[] prior) {
         double[] g = new double[prior.length];
         double sum = 0;
         for (int i = 0; i < g.length; i++) {

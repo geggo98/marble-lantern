@@ -34,6 +34,7 @@ import sternhalma.nn.Checkpoint;
 import sternhalma.nn.LearningRateSchedule;
 import sternhalma.nn.Network;
 import sternhalma.nn.NetworkConfig;
+import sternhalma.nn.PlaneSet;
 import sternhalma.nn.Optimizer;
 import sternhalma.nn.Parameters;
 import sternhalma.nn.TrainingObserver;
@@ -45,7 +46,7 @@ import sternhalma.search.Strategies;
  * estimates (docs/training.md, "Bootstrap" and "As implemented (block 2e)").
  *
  * <pre>
- *   Gen0 run DATA RUN [--preset small|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3]
+ *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3]
  *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
  *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
@@ -100,14 +101,27 @@ public final class Gen0 {
      * microbatch order, so the result does not depend on it.
      */
     record Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
-            double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles) {
+            double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
+            String planes) {
+
+        /** A configuration with the plain planes (every run before E11). */
+        Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
+                double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles) {
+            this(preset, seed, steps, batch, microbatch, lr, warmup, valueCoefficient, augment, holdout, dataSha256,
+                    dataFiles, PlaneSet.PLAIN.id());
+        }
+
+        PlaneSet planeSet() {
+            return PlaneSet.ofId(planes);
+        }
 
         NetworkConfig network() {
-            return switch (preset) {
+            NetworkConfig size = switch (preset) {
                 case "small" -> NetworkConfig.small(2);
                 case "tiny" -> NetworkConfig.tiny(2);
                 default -> throw new IllegalArgumentException("--preset must be small or tiny, got " + preset);
             };
+            return size.withPlanes(planeSet());
         }
 
         LearningRateSchedule schedule() {
@@ -120,6 +134,9 @@ public final class Gen0 {
             f.put("version", 1);
             f.put("preset", preset);
             f.put("players", 2);
+            if (planeSet() != PlaneSet.PLAIN) {
+                f.put("planes", planes); // omitted for plain planes, so that the run.json of older runs stays valid
+            }
             f.put("seed", seed);
             f.put("steps", steps);
             f.put("batch", batch);
@@ -294,13 +311,18 @@ public final class Gen0 {
     record Split(ReplayBuffer train, ReplayBuffer heldOut, List<Path> skipped) {
     }
 
+    /** {@link #split(List, double, boolean, PlaneSet)} with the plain planes. */
+    static Split split(List<Path> files, double holdout, boolean augment) throws IOException {
+        return split(files, holdout, augment, PlaneSet.PLAIN);
+    }
+
     /**
      * Loads the files twice, once with the games that are not held out (the training buffer, mirrored if asked) and
      * once with the held-out games (never mirrored). Every game is in exactly one of the two.
      */
-    static Split split(List<Path> files, double holdout, boolean augment) throws IOException {
-        ReplayBuffer train = new ReplayBuffer(2, Integer.MAX_VALUE, augment);
-        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false);
+    static Split split(List<Path> files, double holdout, boolean augment, PlaneSet planes) throws IOException {
+        ReplayBuffer train = new ReplayBuffer(2, Integer.MAX_VALUE, augment, planes);
+        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, planes);
         ReplayBuffer.Loaded loaded = train.addGeneration(GENERATION, files, (m, id) -> !heldOut(m, id, holdout));
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         return new Split(train, held, loaded.skipped());
@@ -425,7 +447,7 @@ public final class Gen0 {
         Config cfg = new Config(str(opts, "preset", "small"), lng(opts, "seed", 1), lng(opts, "steps", 4000),
                 integer(opts, "batch", 64), integer(opts, "microbatch", 16), dbl(opts, "lr", 1e-3),
                 integer(opts, "warmup", 200), dbl(opts, "value-coefficient", 1.0), flag(opts, "augment", true),
-                dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size());
+                dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size(), str(opts, "planes", "plain"));
         cfg.network();
         cfg.schedule();
         if (cfg.batch < 1 || cfg.microbatch < 1 || !(cfg.holdout > 0 && cfg.holdout < 1)) {
@@ -486,7 +508,7 @@ public final class Gen0 {
         // phase 2: load the data and split it
         Split split;
         try {
-            split = split(files, cfg.holdout(), cfg.augment());
+            split = split(files, cfg.holdout(), cfg.augment(), cfg.planeSet());
         } catch (IllegalArgumentException e) {
             err.println("gen0: the data does not fit: " + e.getMessage());
             return EXIT_ERROR;
@@ -914,7 +936,7 @@ public final class Gen0 {
             return EXIT_ERROR;
         }
         double holdout = Double.parseDouble(cfg.get("holdout"));
-        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false);
+        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, net.parameters().config().planes());
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         if (held.size() == 0) {
             err.println("gen0 proxies: the split leaves no held-out sample");

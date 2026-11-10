@@ -240,7 +240,7 @@ class CheckpointTest {
         Path source = valid(Optimizer.Kind.ADAMW);
         Consumer<Map<String, Tensor>> same = t -> { };
         assertRejected(source, "network format", m -> m.put("format", "sternhalma-nn"), same);
-        assertRejected(source, "future version", m -> m.put("format_version", "2"), same);
+        assertRejected(source, "future version", m -> m.put("format_version", "3"), same);
         assertRejected(source, "no optimizer", m -> m.remove("optimizer"), same);
         assertRejected(source, "unknown optimizer", m -> m.put("optimizer", "adam"), same);
         assertRejected(source, "negative step", m -> m.put("step", "-1"), same);
@@ -387,5 +387,31 @@ class CheckpointTest {
         assertTrue(Files.exists(Checkpoint.file(dir, 1)));
         assertTrue(Files.exists(dir.resolve("other.txt")));
         assertNotNull(Checkpoint.recover(dir).loaded());
+    }
+
+    /** A classical network keeps its scalars and their optimiser state through a checkpoint (format version 2). */
+    @Test
+    void aClassicalNetworkRoundTripsWithItsPriorScalars() throws IOException {
+        NetworkConfig config = RunFixtures.TINY.withPlanes(PlaneSet.CLASSIC1);
+        Parameters p = Parameters.uniform(config, 4, 0.3f);
+        Optimizer o = trained(p, Optimizer.Kind.ADAMW, 3);
+        Path file = dir.resolve("classic.safetensors");
+        Checkpoint.write(file, p, o, 2, RunFixtures.SHA);
+        Safetensors.Contents c = Safetensors.read(file);
+        assertEquals("2", c.metadata().get("format_version"));
+        assertEquals("classic1", c.metadata().get("planes"));
+        assertEquals("13", c.metadata().get("input_planes"));
+        assertTrue(c.tensors().containsKey("optim.m.prior.beta"));
+        assertTrue(c.tensors().containsKey("optim.v.prior.k"));
+        Checkpoint.Loaded loaded = Checkpoint.read(file);
+        assertSameParameters(p, loaded.parameters());
+        assertSameState(o, loaded.optimizer());
+        assertEquals(PlaneSet.CLASSIC1, loaded.parameters().config().planes());
+        // the same file read as a plain network file would lack the planes: the weights of both kinds stay apart
+        Parameters plain = Parameters.uniform(RunFixtures.TINY, 4, 0.3f);
+        Path plainFile = dir.resolve("plain.safetensors");
+        Checkpoint.write(plainFile, plain, trained(plain, Optimizer.Kind.ADAMW, 1), 0, RunFixtures.SHA);
+        assertEquals("1", Safetensors.read(plainFile).metadata().get("format_version"));
+        assertNull(Safetensors.read(plainFile).metadata().get("planes"));
     }
 }

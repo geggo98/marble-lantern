@@ -71,6 +71,9 @@ public final class VectorNetwork implements ForwardPass {
     private final float[] dense1Bias;
     private final float[] dense2Weight;
     private final float[] dense2Bias;
+    /** The scalars of the residual priors ({@link ResidualPriors}); 0 if the plane set has none. */
+    private float priorBeta;
+    private float priorK;
 
     /** True while a call of forward or reload runs; see {@link #enter}. */
     private final AtomicBoolean busy = new AtomicBoolean();
@@ -93,7 +96,7 @@ public final class VectorNetwork implements ForwardPass {
         int c = config.channels();
         stride = roundUp(c, TILE);
         hiddenStride = roundUp(config.valueHidden(), LANES);
-        convInWeight = new float[stride * HexGrid.STENCIL * Encoder.PLANES];
+        convInWeight = new float[stride * HexGrid.STENCIL * config.inputPlanes()];
         convInBias = new float[stride];
         blockWeight = new float[2 * config.blocks()][stride * HexGrid.STENCIL * c];
         blockBias = new float[2 * config.blocks()][stride];
@@ -154,7 +157,7 @@ public final class VectorNetwork implements ForwardPass {
 
     private void pack() {
         int c = config.channels();
-        packConv(data("conv_in.weight"), Encoder.PLANES, c, convInWeight);
+        packConv(data("conv_in.weight"), config.inputPlanes(), c, convInWeight);
         padRow(data("conv_in.bias"), 0, c, convInBias, 0);
         for (int i = 0; i < config.blocks(); i++) {
             for (int j = 0; j < 2; j++) {
@@ -176,6 +179,10 @@ public final class VectorNetwork implements ForwardPass {
             padRow(data("head_value.dense2.weight"), o * h, h, dense2Weight, o * hiddenStride);
         }
         System.arraycopy(data("head_value.dense2.bias"), 0, dense2Bias, 0, config.players());
+        if (config.planes().residualPriors()) {
+            priorBeta = data(ResidualPriors.BETA)[0];
+            priorK = data(ResidualPriors.K)[0];
+        }
     }
 
     /**
@@ -189,13 +196,15 @@ public final class VectorNetwork implements ForwardPass {
         if (batch < 1) {
             throw new IllegalArgumentException("batch must be >= 1, got " + batch);
         }
-        requireLength("input", input, (long) batch * Encoder.INPUT_SIZE);
+        int planes = config.inputPlanes();
+        int inputSize = config.inputSize();
+        requireLength("input", input, (long) batch * inputSize);
         requireLength("policyLogits", policyLogits, (long) batch * Encoder.POLICY_SIZE);
         requireLength("values", values, (long) batch * players);
         // Check every position before writing anything, as the reference rejects a dirty padding row too.
         for (int b = 0; b < batch; b++) {
-            int pad = b * Encoder.INPUT_SIZE + HexGrid.PADDING * Encoder.PLANES;
-            for (int plane = 0; plane < Encoder.PLANES; plane++) {
+            int pad = b * inputSize + HexGrid.PADDING * planes;
+            for (int plane = 0; plane < planes; plane++) {
                 if (input[pad + plane] != 0) {
                     throw new IllegalArgumentException("padding row of input " + b + " is not zero in plane "
                             + plane + ": " + input[pad + plane]);
@@ -205,7 +214,7 @@ public final class VectorNetwork implements ForwardPass {
         enter("forward");
         try {
             for (int b = 0; b < batch; b++) {
-                forwardOne(input, b * Encoder.INPUT_SIZE, policyLogits, b * Encoder.POLICY_SIZE, values,
+                forwardOne(input, b * inputSize, policyLogits, b * Encoder.POLICY_SIZE, values,
                         b * players);
             }
         } finally {
@@ -219,7 +228,7 @@ public final class VectorNetwork implements ForwardPass {
         float[] trunk = x;
         float[] mid = t;
         float[] next = u;
-        conv(input, inputOffset, Encoder.PLANES, Encoder.PLANES, convInWeight, convInBias, trunk, null);
+        conv(input, inputOffset, config.inputPlanes(), config.inputPlanes(), convInWeight, convInBias, trunk, null);
         for (int i = 0; i < config.blocks(); i++) {
             conv(trunk, 0, stride, c, blockWeight[2 * i], blockBias[2 * i], mid, null);
             conv(mid, 0, stride, c, blockWeight[2 * i + 1], blockBias[2 * i + 1], next, trunk);
@@ -234,6 +243,10 @@ public final class VectorNetwork implements ForwardPass {
                         policyBias[o] + dot(trunk, cell * stride, policyWeight, o * stride, stride);
             }
         }
+        boolean priors = config.planes().residualPriors();
+        if (priors) {
+            ResidualPriors.addPolicy(priorBeta, input, inputOffset, config.inputPlanes(), policy, policyOffset);
+        }
 
         for (int v = 0; v < stride; v += LANES) {
             FloatVector sum = FloatVector.zero(SPECIES);
@@ -247,8 +260,11 @@ public final class VectorNetwork implements ForwardPass {
             hidden[o] = Math.max(dense1Bias[o] + dot(pooled, 0, dense1Weight, o * stride, stride), 0f);
         }
         for (int o = 0; o < config.players(); o++) {
-            values[valuesOffset + o] = (float) Math.tanh(
-                    dense2Bias[o] + dot(hidden, 0, dense2Weight, o * hiddenStride, hiddenStride));
+            float pre = dense2Bias[o] + dot(hidden, 0, dense2Weight, o * hiddenStride, hiddenStride);
+            if (priors) {
+                pre += priorK * ResidualPriors.valueBase(input, inputOffset, config.inputPlanes(), o);
+            }
+            values[valuesOffset + o] = (float) Math.tanh(pre);
         }
     }
 

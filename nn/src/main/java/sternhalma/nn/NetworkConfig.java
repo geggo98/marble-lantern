@@ -2,6 +2,7 @@ package sternhalma.nn;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The size of a network (docs/network.md, "Layers").
@@ -13,8 +14,9 @@ import java.util.Map;
  * @param blocks      residual blocks B, 0 to {@link #MAX_BLOCKS}
  * @param players     players P, 2 or 3; the width of the value head output
  * @param valueHidden hidden width H of the value head, 1 to {@link #MAX_VALUE_HIDDEN}; 32 in every preset
+ * @param planes      the input planes and priors, {@link PlaneSet#PLAIN} for the networks of format version 1
  */
-public record NetworkConfig(int channels, int blocks, int players, int valueHidden) {
+public record NetworkConfig(int channels, int blocks, int players, int valueHidden, PlaneSet planes) {
 
     /** Hidden width of the value head in every preset. */
     public static final int VALUE_HIDDEN = 32;
@@ -28,10 +30,18 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
 
     /** Value of the metadata key {@code format}. */
     public static final String FORMAT = "sternhalma-nn";
-    /** The file format version that this code writes and reads. */
+    /** The format version of a network with the plain planes; version 1 files are read as {@link PlaneSet#PLAIN}. */
     public static final int FORMAT_VERSION = 1;
+    /** The format version of a network with classical planes: adds the metadata key {@code planes}. */
+    public static final int FORMAT_VERSION_PLANES = 2;
+
+    /** A network with the plain planes. */
+    public NetworkConfig(int channels, int blocks, int players, int valueHidden) {
+        this(channels, blocks, players, valueHidden, PlaneSet.PLAIN);
+    }
 
     public NetworkConfig {
+        Objects.requireNonNull(planes, "planes");
         if (channels < 1 || channels > MAX_CHANNELS) {
             throw new IllegalArgumentException("channels must be in [1, " + MAX_CHANNELS + "], got " + channels);
         }
@@ -62,58 +72,95 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
         return new NetworkConfig(64, 6, players, VALUE_HIDDEN);
     }
 
+    /** The same network size with another set of input planes and priors. */
+    public NetworkConfig withPlanes(PlaneSet other) {
+        return new NetworkConfig(channels, blocks, players, valueHidden, other);
+    }
+
+    /** Input planes per cell: 7 for {@link PlaneSet#PLAIN}, 13 for the classical sets. */
+    public int inputPlanes() {
+        return planes.planes();
+    }
+
+    /** Floats of one encoded position: 122 rows times {@link #inputPlanes()}. */
+    public int inputSize() {
+        return planes.inputSize();
+    }
+
     /**
      * Number of floats in all parameter tensors:
-     * {@code (7*I*C + C) + B*2*(7*C*C + C) + (2*C + 2) + (H*C + H) + (P*H + P)} with I = 7 input planes.
+     * {@code (7*I*C + C) + B*2*(7*C*C + C) + (2*C + 2) + (H*C + H) + (P*H + P)} with I input planes, plus 2 for
+     * {@code prior.beta} and {@code prior.k} if the plane set has residual priors.
      */
     public long parameterCount() {
         long c = channels;
         long h = valueHidden;
-        long convIn = (long) HexGrid.STENCIL * Encoder.PLANES * c + c;
+        long convIn = (long) HexGrid.STENCIL * inputPlanes() * c + c;
         long block = 2 * ((long) HexGrid.STENCIL * c * c + c);
         long policy = Encoder.POLICY_CHANNELS * c + Encoder.POLICY_CHANNELS;
         long value = (h * c + h) + ((long) players * h + players);
-        return convIn + blocks * block + policy + value;
+        long priors = planes.residualPriors() ? 2 : 0;
+        return convIn + blocks * block + policy + value + priors;
     }
 
     /**
      * The metadata entries of docs/network.md, "Metadata keys": format, format_version, channels, blocks,
-     * players, value_hidden and input_planes, in this order.
+     * players, value_hidden and input_planes, in this order, and for a classical plane set the key {@code planes}
+     * after them. A network with the plain planes is written as format version 1, so that older readers still read
+     * it; any other plane set is format version 2.
      */
     public Map<String, String> toMetadata() {
         Map<String, String> m = new LinkedHashMap<>();
         m.put("format", FORMAT);
-        m.put("format_version", Integer.toString(FORMAT_VERSION));
+        m.put("format_version", Integer.toString(planes == PlaneSet.PLAIN ? FORMAT_VERSION : FORMAT_VERSION_PLANES));
         m.put("channels", Integer.toString(channels));
         m.put("blocks", Integer.toString(blocks));
         m.put("players", Integer.toString(players));
         m.put("value_hidden", Integer.toString(valueHidden));
-        m.put("input_planes", Integer.toString(Encoder.PLANES));
+        m.put("input_planes", Integer.toString(inputPlanes()));
+        if (planes != PlaneSet.PLAIN) {
+            m.put("planes", planes.id());
+        }
         return m;
     }
 
     /**
-     * The config that {@link #toMetadata} wrote. Other keys are ignored.
+     * The config that {@link #toMetadata} wrote. Other keys are ignored. Version 1 files have 7 planes and no key
+     * {@code planes}; they read as {@link PlaneSet#PLAIN}.
      *
-     * @throws IllegalArgumentException if format or format_version is unknown, input_planes is not 7, or a
-     *                                  config key is missing, not a decimal integer, or out of range
+     * @throws IllegalArgumentException if format or format_version is unknown, input_planes does not belong to the
+     *                                  plane set (7 in version 1), a version 2 file has no or an unknown {@code
+     *                                  planes}, or a config key is missing, not a decimal integer, or out of range
      */
     public static NetworkConfig fromMetadata(Map<String, String> metadata) {
         if (!FORMAT.equals(metadata.get("format"))) {
             throw new IllegalArgumentException("unknown format: " + metadata.get("format"));
         }
-        if (intValue(metadata, "format_version") != FORMAT_VERSION) {
+        int version = intValue(metadata, "format_version");
+        PlaneSet planes;
+        if (version == FORMAT_VERSION) {
+            if (metadata.containsKey("planes")) {
+                throw new IllegalArgumentException("format_version 1 has no key planes, got " + metadata.get("planes"));
+            }
+            planes = PlaneSet.PLAIN;
+        } else if (version == FORMAT_VERSION_PLANES) {
+            if (!metadata.containsKey("planes")) {
+                throw new IllegalArgumentException("metadata key planes is missing");
+            }
+            planes = PlaneSet.ofId(metadata.get("planes"));
+        } else {
             throw new IllegalArgumentException("unknown format_version: " + metadata.get("format_version"));
         }
-        if (intValue(metadata, "input_planes") != Encoder.PLANES) {
-            throw new IllegalArgumentException("input_planes must be " + Encoder.PLANES + ", got "
-                    + metadata.get("input_planes"));
+        if (intValue(metadata, "input_planes") != planes.planes()) {
+            throw new IllegalArgumentException("input_planes must be " + planes.planes() + " for planes "
+                    + planes.id() + ", got " + metadata.get("input_planes"));
         }
         return new NetworkConfig(
                 intValue(metadata, "channels"),
                 intValue(metadata, "blocks"),
                 intValue(metadata, "players"),
-                intValue(metadata, "value_hidden"));
+                intValue(metadata, "value_hidden"),
+                planes);
     }
 
     private static int intValue(Map<String, String> metadata, String key) {

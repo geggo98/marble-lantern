@@ -158,6 +158,10 @@ public final class ReferenceTrainer {
             throw new IllegalArgumentException("batch has " + batch.players() + " players, network "
                     + config().players());
         }
+        if (batch.input().length != (long) batch.size() * config().inputSize()) {
+            throw new IllegalArgumentException("batch input has " + batch.input().length / batch.size() / HexGrid.ROWS
+                    + " planes per cell, network " + config().planes() + " needs " + config().inputPlanes());
+        }
         if (threads < 1) {
             throw new IllegalArgumentException("threads must be >= 1, got " + threads);
         }
@@ -261,6 +265,12 @@ public final class ReferenceTrainer {
         private final float[] wPolicy;
         private final float[] wDense1;
         private final float[] wDense2;
+        private final boolean priors;
+        /** prior.beta and prior.k by reference (one element each), null without residual priors. */
+        private final float[] beta;
+        private final float[] priorK;
+        /** The linear-evaluation term of each relative player of the current sample ({@link ResidualPriors#valueBase}). */
+        private final float[] valueBase;
         private final Parameters parameters;
 
         /** Stored activations: slot 0 is x_0, slot 2i + 1 is t_i, slot 2i + 2 is u_i = x_{i+1}. */
@@ -299,6 +309,10 @@ public final class ReferenceTrainer {
             this.wPolicy = data("head_policy.weight");
             this.wDense1 = data("head_value.dense1.weight");
             this.wDense2 = data("head_value.dense2.weight");
+            this.priors = config.planes().residualPriors();
+            this.beta = priors ? data(ResidualPriors.BETA) : null;
+            this.priorK = priors ? data(ResidualPriors.K) : null;
+            this.valueBase = new float[players];
             this.acts = new float[(1 + 2 * blocks) * activation];
             this.pooled = new float[c];
             this.hidden = new float[hiddenSize];
@@ -335,7 +349,7 @@ public final class ReferenceTrainer {
 
         /** The forward pass of {@link Network}, storing the activations. */
         void forward(float[] input, int inputOffset) {
-            ReferenceOps.hexConv(input, inputOffset, Encoder.PLANES, wIn, data("conv_in.bias"), c, acts, 0);
+            ReferenceOps.hexConv(input, inputOffset, config.inputPlanes(), wIn, data("conv_in.bias"), c, acts, 0);
             ReferenceOps.relu(acts, 0, activation);
             for (int i = 0; i < blocks; i++) {
                 int x = 2 * i * activation;
@@ -351,10 +365,19 @@ public final class ReferenceTrainer {
             int top = 2 * blocks * activation;
             ReferenceOps.pointwise(acts, top, HexGrid.CELLS, c, wPolicy, data("head_policy.bias"),
                     Encoder.POLICY_CHANNELS, policy, 0);
+            if (priors) {
+                ResidualPriors.addPolicy(beta[0], input, inputOffset, config.inputPlanes(), policy, 0);
+            }
             ReferenceOps.meanOverCells(acts, top, c, pooled, 0);
             ReferenceOps.dense(pooled, 0, c, wDense1, data("head_value.dense1.bias"), hiddenSize, hidden, 0);
             ReferenceOps.relu(hidden, 0, hiddenSize);
             ReferenceOps.dense(hidden, 0, hiddenSize, wDense2, data("head_value.dense2.bias"), players, values, 0);
+            for (int i = 0; i < players; i++) {
+                if (priors) {
+                    valueBase[i] = ResidualPriors.valueBase(input, inputOffset, config.inputPlanes(), i);
+                    values[i] += priorK[0] * valueBase[i];
+                }
+            }
             ReferenceOps.tanh(values, 0, players);
         }
 
@@ -364,7 +387,7 @@ public final class ReferenceTrainer {
          */
         void sample(TrainingBatch batch, int s, Gradients g, double[] sums) {
             int n = batch.size();
-            forward(batch.input(), s * Encoder.INPUT_SIZE);
+            forward(batch.input(), s * config.inputSize());
 
             // 1. Loss to outputs.
             Arrays.fill(dPolicy, 0);
@@ -386,7 +409,7 @@ public final class ReferenceTrainer {
                 requireFinite("value loss", lv, s);
                 sums[1] += valueCoefficient * wv * lv / n;
             }
-            backward(batch.input(), s * Encoder.INPUT_SIZE, g);
+            backward(batch.input(), s * config.inputSize(), g);
         }
 
         private static void requireFinite(String what, double value, int sample) {
@@ -395,9 +418,33 @@ public final class ReferenceTrainer {
             }
         }
 
+        /**
+         * The gradients of {@code prior.beta} and {@code prior.k}: the prior terms are added to the policy array and to the
+         * pre-activation of the value, so dPolicy and dy are their output gradients (docs/network.md, "Classical planes and
+         * residual priors"). The network behind them sees the same dPolicy and dy.
+         */
+        private void priorBackward(float[] input, int inputOffset, Gradients g) {
+            double db = 0;
+            for (int cell = 0; cell < HexGrid.CELLS; cell++) {
+                double d = input[inputOffset + Encoder.index(config.inputPlanes(), cell, Encoder.DIST_OWN)];
+                db += (dPolicy[Encoder.policyIndex(cell, Encoder.FROM)] - dPolicy[Encoder.policyIndex(cell, Encoder.TO)])
+                        * ClassicalPlanes.DIST_SCALE * d;
+            }
+            g.get(ResidualPriors.BETA)[0] += db;
+            double dk = 0;
+            for (int i = 0; i < players; i++) {
+                dk += dy[i] * valueBase[i];
+            }
+            g.get(ResidualPriors.K)[0] += dk;
+        }
+
         /** The backward pass in the order of docs/training.md, given dPolicy and dy. */
         void backward(float[] input, int inputOffset, Gradients g) {
             int top = 2 * blocks * activation;
+
+            if (priors) {
+                priorBackward(input, inputOffset, g);
+            }
 
             // 2. head_value.dense2 (dy is the gradient of its pre-activation); 3. ReLU of dense1.
             Arrays.fill(dHidden, 0);
@@ -440,7 +487,7 @@ public final class ReferenceTrainer {
 
             // 8. conv_in: no input gradient.
             ReferenceBackward.reluBackward(acts, 0, dxCur, 0, activation);
-            ReferenceBackward.hexConvBackward(input, inputOffset, Encoder.PLANES, wIn, c, dxCur, 0,
+            ReferenceBackward.hexConvBackward(input, inputOffset, config.inputPlanes(), wIn, c, dxCur, 0,
                     g.get("conv_in.weight"), g.get("conv_in.bias"), null, 0);
         }
     }

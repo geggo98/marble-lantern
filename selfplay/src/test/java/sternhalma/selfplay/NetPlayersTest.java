@@ -77,4 +77,16 @@ class NetPlayersTest {
             }
         }
     }
+
+    /** E11: a network file with classical planes and priors loads and plays, as MCTS and as raw policy. */
+    @Test
+    void aClassicalNetworkFileLoadsAndPlays() throws IOException {
+        Path file = dir.resolve("c.safetensors");
+        Parameters.init(NetworkConfig.tiny(2).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1), 9).save(file);
+        Position start = Position.initial(sternhalma.engine.RuleSet.defaults(2));
+        int mcts = NetPlayers.factory("mcts:net=" + file + ",sims=20,race=0", null).apply(0).choose(start);
+        int raw = NetPlayers.factory("raw", Parameters.load(file)).apply(0).choose(start);
+        assertTrue(java.util.Arrays.stream(start.legalMoves()).anyMatch(m -> m == mcts));
+        assertTrue(java.util.Arrays.stream(start.legalMoves()).anyMatch(m -> m == raw));
+    }
 }

@@ -32,8 +32,12 @@ class ReferenceTrainerTest {
     }
 
     private static TrainingBatch batch(int players, int samples, long seed) {
+        return batch(players, PlaneSet.PLAIN, samples, seed);
+    }
+
+    private static TrainingBatch batch(int players, PlaneSet planes, int samples, long seed) {
         List<Position> positions = Playouts.positions(players, 4, 40, seed);
-        return TestBatches.fromPositions(players, TestBatches.pick(positions, samples), seed);
+        return TestBatches.fromPositions(players, planes, TestBatches.pick(positions, samples), seed);
     }
 
     private static ReferenceTrainer.Gradients gradientsOf(Parameters parameters, TrainingBatch batch, double cv,
@@ -114,10 +118,23 @@ class ReferenceTrainerTest {
         gradientCheck(new NetworkConfig(4, 3, 3, 8), reporter);
     }
 
+    /**
+     * The classical planes and the residual priors (E11): every parameter of TINY, the two scalars included, for two and
+     * three players, with and without the priors, and a deeper net. The input planes include the reachability, the
+     * passed flag and the evaluation, so a gradient that mixes up the plane of the distance term shows.
+     */
+    @Test
+    void gradientMatchesFiniteDifferencesWithClassicalPlanesAndPriors(TestReporter reporter) {
+        gradientCheck(NetworkConfig.tiny(2).withPlanes(PlaneSet.CLASSIC1), reporter);
+        gradientCheck(NetworkConfig.tiny(3).withPlanes(PlaneSet.CLASSIC1), reporter);
+        gradientCheck(NetworkConfig.tiny(2).withPlanes(PlaneSet.CLASSIC1_PLANES), reporter);
+        gradientCheck(new NetworkConfig(4, 3, 2, 8, PlaneSet.CLASSIC1), reporter);
+    }
+
     private static void gradientCheck(NetworkConfig config, TestReporter reporter) {
         int players = config.players();
         Parameters parameters = Parameters.uniform(config, 40 + players, 0.3f);
-        TrainingBatch batch = TestBatches.plusCornerSample(batch(players, 4, 99 + players));
+        TrainingBatch batch = TestBatches.plusCornerSample(batch(players, config.planes(), 4, 99 + players));
         double cv = 0.7;
         ReferenceTrainer trainer = new ReferenceTrainer(parameters, cv);
         ReferenceTrainer.Result result = trainer.accumulate(batch, 5, 1);
@@ -133,9 +150,9 @@ class ReferenceTrainerTest {
         for (int s = 0; s < batch.size(); s++) {
             float[] policy = new float[Encoder.POLICY_SIZE];
             float[] values = new float[players];
-            network.forward(Arrays.copyOfRange(batch.input(), s * Encoder.INPUT_SIZE, (s + 1) * Encoder.INPUT_SIZE),
+            network.forward(Arrays.copyOfRange(batch.input(), s * batch.inputSize(), (s + 1) * batch.inputSize()),
                     1, policy, values);
-            DoubleNetwork.Output out = net.forward(batch.input(), s * Encoder.INPUT_SIZE);
+            DoubleNetwork.Output out = net.forward(batch.input(), s * batch.inputSize());
             for (int i = 0; i < policy.length; i++) {
                 worstForward = Math.max(worstForward, Math.abs(policy[i] - out.policy()[i]) / (1e-6 + 1e-5 * Math.abs(policy[i])));
             }

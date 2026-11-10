@@ -23,6 +23,7 @@ import sternhalma.nn.Encoder;
 import sternhalma.nn.NetworkConfig;
 import sternhalma.nn.Orientation;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.PlaneSet;
 import sternhalma.nn.ReferenceTrainer;
 import sternhalma.nn.TrainingBatch;
 import sternhalma.search.Strategies;
@@ -127,5 +128,60 @@ class ReplayBufferEndToEndTest {
         // the same step on the same buffer is the same loss, bit for bit
         ReferenceTrainer again = new ReferenceTrainer(Parameters.init(NetworkConfig.tiny(2), 1), 1.0);
         assertEquals(result.loss(), again.accumulate(buffer.batch(42, 0, 0, 32), 8, 2).loss());
+    }
+
+    /**
+     * The classical planes of E11 are never stored: the buffer recomputes them from the canonical cells of each drawn sample,
+     * and they equal the live encoder on the real position (real games: openings, mid-game and late positions),
+     * for both movers.
+     */
+    @Test
+    void everyClassicalSampleExpandsToTheEncoderPlanesOfItsPositionAndTrains() throws IOException {
+        ReplayBuffer buffer = new ReplayBuffer(2, 1_000_000, true, PlaneSet.CLASSIC1);
+        buffer.addGeneration(0, dir);
+        List<Position> positions = positions();
+        int n = buffer.size();
+        assertEquals(positions.size(), n);
+        int[] all = new int[n];
+        for (int i = 0; i < n; i++) {
+            all[i] = i;
+        }
+        TrainingBatch batch = buffer.batchOf(all, new boolean[n]);
+        assertEquals(PlaneSet.CLASSIC1.planes(), batch.inputPlanes());
+        int size = PlaneSet.CLASSIC1.inputSize();
+        float[] expected = new float[size];
+        Set<Integer> movers = new HashSet<>();
+        for (int i = 0; i < n; i++) {
+            Position p = positions.get(i);
+            movers.add(p.sideToMove());
+            Encoder.encode(PlaneSet.CLASSIC1, p, expected, 0);
+            assertArrayEquals(expected, Arrays.copyOfRange(batch.input(), i * size, (i + 1) * size), "sample " + i);
+        }
+        assertEquals(2, movers.size());
+        // mirrored samples: the encoding of the mirrored position (at ply 0, as the transformed position has no history)
+        boolean[] mirror = new boolean[n];
+        Arrays.fill(mirror, true);
+        TrainingBatch mirrored = buffer.batchOf(all, mirror);
+        for (int i = 0; i < n; i += 7) {
+            Position q = positions.get(i).transformed(sternhalma.engine.Geometry::mirror, false);
+            Encoder.encode(PlaneSet.CLASSIC1, q, expected, 0);
+            float[] got = Arrays.copyOfRange(mirrored.input(), i * size, (i + 1) * size);
+            for (int row = 0; row < sternhalma.nn.HexGrid.ROWS; row++) {
+                for (int plane = 0; plane < Encoder.CLASSIC_PLANES; plane++) {
+                    if (plane == Encoder.PROGRESS) {
+                        continue; // the transformed position starts at ply 0
+                    }
+                    assertEquals(expected[Encoder.index(Encoder.CLASSIC_PLANES, row, plane)],
+                            got[Encoder.index(Encoder.CLASSIC_PLANES, row, plane)], "mirrored sample " + i);
+                }
+            }
+        }
+        // the classical net trains on such a batch, and the prior scalars get a gradient
+        Parameters parameters = Parameters.init(NetworkConfig.tiny(2).withPlanes(PlaneSet.CLASSIC1), 1);
+        ReferenceTrainer trainer = new ReferenceTrainer(parameters, 1.0);
+        ReferenceTrainer.Result result = trainer.accumulate(buffer.batch(42, 0, 0, 32), 8, 2);
+        assertTrue(Double.isFinite(result.loss()) && result.loss() > 0);
+        assertTrue(trainer.gradients().get(sternhalma.nn.ResidualPriors.BETA)[0] != 0);
+        assertTrue(trainer.gradients().get(sternhalma.nn.ResidualPriors.K)[0] != 0);
     }
 }

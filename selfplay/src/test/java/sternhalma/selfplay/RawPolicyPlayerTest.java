@@ -178,4 +178,28 @@ class RawPolicyPlayerTest {
         }
         assertTrue(sawTie, "the positions contain moves that tie for the best");
     }
+
+    /** E11: the raw player of a classical network takes the largest of beta * gain + net logit, with the planes of its network. */
+    @Test
+    void aClassicalNetworkPlaysTheMoveWithTheHighestPriorToo() {
+        for (sternhalma.nn.PlaneSet planes : sternhalma.nn.PlaneSet.values()) {
+            Parameters parameters = Parameters.uniform(NetworkConfig.tiny(2).withPlanes(planes), 7, 0.3f);
+            Network network = new Network(parameters);
+            RawPolicyPlayer player = new RawPolicyPlayer(network, "raw");
+            Evaluator evaluator = new Evaluator(network);
+            for (Position p : positions(40, 3)) {
+                int move = player.choose(p);
+                Evaluation e = evaluator.evaluate(p);
+                float best = -1;
+                float chosen = -2;
+                for (int i = 0; i < e.moves().length; i++) {
+                    best = Math.max(best, e.priors()[i]);
+                    if (e.moves()[i] == move) {
+                        chosen = e.priors()[i];
+                    }
+                }
+                assertEquals(best, chosen, 1e-7, planes + ", ply " + p.ply());
+            }
+        }
+    }
 }

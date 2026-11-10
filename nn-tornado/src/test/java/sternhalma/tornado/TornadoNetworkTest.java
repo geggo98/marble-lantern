@@ -597,4 +597,39 @@ class TornadoNetworkTest {
             }
         }
     }
+
+    /**
+     * E11: the first convolution reads the 13 planes of {@code classic1-planes}, as the reference does; a network with the
+     * residual priors is refused (the device value head applies the tanh, so the prior cannot be added before it).
+     */
+    @Test
+    void classicalPlanesAgreeWithTheReferenceAndResidualPriorsAreRefused() {
+        TornadoAssumptions.assumeTornado();
+        NetworkConfig config = NetworkConfig.tiny(2).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1_PLANES);
+        Parameters parameters = initScale(config, 5);
+        List<Position> positions = Playouts.positions(2, 2, 60, 9);
+        int batch = 6;
+        int size = config.inputSize();
+        float[] input = new float[batch * size];
+        for (int b = 0; b < batch; b++) {
+            Encoder.encode(config.planes(), positions.get(5 * b + 3), input, b * size);
+        }
+        float[] expectedPolicy = new float[batch * Encoder.POLICY_SIZE];
+        float[] expectedValues = new float[batch * 2];
+        new Network(parameters).forward(input, batch, expectedPolicy, expectedValues);
+        float[] policy = new float[batch * Encoder.POLICY_SIZE];
+        float[] values = new float[batch * 2];
+        try (TornadoNetwork network = new TornadoNetwork(parameters)) {
+            network.forward(input, batch, policy, values);
+        }
+        Errors errors = new Errors();
+        for (int i = 0; i < policy.length; i++) {
+            errors.add(policy[i], expectedPolicy[i], "logit " + i);
+        }
+        for (int i = 0; i < values.length; i++) {
+            errors.add(values[i], expectedValues[i], "value " + i);
+        }
+        Parameters priors = Parameters.init(NetworkConfig.tiny(2).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1), 1);
+        assertThrows(IllegalArgumentException.class, () -> new TornadoNetwork(priors));
+    }
 }

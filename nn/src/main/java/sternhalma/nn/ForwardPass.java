@@ -25,7 +25,7 @@ public interface ForwardPass {
      * Forward pass for a batch of encoded positions. Only the first {@code batch} slices of the outputs are
      * written.
      *
-     * @param input        {@code batch * Encoder.INPUT_SIZE} floats from {@link Encoder#encode}; row 121 of
+     * @param input        {@code batch * config().inputSize()} floats from {@link Encoder#encode}; row 121 of
      *                     each position must be zero
      * @param batch        number of positions, &gt;= 1
      * @param policyLogits output, {@code batch * Encoder.POLICY_SIZE} floats: [batch][121][2] with "from" in

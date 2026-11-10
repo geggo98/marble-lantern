@@ -14,8 +14,8 @@ import java.util.stream.Stream;
 
 import sternhalma.nn.BatchSampler;
 import sternhalma.nn.BatchSource;
-import sternhalma.nn.Encoder;
 import sternhalma.nn.HexGrid;
+import sternhalma.nn.PlaneSet;
 import sternhalma.nn.ReferenceLoss;
 import sternhalma.nn.SampleExpander;
 import sternhalma.nn.TrainingBatch;
@@ -62,6 +62,7 @@ public final class ReplayBuffer implements BatchSource {
     private final int players;
     private final int window;
     private final boolean augment;
+    private final PlaneSet planes;
     private final List<Block> blocks = new ArrayList<>();
     private int[] starts = {0};
     private int lastGeneration = -1;
@@ -72,6 +73,14 @@ public final class ReplayBuffer implements BatchSource {
      * @param augment whether to mirror drawn samples (has an effect for two players only)
      */
     public ReplayBuffer(int players, int window, boolean augment) {
+        this(players, window, augment, PlaneSet.PLAIN);
+    }
+
+    /**
+     * @param planes the input planes of the batches; the classical planes are recomputed from the cells of each drawn
+     *               sample at batch build time, never stored
+     */
+    public ReplayBuffer(int players, int window, boolean augment, PlaneSet planes) {
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
@@ -81,6 +90,7 @@ public final class ReplayBuffer implements BatchSource {
         this.players = players;
         this.window = window;
         this.augment = augment && players == 2;
+        this.planes = java.util.Objects.requireNonNull(planes, "planes");
     }
 
     /** Which games of a file a buffer takes (see {@link #addGeneration(int, List, GameFilter)}). */
@@ -276,7 +286,8 @@ public final class ReplayBuffer implements BatchSource {
             int s = indices[i] - starts[blockOf[i]];
             offsets[i + 1] = offsets[i] + block.moveOffsets[s + 1] - block.moveOffsets[s];
         }
-        float[] input = new float[n * Encoder.INPUT_SIZE];
+        int inputSize = planes.inputSize();
+        float[] input = new float[n * inputSize];
         int[] from = new int[offsets[n]];
         int[] to = new int[offsets[n]];
         float[] target = new float[offsets[n]];
@@ -287,8 +298,8 @@ public final class ReplayBuffer implements BatchSource {
         for (int i = 0; i < n; i++) {
             Block b = blocks.get(blockOf[i]);
             int s = indices[i] - starts[blockOf[i]];
-            SampleExpander.expand(players, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s], mirror[i], input,
-                    i * Encoder.INPUT_SIZE);
+            SampleExpander.expand(planes, players, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s], mirror[i], input,
+                    i * inputSize);
             int first = b.moveOffsets[s];
             int count = b.moveOffsets[s + 1] - first;
             for (int m = 0; m < count; m++) {

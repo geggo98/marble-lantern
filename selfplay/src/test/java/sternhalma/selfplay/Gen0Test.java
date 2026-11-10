@@ -634,4 +634,46 @@ class Gen0Test {
         assertTrue(json.contains("\"data_sha256\""), json);
         assertNotEquals(Gen0.dataFingerprint(Gen0.dataFiles(data)), Gen0.sha256Hex(new byte[0]));
     }
+
+    /**
+     * E11: a run with `--planes classic1` records the plane set in run.json (older run.json files have no such key and stay
+     * valid), trains a network with the classical planes and priors, resumes to the bits of an uninterrupted run, reports
+     * the same proxies in its own process, and cannot be resumed as a plain run.
+     */
+    @Test
+    void aClassicalRunRecordsItsPlanesResumesAndReportsTheSameProxies() throws Exception {
+        Path full = shared.resolve("classic-full");
+        Result r = train(full, "--planes", "classic1");
+        assertEquals(0, r.code, r.err);
+        assertTrue(Files.readString(full.resolve("run.json")).contains("\"planes\":\"classic1\""));
+        assertFalse(Files.readString(reference().resolve("run.json")).contains("planes"), "plain run.json is unchanged");
+        Parameters candidate = Parameters.load(candidate(full));
+        assertEquals(sternhalma.nn.PlaneSet.CLASSIC1, candidate.config().planes());
+        assertTrue(candidate.tensors().containsKey(sternhalma.nn.ResidualPriors.BETA));
+        assertNotEquals(sternhalma.nn.ResidualPriors.INITIAL_BETA, candidate.get(sternhalma.nn.ResidualPriors.BETA).data()[0],
+                "the scalar was trained");
+        // an abort in the middle and a resume give the same network
+        Path resumed = shared.resolve("classic-resumed");
+        Result stopped = train(resumed, stopAfter(5), base("--planes", "classic1"));
+        assertEquals(130, stopped.code, stopped.err);
+        assertEquals(0, train(resumed, "--planes", "classic1").code);
+        assertSameNetwork(candidate(full), candidate(resumed));
+        // the proxies step reads the planes of the network file for the held-out samples
+        String loopLine = r.err.lines().filter(l -> l.startsWith("gen 0 proxies at step 12 ")).findFirst().orElseThrow();
+        Result proxies = gen0(() -> false, "proxies", full.toString(), "--data", data.toString(), "--samples", "40",
+                "--threads", "1");
+        assertEquals(0, proxies.code, proxies.err);
+        java.util.regex.Matcher loop = java.util.regex.Pattern.compile("policy KL (\\S+), top-1 (\\S+)%, value loss (\\S+)")
+                .matcher(loopLine);
+        java.util.regex.Matcher step = java.util.regex.Pattern.compile("policy KL (\\S+), top-1 (\\S+)%, value loss (\\S+)")
+                .matcher(proxies.out);
+        assertTrue(loop.find() && step.find(), loopLine + " / " + proxies.out);
+        for (int g = 1; g <= 3; g++) {
+            assertEquals(loop.group(g), step.group(g));
+        }
+        // the same directory with other planes is another configuration
+        Result other = train(full, "--planes", "plain");
+        assertEquals(1, other.code, other.err);
+        assertEquals(2, train(shared.resolve("bad-planes"), "--planes", "classic2").code);
+    }
 }

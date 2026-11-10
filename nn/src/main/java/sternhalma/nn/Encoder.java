@@ -34,9 +34,23 @@ public final class Encoder {
     public static final int PLAYABLE = 5;
     /** Plane 6: min(ply, moveLimit) / moveLimit in every cell row, 0 in the padding row. */
     public static final int PROGRESS = 6;
-    /** Number of input planes. */
+    /** Number of plain input planes (format version 1, {@link PlaneSet#PLAIN}). */
     public static final int PLANES = 7;
-    /** Floats per encoded position: 122 rows times 7 planes = 854. */
+    /** Plane 7 (classical planes only): single-agent distance of the mover per cell, divided by 16. */
+    public static final int DIST_OWN = 7;
+    /** Plane 8: the same for relative player 1. */
+    public static final int DIST_NEXT = 8;
+    /** Plane 9: 1 on every end cell of a legal move of the mover. */
+    public static final int REACH_OWN = 9;
+    /** Plane 10: 1 on every end cell of a legal move that relative player 1 would have. */
+    public static final int REACH_NEXT = 10;
+    /** Plane 11: 1 in every cell row if the armies have passed each other (two players). */
+    public static final int PASSED = 11;
+    /** Plane 12: linear evaluation of the position for the mover in logit units, in every cell row; 0 for three players. */
+    public static final int EVAL = 12;
+    /** Number of input planes of {@link PlaneSet#CLASSIC1}. */
+    public static final int CLASSIC_PLANES = 13;
+    /** Floats per encoded position of the plain planes: 122 rows times 7 planes = 854. */
     public static final int INPUT_SIZE = HexGrid.ROWS * PLANES;
 
     /** Policy channel of the "from" logit. */
@@ -61,15 +75,28 @@ public final class Encoder {
         return canonicalCell * POLICY_CHANNELS + channel;
     }
 
+    /** Index of (row, plane) inside one encoded position that has {@code planes} planes per row. */
+    public static int index(int planes, int row, int plane) {
+        return row * planes + plane;
+    }
+
+    /** {@link #encode(PlaneSet, Position, float[], int)} with the plain planes. */
+    public static void encode(Position position, float[] out, int offset) {
+        encode(PlaneSet.PLAIN, position, out, offset);
+    }
+
     /**
-     * Writes the 7 planes of a position into {@code out[offset .. offset + INPUT_SIZE)}. Every float of that
-     * slice is written, so the caller need not clear the buffer. Values are 0 or 1, except plane
-     * {@link #PROGRESS}, which lies in [0, 1].
+     * Writes the planes of a position into {@code out[offset .. offset + planes.inputSize())}: the 7 plain planes and,
+     * for a classical set, the six planes of {@link ClassicalPlanes}. Every float of that slice is written, so the caller
+     * need not clear the buffer. Values are 0 or 1, except plane {@link #PROGRESS} (in [0, 1]), the distance planes (in
+     * [0, 1]) and {@link #EVAL}.
      *
      * @throws IndexOutOfBoundsException if the slice does not fit into {@code out}
      */
-    public static void encode(Position position, float[] out, int offset) {
-        Objects.checkFromIndexSize(offset, INPUT_SIZE, out.length);
+    public static void encode(PlaneSet planes, Position position, float[] out, int offset) {
+        int stride = planes.planes();
+        int size = planes.inputSize();
+        Objects.checkFromIndexSize(offset, size, out.length);
         Orientation orientation = Orientation.of(position);
         Layout layout = position.layout();
         int mover = orientation.mover();
@@ -79,9 +106,9 @@ public final class Encoder {
         float progress = (float) Math.min(position.ply(), limit) / limit;
 
         // Clear the whole slice first: this zeroes the padding row and every plane that stays 0 below.
-        Arrays.fill(out, offset, offset + INPUT_SIZE, 0f);
+        Arrays.fill(out, offset, offset + size, 0f);
         for (int c = 0; c < Geometry.CELLS; c++) {
-            int base = offset + index(orientation.toCanonical(c), 0);
+            int base = offset + index(stride, orientation.toCanonical(c), 0);
             int owner = position.owner(c);
             if (owner >= 0) {
                 // Relative player 0, 1, 2 are planes OWN, NEXT, THIRD.
@@ -98,6 +125,9 @@ public final class Encoder {
                 out[base + PLAYABLE] = 1f;
             }
             out[base + PROGRESS] = progress;
+        }
+        if (planes.classical()) {
+            ClassicalPlanes.fill(position, orientation, false, out, offset, stride);
         }
     }
 

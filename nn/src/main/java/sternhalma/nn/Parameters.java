@@ -33,7 +33,7 @@ public final class Parameters {
      * Names and shapes of all tensors of a config, in file order: conv_in.weight, conv_in.bias, then for each
      * block i the weights and biases of block{i}.conv1 and block{i}.conv2, then head_policy.weight,
      * head_policy.bias, head_value.dense1.weight, head_value.dense1.bias, head_value.dense2.weight,
-     * head_value.dense2.bias. The returned map is new and owned by the caller.
+     * head_value.dense2.bias, and for a plane set with residual priors prior.beta and prior.k. The returned map is new and owned by the caller.
      */
     public static LinkedHashMap<String, int[]> shapes(NetworkConfig config) {
         int c = config.channels();
@@ -41,7 +41,7 @@ public final class Parameters {
         int p = config.players();
         int conv = HexGrid.STENCIL * c;
         LinkedHashMap<String, int[]> shapes = new LinkedHashMap<>();
-        shapes.put("conv_in.weight", new int[] {c, HexGrid.STENCIL * Encoder.PLANES});
+        shapes.put("conv_in.weight", new int[] {c, HexGrid.STENCIL * config.inputPlanes()});
         shapes.put("conv_in.bias", new int[] {c});
         for (int i = 0; i < config.blocks(); i++) {
             shapes.put("block" + i + ".conv1.weight", new int[] {c, conv});
@@ -55,6 +55,10 @@ public final class Parameters {
         shapes.put("head_value.dense1.bias", new int[] {h});
         shapes.put("head_value.dense2.weight", new int[] {p, h});
         shapes.put("head_value.dense2.bias", new int[] {p});
+        if (config.planes().residualPriors()) {
+            shapes.put(ResidualPriors.BETA, new int[] {1});
+            shapes.put(ResidualPriors.K, new int[] {1});
+        }
         return shapes;
     }
 
@@ -65,20 +69,40 @@ public final class Parameters {
      *
      * <p>Every weight tensor has the shape [out][in], so fanIn is its second dimension: 7 * C_in for a hex
      * convolution, the input width for the policy head and the dense layers. Biases draw no random numbers,
-     * so the first element of {@code block0.conv1.weight} is draw number 7 * 7 * C + 1.
+     * so the first element of {@code block0.conv1.weight} is draw number 7 * I * C + 1 with I input planes.
+     *
+     * <p>A plane set with residual priors ({@link PlaneSet#CLASSIC1}) adds {@code prior.beta} = 1 and {@code prior.k} =
+     * 0.5 (no draws) and starts the weights of {@code head_policy} and {@code head_value.dense2} at zero, so that the
+     * untrained network is exactly the classical prior ({@link ResidualPriors}); the draws for those two tensors are
+     * still taken, so the other tensors get the same values as without the priors.
      */
     public static Parameters init(NetworkConfig config, long seed) {
         Random random = new Random(seed);
         LinkedHashMap<String, Tensor> tensors = new LinkedHashMap<>();
+        boolean priors = config.planes().residualPriors();
         for (Map.Entry<String, int[]> e : shapes(config).entrySet()) {
             Tensor t = Tensor.zeros(e.getKey(), e.getValue());
-            if (!isBias(e.getKey())) {
+            if (e.getKey().equals(ResidualPriors.BETA)) {
+                t.data()[0] = ResidualPriors.INITIAL_BETA;
+            } else if (e.getKey().equals(ResidualPriors.K)) {
+                t.data()[0] = ResidualPriors.INITIAL_K;
+            } else if (!isBias(e.getKey())) {
                 float a = (float) Math.sqrt(6.0 / e.getValue()[1]);
                 fillUniform(t.data(), random, a);
+                if (priors && isOutputWeight(e.getKey())) {
+                    // The draws above keep the random sequence of the other tensors; the output layers start at
+                    // zero so that the untrained network is exactly the classical prior.
+                    Arrays.fill(t.data(), 0f);
+                }
             }
             tensors.put(e.getKey(), t);
         }
         return new Parameters(config, tensors, Map.of());
+    }
+
+    /** The weights of the two output layers, which a network with residual priors starts at zero. */
+    private static boolean isOutputWeight(String name) {
+        return name.equals("head_policy.weight") || name.equals("head_value.dense2.weight");
     }
 
     /**

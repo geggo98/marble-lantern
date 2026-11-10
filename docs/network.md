@@ -1,6 +1,6 @@
 # Network
 
-**TL;DR:** The network is a small residual network on the 121 board cells. Each layer is a hex convolution: a gather of each cell and its 6 neighbours, then a matrix multiplication. Input is 7 planes per cell, seen from the player to move, with the board rotated so that this player always starts in the top corner. The policy head gives a "from" logit and a "to" logit per cell; a move scores the sum. The value head gives one value per player. Presets: TINY (8 channels, 1 block, for tests), SMALL (32 × 4, about 60,000 parameters, about 14 MFLOP per position) and LARGE (64 × 6, about 350,000 parameters, about 84 MFLOP per position). Weights are F32 safetensors files. A scalar CPU reference implementation is the test oracle for every faster path; a fast path agrees with it if every output satisfies |fast − ref| ≤ 1e-4 + 1e-3 · |ref|.
+**TL;DR:** The network is a small residual network on the 121 board cells. Each layer is a hex convolution: a gather of each cell and its 6 neighbours, then a matrix multiplication. Input is 7 planes per cell, seen from the player to move, with the board rotated so that this player always starts in the top corner. The policy head gives a "from" logit and a "to" logit per cell; a move scores the sum. The value head gives one value per player. Presets: TINY (8 channels, 1 block, for tests), SMALL (32 × 4, about 60,000 parameters, about 14 MFLOP per position) and LARGE (64 × 6, about 350,000 parameters, about 84 MFLOP per position). Weights are F32 safetensors files. Format version 2 (round 2, E11) adds an optional set of classical input planes and two learnable scalars that add a classical prior to the policy and the value; the plain 7-plane network of version 1 stays fully supported, and version 1 files read as that plain network (see [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2)). A scalar CPU reference implementation is the test oracle for every faster path; a fast path agrees with it if every output satisfies |fast − ref| ≤ 1e-4 + 1e-3 · |ref|.
 
 This document refines the section [Neural network](architecture.md#neural-network) of the architecture and uses the board, corners and play order of [rules](rules.md). The Java code is in the module `nn`, package `sternhalma.nn`.
 
@@ -45,7 +45,7 @@ Non-goals:
 |---|---|---|
 | Activation with C channels | [122][C] | row · C + channel |
 | Batch of activations | [B][122][C] | b · 122 · C + row · C + channel |
-| Input (one position) | [122][7] | row · 7 + plane |
+| Input (one position) | [122][7] ([122][13] with the classical planes) | row · planes + plane |
 | Policy logits (one position) | [121][2] | cell · 2 + k, with k = 0 "from", k = 1 "to" |
 | Values (one position) | [P] | relative player |
 | Convolution weight | [C_out][7 · C_in] | o · 7 · C_in + k · C_in + c (see [Gather table](#gather-table)) |
@@ -82,6 +82,8 @@ Details (**project decision**):
 - The encoder overwrites all 122 · 7 = 854 floats of its output slice. It does not rely on a zeroed buffer.
 
 **Project reasoning:** in canonical orientation, planes 3, 4 and 5 are the same for every position of a player count, and they are also the same for two and three players. The goal is always the bottom corner R_POS, the start is always the top corner R_NEG, and the playable cells are always the hexagon plus these two corners. The planes still help: together with the zero padding they tell the network where the board edge and the forbidden side corners are. They cost 3 of 49 input weights per output channel of the first layer. See [Open questions](#open-questions).
+
+A network can also read six more planes that classical code computes (distance, reachability, passed flag, linear evaluation): [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2). The seven planes above are the plane set `plain`; every statement in this document that does not say otherwise is about it.
 
 ## Canonical orientation
 
@@ -262,6 +264,52 @@ Output i is the expected game value for relative player i, so output 0 is the mo
 
 `Evaluator` converts the outputs back to absolute players: the value for absolute player a is output (a − mover) mod P.
 
+## Classical planes and residual priors (format version 2)
+
+**TL;DR:** The plane set `classic1` adds six planes that classical code computes from the cells in microseconds and two learnable scalars that add classical priors to the network's outputs: the policy logit of a move becomes `beta · distance gain + net logit` and the value becomes `tanh(net + k · linear evaluation)`. With `beta = 1`, `k = 0.5` and the two output layers at zero, an untrained network is exactly the classical prior. `classic1-planes` is the same planes without the priors (an ablation). The planes are never stored in sample files; the sample expander and the live encoder compute them with the same code. Implemented in E11 (round 2); the measured effect is in [training.md](training.md#as-implemented-block-2f--e11).
+
+**Project decision (owner, 2026-11-10):** the network format may change for E11. Version 1 files stay readable as the plain network.
+
+### The planes
+
+Planes 0 to 6 are those of [Input planes](#input-planes). The classical set adds, in canonical orientation and relative to the mover (`ClassicalPlanes`):
+
+| Plane | Name | Value at row c' (canonical cell of board cell c) |
+|---|---|---|
+| 7 | dist_own | single-agent distance of c for the mover (`Layout.distance`, steps to the nearest goal cell over the cells the mover may stand on) divided by 16; 0 on cells the mover may not stand on |
+| 8 | dist_next | the same for relative player 1 |
+| 9 | reach_own | 1 if some legal move of the mover ends on c (`Position.generate`; steps and jump chains) |
+| 10 | reach_next | 1 if some legal move that relative player 1 would have, were it to move, ends on c (the same generator on a copy with the side swapped) |
+| 11 | passed | 1 in every cell row if the armies have passed each other (every piece of player 0 on a larger r than every piece of player 1, all 20 pieces on the board; two players), else 0 |
+| 12 | eval | the linear evaluation of the position for the mover in logit units (below), in every cell row; 0 for three players |
+
+Details (**project decision**):
+
+- Row 121 is 0 in all 13 planes. The encoder still overwrites all 122 · 13 floats of its slice.
+- The largest distance is 13 (the tip of the start corner); 16 is the next power of two, so that `16 · plane` is the integer distance without rounding. In canonical orientation planes 7 and 8 are constants of the player count, like planes 3 to 5; they are written by the same code as the dynamic planes and are not a template, so that every plane has one definition.
+- With three players relative player 1 is the next to move; there is no plane for relative player 2's distance or moves, and planes 11 and 12 are 0 (the passed test and the linear evaluation are two-player notions).
+- **The linear evaluation** is the sum of the 12 weights of `linear-r2` (`LinearWeights.ROUND2`) times the 12 features "side to move minus opponent" of `LinearEvaluator` (`ClassicalPlanes.linearLogit`). `nn` cannot depend on `search`, so it carries a copy of the features; `ClassicalPriorsTest` in `search` pins it to `LinearEvaluator.features` bit for bit on 120,000 positions of both leave-goal rules and the weights to `LinearWeights.ROUND2`. **The 13th feature `bestGain` (E07, the evaluator of `BEST_SPEC`) is not in it**: it needs the jump-component search of `LinearEvaluator.GainSearch`, which would be a second copy of 200 lines; the 12-feature `linear-r2` is the refit on passed-filtered self-play that `linear-r3` extends. A network that wants `bestGain` can learn it from the planes.
+- **Race counts** (option (d) of the E11 plan: the exact counts of both sides when both configurations are in the table) are **not** a plane: the table lives in `tablebase` and the counts apply only to passed positions, where the passed flag and the distance planes already carry most of the information. Skipped to keep the encoder free of table I/O; it is the first candidate if the planes help.
+- **Rules.** The planes follow the position's own rules (`Position.generate` honours leave-goal and the suicide rule). `SampleExpander` rebuilds a position from canonical cells without a rule set, so it assumes the default rules of the sample files (`RuleSet.defaults(players)` with the stored move limit); for these positions it equals `Encoder.encode` float for float. A sample file of another rule set would expand to planes that differ in planes 9 and 10 where the rules matter.
+- **Mirror.** With the left-right mirror of a two-player sample, row c' of every plane goes to row `mirror(c')`. The reachability, passed and evaluation planes of the mirrored position equal the mirrored rows of the original (tested for both movers, also against the encoding of `Position.transformed(Geometry::mirror)`).
+
+### The residual priors
+
+With the plane set `classic1`, the forward pass adds two classical terms to the network's own outputs (`ResidualPriors`, in `Network`, `VectorNetwork` and the trainer):
+
+```text
+policy[c'][FROM] += beta * 16 * dist_own[c']        policy[c'][TO] -= beta * 16 * dist_own[c']
+value_i           = tanh(net_i + k * sign_i * eval)  sign = +1 (relative player 0), -1 (player 1), 0 (player 2)
+```
+
+- **Policy.** The distance gain of a move is `DIST[from] − DIST[to]` of the mover. It is a sum of a "from" and a "to" term, so the factorised policy layout holds it exactly: the move logit is `beta · gain + net logit`. With `beta = 1` the prior alone is `softmax(gain)` over the legal moves (NLL 2.95 against 3.92 for the uniform prior on the teacher data; round-2 plan E11).
+- **Value.** The linear evaluation is the logit of "the mover wins" (it is fitted by a logistic regression of the game result), so the expected value of a game, `2 p − 1`, is `tanh(logit / 2)`: **`k = 0.5` makes the value base the classical expected value.** The scale is chosen by that identity, not fitted. With two players the base of relative player 1 is the negative. The net value is added before the `tanh`.
+- **Learnable.** `prior.beta` and `prior.k` are ordinary parameters (shape [1], no weight decay, as they do not end in `.weight`). The trainer has their exact gradients: `d beta = sum over cells (dPolicy[from] − dPolicy[to]) · 16 · dist_own` and `d k = sum over players dy_i · sign_i · eval`, where dPolicy and dy are the gradients of the loss at the policy output and at the value before the tanh (checked against finite differences for two and three players, mixed movers, and invariant under the mirror).
+- **Initialisation.** `Parameters.init` sets `beta = 1`, `k = 0.5` and starts `head_policy.weight` and `head_value.dense2.weight` at zero (the random draws are still taken, so the other tensors equal those of `classic1-planes`). An untrained `classic1` network is then exactly the classical prior: `ResidualPriorsTest` checks policy and value of `Network` and `VectorNetwork` against the distance gain and the linear evaluation for both movers. (A network with only zero weights and biases gives the same, which a test also checks.)
+- **Not on the device.** `TornadoNetwork` reads `classic1-planes` (its first convolution takes the plane count from the config) but refuses `classic1`: the device value head applies the tanh, so the evaluation term cannot be added before it without changing a kernel.
+
+The number of parameters is `(7 · I · C + C) + …` of the [formula](#how-the-numbers-were-computed) with I = 13, plus 2 for `classic1`: TINY 2,020 / 2,022, SMALL 61,732 / 61,734 (`classic1-planes` / `classic1`, two players).
+
 ## Initialisation
 
 **Project decision:** `Parameters.init(config, seed)` fills the tensors in the order of the [tensor names](#safetensors-file) from one `java.util.Random(seed)`, elements in row-major order:
@@ -304,22 +352,25 @@ In this order (`Parameters.shapes(config)` returns exactly this list):
 | `head_value.dense1.bias` | [32] |
 | `head_value.dense2.weight` | [P, 32] |
 | `head_value.dense2.bias` | [P] |
+| `prior.beta` | [1] (only with residual priors, plane set `classic1`) |
+| `prior.k` | [1] (the same) |
 
-The four `block{i}` lines repeat for i = 0, 1, …, B − 1, with the block number in decimal and without leading zeros (`block0`, `block1`, …).
+With classical planes `conv_in.weight` is [C, 91] (7 · 13 columns). The four `block{i}` lines repeat for i = 0, 1, …, B − 1, with the block number in decimal and without leading zeros (`block0`, `block1`, …).
 
 ### Metadata keys
 
 | Key | Value | Example |
 |---|---|---|
 | `format` | always `sternhalma-nn` | `sternhalma-nn` |
-| `format_version` | integer as text; this document defines version `1` | `1` |
+| `format_version` | integer as text; `1` (plain planes) or `2` (classical planes, adds `planes`) | `1` |
 | `channels` | C | `32` |
 | `blocks` | B | `4` |
 | `players` | P | `2` |
 | `value_hidden` | H | `32` |
-| `input_planes` | always `7` in version 1 | `7` |
+| `input_planes` | `7` in version 1; the width of the plane set in version 2 (`13` for both classical sets) | `7` |
+| `planes` | only in version 2: `plain`, `classic1` or `classic1-planes` | `classic1` |
 
-`Parameters.load` rejects a file whose `format` or `format_version` is unknown, whose config keys are missing or not integers, whose sizes are outside the [size limits](#size-limits), or whose tensor names or shapes differ from `Parameters.shapes` of that config. Extra metadata keys (for example a training step or a seed) are allowed and kept.
+`Parameters.load` rejects a file whose `format` or `format_version` is unknown, whose config keys are missing or not integers, whose sizes are outside the [size limits](#size-limits), or whose tensor names or shapes differ from `Parameters.shapes` of that config. Extra metadata keys (for example a training step or a seed) are allowed and kept. Version 1 is written for a plain network (so older readers still read it) and read as plane set `plain`; a version 1 file with a `planes` key, a version 2 file without one or with an unknown name, and an `input_planes` that does not belong to the plane set are rejected.
 
 ## Numeric conventions
 
@@ -341,6 +392,7 @@ The skeleton in `nn/src/main/java/sternhalma/nn` fixes the signatures. Three gro
 |---|---|---|
 | A: file format | `Tensor`, `Safetensors` | named F32 tensors; read and write safetensors files |
 | B: encoding | `HexGrid`, `Orientation`, `Encoder` | gather table, canonical cell maps, input planes, move-to-logit mapping |
+| E11: classical planes | `PlaneSet`, `ClassicalPlanes`, `ResidualPriors` | the plane sets, the six classical planes with the linear evaluation, the prior terms added by every forward pass |
 | C: network | `NetworkConfig`, `Parameters`, `ReferenceOps`, `Network`, `Evaluator`, `Evaluation` | presets, named parameters, scalar reference operations, forward pass, legal-move priors |
 
 `Tensor` and `NetworkConfig` are complete in the skeleton, with tests, because the other groups need them at once. So are the constants and the index helpers `Encoder.index` and `Encoder.policyIndex`, and the one-line delegations `Orientation.of(Position)` and `ReferenceOps.dense`. All other method bodies throw `UnsupportedOperationException` until their group implements them.
@@ -366,6 +418,7 @@ An earlier review of this project found that weak tests were the main risk. Each
 
 - **A:** wrong byte order; header length read as signed or as 32 bits; a header without padding or with padding; offsets relative to the file start instead of the data section; a shape with a 0 dimension or a scalar; tensor order lost in a round trip; metadata lost; each rejection rule in [Safetensors file](#safetensors-file) (one malformed file per rule). Compare the writer against a byte array built by hand for a small file.
 - **B:** the items in [What the tests must check](#what-the-tests-must-check); a gather table with the neighbours in the wrong order (compare against `Geometry.neighbor` for every entry); padding index used for an on-board neighbour; planes swapped (a constructed position where every plane differs from every other); relative player order reversed for three players; plane 6 not clamped at the move limit; stale data in the output buffer (fill it with NaN first).
+- **E11 (classical planes and priors):** `Encoder.encode` and `SampleExpander.expand` differ for some mover, for three players, or under the mirror; reachability of the next player generated without swapping the side; planes 9 and 10 swapped; the passed flag with equal rows or fewer than 10 pieces; the linear evaluation with a sign or the tempo term wrong (`search` pins it to `LinearEvaluator` bit for bit); a prior term with the wrong sign, plane or scale; the value term for the wrong relative player; `prior.beta` or `prior.k` missing from the packed copy of `VectorNetwork` after `reload()`; their gradients (finite differences, mirror symmetry); an untrained network that is not exactly the classical prior; a metadata combination of version, `planes` and `input_planes` that is accepted but wrong.
 - **C:** shapes and names against the tables above; parameter counts against the preset table; a hand-computed TINY-sized forward pass on a few cells (for example one channel with known weights); the gather order inside the convolution (weights that make only neighbour k contribute); the padding row stays zero after every layer; the residual add (B = 1 with conv2 weights at zero must give ReLU(x)); batch results equal single results, also for a batch that mixes movers (each position uses its own orientation); priors sum to 1 and follow the logit order; the softmax subtracts the largest logit, not the first (a first move with a much smaller logit than another); the value reordering from relative to absolute players for every mover of three players.
 
 ## Measured CPU speed
@@ -408,7 +461,7 @@ An earlier diagnostic run, with `Parameters.init` and 8 positions of random plan
 
 ## Open questions
 
-1. **Constant planes.** Planes 3 to 5 are the same for every position (see [Input planes](#input-planes)). Keep them, or replace them with a plane that is informative, for example the single-agent distance of the cell for the mover?
+1. **Constant planes.** Planes 3 to 5 are the same for every position (see [Input planes](#input-planes)). Answered in part by E11: the informative planes (the single-agent distance of the cell for the mover and for the next player, and four more) are added as the plane set `classic1`, format version 2, and train faster and better ([training.md](training.md#as-implemented-block-2f--e11)); planes 3 to 5 were kept in that experiment, so whether they can be dropped is open.
 2. **Player count in the input.** Two-player and three-player networks are separate, so no plane encodes the player count. If one network should serve both, it needs such a plane and a value head with a fixed width.
 3. **Factorised policy.** fromLogit + toLogit cannot express all pair preferences (see [Policy head and move logits](#policy-head-and-move-logits)). A bilinear or per-piece head would fix this at more cost. Measure the policy loss first.
 4. **Value sum.** Should the value head enforce a zero sum, for example by subtracting the mean of the outputs, to match `Outcome.values`?

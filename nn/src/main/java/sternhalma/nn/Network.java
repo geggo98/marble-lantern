@@ -48,7 +48,7 @@ public final class Network implements ForwardPass {
      * Forward pass for a batch of encoded positions. Each position is computed on its own, in batch order,
      * with fresh scratch buffers.
      *
-     * @param input        {@code batch * Encoder.INPUT_SIZE} floats from {@link Encoder#encode}; row 121 of
+     * @param input        {@code batch * config().inputSize()} floats from {@link Encoder#encode}; row 121 of
      *                     each position must be zero
      * @param batch        number of positions, &gt;= 1
      * @param policyLogits output, {@code batch * Encoder.POLICY_SIZE} floats: [batch][121][2] with "from" in
@@ -64,11 +64,11 @@ public final class Network implements ForwardPass {
         if (batch < 1) {
             throw new IllegalArgumentException("batch must be >= 1, got " + batch);
         }
-        requireLength("input", input, (long) batch * Encoder.INPUT_SIZE);
+        requireLength("input", input, (long) batch * config().inputSize());
         requireLength("policyLogits", policyLogits, (long) batch * Encoder.POLICY_SIZE);
         requireLength("values", values, (long) batch * players);
         for (int b = 0; b < batch; b++) {
-            forwardOne(input, b * Encoder.INPUT_SIZE, policyLogits, b * Encoder.POLICY_SIZE, values,
+            forwardOne(input, b * config().inputSize(), policyLogits, b * Encoder.POLICY_SIZE, values,
                     b * players);
         }
     }
@@ -88,7 +88,7 @@ public final class Network implements ForwardPass {
         float[] u = new float[activation];
 
         // 1. conv_in, bias, ReLU. Row 121 is written as 0 and ReLU keeps it 0.
-        ReferenceOps.hexConv(input, inputOffset, Encoder.PLANES, data("conv_in.weight"), data("conv_in.bias"),
+        ReferenceOps.hexConv(input, inputOffset, config.inputPlanes(), data("conv_in.weight"), data("conv_in.bias"),
                 c, x, 0);
         ReferenceOps.relu(x, 0, activation);
 
@@ -108,6 +108,11 @@ public final class Network implements ForwardPass {
         // 4. policy head: 1x1 convolution on the 121 cell rows, no activation.
         ReferenceOps.pointwise(x, 0, HexGrid.CELLS, c, data("head_policy.weight"), data("head_policy.bias"),
                 Encoder.POLICY_CHANNELS, policy, policyOffset);
+        boolean priors = config.planes().residualPriors();
+        if (priors) {
+            ResidualPriors.addPolicy(data(ResidualPriors.BETA)[0], input, inputOffset, config.inputPlanes(), policy,
+                    policyOffset);
+        }
 
         // 5. to 7. value head: mean over cells, dense + ReLU, dense + tanh.
         float[] pooled = new float[c];
@@ -118,6 +123,13 @@ public final class Network implements ForwardPass {
         ReferenceOps.relu(hidden, 0, h);
         ReferenceOps.dense(hidden, 0, h, data("head_value.dense2.weight"), data("head_value.dense2.bias"), p,
                 values, valuesOffset);
+        if (priors) {
+            // The linear evaluation enters before the tanh, so that k = 0.5 and a zero network give tanh(logit / 2).
+            float k = data(ResidualPriors.K)[0];
+            for (int i = 0; i < p; i++) {
+                values[valuesOffset + i] += k * ResidualPriors.valueBase(input, inputOffset, config.inputPlanes(), i);
+            }
+        }
         ReferenceOps.tanh(values, valuesOffset, p);
     }
 
