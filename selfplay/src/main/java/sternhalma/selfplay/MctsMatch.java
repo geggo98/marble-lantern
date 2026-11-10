@@ -324,7 +324,7 @@ final class MctsMatch {
         return finished.get();
     }
 
-    private static PairLine playPair(Position start, int pair, LongFunction<Player> subjectFactory,
+    static PairLine playPair(Position start, int pair, LongFunction<Player> subjectFactory,
             LongFunction<Player> opponentFactory, long gameSeed) {
         double score = 0;
         int wins = 0;

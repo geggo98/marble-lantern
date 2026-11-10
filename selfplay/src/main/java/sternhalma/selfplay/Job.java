@@ -67,6 +67,10 @@ abstract class Job<R> {
     final int threads;
     final PrintStream err;
     double progressSeconds = 10;
+    /** What the progress and summary lines call this job (the file names keep {@code name}). */
+    String label;
+    /** Items done by the last {@link #run()} of this process (not the ones that were skipped). */
+    int doneItems;
     /** Test hook: request a stop after this many items done in this process (0 = never). */
     int stopAfter;
     private volatile boolean stop;
@@ -78,6 +82,7 @@ abstract class Job<R> {
         }
         this.dir = dir;
         this.name = name;
+        this.label = name;
         this.items = items;
         this.shardSize = shardSize;
         this.threads = threads;
@@ -132,8 +137,11 @@ abstract class Job<R> {
 
     /** {@code --status}: 0 when no run holds the lock, 75 when one does (pid, start, elapsed, last progress). */
     static int status(Path dir, String name, PrintStream out) throws IOException {
-        Path lock = dir.resolve("." + name + ".lock");
-        Path status = dir.resolve("." + name + ".status");
+        return status(dir, dir.resolve("." + name + ".lock"), dir.resolve("." + name + ".status"), out);
+    }
+
+    /** {@link #status(Path, String, PrintStream)} for a job whose lock and status files have other names. */
+    static int status(Path dir, Path lock, Path status, PrintStream out) throws IOException {
         if (!Files.isDirectory(dir)) {
             out.println("not running (no directory " + dir + ")");
             return EXIT_OK;
@@ -179,7 +187,7 @@ abstract class Job<R> {
                     + (progress == null ? "" : progress + "\n"));
             Files.move(tmp, statusFile(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
-            err.println(name + ": cannot write status: " + e);
+            err.println(label + ": cannot write status: " + e);
         }
     }
 
@@ -214,7 +222,7 @@ abstract class Job<R> {
                 switch (check(f, sh, first, count)) {
                     case COMPLETE -> skip++;
                     case MISMATCH -> {
-                        err.println(name + ": " + f + ": " + mismatch + "; use another directory or delete the shards");
+                        err.println(label + ": " + f + ": " + mismatch + "; use another directory or delete the shards");
                         return EXIT_ERROR;
                     }
                     case CORRUPT -> {
@@ -229,7 +237,7 @@ abstract class Job<R> {
             for (int sh : todo) {
                 todoItems += Math.min(items, sh * shardSize + shardSize) - sh * shardSize;
             }
-            err.printf(Locale.ROOT, "%s: %d shards: %d complete (skip), %d to do (%d items), %d cleanup%n", name,
+            err.printf(Locale.ROOT, "%s: %d shards: %d complete (skip), %d to do (%d items), %d cleanup%n", label,
                     shards(), skip, todo.size(), todoItems, cleanup);
             CountDownLatch finished = new CountDownLatch(1);
             Thread hook = new Thread(() -> {
@@ -272,7 +280,7 @@ abstract class Job<R> {
                                     double el = (now - t0) / 1e9;
                                     double rate = n / el;
                                     String line = String.format(Locale.ROOT,
-                                            "%s: %d/%d items  %.2f/s  ETA %s  elapsed %s%s", name, n, total, rate,
+                                            "%s: %d/%d items  %.2f/s  ETA %s  elapsed %s%s", label, n, total, rate,
                                             human((total - n) / rate), human(el), progressExtra());
                                     err.println(line);
                                     writeStatus(start, line);
@@ -298,7 +306,7 @@ abstract class Job<R> {
                             }
                         } catch (java.util.concurrent.ExecutionException e) {
                             failed = true;
-                            err.println(name + ": shard " + sh + ": item failed: " + e.getCause());
+                            err.println(label + ": shard " + sh + ": item failed: " + e.getCause());
                             e.getCause().printStackTrace(err);
                         }
                     }
@@ -311,16 +319,17 @@ abstract class Job<R> {
                             write(shardFile(sh), sh, sh * shardSize, results);
                             ok++;
                         } catch (IOException e) {
-                            err.println(name + ": shard " + sh + ": write failed: " + e);
+                            err.println(label + ": shard " + sh + ": write failed: " + e);
                             errors++;
                         }
                     }
                 }
             }
             int left = shards() - skip - ok;
+            doneItems = done.get();
             double el = (System.nanoTime() - t0) / 1e9;
             err.printf(Locale.ROOT, "%s: %d ok, %d skip, %d error, %d cleanup, %d left (shards); %d items in %s%s%n",
-                    name, ok, skip, errors, cleanup, left, done.get(), human(el),
+                    label, ok, skip, errors, cleanup, left, done.get(), human(el),
                     stop ? " - aborted, run again to continue"
                             : left == 0 ? " - nothing more to do" : " - run again to retry the failed shards");
             finished.countDown();

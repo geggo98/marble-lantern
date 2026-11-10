@@ -306,9 +306,36 @@ public final class RunMonitor {
         }
     }
 
-    /** The report of a run directory's metrics. */
+    /**
+     * The report of a run directory's metrics.
+     *
+     * @param genWallNanos         wall time of all generation segments (the denominator of the shares of the loop)
+     * @param generationsDone      generations of the mean: finished, promoted, not generation 0 (it has a strength record
+     *                             and nothing else) and not a rejected one (no baseline, no strength record)
+     * @param countedGenWallNanos  wall time of all segments of those generations; the mean generation is this over
+     *                             {@code generationsDone}
+     */
     public record Report(int processes, long loopWallNanos, long loopCpuNanos, long steps, long batch, List<Row> rows,
-            long trainWallNanos, long otherWallNanos, int unreadableLines) {
+            long trainWallNanos, long otherWallNanos, int unreadableLines, long genWallNanos, int generationsDone,
+            long countedGenWallNanos) {
+
+        /** A report of training loops only (no generation lines). */
+        public Report(int processes, long loopWallNanos, long loopCpuNanos, long steps, long batch, List<Row> rows,
+                long trainWallNanos, long otherWallNanos, int unreadableLines) {
+            this(processes, loopWallNanos, loopCpuNanos, steps, batch, rows, trainWallNanos, otherWallNanos,
+                    unreadableLines, 0, 0, 0);
+        }
+
+        /** Wall time of a category over all its kinds. */
+        public long categoryWallNanos(Category category) {
+            long wall = 0;
+            for (Row r : rows) {
+                if (r.category == category) {
+                    wall += r.wallNanos;
+                }
+            }
+            return wall;
+        }
 
         /** Samples per wall second of the training loops, 0 without data. */
         public double samplesPerSecond() {
@@ -354,6 +381,9 @@ public final class RunMonitor {
         long loopCpu = 0;
         long steps = 0;
         long batch = 0;
+        long genWall = 0;
+        Map<String, Long> wallOfGen = new TreeMap<>(); // generation -> wall time of all its segments
+        java.util.Set<String> counted = new java.util.TreeSet<>(); // the generations of the mean
         Map<String, long[]> sums = new TreeMap<>(); // key -> count, wall, cpu
         for (Map<String, String> e : events) {
             switch (e.getOrDefault("event", "")) {
@@ -363,6 +393,16 @@ public final class RunMonitor {
                     loopCpu += Long.parseLong(e.get("cpu_ns"));
                     steps += Long.parseLong(e.get("steps"));
                     batch = Long.parseLong(e.get("batch"));
+                }
+                case "gen" -> {
+                    long wall = Long.parseLong(e.get("wall_ns"));
+                    genWall += wall;
+                    String gen = e.getOrDefault("gen", "?");
+                    wallOfGen.merge(gen, wall, Long::sum);
+                    // lines without the field (older runs) count as full
+                    if ("1".equals(e.get("done")) && !"0".equals(e.get("full"))) {
+                        counted.add(gen);
+                    }
                 }
                 case "cost" -> {
                     String key = e.get("category") + "/" + e.get("kind") + "/" + e.get("where");
@@ -396,18 +436,25 @@ public final class RunMonitor {
             } else {
                 otherWall += s[1];
             }
-            double share = loopWall > 0 ? (double) s[1] / loopWall : 0;
+            // the checkpoints, progress lines and proxies happen inside the training loop and are budgeted against it;
+            // everything else (self-play, gating, Elo estimates) against the whole loop, once generation lines exist
+            boolean inTraining = category == Category.CHECKPOINT || category == Category.PROGRESS
+                    || category == Category.STRENGTH && kind.equals(PROXY);
+            long denominator = genWall > 0 && !inTraining ? genWall : loopWall;
+            double share = denominator > 0 ? (double) s[1] / denominator : 0;
             double cpuShare = loopCpu > 0 ? (double) s[2] / loopCpu : 0;
             double cost = s[0] > 0 ? (double) s[1] / s[0] : 0;
             double proposed = budget == null ? 0 : ceil125(cost / 1e9 / budget.share);
-            long proposedSteps = proposed > 0 && stepsPerSecond > 0 ? Math.max(1, Math.round(ceil125(proposed * stepsPerSecond))) : 0;
+            long proposedSteps = proposed > 0 && stepsPerSecond > 0 && (inTraining || genWall == 0)
+                    ? Math.max(1, Math.round(ceil125(proposed * stepsPerSecond))) : 0;
             String label = budget != null ? budget.label : category.id() + (kind.isEmpty() ? "" : "/" + kind);
             rows.add(new Row(label + (separate ? " (separate process)" : ""), category, kind, separate, s[0], s[1],
                     s[2], share, cpuShare, budget == null ? Double.NaN : budget.share, cost,
-                    s[0] > 0 ? loopWall / 1e9 / s[0] : 0, proposed, proposedSteps));
+                    s[0] > 0 ? denominator / 1e9 / s[0] : 0, proposed, proposedSteps));
         }
         return new Report(processes, loopWall, loopCpu, steps, batch, List.copyOf(rows), trainWall, otherWall,
-                unreadable);
+                unreadable, genWall, counted.size(),
+                counted.stream().mapToLong(wallOfGen::get).sum());
     }
 
     /** The smallest 1, 2, 5 times a power of ten that is at least {@code x}; 0 for {@code x <= 0}. */
@@ -451,12 +498,40 @@ public final class RunMonitor {
                     row.count() > 0 && row.category() != Category.TRAIN ? seconds(row.meanIntervalSeconds()) : "-",
                     proposal);
         }
+        if (r.genWallNanos() > 0) {
+            printLoopShares(r, out);
+        }
         if (r.unreadableLines() > 0) {
             out.println("unreadable lines skipped: " + r.unreadableLines());
         }
         out.println("cpu s = thread CPU time of the loop thread; the trainer's worker threads are not counted in it (the train row), so the budgets use wall time");
         out.println("proposed interval = cost per event / budget share, rounded up to 1, 2 or 5 times a power of ten;"
                 + " the monitor's own writes are one total (progress/monitor), not an interval");
+    }
+
+    /** The shares of the six categories of a training loop of generations, and the Elo frequency in generations. */
+    private static void printLoopShares(Report r, PrintStream out) {
+        long wall = r.genWallNanos();
+        long accounted = 0;
+        StringBuilder sb = new StringBuilder();
+        for (Category c : Category.values()) {
+            long w = r.categoryWallNanos(c);
+            accounted += w;
+            sb.append(String.format(Locale.ROOT, "%s %.1f%% (%.1f s), ", c.id(), 100.0 * w / wall, w / 1e9));
+        }
+        out.printf(Locale.ROOT, "loop shares of %.1f s wall in %d completed generation(s) (promoted ones only; generation 0 and rejected"
+                + " generations are in the wall time but not in the count): %sother (loading, buffers, decisions) %.1f%%%n",
+                wall / 1e9, r.generationsDone(), sb, 100.0 * (wall - accounted) / wall);
+        Row elo = r.row(Category.STRENGTH, ELO);
+        if (elo != null && elo.count() > 0 && r.generationsDone() > 0) {
+            double generationSeconds = r.countedGenWallNanos() / 1e9 / r.generationsDone();
+            double perEstimate = elo.costPerEventNanos() / 1e9;
+            double budget = elo.budget();
+            long every = Math.max(1, (long) Math.ceil(perEstimate / budget / generationSeconds - 1e-9));
+            out.printf(Locale.ROOT, "strength: one Elo estimate costs %s, %.1f%% of a generation of %s; within the"
+                    + " %.0f%% budget: one estimate every %d generation(s) (--strength-every %d)%n", seconds(perEstimate),
+                    100 * perEstimate / generationSeconds, seconds(generationSeconds), 100 * budget, every, every);
+        }
     }
 
     private static String seconds(double s) {

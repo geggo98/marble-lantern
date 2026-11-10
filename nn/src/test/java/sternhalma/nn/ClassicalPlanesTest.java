@@ -50,6 +50,14 @@ class ClassicalPlanesTest {
         return rows;
     }
 
+    /** Every one of the 121 cell rows of the plane is exactly 1f inside {@code members} and exactly 0f outside. */
+    private static void assertExactPlane(float[] in, int plane, Set<Integer> members, String what) {
+        for (int c = 0; c < HexGrid.CELLS; c++) {
+            float expected = members.contains(c) ? 1f : 0f;
+            assertEquals(expected, plane(in, c, plane), 0f, what + ", row " + c);
+        }
+    }
+
     private static List<Position> positions(int players, long seed) {
         List<Position> all = Playouts.positions(players, 3, 160, seed);
         List<Position> picked = new ArrayList<>();
@@ -252,6 +260,8 @@ class ClassicalPlanesTest {
         }
         assertEquals(2, next.size(), "a corner tip has two neighbours");
         assertEquals(next, rowsWith(in, Encoder.REACH_NEXT), "the side not to move is generated with swapped sides");
+        assertExactPlane(in, Encoder.REACH_OWN, own, "by hand, own");
+        assertExactPlane(in, Encoder.REACH_NEXT, next, "by hand, next");
 
         // The same pieces with player 1 to move: canonical cells 120 -> 0 (own piece), 60 -> 60 (next player's).
         Position q = Position.empty(RuleSet.defaults(2)).put(0, 60).put(1, 120).setSideToMove(1);
@@ -265,6 +275,8 @@ class ClassicalPlanesTest {
         }
         assertEquals(ownFlipped, rowsWith(flipped, Encoder.REACH_OWN));
         assertEquals(own, rowsWith(flipped, Encoder.REACH_NEXT));
+        assertExactPlane(flipped, Encoder.REACH_OWN, ownFlipped, "by hand, flipped own");
+        assertExactPlane(flipped, Encoder.REACH_NEXT, own, "by hand, flipped next");
     }
 
     @Test
@@ -337,6 +349,10 @@ class ClassicalPlanesTest {
             }
             assertEquals(own, rowsWith(in, Encoder.REACH_OWN), "own, ply " + p.ply());
             assertEquals(next, rowsWith(in, Encoder.REACH_NEXT), "next, ply " + p.ply());
+            // membership is not enough: the value inside the set is exactly 1f and outside exactly 0f (a plane written
+            // as 0.5f passes the membership test above)
+            assertExactPlane(in, Encoder.REACH_OWN, own, "own, ply " + p.ply());
+            assertExactPlane(in, Encoder.REACH_NEXT, next, "next, ply " + p.ply());
             checked++;
         }
         assertTrue(checked > 80, "positions checked: " + checked);
@@ -355,6 +371,7 @@ class ClassicalPlanesTest {
                 ends.add(o.toCanonical(Move.to(move)));
             }
             assertEquals(ends, rowsWith(in, Encoder.REACH_OWN));
+            assertExactPlane(in, Encoder.REACH_OWN, ends, "ends of the legal moves, ply " + position.ply());
         }
     }
 

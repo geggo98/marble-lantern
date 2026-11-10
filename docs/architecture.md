@@ -236,6 +236,7 @@ flowchart TD
 - **Parallel games.** Many games run at the same time on virtual threads.
   This keeps the GPU batches full.
 - **Gating.** A new network replaces the old one only if it wins more than half of a match against it.
+- **Implementation.** `Loop` in module `selfplay` (`scripts/loop.sh`) runs the loop on the CPU: self-play with PUCT MCTS, training of a candidate, the gate (with a non-regression clause against `BEST_SPEC`) and a strength record per generation, resumable and abortable at any point ([training](training.md#as-implemented-block-2h)).
 - **Downstream products.** The opening book comes from the games of late generations.
   The endgame database replaces the value head in the race endgame, where no contact between the armies remains.
   See [endgame and opening](endgame-and-opening.md).

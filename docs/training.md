@@ -1194,18 +1194,190 @@ The differences of the raw policy against depth 1 and 100 nodes are significant 
 - **No step-limited MCTS equal-time comparison** was made: the cells count simulations and nodes, not seconds (the loads of the runs differ).
 - **Not measured:** LARGE, three players, the ablation, a second seed, the effect on self-play generations after generation 0 (the point of E11).
 
+## As implemented (block 2h)
+
+**TL;DR:** `Loop` (module `selfplay`, `scripts/loop.sh`) closes the AlphaZero loop on the CPU: per generation self-play of the best network with PUCT MCTS (Dirichlet noise, temperature in the first plies, race play and S1 adjudication), training of a candidate from the best network's parameters with a fresh AdamW optimiser over the replay window, a gate (candidate against the best network, and against a fixed `BEST_SPEC` rung), and a strength record (Elo against ladder rungs). Everything is derived from the files of the run directory, so any phase can be aborted and restarted and gives the bits of an uninterrupted run; checkpoints, ETA lines and strength estimates come from `TrainingRun` and `RunMonitor`, and `monitor-report` shows the six categories (selfplay, train, gate, strength, checkpoint, progress). First measurement: [Loop demo run 1](#loop-demo-run-1-measured).
+
+Implemented, tested and measured 2026-11-10, JDK 25.0.3, Apple M3 Max, load average 5 to 12 from other work, so the timings are indicative; the Elo and score numbers count simulations, nodes and games, not seconds.
+
+| Class | Module | Content |
+|---|---|---|
+| `Loop` | `selfplay` | The tool: `run RUN --init NETWORK`, `run --status RUN`, `strength RUN`, `monitor-report RUN`. The phases, the lock, the status, the ETA lines, the signals. |
+| `LoopConfig` | `selfplay` | What `run.json` fixes and hashes (every option that changes a result), `fromJson`, the derived numbers (planned steps, seeds, the evaluation player). |
+| `LoopGame` | `selfplay` | One self-play game with MCTS and its samples (policy = root visit shares, value = result or S1 verdict). |
+| `LoopGamesJob` | `selfplay` | The self-play of a generation as a `Job`: shards of games, complete-or-redo. |
+| `Gate` | `selfplay` | The promotion rule as a pure function (`decide`) and `PairJob`, the resumable job that plays a match in shards of 10 pairs (gate, baseline and strength matches). |
+| `Eta` | `selfplay` | Cost per unit of each phase from earlier phases and the metrics file; the ETA of the generation and of the run. |
+| `RunMonitor` | `selfplay` | Extended: `gen` lines, the loop shares of the six categories, the Elo frequency in generations. |
+| `SelfPlayGame.Labeler` | `selfplay` | The sample builder of E05 takes the labels (policy target, value, weight, flag) from a labeler; the classical teacher is one labeler, the loop another. |
+| `Job` | `selfplay` | A `label` for the progress lines, `doneItems`, and `status` for other lock and status file names. |
+
+### Run directory and the state of a run
+
+```text
+data/<run>/
+  run.json                           the configuration, written once (hash of every option that changes a result)
+  .lock  .status                     lock held by the process; pid, start time and the last progress line
+  metrics.jsonl                      monitor lines (display only: cost, run, gen, phase, metric)
+  gen-0000/candidate.safetensors     the network of --init, copied once; decision.json says promoted, init
+  gen-NNNN/samples/samples-s<seed>-<shard>.safetensors   self-play shards (25 games each)
+  gen-NNNN/train/step-*.safetensors  checkpoints (the last two); candidate.safetensors after the last planned step
+  gen-NNNN/gate/vs-best-<shard>.jsonl, vs-baseline-<shard>.jsonl   10 pairs per shard (the baseline shards of a network are in its own generation)
+  gen-NNNN/decision.json             promoted or rejected, with the statistics
+  gen-NNNN/strength/ab<rung>-<shard>.jsonl   the strength record of the network of generation NNNN
+```
+
+There is no pointer file. The best network is the candidate of the highest generation whose decision says promoted; generation 0 is always promoted. The state of a run is read from the files at every start:
+
+| Phase | Done when | Resume |
+|---|---|---|
+| Self-play | every shard reads, names these settings and this network, and holds its games | the missing shards; a shard that does not read is renamed `*.corrupt` (CLEANUP) and redone; a shard of another network or other settings is an error (exit 1) |
+| Training | `candidate.safetensors` reads, carries the run hash, the generation and `step` equal to the plan from its `new_samples` | the newest checkpoint that reads (damaged ones are quarantined), else the best network with a fresh optimiser |
+| Gate | every shard reads, names this match (candidate, best network, settings, seed) and holds its pairs | the missing shards; a shard of another match is redone |
+| Decision | `decision.json` reads and names its generation | next generation |
+| Strength | all ladder shards of the best network read | the missing shards |
+
+`*.tmp*` leftovers anywhere in the run directory are removed at start (CLEANUP; in `strength/` only when they are older than 10 minutes, because a separate `loop strength` process writes there). The replay window needs every shard of the earlier generations: a generation with missing shards stops the run with exit 1 instead of silently training on a hole.
+
+### Self-play
+
+`LoopGame` plays a game with the best network on both sides:
+
+- **Opening:** 4 to 10 random plies (`OpeningSampler`, uniform), policy weight 0, flag bit 2.
+- **Search:** `MctsPlayer`, 100 simulations, batch 1, c = 1.0, Dirichlet noise 0.25 with alpha 0.3 at the root. The search itself runs with `temp=0` (most visited); during the first 14 plies of the game the loop draws the move proportional to `visits^(1/T)` with T = 1 from the visit counts, afterwards it plays the most visited move.
+- **Race play and S1:** a passed position is played by the race module without a search (as in the gate and strength games), and S1 (`Adjudication`, production configuration: only S1) ends the game with its verdict before the first move of a passed position that it can judge. Margin and evaluation layers are off, so no search score ever labels a position.
+- **Samples:** one per ply before the end or the cut, in the format of E05 (`GameShard`, canonical cells; the classical planes are rebuilt at batch time). Policy target: the root visit shares over the legal moves, flag bit 0 (full search), weight 1. A position without a search (opening ply, race move) has the played move alone as target and weight 0; a single legal move is not searched either, but its target is exact and its gradient zero, so it keeps weight 1. Value target: the game result for the mover, or the S1 verdict for an adjudicated game (flag bit 1). The stored per-move score is the root value in thousandths, never a race-band score.
+- **Determinism:** a game is a function of settings, network and game id: the opening, the noise and the move sampling are seeded from `(generation seed, id)`; the sampling has its own random stream, independent of the noise. The result does not depend on the thread count or the order (tested with 1 and 2 threads and with games played in reverse order).
+
+### Training
+
+The candidate starts from the best network's parameters with a fresh `Optimizer` (AdamW), a warm-up of 100 steps and then a constant rate (3e-4 by default; the 1e-3 of generation 0 is for training from scratch). Its step count is at once Adam's t, the index of the learning-rate schedule and the step of the batch sampler, all counted from 0 within a generation, as the review of [block 2b](#as-implemented-block-2b) demanded; `TrainingRun` and the checkpoints carry the generation. Steps = ceil(R x new training samples / batch) with R = 4 and batch 256. The batches come from a `ReplayBuffer` of the samples of the last generations (window W = 500,000, whole generations dropped when the total exceeds W, mirror augmentation); `--teacher DIR` puts teacher shards in as generation 0, which the window drops as soon as it is full (a share that decays by generations, not by weight). Every tenth game (`--holdout 0.1`: every round(1/0.1)-th game id with an offset from the shard's seed) is held out of the training buffer. A generation with fewer games than the period holds out the one game that the seed picks, so **a generation of two or more games always holds out at least one game and keeps at least one to train on** (a generation of 4 games at `--holdout 0.1` holds out 1 game, 25 %, not 10 %; the first version let the offset run past the 4 ids and held out nothing for 5 of 6 seeds, which ended the run with exit 1). With 10 or more games it is one game in ten, plus one more when the count is not a multiple of the period; the cheap proxies run on the held-out games of the newest generation at the last checkpoint of the generation and else at least 120 s apart (the first version also ran them at the first checkpoint and spent 2.9 % of the training loop against a budget of 2 %, see [Loop demo run 1](#loop-demo-run-1-measured)). Checkpoints are written every 50 steps or 60 s (the last two are kept).
+
+### Gate
+
+Candidate against best network: 100 pairs by default (50 in the demo), MCTS against MCTS with the same simulations, no noise, the most visited move, each pair from the same random 4-ply opening with the colours swapped. **Promotion needs a score above 0.5 and no regression against the fixed rung:** the candidate's pair scores against `BEST_SPEC` at 1600 nodes (50 pairs, the same openings for every network) must not be lower than the best network's by more than two standard errors of the paired differences (`Gate.decide`; the clause is inclusive, a standard error of 0 allows no drop). The best network's matches against the rung are played once, in its own generation directory, and reused. When the score is not above 0.5 the candidate is rejected whatever the rung says, and the baseline matches are not played (`baseline_skipped` in `decision.json`). The decision file holds the score, its standard error and 95 % interval, the wins, draws and losses, both baseline scores and their paired difference.
+
+### Strength record, ETA, status
+
+After a decision, the best network gets the Elo estimate of the c2 plan (`--strength-every K`, default every generation; 0 switches it off in the loop): paired games of its MCTS player against the ladder rungs (default `ab:100,400,1600,6400`, 50 pairs, fixed openings), in shards of 10 pairs, with an `elo` line per rung in `metrics.jsonl`. A generation that rejects its candidate has the best network of the generation before, whose record exists already (it lies in that network's generation directory; the rejected generation has no `strength/` directory). **After a rejection the next generation plays and trains from the best network, not from the rejected candidate, and its replay window keeps the samples of the rejected generation**: the rejected candidate is thrown away, the games it was trained on are not (they were played by the best network, so they are as good as any other data of the window). `loop strength RUN [--generation N]` does the same as a separate step.
+
+Every progress line of every phase gets the ETA of the phase (from the job or the trainer, which count only the items of this process), the ETA of the generation and of the run with the generations that remain, e.g. `gen 1 train: 208/369 steps  3.4 steps/s  ETA 47s  elapsed 1m00s  loss ... | gen ETA 1m51s, run ETA 11m26s (2 more generations)`. The cost per unit of a phase comes from the `phase` lines that earlier processes wrote with the units they did themselves (a resumed phase writes only the games it played), a `+` marks a lower bound when a later phase has never been measured. **Baseline and strength of the running generation are counted only once its gate score is above 0.5**, because only then are they played (a rejected candidate gets no baseline match and no strength record). Before that the generation ETA leaves them out, carries the `+` and ends with `; this generation without baseline and strength until the gate score is above 0.5`. The generations that follow are counted with all their phases, as if every candidate were promoted, so the run ETA is a lower bound for the running generation and pessimistic for the rest. `loop run --status RUN` prints the process, its elapsed time and the last progress line, which names the phase and the generation.
+
+### Run monitor
+
+`recordRun` of the training loop, `measure` of the proxies and a cost line per self-play, gate and strength phase feed `metrics.jsonl`; a `gen` line per process and generation gives the wall time against which the shares of the whole loop are computed. `monitor-report RUN` prints, besides the rows of [Run monitor](#run-monitor), the line `loop shares of ... wall in N completed generation(s) (promoted ones only; ...): train ..., selfplay ..., checkpoint ..., progress ..., strength ..., gate ..., other (loading, buffers, decisions) ...` and the number of generations between two Elo estimates that keeps them within their 5 % budget. N counts the finished, promoted generations after generation 0 (the `gen` line says `full` 1 for them): generation 0 has a strength record and nothing else, a rejected generation has no baseline and no strength record, so both would make the mean generation shorter than a generation that pays for an Elo estimate (a toy run showed 14.6 % for the estimate where 10.3 % is right). Their time is in the wall time of the shares, only the count and the mean leave them out; a generation that was resumed counts once, with the time of all its processes. Gate intervals are cut to [0, 1] (a score cannot exceed 1: the 95 % interval of 4 pairs read `to 1.033`). The budgets of the checkpoints, progress lines and proxies stay shares of the training loop, the Elo estimate is a share of the whole loop.
+
+### Options
+
+`Loop` documents every option in its class comment; the ones to know: `--init NETWORK` (generation 0, first start only), `--generations N`, `--games` (600), `--sims` (100), `--noise` (0.25), `--temp-plies` (14), `--lr` (3e-4), `--reuse` (4), `--window` (500000), `--gate-pairs` (100), `--baseline-rung` (1600) and `--baseline-pairs` (50), `--strength-every` (1), `--ladder`, `--strength-pairs` (50), `--threads` (8), `--checkpoint-steps` (50), `--checkpoint-seconds` (60). Every option that changes a result must be repeated on a resume (`run.json` is compared); cadences, thread counts, `--generations` and the strength options may change.
+
+### Tests
+
+**71 new tests; the whole build has 1018 tests (`engine` 58, `tablebase` 21, `nn` 314, `search` 248, `selfplay` 213, `nn-tornado` 164), none failed, 2 skipped (the beat-random properties without a strong strategy, as before).** Test-first, with TINY networks of random weights (`classic1` planes) and budgets of 4 games, 4 simulations and 4 pairs, so that a whole run of two generations takes about 2 seconds and the module's new tests together about a minute.
+
+| Test class | What it pins |
+|---|---|
+| `GateTest` (10) | The promotion inequality with injected pair scores: 0.5 exactly does not promote, above does; the interval and the statistics; the baseline clause rejects a regression of more than two standard errors of the paired differences, is inclusive at the boundary (the sigma at which it turns over is computed in the test), allows nothing at 0 sigma, uses the paired differences and not two independent standard errors (a constant drop has standard error 0); a rejected gate stays rejected whatever the rung says; bad input. The shards of a match (`PairJob`): shards of 10, an aborted match resumes and a third run does nothing, a shard of another match or a short one is renamed `*.corrupt` and redone. |
+| `LoopGameTest` (8) | Policy targets sum to 1 and **equal the visit shares of an independent search** of the replayed position (3 games, more than 100 searched samples, noise off so the search can be repeated); flags and weights of searched, opening, race-played and single-move positions (adjudication off, games played out); the move is sampled from the visits early and the most visited afterwards (a game without opening and noise does not depend on the seed with 0 sampling plies, does with 30, and the move after the sampled plies equals a fresh search); `sample` draws proportional to `visits^(1/T)` for T = 1, 2, 0.5; **value targets equal the S1 verdict (checked by a second S1 run on the position of the cut) or the result for the mover, for both movers**, with bit 1 on adjudicated games; no score of the race band, no margin or evaluation layer; a game is a function of settings, network and id (other order, a fresh instance, three threads with a forward pass each); the settings text names every option. |
+| `LoopConfigTest` (12) | The documented defaults; `run.json` round-trips and **every option that changes a result changes the hash** (31 options, all different hashes), while cadences, threads and `--generations` do not; planned steps = ceil(R x new / batch); the seeds of 50 generations are distinct; warm-up then constant; the evaluation players have no noise and no sampling and the same simulations as the self-play; options out of range; **every `round(1/holdout)`-th game is held out, and a generation of 2 or more games always holds out at least one** (4 games at 0.1: exactly one, for 220 seeds), with an offset that follows the shard seed. |
+| `EtaTest` (6) | The estimate with injected costs (running phase at its live rate, later phases, further generations), history cost without a live rate, the lower bound (`+`) for a phase never measured, the mean of the latest three observations, the history from `phase` lines of the metrics file (a torn line and other events are ignored), the text. |
+| `RunMonitorLoopTest` (4) | With `gen` lines the shares are against the whole loop and the budgets of checkpoints, progress lines and proxies against the training loop; the printed `loop shares` line with the six categories and the Elo frequency in generations; an aborted generation counts its wall time but not as completed; without `gen` lines the report is the one of a training run. |
+| `LoopTest` (30) | **Artefacts** (layout, no pointer file, candidate metadata, steps = ceil(R x new / batch), generation 0 is the given network byte for byte); **the best network** is the candidate of the highest promoted generation and the shards of generation g carry its hash; **the decision follows the gate shards** (recomputed in the test); a **second run after success** does nothing (no job, no new file, exit 0) and **more generations** continue to the same bytes as one long run; configuration, usage and init errors; **abort and restart** with 1 thread in self-play (after 1 and 3 games), training (after 3 steps: resumes at step 3), gate (after 1 and 3 pairs), the strength record and the baseline matches, each ending with the results of the uninterrupted run (samples, candidates, decisions, gate and strength pairs; CPU times left out); **state from the artefacts** by deleting artefacts of a finished run (decision, gate shards, candidate with a damaged newest checkpoint, candidate and checkpoints, a shard of the current generation, a corrupt shard, a shard of another network, leftover temporary files, a gate shard of another match) and a hole in an earlier generation (exit 1); thread counts and cadences change no result; **every candidate equals the one of an independent trainer** written from the documentation (best network, fresh AdamW, warm-up, replay window without the held-out games, batches of generation g from step 0) for generations 1 and 2; the first checkpoint of every generation is at step 1; **the replay window** drops the oldest whole generation exactly when the total exceeds W (five windows around the boundary); a teacher directory is generation 0 of the window and ages out; the lock (a second run exits 75 with `running already`, `--status` names the process, the aborted run resumes); the strength cadence and the separate `strength` step; the monitor accounting of all six categories; **the `phase` lines count the work of the process** (the resumed self-play writes 2 games, not 4) and every progress line carries the ETA of the generation and the run. |
+| `LoopProcessTest` (1) | Real processes: SIGTERM in self-play ends with 143 and the summary and no `.tmp` file, a second process while the first runs ends with 75, `--status` names the pid and the last progress line (phase and generation), SIGINT ends with 130, the restart ends with the results of the uninterrupted run, `monitor-report` prints the loop shares. |
+| `ClassicalPlanesTest` (17, no new test) | Part 0 of the block: the reach planes are compared with the independent landing oracle row by row, **exactly 1f inside and 0f outside** (the E11 review found that only membership was checked); the mutants `REACH_OWN = 0.5f` and `REACH_NEXT = 0.5f` now fail. |
+
+### Mutation check
+
+30 hand-made mutants of the new code, each run against the tests that should catch it (`mutants.py`, a Python loop that applies one textual replacement, runs the tests and restores the file); **30 killed, 0 missed.** One (`opening-plies-weighted`, the opening weight in the shared sample builder) was first reported missed because the loop path gives such samples weight 0 by itself and only the classical path needs the builder's own rule; it is killed by `SelfPlayGameTest`.
+
+| Group | Mutants (all killed) |
+|---|---|
+| Promotion | `score >= 0.5`; the clause ignored; the clause with the wrong sign; one standard error instead of two; the paired difference with the wrong direction; the header check of a gate shard removed |
+| Evaluation players | Dirichlet noise on in the gate, baseline and strength games |
+| Training | steps floored instead of ceiled; warm-up one step longer; training from a random network instead of the best one; the sampler seeded with generation 0; **the optimiser step count carried over (7 instead of 0)**; **replay window off by one**; the held-out games trained on; the resume ignores the checkpoint; held-out period one longer |
+| Self-play | S1 verdict with the wrong sign; the label not reoriented for the second mover (shared builder); sampling plies compared the wrong way; visit shares divided by `total + 1`; the full-search flag off; race-played positions weighted; the temperature exponent inverted; random opening plies weighted (shared builder) |
+| Resume and accounting | **ETA units after a resume counted as the whole phase**; the network check of a self-play shard removed; the strength cadence inverted; the decision written inverted; the ETA of the later phases counting the running one; the monitor shares against the training loop |
+
+### Review fixes (exp/T2h-fix)
+
+An independent review found the loop sound (real-process kill and restart at 10 points gave byte-identical results) and six defects, fixed in one commit: the held-out guarantee (see Training), no test for a rejected generation followed by another (now `LoopTest`, with `Loop.PairFake` making the gate result a given: self-play and training of the next generation use the best network, `best_before`, no `strength/` directory in the rejected generation, the window keeps its samples), the mean generation of the monitor (generation 0 and rejected generations no longer count), the ETA of generations that may be rejected (see Strength record, ETA, status), and the interval cut to [0, 1]. New tests: 18 (`selfplay` 231, whole build 1,036, 2 skipped). Mutants: the 30 of the table above plus 30 new ones for these findings; 59 of 60 killed, 1 missed (`eta.observe("train", ...)` with the end step instead of the steps done: only the in-memory cost per step of the same process changes, nothing a file or a line shows; the same mistake in the `phase` line is killed).
+
+### Deviations from the task and limits
+
+- **The baseline clause is skipped when the gate score is not above 0.5** (the candidate is rejected whatever the clause says), which saves 2 x 50 pairs in a rejected generation.
+- **The per-generation strength record is the record of the best network**; a rejected generation points at the network of the generation before.
+- **Race-played positions get policy weight 0** (the task says weight 1 except random opening plies): the race module plays them without a search, so their target is not a search result, and a network that is never asked for a move there gains nothing from learning it.
+- **The held-out games come out of the training data** (about 10 % of each generation, at least one game); a pure function of shard seed, game id and the number of games per generation (which `run.json` fixes), so the split never changes.
+- **Loading the window reads every generation again** (the replay buffer is rebuilt from the files at each training start, as designed); the cost grows with the number of generations in the window, about 0.1 s for 47,000 samples.
+- **Only the CPU reference trainer** (3.4 steps/s at batch 256 with SMALL on 8 threads); the GPU trainer of Part B is not part of the loop.
+- **Two players only; one run, one seed, 3 generations** in the demo: no statement about the long-run behaviour of the loop (strength growth, window effects, forgetting).
+
+## Loop demo run 1 (measured)
+
+**TL;DR:** Starting from the E11 candidate (classic1, 16,000 steps), four generations of 300 games each (100 simulations, 8 threads, R = 4, lr 3e-4, gate and baseline of 50 pairs, strength record of 3 rungs x 50 pairs after every generation) took **19 min 10 s for generations 1 to 3 and 5 min 44 s for generation 4** on a shared machine (load 5 to 12). Generations 1, 2 and 4 were promoted (gate scores 0.58, 0.54, 0.51, none of them clear of 0.5 at 50 pairs), generation 3 was rejected (0.48). The strength of the best network against `BEST_SPEC` at 6400 nodes goes +63 ± 67 (generation 0) → +156 ± 69 → +200 ± 74 → +241 ± 84 (generation 4), and against 1600 nodes +270 → +269 → +402 → +382 (± 91 to 130); a rise of about 180 Elo over four generations, 1.7 standard errors, so the loop trains and the direction is right but 300 games per generation and 50-pair gates do not show a significant step per generation. **Self-play (33 %) and training (29 %) dominate; the gate (18 %) and the strength record (20 %) are the part to tune.** A real SIGTERM in each phase ends the process in 0.3 to 6 s, and the resumed run ends with the candidate and decision of the uninterrupted run, byte for byte.
+
+Command: `scripts/loop.sh run data/loopdemo1 --init data/gen0run3/gen-0000/candidate.safetensors --generations 3 --games 300 --sims 100 --gate-pairs 50 --baseline-pairs 50 --ladder 400,1600,6400 --strength-pairs 50 --threads 8` (generation 4: the same command with `--generations 4` and the adapted cadences below). Apple M3 Max, JDK 25.0.3, load average 5 to 12 from other work: timings are indicative, the scores and Elo values count games.
+
+| | Generation 0 (init) | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| Self-play, games/s (300 games, wall) | | 2.61 (1m55s) | 2.17 (2m18s) | 2.27 (2m12s) | 2.75 (1m49s) |
+| Samples: training + held out | | 23,565 + 2,816 | 23,640 + 2,562 | 23,845 + 2,719 | 23,465 + 2,624 |
+| Steps (R = 4, batch 256), train time | | 369, 1m48s (3.41/s) | 370, 1m59s (3.11/s) | 373, 2m00s (3.11/s) | 367, 1m42s (3.59/s) |
+| Proxies at the last step, on the held-out games of the generation: KL / top-1 / value loss / winner | | 0.455 / 71.6 % / 0.598 / 75.8 % | 0.509 / 67.4 % / 0.671 / 74.1 % | 0.448 / 74.4 % / 0.437 / 84.8 % | 0.451 / 72.5 % / 0.451 / 83.3 % |
+| Gate: score of the candidate against the best network, 50 pairs (W-D-L games) | | 0.580 ± 0.037 (57-2-41) | 0.540 ± 0.040 (54-0-46) | 0.480 ± 0.043 (48-0-52) | 0.510 ± 0.036 (51-0-49) |
+| Baseline: candidate / best network against `BEST_SPEC` 1600 nodes (pair difference) | | 0.900 / 0.835 (+0.065 ± 0.034) | 0.950 / 0.900 (+0.050 ± 0.036) | not played | 0.960 / 0.950 (+0.010 ± 0.023) |
+| Decision | promoted (init) | promoted | promoted | rejected | promoted |
+| Strength of the best network, Elo against 400 nodes | +676 ± 339 | +1200 (100-0-0, a bound) | +604 ± 380 | (generation 2) | +918 ± 236 |
+| against 1600 nodes | +270 ± 98 | +269 ± 91 | +402 ± 130 | (generation 2) | +382 ± 121 |
+| against 6400 nodes | +63 ± 67 | +156 ± 69 | +200 ± 74 | (generation 2) | +241 ± 84 |
+
+The proxies of different generations are measured on different games (each generation's own held-out games, played by a different network), so they do not form a curve; the winner prediction of 74 to 85 % is the value head's accuracy on fresh self-play positions (yardstick of the classical teacher: 78.8 %).
+
+**Where the time goes** (`monitor-report`, 1495 s of loop wall time over the five iterations, the first of which is the strength record of generation 0):
+
+| Category | Share of the loop | Per generation of 300 games |
+|---|---|---|
+| selfplay | 33.1 % | 1m49s to 2m18s (0.41 s per game, 2,650 simulations per CPU second) |
+| train | 29.3 % | 1m42s to 2m00s |
+| gate | 17.9 % | vs best network 41 to 46 s (50 pairs); baseline 23 s per network (the best network's once) |
+| strength | 19.7 % | 70 to 78 s (150 pairs of 3 rungs) |
+| checkpoint, progress, other | < 0.01 % | 1.3 ms per checkpoint, 0.7 ms per progress line |
+
+**Overhead of checkpoints, ETA and strength, and the changes it asked for** (the owner requirement; the report was read after run 1 and the cadences changed before generation 4):
+
+| What | Measured in generations 1 to 3 | Change | Generation 4 |
+|---|---|---|---|
+| (a) checkpoints | 1.3 ms each (0.002 %), every 200 steps or 120 s: 2 per generation | every 50 steps or 60 s | 8 per generation, 0.004 % |
+| (b) ETA / progress lines | 0.7 ms per line, 0.002 % | none (every 10 s; 30 s in the demo) | 0.002 % |
+| (c1) proxies on the held-out games | 1.7 s per evaluation, two per generation (first and last checkpoint): **2.9 %, over the 2 % budget** | only at the last checkpoint of a generation (and else 120 s apart) | 1 per generation, 1.7 % |
+| (c2) Elo estimate (3 rungs x 50 pairs) | 71 s each: **24 % of a 5-minute generation, over the 5 % budget** | none in the code: it is a cost of the demo's short generations; the report prints `--strength-every 5` for them. At about one hour per generation the same 71 s are 2 % (200 s for 4 rungs: 5.5 %, so 4 rungs every second generation or fewer pairs). | 70 s |
+
+**Abort and restart at real scale** (a generation of 60 games, a gate of 20 pairs; `SIGTERM` after the phase had run for 1.5 s): self-play 143 after 3.0 s (the games of the unfinished shard are dropped), training 143 after 0.3 s (final checkpoint), gate 143 after 6.0 s, the strength record of generation 0 143 after 1.6 s. The run killed in self-play, training and gate in turn and restarted each time ended with `candidate.safetensors` and `decision.json` of the uninterrupted run (SHA-256 prefix 3e9b3ffc3a5eb8c3 and e443811914b2c882, identical); so did a run killed in the strength record.
+
+**A realistic production generation.** Measured costs (from the table): self-play 0.41 to 0.46 s per game (88 samples per game, S1 cuts the games at about 88 plies), training 3.1 to 3.6 steps/s at batch 256 with R = 4, which is 1.24 steps per game or 0.35 s per game, gate 0.9 s per pair, baseline 0.46 s per pair, strength 0.5 s per pair. One game costs about 0.8 s of self-play and training together. For one generation per hour: 100 gate pairs (90 s), one baseline of 50 pairs (23 s) and a strength record of 4 rungs x 50 pairs every generation (100 s) leave 3,390 s, so **about 4,000 games (350,000 samples, about 5,000 steps) per hour**; at R = 2 about 5,000 games. A generation of 1,000 games takes about 17 minutes.
+
+**Recommendations for the first production run:**
+
+- **Games per generation:** 1,000 to start (17 min, 20 generations in 6 hours, to find problems early), 4,000 for an hour per generation later; **sims 100** (the cost per game is linear in it; 200 only when a generation is clearly saturated); R = 4.
+- **Learning rate:** 3e-4 was used for all four generations and trained without trouble; 1e-3 was not tried (a fresh optimiser with 1e-3 on a trained network risks a loss spike; measure it once with a 1-generation run before using it).
+- **Window:** 500,000 samples is 1.4 generations of 4,000 games and 21 of 300; for 1,000 to 4,000 games per generation use **1,000,000 (620 MB)**: three to ten generations of data.
+- **Gate:** 100 pairs at least, better 200: with 50 pairs the standard error is 0.04, and the promotions at 0.54 and 0.51 are within the noise of equal strength (the rule "above 0.5" promotes half of the equal candidates). The non-regression clause is not yet useful against `ab:1600`: the candidates score 0.90 to 0.96 there, a ceiling with a standard error of 0.02 to 0.03; **use `--baseline-rung 6400`** (the best network scores 0.76 to 0.80 there) from generation 1 on.
+- **Ladder:** `100,400,1600,6400`, 50 pairs, every generation once a generation takes more than 20 minutes (the 100-node rung is saturated at +1200; add `25600` when 6400 passes 0.9).
+- **Cadences:** checkpoints every 50 steps or 60 s, progress every 10 s, proxies at the end of the generation (the new defaults).
+- **Known limits of the demo:** one run, one seed, 300 games per generation; the Elo intervals are ± 70 to ± 380.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
 2. **Value loss weight and zero sum.** Is c_v = 1 with the mean over players right? Should the value head enforce a zero sum ([network open question 4](network.md#open-questions))?
-3. **Gating statistics.** More than 50 % of 200 games has a wide interval (about ±7 percentage points). Use a fixed threshold such as 55 %, or a sequential test (SPRT)?
+3. **Gating statistics.** More than 50 % of 200 games has a wide interval (about ±7 percentage points). Use a fixed threshold such as 55 %, or a sequential test (SPRT)? [Loop demo run 1](#loop-demo-run-1-measured): with 50 pairs the standard error is 0.04, and the promotions at 0.54 and 0.51 are within the noise of equal strength; 100 to 200 pairs, and the non-regression clause against a rung that is not saturated, are the first remedy.
 4. **Teacher policy targets.** One-hot plus ε, or a multi-PV root search with exact scores for all root moves, at a higher cost?
 5. **Three players.** No classical teacher and no `BEST_SPEC` exist for three players. Which baseline gates three-player generations?
 6. **Race endgames in self-play.** The rule of [What classical code covers](#what-classical-code-covers) needs a conservative contact test and exact solitaire distances. Which of the two arrives first, and what share of plies does it save?
 7. **Distance input plane.** Answered by E11: the distance planes are an addition, not a replacement (planes 3 to 5 stay), as the plane set `classic1` with format version 2; the A/B of [block 2f](#as-implemented-block-2f--e11) shows a faster and better policy. Still open: whether planes 3 to 5 can go.
 8. **Float softmax on Metal.** Confirm that TornadoVM rejects `double` on Metal and that the float softmax meets the gradient bound.
 9. **Integer dtypes in safetensors.** Extend the project's reader for sample files (U8, I16, I32), while `Parameters.load` stays F32-only? E05 keeps a typed reader and writer in module `selfplay` (`SampleFile`) and leaves `nn.Safetensors` unchanged.
-10. **Replay window and reuse.** W = 500,000 samples and R = 4 are starting values.
+10. **Replay window and reuse.** W = 500,000 samples and R = 4 are starting values. The demo trained with W = 500,000 (three to four generations of 24,000 samples) and R = 4 (370 steps per generation) without trouble; for generations of 1,000 to 4,000 games W = 1,000,000 is recommended ([block 2h](#as-implemented-block-2h)); R is still unmeasured.
 11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item. E05 verified 130 and 143 on JDK 25 with a shutdown hook (`SignalExitTest`).
 12. **Distillation.** The [architecture](architecture.md#neural-network) plans to train LARGE and distil into SMALL. The trainer supports it with teacher distributions from LARGE; the schedule is open.
 13. **References.** Adam, AdamW, SGD with momentum and AlphaZero need entries in [references](references.md) before this document cites them.
@@ -1223,7 +1395,7 @@ Each step ends with passing tests and can be reviewed alone. Part A steps go int
 7. **A7, sample files:** typed safetensors tensors, the sample writer and reader, expansion to planes, mirror augmentation. Tests: expansion equals `Encoder.encode`; the symmetry tests of [Symmetric augmentation](#symmetric-augmentation).
 8. **A8, replay buffer and batch builder.** Tests: window drops whole generations; the same seed and step give the same batch.
 9. **A9, bootstrap:** teacher games with `BEST_SPEC`, generation 0 training on the CPU with SMALL on a small data set. Check: value winner prediction against the 78.8 % yardstick.
-10. **A10, training loop:** run directory, state from artefacts, lock, status, abort, progress, gating; CPU only, TINY, a few games. Tests: abort and restart at each phase; a second run after success does nothing and exits with 0; a second process exits with 75.
+10. **A10, training loop:** run directory, state from artefacts, lock, status, abort, progress, gating; CPU only, TINY, a few games. Tests: abort and restart at each phase; a second run after success does nothing and exits with 0; a second process exits with 75. Done in [block 2h](#as-implemented-block-2h).
 11. **B1, flat buffers and update kernel** against A4.
 12. **B2, expand kernel** against A7.
 13. **B3, training forward kernels** with stored activations, against A3 (reusing the inference kernels).

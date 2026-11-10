@@ -23,7 +23,7 @@ The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next mile
 | Gradle build (wrapper 9.8.2, dependency verification), `engine` module | done |
 | `search` module: alpha-beta baseline, learned linear evaluation, search enhancements, arena, strategy contract tests | done; round 2 integrated on 2026-11-08: `Strategies.BEST_SPEC` is `racelin1-r3` (race arithmetic over the bestGain evaluation) with futility pruning and race play, and scores 0.95 against the round-1 BEST at equal CPU time ([integration](docs/search-and-evaluation.md#integration-of-round-2-measured-2026-11-08)) |
 | `nn` module: network design, safetensors, encoder, CPU reference, Vector API path | done (TornadoVM kernels not started) |
-| `selfplay` module: classical self-play data tool (adjudication, control games, sample files; `scripts/selfplay.sh`) | done for classical engines (round 2, E05); training loop not started |
+| `selfplay` module: classical self-play data tool (adjudication, control games, sample files; `scripts/selfplay.sh`) | done for classical engines (round 2, E05); generation-0 training (`scripts/gen0.sh`), PUCT self-play and the CPU training loop with gating and a strength record (`scripts/loop.sh`, block 2h) done |
 | `tablebase` module: rows >= 2 and rows >= 1 race tables (Git LFS), race play, S1 adjudication, race arithmetic as a leaf value | done (round 2, E03, E08, E09); GPU build not started |
 | `book`, `bench`, `app` | not started |
 

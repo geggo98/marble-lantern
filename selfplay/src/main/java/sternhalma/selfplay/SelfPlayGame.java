@@ -200,9 +200,48 @@ public final class SelfPlayGame {
      */
     static GameRecord.Samples samples(int[] moves, int openingPlies, int cut, double[] labelValues,
             boolean adjudicated, double epsilon, Teacher teacher) {
+        Labeler labeler = (s, pos, z) -> {
+            if (teacher == null) {
+                return new PlyLabel(null, z, false, true);
+            }
+            Teacher.Label label = teacher.label(pos);
+            boolean full = label.policy() != null;
+            return new PlyLabel(label.policy(), teacher.config().value(z, pos.ply(), label.best(),
+                    RaceAdjudication.passed(pos)), full, full);
+        };
+        return samples(moves, openingPlies, cut, labelValues, adjudicated, epsilon, labeler);
+    }
+
+    /**
+     * What a labeler says about one position of a game.
+     *
+     * @param policy   the policy target aligned with {@code Position.legalMoves()}, or null for the played move alone
+     *                 (smoothed by epsilon)
+     * @param value    the value target, relative players
+     * @param full     flag bit 0: the policy target comes from a full search
+     * @param weighted whether the policy weight is 1 (random opening plies are 0 whatever is said here)
+     */
+    record PlyLabel(float[] policy, double[] value, boolean full, boolean weighted) {
+    }
+
+    /** Labels position {@code s} of a game; {@code z} is the game label for the mover. */
+    @FunctionalInterface
+    interface Labeler {
+        PlyLabel at(int s, Position pos, double[] z);
+    }
+
+    /** {@link #samples(int[], int, int, double[], boolean, double, Teacher)} with the labels of any source. */
+    static GameRecord.Samples samples(int[] moves, int openingPlies, int cut, double[] labelValues,
+            boolean adjudicated, double epsilon, Labeler labeler) {
+        return samples(null, moves, openingPlies, cut, labelValues, adjudicated, epsilon, labeler);
+    }
+
+    /** Like the above, replayed from {@code start} (null: the start position of the game). */
+    static GameRecord.Samples samples(Position start, int[] moves, int openingPlies, int cut, double[] labelValues,
+            boolean adjudicated, double epsilon, Labeler labeler) {
         RuleSet rules = RuleSet.defaults(2);
         int players = rules.players();
-        Position pos = Position.initial(rules);
+        Position pos = start == null ? Position.initial(rules) : start.copy();
         int n = cut;
         byte[] cells = new byte[n * Geometry.CELLS];
         short[] ply = new short[n];
@@ -240,17 +279,14 @@ public final class SelfPlayGame {
                 z[r] = labelValues[o.absolutePlayer(r)];
             }
             boolean random = s < openingPlies;
-            boolean full = false;
-            if (teacher != null) {
-                Teacher.Label label = teacher.label(pos);
-                z = teacher.config().value(z, pos.ply(), label.best(), RaceAdjudication.passed(pos));
-                teacherPolicy[s] = label.policy();
-                full = label.policy() != null;
-            }
+            PlyLabel label = labeler.at(s, pos, z);
+            z = label.value();
+            teacherPolicy[s] = label.policy();
+            boolean full = label.full();
             for (int r = 0; r < players; r++) {
                 value[s * players + r] = (float) z[r];
             }
-            wp[s] = random || (teacher != null && !full) ? 0f : 1f;
+            wp[s] = random || !label.weighted() ? 0f : 1f;
             wv[s] = 1f;
             flags[s] = (byte) ((full ? 1 : 0) | (adjudicated ? 2 : 0) | (random ? 4 : 0));
             pos.make(moves[s]);
@@ -259,7 +295,7 @@ public final class SelfPlayGame {
         byte[] to = new byte[total];
         float[] target = new float[total];
         int k = 0;
-        Position replay = Position.initial(rules);
+        Position replay = start == null ? Position.initial(rules) : start.copy();
         for (int s = 0; s < n; s++) {
             Orientation o = Orientation.of(replay);
             int[] legal = legalPerSample[s];
