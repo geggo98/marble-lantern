@@ -1366,6 +1366,29 @@ The proxies of different generations are measured on different games (each gener
 - **Cadences:** checkpoints every 50 steps or 60 s, progress every 10 s, proxies at the end of the generation (the new defaults).
 - **Known limits of the demo:** one run, one seed, 300 games per generation; the Elo intervals are ± 70 to ± 380.
 
+## Loop run 1 (measured 2026-11-10)
+
+**TL;DR:** The first production loop (`data/loop1`: 10 generations of 4000 MCTS self-play games at 100 simulations, SMALL `classic1` network from generation-0 run 3, replay window 1 M samples, lr 3e-4, reuse 4, gate 150 pairs, baseline rung 6400 nodes) took 8 h 45 min on one machine at a load of 10 to 12 and a 60 W adapter (battery stayed at 78 %, no thermal warning in the whole run). Nine of ten generations were promoted. Re-measured with 150 pairs against `BEST_SPEC` at 6400 and 25,600 nodes the network climbs from -19 +- 34 Elo (generation 0) to +267 +- 51 (generation 10) against 25,600 nodes: the 50-pair strength records of the loop (flat at about +350 against 6400 nodes from generation 4 on) were a measuring artefact, the rung and the pair count did not resolve the progress. Gains per generation shrink: about +115 from 0 to 1, +68 from 1 to 3, +63 from 3 to 5, +23 from 5 to 8, +17 from 8 to 10.
+
+| Generation | gate score vs previous best | vs 6400 nodes (150 pairs) | vs 25,600 nodes (150 pairs) |
+|---|---|---|---|
+| 0 (init) | - | +143 +- 39 | -19 +- 34 |
+| 1 | 0.708 | +210 +- 45 | +96 +- 33 |
+| 3 | 0.528 | +302 +- 51 | +164 +- 42 |
+| 5 | 0.600 | +343 +- 56 | +227 +- 45 |
+| 8 | 0.515 | +378 +- 62 | +250 +- 45 |
+| 10 | 0.532 | +398 +- 66 | +267 +- 51 |
+
+Gate scores of the other generations: 0.565 (2), 0.560 (4), 0.562 (6), 0.543 (7), 0.460 (9, rejected). Strength seed 5001, `scripts/loop.sh strength data/loop1 --generation N --ladder 6400,25600 --strength-pairs 150 --strength-seed 5001`.
+
+**Findings**
+- **Rung and pair count:** a rung scored above about 0.85 does not resolve differences. The in-loop record (50 pairs, rungs 400/1600/6400) saturated; rung 25,600 with 150 pairs resolves the whole run. For the next run use the ladder 6400, 25600, 102400 and at least 100 pairs in the loop, or the strength step as a separate process on checkpoints.
+- **Promotion rule:** `score > 0.5` promoted generations whose 95 % interval contains 0.5 (generations 3, 7, 8, 10). The curve still rises, so the rule did no visible harm here, but a stricter rule (lower bound above 0.5, or a threshold of 0.52) is cheaper than the risk of drift; decide before the next run, it changes `run.json`.
+- **Overhead (monitor-report, 13,909 s of loop wall time):** checkpoints 0.008 % (budget 1 %), progress lines 0.005 % (0.1 %), held-out proxies 1.2 % (2 %), Elo estimate 2.1 % (5 %), gate 4.5 % (0.75 % baseline, 3.7 % against the best network), self-play 49 %, training 43.5 %. No cadence needs to change.
+- **Training is 43.5 % of the generation time**, above the 25 % threshold of the plan for starting the GPU trainer (Part B). Self-play on 8 CPU threads (about 2.6 games/s) stays on the CPU unless the GPU forward pass batches leaves.
+- Timings are indicative (load 10 to 12 from other jobs); simulation-limited Elo is robust.
+- Not measured: the effect of the learning rate (only 3e-4), of more simulations per move, of the window size, and a LARGE network.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
