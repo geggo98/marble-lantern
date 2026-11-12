@@ -39,23 +39,119 @@ class GateTest {
 
     // ---- the promotion inequality ----
 
+    /** {@code wins} pairs of 1, {@code draws} of 0.5 and {@code losses} of 0, interleaved so that no order is assumed. */
+    private static double[] pairs(int wins, int draws, int losses) {
+        List<Double> l = new ArrayList<>();
+        for (int i = 0; i < Math.max(wins, Math.max(draws, losses)); i++) {
+            if (i < wins) {
+                l.add(1.0);
+            }
+            if (i < draws) {
+                l.add(0.5);
+            }
+            if (i < losses) {
+                l.add(0.0);
+            }
+        }
+        return l.stream().mapToDouble(Double::doubleValue).toArray();
+    }
+
+    private static final double Z90 = 1.28;
+
+    @Test
+    void theGateNeedsTheScoreToBeSignificantlyAboveOneHalf() {
+        double[] strong = pairs(33, 99, 18); // 150 pairs, score 0.55, se about 0.024
+        Decision s = Gate.decide(strong, NO_CLAUSE, NO_CLAUSE, 2, Z90);
+        assertEquals(0.55, s.score(), 1e-12);
+        assertEquals(0.0235, s.scoreStandardError(), 5e-4);
+        assertEquals((s.score() - 0.5) / s.scoreStandardError(), s.z(), 1e-12);
+        assertEquals(2.1, s.z(), 0.1);
+        assertTrue(s.promoted());
+        assertEquals(Z90, s.promoteZ());
+
+        double[] weak = pairs(31, 97, 22); // score 0.53, z about 1.25
+        Decision w = Gate.decide(weak, NO_CLAUSE, NO_CLAUSE, 2, Z90);
+        assertEquals(0.53, w.score(), 1e-12);
+        assertEquals(1.25, w.z(), 0.05);
+        assertFalse(w.promoted(), "above 0.5, but within 1.28 standard errors of it");
+        assertTrue(Gate.decide(weak, NO_CLAUSE, NO_CLAUSE, 2, 0).promoted(), "the old rule promotes it");
+        assertTrue(Gate.decide(weak, NO_CLAUSE, NO_CLAUSE, 2, 1.2).promoted());
+    }
+
+    @Test
+    void theBoundaryIsExactAndStrict() {
+        double[] gate = pairs(31, 98, 21); // 0.5333
+        Decision d = Gate.decide(gate, NO_CLAUSE, NO_CLAUSE, 2, 0);
+        double boundary = (d.score() - 0.5) / d.scoreStandardError();
+        assertTrue(Gate.decide(gate, NO_CLAUSE, NO_CLAUSE, 2, boundary - 1e-9).promoted());
+        assertFalse(Gate.decide(gate, NO_CLAUSE, NO_CLAUSE, 2, boundary + 1e-9).promoted());
+        assertTrue(boundary > 1.28 && boundary < 1.5, "this match promotes at 1.28 by a small margin: " + boundary);
+        assertTrue(Gate.decide(gate, NO_CLAUSE, NO_CLAUSE, 2, Z90).promoted());
+    }
+
+    @Test
+    void zeroIsTheOldRuleScoreAboveOneHalf() {
+        double[][] gates = {pairs(33, 99, 18), pairs(31, 97, 22), pairs(20, 100, 20), pairs(18, 99, 33), pairs(1, 0, 1),
+            pairs(0, 0, 3), repeat(new double[] {1, 0}, 15)};
+        for (double[] g : gates) {
+            assertEquals(Elo.mean(g) > 0.5, Gate.decide(g, NO_CLAUSE, NO_CLAUSE, 2, 0).promoted(), Arrays.toString(g));
+        }
+    }
+
+    @Test
+    void drawsAndPairsThatAreAllEqualHaveNoSpread() {
+        double[] draws = pairs(0, 40, 0);
+        for (double z : new double[] {0, Z90, 3}) {
+            Decision d = Gate.decide(draws, NO_CLAUSE, NO_CLAUSE, 2, z);
+            assertFalse(d.promoted(), "all draws: exactly 0.5 never promotes");
+            assertEquals(0, d.z());
+        }
+        double[] wins = pairs(40, 0, 0);
+        Decision d = Gate.decide(wins, NO_CLAUSE, NO_CLAUSE, 2, Z90);
+        assertEquals(0, d.scoreStandardError());
+        assertEquals(Double.POSITIVE_INFINITY, d.z());
+        assertTrue(d.promoted(), "a standard error of 0 and a score above 0.5");
+        Decision l = Gate.decide(pairs(0, 0, 40), NO_CLAUSE, NO_CLAUSE, 2, Z90);
+        assertEquals(Double.NEGATIVE_INFINITY, l.z());
+        assertFalse(l.promoted());
+        double[] mostlyDraws = pairs(3, 117, 0); // 0.5125, few decisive pairs
+        assertTrue(Gate.decide(mostlyDraws, NO_CLAUSE, NO_CLAUSE, 2, 0).promoted());
+        assertEquals(Gate.decide(mostlyDraws, NO_CLAUSE, NO_CLAUSE, 2, 0).z() > Z90,
+                Gate.decide(mostlyDraws, NO_CLAUSE, NO_CLAUSE, 2, Z90).promoted());
+    }
+
+    @Test
+    void theBaselineClauseStillVetoesASignificantGateAndTheLogLineNamesZ() {
+        double[] gate = pairs(33, 99, 18);
+        double[] best = repeat(new double[] {1, 0.5, 0.5, 0}, 10);
+        double[] worse = repeat(new double[] {0, 0.5, 0.5, 0}, 10);
+        Decision vetoed = Gate.decide(gate, worse, best, 2, Z90);
+        assertFalse(vetoed.promoted());
+        assertFalse(vetoed.baselineOk());
+        assertTrue(Gate.decide(gate, best, best, 2, Z90).promoted());
+        String text = Gate.decide(gate, best, best, 2, Z90).describe();
+        assertTrue(text.startsWith("promoted: score 0.550 +- 0.024 (95% interval"), text);
+        assertTrue(text.contains("z 2.1") && text.contains("(needs above 1.28)"), text);
+        assertThrows(IllegalArgumentException.class, () -> Gate.decide(gate, NO_CLAUSE, NO_CLAUSE, 2, -0.1));
+    }
+
     @Test
     void aScoreAboveOneHalfPromotesAndOneHalfExactlyDoesNot() {
         // 30 pairs: 18 of 1.0, 12 of 0.0 -> 0.6;  15 of 1.0 and 15 of 0.0 -> exactly 0.5
         double[] above = repeat(new double[] {1, 1, 1, 0, 0}, 6);
         double[] exactly = repeat(new double[] {1, 0}, 15);
         assertEquals(0.6, Elo.mean(above), 1e-12);
-        assertTrue(Gate.decide(above, NO_CLAUSE, NO_CLAUSE, 2).promoted());
+        assertTrue(Gate.decide(above, NO_CLAUSE, NO_CLAUSE, 2, 0).promoted());
         assertEquals(0.5, Elo.mean(exactly), 1e-12);
-        assertFalse(Gate.decide(exactly, NO_CLAUSE, NO_CLAUSE, 2).promoted(), "0.5 is not more than 0.5");
-        assertFalse(Gate.decide(repeat(new double[] {0, 0, 1, 0.5}, 5), NO_CLAUSE, NO_CLAUSE, 2).promoted(), "0.375");
+        assertFalse(Gate.decide(exactly, NO_CLAUSE, NO_CLAUSE, 2, 0).promoted(), "0.5 is not more than 0.5");
+        assertFalse(Gate.decide(repeat(new double[] {0, 0, 1, 0.5}, 5), NO_CLAUSE, NO_CLAUSE, 2, 0).promoted(), "0.375");
     }
 
     @Test
     void theIntervalAndTheStatisticsAreRecorded() {
         double[] gate = repeat(new double[] {1, 0.5, 0.5, 0}, 10); // mean 0.5
         double[] above = repeat(new double[] {1, 1, 0.5, 0.5, 0.5, 0}, 10);
-        Decision d = Gate.decide(above, NO_CLAUSE, NO_CLAUSE, 2);
+        Decision d = Gate.decide(above, NO_CLAUSE, NO_CLAUSE, 2, 0);
         assertEquals(60, d.pairs());
         assertEquals(Elo.mean(above), d.score(), 1e-12);
         assertEquals(Elo.standardError(above), d.scoreStandardError(), 1e-12);
@@ -70,16 +166,16 @@ class GateTest {
     @Test
     void theIntervalStaysInsideTheScoresThatExist() {
         // review finding: 4 pairs of 1, 1, 1, 0.5 printed "95% interval 0.653 to 1.033"
-        Decision high = Gate.decide(new double[] {1, 1, 1, 0.5}, NO_CLAUSE, NO_CLAUSE, 2);
+        Decision high = Gate.decide(new double[] {1, 1, 1, 0.5}, NO_CLAUSE, NO_CLAUSE, 2, 0);
         assertTrue(high.score() + 1.96 * high.scoreStandardError() > 1, "the raw interval leaves [0, 1]");
         assertEquals(1.0, high.ci95High(), 0);
         assertTrue(high.ci95Low() > 0.5 && high.ci95Low() < high.score());
         assertTrue(high.describe().contains("to 1.000)"), high.describe());
-        Decision low = Gate.decide(new double[] {0, 0, 0, 0.5}, NO_CLAUSE, NO_CLAUSE, 2);
+        Decision low = Gate.decide(new double[] {0, 0, 0, 0.5}, NO_CLAUSE, NO_CLAUSE, 2, 0);
         assertEquals(0.0, low.ci95Low(), 0);
         assertTrue(low.describe().contains("interval 0.000 to "), low.describe());
         // inside [0, 1] the interval is the plain one
-        Decision middle = Gate.decide(new double[] {1, 0, 0.5, 0.5}, NO_CLAUSE, NO_CLAUSE, 2);
+        Decision middle = Gate.decide(new double[] {1, 0, 0.5, 0.5}, NO_CLAUSE, NO_CLAUSE, 2, 0);
         assertEquals(middle.score() - 1.96 * middle.scoreStandardError(), middle.ci95Low(), 1e-12);
         assertEquals(middle.score() + 1.96 * middle.scoreStandardError(), middle.ci95High(), 1e-12);
     }
@@ -90,7 +186,7 @@ class GateTest {
         // the best network scores 0.6 against the rung, the candidate 0.2 lower, pair by pair
         double[] best = repeat(new double[] {1, 0.5, 0.5, 0.5, 0.5}, 10); // mean 0.6
         double[] worse = repeat(new double[] {0.5, 0.5, 0.5, 0.0, 0.0}, 10); // mean 0.3, differences -0.5 -0 -0 -0.5 -0.5
-        Decision d = Gate.decide(gate, worse, best, 2);
+        Decision d = Gate.decide(gate, worse, best, 2, 0);
         assertTrue(d.score() > 0.5);
         assertEquals(50, d.baselinePairs());
         assertEquals(Elo.mean(worse), d.baselineCandidate(), 1e-12);
@@ -99,12 +195,12 @@ class GateTest {
         assertFalse(d.baselineOk());
         assertFalse(d.promoted(), "better than its parent, but worse against the rung by more than two standard errors");
         // the same candidate, the same gate, a clause that is not violated
-        Decision same = Gate.decide(gate, best, best, 2);
+        Decision same = Gate.decide(gate, best, best, 2, 0);
         assertEquals(0, same.baselineDiff(), 1e-12);
         assertTrue(same.baselineOk());
         assertTrue(same.promoted());
         // better against the rung than the best network
-        assertTrue(Gate.decide(gate, best, worse, 2).promoted());
+        assertTrue(Gate.decide(gate, best, worse, 2, 0).promoted());
     }
 
     @Test
@@ -121,12 +217,12 @@ class GateTest {
         double mean = Elo.mean(diff);
         double se = Elo.standardError(diff);
         assertTrue(mean < 0 && mean > -2 * se, "the case is a regression inside two standard errors: " + mean + ", " + se);
-        assertTrue(Gate.decide(gate, cand, best, 2).promoted());
-        assertFalse(Gate.decide(gate, cand, best, 0).promoted(), "zero standard errors allowed: any drop rejects");
+        assertTrue(Gate.decide(gate, cand, best, 2, 0).promoted());
+        assertFalse(Gate.decide(gate, cand, best, 0, 0).promoted(), "zero standard errors allowed: any drop rejects");
         // the sigma at which the clause turns over is |mean| / se
         double turn = -mean / se;
-        assertTrue(Gate.decide(gate, cand, best, turn + 1e-9).promoted());
-        assertFalse(Gate.decide(gate, cand, best, turn - 1e-6).promoted());
+        assertTrue(Gate.decide(gate, cand, best, turn + 1e-9, 0).promoted());
+        assertFalse(Gate.decide(gate, cand, best, turn - 1e-6, 0).promoted());
     }
 
     @Test
@@ -138,7 +234,7 @@ class GateTest {
         for (int i = 0; i < 10; i++) {
             cand[i] = best[i] - 0.05;
         }
-        Decision d = Gate.decide(gate, cand, best, 2);
+        Decision d = Gate.decide(gate, cand, best, 2, 0);
         assertEquals(-0.05, d.baselineDiff(), 1e-12);
         assertEquals(0.0, d.baselineDiffStandardError(), 1e-12);
         assertFalse(d.promoted(), "a constant drop has standard error 0, so any drop is a regression");
@@ -151,16 +247,16 @@ class GateTest {
         double[] gate = repeat(new double[] {0, 0.5, 1, 0}, 10); // 0.375
         double[] best = repeat(new double[] {0, 0.5}, 25);
         double[] better = repeat(new double[] {1, 1}, 25);
-        assertFalse(Gate.decide(gate, better, best, 2).promoted());
+        assertFalse(Gate.decide(gate, better, best, 2, 0).promoted());
     }
 
     @Test
     void badInputIsRefused() {
-        assertThrows(IllegalArgumentException.class, () -> Gate.decide(new double[] {1}, NO_CLAUSE, NO_CLAUSE, 2));
+        assertThrows(IllegalArgumentException.class, () -> Gate.decide(new double[] {1}, NO_CLAUSE, NO_CLAUSE, 2, 0));
         assertThrows(IllegalArgumentException.class,
-                () -> Gate.decide(new double[] {1, 0}, new double[] {1, 0}, new double[] {1}, 2));
+                () -> Gate.decide(new double[] {1, 0}, new double[] {1, 0}, new double[] {1}, 2, 0));
         assertThrows(IllegalArgumentException.class,
-                () -> Gate.decide(new double[] {1, 0}, new double[] {1}, new double[] {1}, 2));
+                () -> Gate.decide(new double[] {1, 0}, new double[] {1}, new double[] {1}, 2, 0));
     }
 
     // ---- the shards of a match ----

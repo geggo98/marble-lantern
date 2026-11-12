@@ -43,10 +43,12 @@ final class Gate {
      * @param baselineDiffStandardError standard error of that mean
      * @param baselineSigmas     the clause: promotion needs {@code diff >= -sigmas * se}
      * @param baselineOk         whether the clause holds
+     * @param promoteZ          the significance rule: promotion needs {@code score - promoteZ * se > 0.5} (0: just {@code score > 0.5})
+     * @param z                 the statistic {@code (score - 0.5) / se}, infinite for a standard error of 0 (0 if the score is 0.5 too)
      */
     record Decision(boolean promoted, int pairs, double score, double scoreStandardError, int baselinePairs,
             double baselineCandidate, double baselineBest, double baselineDiff, double baselineDiffStandardError,
-            double baselineSigmas, boolean baselineOk) {
+            double baselineSigmas, boolean baselineOk, double promoteZ, double z) {
 
         /** The normal-approximation interval, cut to the scores that exist: [0, 1]. */
         double ci95Low() {
@@ -58,17 +60,20 @@ final class Gate {
         }
 
         String describe() {
+            String zText = Double.isFinite(z) ? String.format(Locale.ROOT, "%.2f", z) : (z > 0 ? "+inf" : z < 0 ? "-inf" : "0");
             String clause = baselinePairs == 0 ? "baseline clause not evaluated"
                     : String.format(Locale.ROOT, "vs the rung candidate %.3f, best %.3f, difference %+.3f +- %.3f (%s)",
                             baselineCandidate, baselineBest, baselineDiff, baselineDiffStandardError,
                             baselineOk ? "ok" : "regression of more than " + baselineSigmas + " standard errors");
-            return String.format(Locale.ROOT, "%s: score %.3f +- %.3f (95%% interval %.3f to %.3f) over %d pairs; %s",
-                    promoted ? "promoted" : "rejected", score, scoreStandardError, ci95Low(), ci95High(), pairs, clause);
+            return String.format(Locale.ROOT, "%s: score %.3f +- %.3f (95%% interval %.3f to %.3f) over %d pairs, z %s (needs above %.2f); %s",
+                    promoted ? "promoted" : "rejected", score, scoreStandardError, ci95Low(), ci95High(), pairs, zText, promoteZ,
+                    clause);
         }
     }
 
     /**
-     * The promotion rule: the candidate's mean score against the best network is above 0.5, and its score against the
+     * The promotion rule: the candidate's mean score against the best network is above 0.5 by more than {@code promoteZ}
+     * standard errors (one-sided; {@code score - promoteZ * se > 0.5}, so 0 is the plain "above 0.5"), and its score against the
      * fixed rung is not lower than the best network's by more than {@code sigmas} standard errors (the standard error
      * of the paired differences, pair by pair: both networks play the same openings). Equal to 0.5 does not promote.
      *
@@ -76,7 +81,8 @@ final class Gate {
      * @param candidateBaseline pair scores of the candidate against the rung, or empty for no clause
      * @param bestBaseline      the same for the best network, pair for pair
      */
-    static Decision decide(double[] gate, double[] candidateBaseline, double[] bestBaseline, double sigmas) {
+    static Decision decide(double[] gate, double[] candidateBaseline, double[] bestBaseline, double sigmas,
+            double promoteZ) {
         if (gate.length < 2) {
             throw new IllegalArgumentException("a gate needs at least 2 pairs");
         }
@@ -85,6 +91,9 @@ final class Gate {
         }
         double score = Elo.mean(gate);
         double se = Elo.standardError(gate);
+        if (!(promoteZ >= 0)) {
+            throw new IllegalArgumentException("promoteZ must be >= 0");
+        }
         boolean clause = true;
         double cand = Double.NaN;
         double best = Double.NaN;
@@ -104,8 +113,10 @@ final class Gate {
             diffSe = Elo.standardError(d);
             clause = diff >= -sigmas * diffSe;
         }
-        return new Decision(score > 0.5 && clause, gate.length, score, se, candidateBaseline.length, cand, best, diff,
-                diffSe, sigmas, clause);
+        double z = se > 0 ? (score - 0.5) / se : score > 0.5 ? Double.POSITIVE_INFINITY : score < 0.5 ? Double.NEGATIVE_INFINITY : 0;
+        boolean significant = score - promoteZ * se > 0.5;
+        return new Decision(significant && clause, gate.length, score, se, candidateBaseline.length, cand, best, diff,
+                diffSe, sigmas, clause, promoteZ, z);
     }
 
     /** The pair scores in pair order. */

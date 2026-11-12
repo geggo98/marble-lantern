@@ -54,6 +54,7 @@ class LoopConfigTest {
         assertEquals(1600, c.baselineRung());
         assertEquals(50, c.baselinePairs());
         assertEquals(2.0, c.baselineSigmas());
+        assertEquals(1.28, c.promoteZ());
         assertEquals(Adjudication.Config.PRODUCTION, c.adjudication(), "S1 only: the margin layer is off");
     }
 
@@ -69,7 +70,7 @@ class LoopConfigTest {
             {"opening-max", "11"}, {"race", "2"}, {"s1", "0"}, {"lr", "0.001"}, {"warmup", "50"}, {"batch", "128"},
             {"microbatch", "16"}, {"reuse", "3"}, {"window", "400000"}, {"augment", "0"}, {"value-coefficient", "0.5"},
             {"holdout", "0.2"}, {"gate-pairs", "60"}, {"pair-shard", "5"}, {"gate-opening", "6"}, {"baseline-rung", "400"},
-            {"baseline-pairs", "40"}, {"baseline-seed", "9"}, {"baseline-sigmas", "1"}, {"ladder-spec", "ab:eval=distance"}};
+            {"baseline-pairs", "40"}, {"baseline-seed", "9"}, {"baseline-sigmas", "1"}, {"promote-z", "0.5"}, {"promote-z", "2"}, {"ladder-spec", "ab:eval=distance"}};
         for (String[] change : changes) {
             LoopConfig changed = config(change[0], change[1]);
             assertNotEquals(base.sha256(), changed.sha256(), change[0] + " is part of the configuration");
@@ -78,6 +79,26 @@ class LoopConfigTest {
         }
         assertNotEquals(base.sha256(), LoopConfig.of(new HashMap<>(), "b".repeat(64), "", 0).sha256(), "the init network");
         assertNotEquals(base.sha256(), LoopConfig.of(new HashMap<>(), INIT, "c".repeat(64), 5).sha256(), "the teacher data");
+    }
+
+    @Test
+    void aRunFromBeforeThePromoteZOptionResumesWithZeroAndKeepsItsHash() {
+        LoopConfig zero = config("promote-z", "0");
+        assertEquals(0.0, zero.promoteZ());
+        assertFalse(zero.json().contains("promote_z"), "Z = 0 is not named: the hash is the one from before the option");
+        Map<String, String> old = RunMonitor.parse(zero.json()); // a run.json of that time: the key is absent
+        assertFalse(old.containsKey("promote_z"));
+        LoopConfig resumed = LoopConfig.fromJson(old);
+        assertEquals(0.0, resumed.promoteZ(), "an absent key means Z = 0");
+        assertEquals(zero, resumed);
+        assertEquals(zero.sha256(), resumed.sha256());
+        assertEquals(zero.json() + "\n", resumed.json() + "\n", "the run.json text is compared byte for byte on a resume");
+        LoopConfig fresh = config();
+        assertEquals(1.28, fresh.promoteZ());
+        assertTrue(fresh.json().contains("\"promote_z\":1.28"), fresh.json());
+        assertNotEquals(zero.sha256(), fresh.sha256(), "the new default is another configuration");
+        assertEquals(fresh, LoopConfig.fromJson(RunMonitor.parse(fresh.json())));
+        assertThrows(IllegalArgumentException.class, () -> config("promote-z", "-0.1"));
     }
 
     @Test

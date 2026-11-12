@@ -40,7 +40,7 @@ final class LoopFixture {
                 "0.25", "--warmup", "2", "--lr", "0.003", "--gate-pairs", "4", "--pair-shard", "2", "--baseline-rung", "100",
                 "--baseline-pairs", "2", "--strength-every", "1", "--ladder", "100", "--strength-pairs", "2", "--threads", "2",
                 "--checkpoint-steps", "6", "--keep", "2", "--eval-samples", "40", "--proxy-seconds", "0",
-                "--progress-seconds", "0.05", "--seed", "7"));
+                "--progress-seconds", "0.05", "--seed", "7", "--promote-z", "0"));
         args.addAll(Arrays.asList(more));
         // a later value of the same option wins: the parser puts them in a map in order
         return args;

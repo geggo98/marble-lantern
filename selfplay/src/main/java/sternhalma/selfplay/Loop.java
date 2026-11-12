@@ -55,7 +55,8 @@ import sternhalma.search.PlayerSpec;
  *                [--lr 3e-4] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000] [--trainer cpu|gpu]
  *                [--augment 1] [--value-coefficient 1] [--holdout 0.1] [--teacher DIR [--teacher-files N]]
  *                [--gate-pairs 100] [--pair-shard 10] [--gate-opening 4] [--baseline-rung 1600]
- *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--ladder-spec SPEC]
+ *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--promote-z 1.28]
+ *                [--ladder-spec SPEC]
  *                [--strength-every 1] [--ladder 100,400,1600,6400] [--strength-pairs 50] [--strength-seed 3001]
  *                [--threads 8] [--train-threads T] [--checkpoint-steps 50] [--checkpoint-seconds 60] [--keep 2]
  *                [--progress-seconds 10] [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120]
@@ -273,7 +274,7 @@ public final class Loop {
         private volatile String phase;
         private volatile int generation;
         private volatile long trainUnits;
-        /** Whether the gate of the running generation has shown a score above 0.5 (or the generation is decided). */
+        /** Whether the gate of the running generation has shown a significant score (above 0.5 by promote-z standard errors) (or the generation is decided). */
         private volatile boolean optionalDue;
         private boolean worked;
 
@@ -337,7 +338,7 @@ public final class Loop {
 
         /**
          * The estimate of the running generation and the ones to come. Baseline and strength of the running generation
-         * count once its gate score is above 0.5 (the candidate is then promoted unless the baseline clause says no);
+         * count once its gate score is significant (the candidate is then promoted unless the baseline clause says no);
          * before that the estimate leaves them out and says so (a lower bound). The further generations count them.
          */
         private Eta.Estimate estimate(String phase, double remaining, double rate, int after) {
@@ -1032,7 +1033,8 @@ public final class Loop {
             double[] candBase = new double[0];
             double[] bestBase = new double[0];
             boolean skipped = false;
-            boolean aboveHalf = Gate.decide(gateScores, new double[0], new double[0], cfg.baselineSigmas()).promoted();
+            boolean aboveHalf = Gate.decide(gateScores, new double[0], new double[0], cfg.baselineSigmas(),
+                    cfg.promoteZ()).promoted();
             optionalDue = aboveHalf;
             if (cfg.baselinePairs() > 0) {
                 if (aboveHalf) {
@@ -1050,7 +1052,7 @@ public final class Loop {
                     skipped = true; // not above 0.5: rejected whatever the rung says
                 }
             }
-            Gate.Decision d = Gate.decide(gateScores, candBase, bestBase, cfg.baselineSigmas());
+            Gate.Decision d = Gate.decide(gateScores, candBase, bestBase, cfg.baselineSigmas(), cfg.promoteZ());
             int wins = 0;
             int draws = 0;
             int losses = 0;
@@ -1074,6 +1076,8 @@ public final class Loop {
             f.put("score_se", d.scoreStandardError());
             f.put("ci95_low", d.ci95Low());
             f.put("ci95_high", d.ci95High());
+            f.put("promote_z", d.promoteZ());
+            f.put("z", d.z());
             f.put("baseline_rung", cfg.baselineRung());
             f.put("baseline_pairs", d.baselinePairs());
             f.put("baseline_skipped", skipped);

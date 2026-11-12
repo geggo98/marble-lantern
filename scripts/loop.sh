@@ -9,6 +9,8 @@
 # A second 'run' on the same RUN resumes (the state comes from the files); one after success does nothing and exits
 # 0; 75 means it runs already; 130/143 mean aborted by SIGINT/SIGTERM. Every option that changes a result must be
 # repeated on a resume (run.json is compared); cadences, threads, --generations and the strength options may change.
+# --promote-z Z (default 1.28) promotes a candidate only if score - Z * se > 0.5 (one-sided; 0 is the old rule score > 0.5); it
+# is part of run.json: repeat it on a resume (a run from before the option resumes with --promote-z 0).
 # --trainer gpu trains the candidates on the GPU (TornadoVM, Metal): it needs the TornadoVM SDK (TORNADOVM_HOME, set by the
 # devenv shell) and gives different networks than the CPU trainer; it falls back to the CPU, with a message, where no device
 # is usable. The trainer is part of run.json: repeat it on a resume.

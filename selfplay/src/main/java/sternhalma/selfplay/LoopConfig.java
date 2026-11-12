@@ -47,6 +47,8 @@ import sternhalma.search.Strategies;
  * @param baselinePairs    pairs against that rung (0: no clause)
  * @param baselineSeed     seed of those openings (the same for every network, so they are comparable)
  * @param baselineSigmas   the clause allows a drop of this many standard errors
+ * @param promoteZ        the gate promotes only if {@code score - promoteZ * se > 0.5} (one-sided; 0 is the old "score > 0.5"). {@code run.json}
+ *                         names it only for a value other than 0, so the hash of a run from before the option is unchanged
  * @param ladderSpec       the ladder's base spec
  * @param trainer          the trainer of the candidates: {@code cpu} (the reference trainer, the default) or {@code gpu} (the
  *                         device trainer of module nn-tornado). Part of the hash: the GPU's float sums are not those of the
@@ -58,7 +60,7 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         boolean s1, double lr, int warmup, int batch, int microbatch, double reuse, int window, boolean augment,
         double valueCoefficient, double holdout, String teacherSha256, int teacherFiles, int gatePairs, int pairShard,
         int gateOpening, int baselineRung, int baselinePairs, long baselineSeed, double baselineSigmas,
-        String ladderSpec, String trainer) {
+        String ladderSpec, String trainer, double promoteZ) {
 
     static final String FORMAT = "sternhalma-loop";
     /** Mixed into the held-out split, so it is not the same function as any other hash of a game id. */
@@ -69,8 +71,8 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 || baselinePairs < 0 || baselinePairs == 1 || gateOpening < 0 || warmup < 1) {
             throw new IllegalArgumentException("a count option is out of range");
         }
-        if (!(reuse > 0) || !(lr > 0) || !(holdout > 0 && holdout < 1) || !(baselineSigmas >= 0)) {
-            throw new IllegalArgumentException("reuse and lr must be positive, holdout in (0, 1), sigmas >= 0");
+        if (!(reuse > 0) || !(lr > 0) || !(holdout > 0 && holdout < 1) || !(baselineSigmas >= 0) || !(promoteZ >= 0)) {
+            throw new IllegalArgumentException("reuse and lr must be positive, holdout in (0, 1), sigmas >= 0, promoteZ >= 0");
         }
         StrengthEstimate.requireDistinctRungs(List.of(baselineRung));
         if (!trainer.equals("cpu") && !trainer.equals("gpu")) {
@@ -158,6 +160,9 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         if (trainer.equals("gpu")) {
             f.put("trainer", trainer);
         }
+        if (promoteZ != 0) {
+            f.put("promote_z", promoteZ);
+        }
         return RunMonitor.json(f);
     }
 
@@ -184,7 +189,8 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 Integer.parseInt(m.get("gate_pairs")), Integer.parseInt(m.get("pair_shard")),
                 Integer.parseInt(m.get("gate_opening")), Integer.parseInt(m.get("baseline_rung")),
                 Integer.parseInt(m.get("baseline_pairs")), Long.parseLong(m.get("baseline_seed")),
-                Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"), m.getOrDefault("trainer", "cpu"));
+                Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"), m.getOrDefault("trainer", "cpu"),
+                m.containsKey("promote_z") ? Double.parseDouble(m.get("promote_z")) : 0);
     }
 
     /** The defaults of the options that the config takes; {@code lr} 3e-4 (docs/training.md, block 2h). */
@@ -198,7 +204,8 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 dbl(o, "holdout", 0.1), teacherSha256, teacherFiles, integer(o, "gate-pairs", 100),
                 integer(o, "pair-shard", 10), integer(o, "gate-opening", 4), integer(o, "baseline-rung", 1600),
                 integer(o, "baseline-pairs", 50), lng(o, "baseline-seed", 4001), dbl(o, "baseline-sigmas", 2.0),
-                o.getOrDefault("ladder-spec", Strategies.BEST_SPEC), o.getOrDefault("trainer", "cpu"));
+                o.getOrDefault("ladder-spec", Strategies.BEST_SPEC), o.getOrDefault("trainer", "cpu"),
+                dbl(o, "promote-z", 1.28));
     }
 
     static long lng(Map<String, String> o, String key, long def) {

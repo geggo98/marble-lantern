@@ -257,10 +257,16 @@ class LoopTest {
                 }
             }
             double[] s = scores.stream().mapToDouble(Double::doubleValue).toArray();
-            Gate.Decision expected = Gate.decide(s, new double[0], new double[0], 2);
+            Gate.Decision expected = Gate.decide(s, new double[0], new double[0], 2, 0);
             assertEquals(s.length, Integer.parseInt(d.get("pairs")));
             assertEquals(expected.score(), Double.parseDouble(d.get("score")), 1e-12);
             assertEquals(expected.ci95Low(), Double.parseDouble(d.get("ci95_low")), 1e-12);
+            assertEquals(0.0, Double.parseDouble(d.get("promote_z")), "the fixture runs the old rule");
+            if (Double.isFinite(expected.z())) {
+                assertEquals(expected.z(), Double.parseDouble(d.get("z")), 1e-12);
+            } else {
+                assertEquals("null", d.get("z"), "an infinite statistic is written as null");
+            }
             boolean promoted = d.get("decision").equals("promoted");
             if (expected.score() <= 0.5) {
                 assertFalse(promoted, "not above one half: rejected");
