@@ -80,6 +80,26 @@ class LearningRateScheduleTest {
     }
 
     @Test
+    void aSelfPlayGenerationCanDecayWithACosineAfterItsWarmUp() {
+        LearningRateSchedule s = new LearningRateSchedule(LR, 200, 1000, 0.1, 100, List.of(), 1000, 0.01 * LR);
+        assertEquals(LR / 100, s.rate(1, 0), 1e-18, "the warm-up is unchanged");
+        assertEquals(LR, s.rate(1, 99), 1e-18);
+        assertEquals(LR, s.rate(1, 100), 1e-18, "the cosine starts at the base rate");
+        assertEquals(0.506 * LR, s.rate(5, 549), 0.001 * LR, "about the middle");
+        assertEquals(0.01 * LR, s.rate(1, 999), 1e-18, "and ends at the final rate");
+        assertEquals(0.01 * LR, s.rate(1, 5000), 1e-18, "which then holds");
+        for (long step = 100; step < 999; step++) {
+            assertTrue(s.rate(2, step + 1) <= s.rate(2, step), "monotone at " + step);
+        }
+        assertEquals(LR, new LearningRateSchedule(LR, 200, 1000, 0.1, 100, List.of(), 0, 0.5 * LR).rate(1, 5000), 0.0,
+                "0 decay steps: constant");
+        assertThrows(IllegalArgumentException.class,
+                () -> new LearningRateSchedule(LR, 200, 1000, 0.1, 100, List.of(), 101, 0), "no room for a cosine");
+        assertThrows(IllegalArgumentException.class,
+                () -> new LearningRateSchedule(LR, 200, 1000, 0.1, 100, List.of(), 1000, -1));
+    }
+
+    @Test
     void rejectsInconsistentConfigurations() {
         assertThrows(IllegalArgumentException.class, () -> new LearningRateSchedule(0, 200, 1000, 0.1, 100, List.of()));
         assertThrows(IllegalArgumentException.class,

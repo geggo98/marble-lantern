@@ -77,7 +77,7 @@ final class GpuCheck {
 
         Parameters parameters = Parameters.load(Path.of(o.get("start")));
         Optimizer optimizer = new Optimizer(parameters, Optimizer.Settings.adamw());
-        TrainingRun.Setup setup = new TrainingRun.Setup(parameters, optimizer, cfg.schedule(), train, cfg.batch(),
+        TrainingRun.Setup setup = new TrainingRun.Setup(parameters, optimizer, cfg.schedule(steps), train, cfg.batch(),
                 cfg.microbatch(), threads, cfg.valueCoefficient(), cfg.seed(), g, steps);
         TrainingRun.Checkpointing checkpointing = new TrainingRun.Checkpointing(out.resolve("train"), 500,
                 Long.MAX_VALUE, 2, cfg.sha256());

@@ -52,7 +52,7 @@ import sternhalma.search.PlayerSpec;
  *   Loop run RUN [--init NETWORK] [--generations 3] [--games 600] [--shard-games 25] [--sims 100] [--mcts-batch 1]
  *                [--cpuct 1.0] [--noise 0.25] [--alpha 0.3] [--temp 1.0] [--temp-plies 14] [--opening-min 4]
  *                [--opening-max 10] [--race 1] [--s1 1] [--seed 1]
- *                [--lr 3e-4] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000] [--trainer cpu|gpu]
+ *                [--lr 3e-4] [--lr-final 0] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000] [--trainer cpu|gpu]
  *                [--augment 1] [--value-coefficient 1] [--holdout 0.1] [--teacher DIR [--teacher-files N]]
  *                [--gate-pairs 100] [--pair-shard 10] [--gate-opening 4] [--baseline-rung 1600]
  *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--promote-z 1.28]
@@ -833,7 +833,7 @@ public final class Loop {
             BooleanSupplier stop = () -> signalStop.get() || hook.stop("train", stepsHere[0]++);
             long linesBefore = sink.progressLines();
             Observer observer = new Observer(g, planned, parameters, data.heldOut());
-            TrainingRun.Setup setup = new TrainingRun.Setup(parameters, optimizer, cfg.schedule(), data.train(),
+            TrainingRun.Setup setup = new TrainingRun.Setup(parameters, optimizer, cfg.schedule(planned), data.train(),
                     cfg.batch(), cfg.microbatch(), cad.trainThreads(), cfg.valueCoefficient(), cfg.seed(), g, planned);
             TrainingRun.Checkpointing checkpointing = new TrainingRun.Checkpointing(trainDir, cad.checkpointSteps(),
                     Math.round(cad.checkpointSeconds() * 1e9), cad.keep(), cfgSha);

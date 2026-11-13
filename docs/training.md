@@ -1392,6 +1392,88 @@ Gate scores of the other generations: 0.565 (2), 0.560 (4), 0.562 (6), 0.543 (7)
 - Timings are indicative (load 10 to 12 from other jobs); simulation-limited Elo is robust.
 - Not measured: the effect of the learning rate (only 3e-4), of more simulations per move, of the window size, and a LARGE network.
 
+## Loop run 2 and hyperparameter sweep 1 (measured)
+
+**TL;DR:** Loop run 2 (`data/loop2`: init = the best network of run 1, 2500 games per generation at 200 simulations, GPU trainer, lr 3e-4 constant after 100 warm-up steps, reuse 6, batch 256, window 1.5 M, gate 200 pairs, `--promote-z 1.28`) rejected generations 1, 2 and 3 (gate scores 0.509 +- 0.020, 0.491 +- 0.018, 0.496 +- 0.021); the best network is still generation 0 (+338 +- 69 Elo against `BEST_SPEC` at 25,600 nodes, +173 +- 51 at 102,400). Sweep 1 asks whether the stall is the training recipe rather than the network. It trains eight variants offline from the generation 0 network on the self-play data of generations 1 to 3 (588 k samples) with the GPU trainer and plays the loop's gate against generation 0. **The recipe is the cause, at least for this step:** a cosine decay of the learning rate from 3e-4 to 1e-5 over 15,000 steps (variant F) gives a candidate that beats generation 0 with 0.5625 +- 0.018 in the first gate and **0.5887 +- 0.0136 (400 pairs, fresh openings, z 6.5)** in the confirmation, about +62 Elo, on the very data from which the constant-lr candidate scored 0.496. Network capacity is not shown to be the limit. For the next run: `--lr 3e-4 --lr-final 1e-5 --reuse 20`.
+
+Measured 2026-11-13 on an Apple M3 Max, 60 W adapter (battery 80 % and "AC attached; not charging" before and after every long run, `pmset -g therm`: no thermal, performance or CPU power warning recorded, load average 4 to 7 from other work). Timings are indicative; scores come from paired games with fixed seeds and do not depend on them.
+
+### The tool
+
+`Sweep` (module `selfplay`, `scripts/sweep.sh`, test `SweepTest`) is the structure of `GpuCheck` with a gate behind it. One call takes the loop directory (`run.json` and the sample shards are only read), the start network (default generation 0 of the loop) and a list of variants. Per variant: a fresh `Optimizer` (AdamW) on the start network, the replay window of generations 1 to `--generation` (the loop's held-out split), `TrainingRun` with the GPU trainer, the loop's seed and generation number for the batches (so every variant sees the same batches in the same order), the held-out proxies of the loop (2500 samples), then the gate of the loop: `Gate.PairJob` with the loop's evaluation player (`mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=1`), opening scheme (4 random plies) and seed of generation `--gate-generation` (default: the generation itself, so the pairs are those of the loop's own gate; another number gives fresh openings). Optionally the strength record against `BEST_SPEC` rungs (the loop's player, openings, identity and seed 3001, so it is comparable with `data/loop2/gen-0000/strength`). Candidate, gate shards and strength shards are resumable (a second call skips what exists); one sweep at a time (lock, exit 75).
+
+A variant is a built-in name or `NAME:lr=..../final=..../steps=..../cv=....` (`final`: cosine to this rate over all steps, `steps` 0: the loop's planned 4596, `cv`: value coefficient). `LearningRateSchedule` got the optional in-generation cosine (`selfPlayDecaySteps`, `selfPlayFinalLr`, both 0 = constant as before; the 6-argument constructor is unchanged). Since variant F won, `Loop` has `--lr-final R` (default 0 = constant; the cosine runs from `--lr` after the warm-up to R at the last planned step of every generation; `run.json` names `lr_final` only when it is set, so no hash of an earlier run changes; a generation with at most `warmup + 1` planned steps stays constant). Tests: `LearningRateScheduleTest` (the curve), `LoopConfigTest` (json, hash, validation, the schedule), `LoopTest` (a loop run with `--lr-final` equals an independent trainer with the decaying schedule, and differs from the constant one), `SweepTest` (a TINY variant reproduces the loop's candidate to the bit, another schedule differs, the gate is played and summarised, a second call skips).
+
+```
+scripts/sweep.sh --loop data/loop2 --out data/sweep1 --variants BASE,A,B,C,D,E,F,G,H --pairs 200
+scripts/sweep.sh --loop data/loop2 --out data/sweep1 --variants F,H --pairs 400 --gate-generation 50 --tag confirm
+scripts/sweep.sh --loop data/loop2 --out data/sweep1 --variants F --pairs 0 --strength-rungs 25600,102400 --strength-pairs 100
+```
+
+### Baseline: the tool is faithful
+
+BASE (lr 3e-4 constant, 4596 steps, the planned steps of generation 3) reproduces the loop's generation 3 candidate **bit for bit** (all 26 tensors identical, the GPU trainer is deterministic; the file differs only in its metadata) and its gate is the loop's: 0.4963 +- 0.0207, 198-1-201 games, z -0.18, the same numbers as `data/loop2/gen-0003/decision.json`. The held-out proxies match the log of the loop (`gen 3 proxies at step 4596`: KL 0.420, top-1 72.1 %, value loss 0.440, winner 84.0 % of 2477) to the printed digits.
+
+### Results (first pass, 200 pairs, the openings of the loop's gate 3)
+
+Proxies on 2500 held-out samples of generation 3 (the start network: KL 0.4173, top-1 72.01 %, value loss 0.4568, winner 82.60 %). Score is the mean pair score of the candidate against the generation 0 network, z = (score - 0.5) / se, "lower bound" = score - 1.28 se (promotion needs more than 0.5).
+
+| Variant | Schedule | Steps | KL | Top-1 | Value loss | Winner | Gate score +- se | z | Lower bound | W-D-L games |
+|---|---|---|---|---|---|---|---|---|---|---|
+| BASE | 3e-4 constant (loop 2) | 4596 | 0.4201 | 72.10 % | 0.4399 | 84.01 % | 0.4963 +- 0.0207 | -0.18 | 0.470 | 198-1-201 |
+| A | 1e-4 constant | 4596 | 0.4141 | 72.05 % | 0.4384 | 83.85 % | 0.5200 +- 0.0189 | 1.06 | 0.496 | 206-4-190 |
+| B | 3e-5 constant | 4596 | 0.4129 | 71.87 % | 0.4387 | 83.85 % | 0.5025 +- 0.0190 | 0.13 | 0.478 | 200-2-198 |
+| C | 3e-4 cosine to 1e-5 | 4596 | 0.4106 | 72.19 % | 0.4380 | 83.89 % | 0.5212 +- 0.0183 | 1.16 | 0.498 | 207-3-190 |
+| D | 1e-3 cosine to 1e-5 | 4596 | 0.4125 | 71.50 % | 0.4378 | 83.93 % | 0.5275 +- 0.0182 | 1.51 | 0.504 | 210-2-188 |
+| E | 3e-4 constant | 15,000 | 0.4157 | 70.81 % | 0.4494 | 83.69 % | 0.4812 +- 0.0191 | -0.99 | 0.457 | 192-1-207 |
+| **F** | **3e-4 cosine to 1e-5** | **15,000** | **0.4080** | **72.37 %** | 0.4382 | 83.93 % | **0.5625 +- 0.0184** | **3.40** | **0.539** | 225-0-175 |
+| G | 1e-4 cosine to 1e-6 | 15,000 | 0.4084 | 71.91 % | 0.4376 | 83.69 % | 0.5200 +- 0.0190 | 1.05 | 0.496 | 208-0-192 |
+| H | as C, value coefficient 2 | 4596 | 0.4140 | 71.87 % | 0.4376 | 83.81 % | 0.5412 +- 0.0192 | 2.15 | 0.517 | 215-3-182 |
+
+Training took 36 s for 4596 steps and 116 s for 15,000 (128 steps/s on Metal), a 200-pair gate 4 min 20 s (0.77 pairs/s on 8 threads). The shards are in `data/sweep1/<variant>/gate/`, the rows in `data/sweep1/results.jsonl`.
+
+### Confirmation (the two best by gate score, 400 pairs, fresh openings: gate seed of generation 50)
+
+| Variant | Gate score +- se | z | Lower bound (score - 1.28 se) | W-D-L games | Elo vs generation 0 |
+|---|---|---|---|---|---|
+| F | 0.5887 +- 0.0136 | 6.52 | 0.571 | 467-8-325 | about +62 |
+| H | 0.5650 +- 0.0133 | 4.88 | 0.548 | 447-10-343 | about +45 |
+
+Both pass the promotion rule of the loop (`--promote-z 1.28`) on openings that did not take part in the selection. Neither fell back towards 0.5 (the winner of eight noisy gates is expected to; here the fresh result is higher, which is within the noise of 200 pairs: se 0.018).
+
+### Strength against `BEST_SPEC` (F, 100 pairs, seed 3001, the loop's player; the baseline numbers are generation 0 of `data/loop2`)
+
+| Rung | Generation 0 (baseline) | F | Difference |
+|---|---|---|---|
+| 25,600 nodes | +338 +- 69 (score 0.875, 174-2-24) | +354 +- 74 (score 0.885, 177-0-23) | +16 |
+| 102,400 nodes | +173 +- 51 (score 0.730, 145-2-53) | +210 +- 50 (score 0.770, 153-2-45) | +37 |
+
+Both differences are positive and in the direction of the gate, but they are well inside the noise of 100 pairs (the 95 % intervals of the two networks overlap almost completely, and a rung scored near 0.88 resolves little). The direct gate is the sharper instrument; the rung records say only that F is not weaker than generation 0 and probably a little stronger against the classical player.
+
+### Reading the table
+
+- **Constant lr 3e-4 is the problem, more steps with it is worse.** E (the same lr, 15,000 steps) scores 0.481 and has the worst held-out value loss (0.449) and top-1 (70.8 %): with a constant high rate the longer run does not converge, it jitters around and overfits the window (6.5 passes over it). Lower constant rates (A 0.520, B 0.503) are no worse than BASE and A is a little better; B is probably too slow for 4596 steps.
+- **The decay carries the effect, the steps pay on top of it.** The same 15,000 steps give 0.481 constant (E) and 0.5625 with the cosine (F): about 0.08, 3 standard errors of the difference. The same cosine over 4596 steps gives 0.521 (C); F against C is +0.04 (1.6 standard errors of the difference at 200 pairs, so only suggestive, but F also has the best KL). A short run with a higher peak (D, 1e-3) is no worse than C.
+- **G (peak 1e-4) is no better than C:** with the decay a peak of 3e-4 is enough or better; a lower peak does not help.
+- **The value coefficient 2 (H against C, +0.02) is not resolved:** one standard error of the difference is 0.026. F and H also do not differ significantly in the confirmation (0.589 against 0.565, se of the difference 0.019). The value loss does not move between variants (0.438 in all but E), so there is no sign that the value head is under-trained.
+- **The held-out proxies hardly discriminate** (KL within 0.408 to 0.420 and top-1 within 70.8 to 72.4 % across all variants; the start network has 0.417 and 72.0 %), as in the loop; they rank E and BASE as the worst and F, G, C as the best, which agrees with the gate except for G. The gate stays the criterion.
+- **Is it capacity?** Not in this step: the same network from the same data moves from 0.496 to 0.589 against its parent by the schedule alone, so the network can still use the data. The proxies suggest the room is small (KL 0.417 to 0.408), so many generations may again reach a plateau that this experiment does not locate.
+
+### Recommendation
+
+1. **Next loop run: `--lr 3e-4 --lr-final 1e-5` and about 15,000 steps per generation, i.e. `--reuse 20`** (15,000 steps is reuse 19.6 at 196 k new training samples per generation of 2500 games; the cost is about 2 min training against 30 min of self-play per generation, so cheap). `--lr-final` is part of `run.json` (repeat it on a resume).
+2. Keep `--promote-z 1.28` and the gate of 200 pairs: the gate then separates the variants (F against BASE is 0.59 against 0.50 at se 0.014 to 0.02).
+3. To tell the effect of the value coefficient and the peak rate apart, a second sweep from F: F with `cv=2`, F with peak 1e-3, F with 30,000 steps; each is 2 to 4 min of training and 4 min of gate. This sweep did not combine them.
+4. Check on the loop itself: run 3 generations from `data/loop2/gen-0000` with these options; if the gate keeps rejecting, the plateau is the network or the data (then: LARGE network, more simulations per move, or the window), not the recipe.
+
+### Limits
+
+- **One start point, one data set:** all variants start from generation 0 and train on generations 1 to 3 of run 2; whether the effect holds for later generations (a larger window, a better parent) is not measured.
+- **Selection bias:** F was the winner of eight noisy first-pass gates (se 0.018 to 0.021 each) and is optimistic until confirmed; the confirmation on 400 fresh pairs (0.5887) removes the selection from the estimate, but it is one data set, one seed of training (the same batches for every variant; the training seed was not varied, so a seed-to-seed spread of the networks is not part of the error bars), and H as the runner-up was chosen by the same first pass.
+- **Not tried:** the number of steps between 4596 and 15,000 for the cosine, more than 15,000, value coefficient together with 15,000 steps, window composition (H of the plan, "weight the newest generation", needed new machinery and was replaced by the value coefficient as agreed), batch size, weight decay.
+- **The strength step** has 100 pairs per rung and a rung scored near 0.88 (see [Loop run 1](#loop-run-1-measured-2026-11-10)): it does not resolve a difference of 20 to 40 Elo.
+- Held-out proxies are on 2500 samples of generation 3 only. `results.jsonl` holds two BASE rows (the first run without a gate, then the one with it).
+
 ## As implemented (block B1-B5)
 
 **TL;DR:** The device now runs the training forward pass with a per-layer activation store, the float losses and the backward pass of both heads (blocks B3 to B5), and the AdamW and SGD update with a finite check (B1), each against its CPU twin. `TornadoTrainer` runs forward, losses and head backward for a `TrainingBatch` in one task graph (`run(batch)` returns the `ReferenceTrainer.Result`); `DeviceOptimizer` adds the update tasks to that graph later. Everything is float32, deterministic (bit-identical runs) and free of atomic adds, and `classic1` is supported end to end: the policy prior, the value prior and the gradients of `prior.beta` and `prior.k`. Measured for SMALL `classic1`: **forward, losses and head backward take 6.6 ms for a batch of 1,024 (155,000 samples/s) and 2.3 ms for 256 (112,000 samples/s)**; the forward convolutions alone reach 2.8 TFLOP/s of matrix work including the batch upload. 29 new tests, 193 in the module, 0 skipped; 44 of 44 mutants killed. The convolution backward (B6, B7) and the whole step (B8) came in [block B6-B10](#as-implemented-block-b6-b10); a step is then about 17 ms for 1,024 samples by estimate, against about 290 ms for 256 samples on the CPU in [loop run 1](#loop-run-1-measured-2026-11-10) (3.5 steps/s).

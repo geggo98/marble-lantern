@@ -14,7 +14,9 @@ import java.util.List;
  *       {@code finalFraction * lr} at the last planned step, {@code generationZeroSteps - 1}. Later steps keep
  *       the end value. Milestones do not apply.
  *   <li><b>Self-play generations:</b> the same kind of warm-up over {@code selfPlayWarmup} steps, then constant.
- *       A milestone {@code (g, r)} replaces lr by r from generation g on.
+ *       A milestone {@code (g, r)} replaces lr by r from generation g on. Optionally (a sweep option, off by default)
+ *       a cosine decay instead of the constant: from the base rate at step {@code selfPlayWarmup} to
+ *       {@code selfPlayFinalLr} at step {@code selfPlayDecaySteps - 1}, the end value after that.
  * </ul>
  *
  * @param lr                   base rate
@@ -23,9 +25,12 @@ import java.util.List;
  * @param finalFraction        rate at the end of the cosine as a fraction of lr, in [0, 1]
  * @param selfPlayWarmup       warm-up steps of later generations, &gt;= 1
  * @param milestones           ascending generations &gt;= 1, each with the rate that holds from there on
+ * @param selfPlayDecaySteps   steps of the cosine decay of the self-play generations (0: constant, the default), else more than
+ *                             {@code selfPlayWarmup + 1}
+ * @param selfPlayFinalLr      rate at the end of that decay, &gt;= 0 and finite (unused for 0 decay steps)
  */
 public record LearningRateSchedule(double lr, int generationZeroWarmup, long generationZeroSteps,
-        double finalFraction, int selfPlayWarmup, List<Milestone> milestones) {
+        double finalFraction, int selfPlayWarmup, List<Milestone> milestones, long selfPlayDecaySteps, double selfPlayFinalLr) {
 
     /** From {@code generation} on the base rate is {@code lr}. */
     public record Milestone(int generation, double lr) {
@@ -37,6 +42,12 @@ public record LearningRateSchedule(double lr, int generationZeroWarmup, long gen
                 throw new IllegalArgumentException("milestone lr must be positive and finite, got " + lr);
             }
         }
+    }
+
+    /** The schedule of the loop: constant after the warm-up. */
+    public LearningRateSchedule(double lr, int generationZeroWarmup, long generationZeroSteps, double finalFraction,
+            int selfPlayWarmup, List<Milestone> milestones) {
+        this(lr, generationZeroWarmup, generationZeroSteps, finalFraction, selfPlayWarmup, milestones, 0, 0);
     }
 
     public LearningRateSchedule {
@@ -52,6 +63,13 @@ public record LearningRateSchedule(double lr, int generationZeroWarmup, long gen
         }
         if (!(finalFraction >= 0 && finalFraction <= 1)) {
             throw new IllegalArgumentException("finalFraction must be in [0, 1], got " + finalFraction);
+        }
+        if (selfPlayDecaySteps < 0 || selfPlayDecaySteps > 0 && selfPlayDecaySteps <= selfPlayWarmup + 1L) {
+            throw new IllegalArgumentException("selfPlayDecaySteps must be 0 or exceed the warm-up (" + selfPlayWarmup
+                    + ") by at least 2, got " + selfPlayDecaySteps);
+        }
+        if (!(selfPlayFinalLr >= 0) || !Double.isFinite(selfPlayFinalLr)) {
+            throw new IllegalArgumentException("selfPlayFinalLr must be >= 0 and finite, got " + selfPlayFinalLr);
         }
         milestones = List.copyOf(milestones);
         int previous = 0;
@@ -87,6 +105,13 @@ public record LearningRateSchedule(double lr, int generationZeroWarmup, long gen
                 base = m.lr();
             }
         }
-        return step < selfPlayWarmup ? base * (step + 1) / selfPlayWarmup : base;
+        if (step < selfPlayWarmup) {
+            return base * (step + 1) / selfPlayWarmup;
+        }
+        if (selfPlayDecaySteps == 0) {
+            return base;
+        }
+        double progress = Math.min(1.0, (double) (step - selfPlayWarmup) / (selfPlayDecaySteps - 1 - selfPlayWarmup));
+        return selfPlayFinalLr + (base - selfPlayFinalLr) * 0.5 * (1 + StrictMath.cos(Math.PI * progress));
     }
 }

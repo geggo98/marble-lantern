@@ -70,7 +70,7 @@ class LoopConfigTest {
             {"opening-max", "11"}, {"race", "2"}, {"s1", "0"}, {"lr", "0.001"}, {"warmup", "50"}, {"batch", "128"},
             {"microbatch", "16"}, {"reuse", "3"}, {"window", "400000"}, {"augment", "0"}, {"value-coefficient", "0.5"},
             {"holdout", "0.2"}, {"gate-pairs", "60"}, {"pair-shard", "5"}, {"gate-opening", "6"}, {"baseline-rung", "400"},
-            {"baseline-pairs", "40"}, {"baseline-seed", "9"}, {"baseline-sigmas", "1"}, {"promote-z", "0.5"}, {"promote-z", "2"}, {"ladder-spec", "ab:eval=distance"}};
+            {"baseline-pairs", "40"}, {"baseline-seed", "9"}, {"baseline-sigmas", "1"}, {"promote-z", "0.5"}, {"promote-z", "2"}, {"lr-final", "1e-5"}, {"ladder-spec", "ab:eval=distance"}};
         for (String[] change : changes) {
             LoopConfig changed = config(change[0], change[1]);
             assertNotEquals(base.sha256(), changed.sha256(), change[0] + " is part of the configuration");
@@ -99,6 +99,26 @@ class LoopConfigTest {
         assertNotEquals(zero.sha256(), fresh.sha256(), "the new default is another configuration");
         assertEquals(fresh, LoopConfig.fromJson(RunMonitor.parse(fresh.json())));
         assertThrows(IllegalArgumentException.class, () -> config("promote-z", "-0.1"));
+    }
+
+    @Test
+    void aLearningRateDecayIsNamedOnlyWhenSetAndFollowsThePlannedSteps() {
+        LoopConfig constant = config("lr", "0.001", "warmup", "10");
+        assertEquals(0.0, constant.lrFinal());
+        assertFalse(constant.json().contains("lr_final"), "unset: the hash is the one from before the option");
+        assertEquals(constant, LoopConfig.fromJson(RunMonitor.parse(constant.json())), "a run.json without the key means constant");
+        assertEquals(0.001, constant.schedule(1000).rate(1, 900), 1e-15);
+        LoopConfig decay = config("lr", "0.001", "warmup", "10", "lr-final", "0.00001");
+        assertTrue(decay.json().contains("\"lr_final\":1.0E-5"), decay.json());
+        assertEquals(decay, LoopConfig.fromJson(RunMonitor.parse(decay.json())));
+        LearningRateSchedule s = decay.schedule(1000);
+        assertEquals(0.001, s.rate(2, 9), 1e-15, "the warm-up is unchanged");
+        assertEquals(0.001, s.rate(2, 10), 1e-15, "the cosine starts at lr");
+        assertEquals(0.00001, s.rate(2, 999), 1e-15, "and ends at lr-final at the last planned step");
+        assertEquals(s.rate(2, 500), decay.schedule(1000).rate(9, 500), 0.0, "every generation has the same curve");
+        assertEquals(0.001, decay.schedule(5).rate(1, 9), 1e-15, "a generation too short for a decay stays constant");
+        assertThrows(IllegalArgumentException.class, () -> config("lr", "0.001", "lr-final", "0.002"));
+        assertThrows(IllegalArgumentException.class, () -> config("lr-final", "-1e-5"));
     }
 
     @Test

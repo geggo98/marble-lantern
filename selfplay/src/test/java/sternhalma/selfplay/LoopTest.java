@@ -584,12 +584,35 @@ class LoopTest {
 
     // ---- an independent trainer reproduces every candidate ----
 
+    @Test
+    void aLearningRateDecayIsPartOfTheRunAndTheCandidateFollowsIt() throws Exception {
+        Path run = shared.resolve("decay");
+        Result r = LoopFixture.loop(run, NEVER, opts("--generations", "1", "--lr-final", "1e-4"));
+        assertEquals(0, r.code(), r.err());
+        assertTrue(Files.readString(run.resolve("run.json")).contains("\"lr_final\":1.0E-4"), "named in run.json when set");
+        assertFalse(Files.readString(reference().resolve("run.json")).contains("lr_final"), "and not when unset");
+        Parameters expected = train(run, 1, 100_000, 7, 1e-4);
+        Parameters actual = Parameters.load(gen(run, 1).resolve("candidate.safetensors"));
+        boolean differsFromConstant = false;
+        Parameters constant = train(run, 1, 100_000, 7);
+        for (Map.Entry<String, Tensor> e : expected.tensors().entrySet()) {
+            assertArrayEquals(e.getValue().data(), actual.get(e.getKey()).data(), "the decay of the loop is the oracle's: " + e.getKey());
+            differsFromConstant |= !Arrays.equals(e.getValue().data(), constant.get(e.getKey()).data());
+        }
+        assertTrue(differsFromConstant, "the oracle is not vacuous: the decay changes the network (more than 3 steps)");
+    }
+
     /**
      * Trains generation {@code g} the way docs/training.md says and without the loop's code: the best network's
      * parameters, a fresh AdamW optimiser, warm-up and then constant, the replay window of whole generations without
      * the held-out games, steps = ceil(R * new samples / batch), the batches of generation g from step 0.
      */
     private static Parameters train(Path run, int g, int window, long seed) throws Exception {
+        return train(run, g, window, seed, 0);
+    }
+
+    /** The same with a cosine decay to {@code lrFinal} over the planned steps (0: constant). */
+    private static Parameters train(Path run, int g, int window, long seed, double lrFinal) throws Exception {
         int best = 0;
         for (int gg = 1; gg < g; gg++) {
             best = decision(run, gg).get("decision").equals("promoted") ? gg : best;
@@ -602,7 +625,8 @@ class LoopTest {
         long steps = Math.max(1, (long) Math.ceil(1.0 * buffer.size(g) / 16));
         Optimizer optimizer = new Optimizer(parameters, Optimizer.Settings.adamw());
         Path dir = Files.createTempDirectory(shared, "oracle");
-        LearningRateSchedule schedule = new LearningRateSchedule(0.003, 100, 1000, 0.1, 2, List.of());
+        LearningRateSchedule schedule = lrFinal == 0 ? new LearningRateSchedule(0.003, 100, 1000, 0.1, 2, List.of())
+                : new LearningRateSchedule(0.003, 100, 1000, 0.1, 2, List.of(), steps, lrFinal);
         TrainingRun.Setup setup = new TrainingRun.Setup(parameters, optimizer, schedule, buffer, 16, 8, 1, 1.0, seed, g, steps);
         TrainingRun.Checkpointing checkpointing = new TrainingRun.Checkpointing(dir, 1_000_000, Long.MAX_VALUE, 1, "0".repeat(64));
         TrainingRun.Reporting reporting = new TrainingRun.Reporting(List.of(), null, Long.MAX_VALUE);

@@ -54,13 +54,16 @@ import sternhalma.search.Strategies;
  *                         device trainer of module nn-tornado). Part of the hash: the GPU's float sums are not those of the
  *                         CPU's double sums, so the two give different networks (each is deterministic). {@code run.json}
  *                         names it only for {@code gpu}, so the hash of every CPU run is what it was before the option
+ * @param lrFinal          the rate falls with a cosine from {@code lr} to this over the planned steps of every generation (0:
+ *                         constant after the warm-up, the default). {@code run.json} names it only when set, so the hash of
+ *                         every run from before the option is unchanged
  */
 record LoopConfig(String initSha256, long seed, int games, int shardGames, int sims, int mctsBatch, double cpuct,
         double noise, double alpha, double temperature, int temperaturePlies, int openingMin, int openingMax, int race,
         boolean s1, double lr, int warmup, int batch, int microbatch, double reuse, int window, boolean augment,
         double valueCoefficient, double holdout, String teacherSha256, int teacherFiles, int gatePairs, int pairShard,
         int gateOpening, int baselineRung, int baselinePairs, long baselineSeed, double baselineSigmas,
-        String ladderSpec, String trainer, double promoteZ) {
+        String ladderSpec, String trainer, double promoteZ, double lrFinal) {
 
     static final String FORMAT = "sternhalma-loop";
     /** Mixed into the held-out split, so it is not the same function as any other hash of a game id. */
@@ -71,8 +74,10 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 || baselinePairs < 0 || baselinePairs == 1 || gateOpening < 0 || warmup < 1) {
             throw new IllegalArgumentException("a count option is out of range");
         }
-        if (!(reuse > 0) || !(lr > 0) || !(holdout > 0 && holdout < 1) || !(baselineSigmas >= 0) || !(promoteZ >= 0)) {
-            throw new IllegalArgumentException("reuse and lr must be positive, holdout in (0, 1), sigmas >= 0, promoteZ >= 0");
+        if (!(reuse > 0) || !(lr > 0) || !(holdout > 0 && holdout < 1) || !(baselineSigmas >= 0) || !(promoteZ >= 0)
+                || !(lrFinal >= 0 && lrFinal <= lr)) {
+            throw new IllegalArgumentException(
+                    "reuse and lr must be positive, holdout in (0, 1), sigmas >= 0, promoteZ >= 0, 0 <= lrFinal <= lr");
         }
         StrengthEstimate.requireDistinctRungs(List.of(baselineRung));
         if (!trainer.equals("cpu") && !trainer.equals("gpu")) {
@@ -104,6 +109,17 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
     LearningRateSchedule schedule() {
         // generation 0 is not trained here: its warm-up and length only have to be valid
         return new LearningRateSchedule(lr, 100, 1000, 0.1, warmup, List.of());
+    }
+
+    /**
+     * The schedule of a generation of {@code plannedSteps} steps: constant after the warm-up, or with {@code lrFinal} set a
+     * cosine from {@code lr} to {@code lrFinal} over all the planned steps (a generation too short for it stays constant).
+     */
+    LearningRateSchedule schedule(long plannedSteps) {
+        if (lrFinal == 0 || plannedSteps <= warmup + 1L) {
+            return schedule();
+        }
+        return new LearningRateSchedule(lr, 100, 1000, 0.1, warmup, List.of(), plannedSteps, lrFinal);
     }
 
     /** The player text of an evaluation player (gate, baseline, strength): no noise, the most visited move. */
@@ -163,6 +179,9 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         if (promoteZ != 0) {
             f.put("promote_z", promoteZ);
         }
+        if (lrFinal != 0) {
+            f.put("lr_final", lrFinal);
+        }
         return RunMonitor.json(f);
     }
 
@@ -190,7 +209,8 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 Integer.parseInt(m.get("gate_opening")), Integer.parseInt(m.get("baseline_rung")),
                 Integer.parseInt(m.get("baseline_pairs")), Long.parseLong(m.get("baseline_seed")),
                 Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"), m.getOrDefault("trainer", "cpu"),
-                m.containsKey("promote_z") ? Double.parseDouble(m.get("promote_z")) : 0);
+                m.containsKey("promote_z") ? Double.parseDouble(m.get("promote_z")) : 0,
+                m.containsKey("lr_final") ? Double.parseDouble(m.get("lr_final")) : 0);
     }
 
     /** The defaults of the options that the config takes; {@code lr} 3e-4 (docs/training.md, block 2h). */
@@ -205,7 +225,7 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 integer(o, "pair-shard", 10), integer(o, "gate-opening", 4), integer(o, "baseline-rung", 1600),
                 integer(o, "baseline-pairs", 50), lng(o, "baseline-seed", 4001), dbl(o, "baseline-sigmas", 2.0),
                 o.getOrDefault("ladder-spec", Strategies.BEST_SPEC), o.getOrDefault("trainer", "cpu"),
-                dbl(o, "promote-z", 1.28));
+                dbl(o, "promote-z", 1.28), dbl(o, "lr-final", 0));
     }
 
     static long lng(Map<String, String> o, String key, long def) {
