@@ -40,6 +40,7 @@ import sternhalma.nn.Parameters;
 import sternhalma.nn.StepTrainer;
 import sternhalma.nn.TrainingObserver;
 import sternhalma.nn.TrainingRun;
+import sternhalma.tornado.GpuEvaluators;
 import sternhalma.tornado.GpuTrainers;
 import sternhalma.search.Player;
 import sternhalma.search.PlayerSpec;
@@ -58,6 +59,7 @@ import sternhalma.search.PlayerSpec;
  *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--promote-z 1.28]
  *                [--ladder-spec SPEC]
  *                [--strength-every 1] [--ladder 100,400,1600,6400] [--strength-pairs 50] [--strength-seed 3001]
+ *                [--evaluator cpu|gpu] [--games-in-flight 256] [--eval-cohorts 2]
  *                [--threads 8] [--train-threads T] [--checkpoint-steps 50] [--checkpoint-seconds 60] [--keep 2]
  *                [--progress-seconds 10] [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120]
  *   Loop run --status RUN
@@ -262,6 +264,8 @@ public final class Loop {
         private final StopHook hook;
         private final PairFake fake;
         private final Cadence cad;
+        private final EvaluatorOptions evalOpts;
+        private boolean evaluatorWarned;
         private final AtomicBoolean signalStop = new AtomicBoolean();
         private final TrainingRun.Clock clock = TrainingRun.Clock.system();
         private final Sink sink = new Sink();
@@ -286,6 +290,7 @@ public final class Loop {
             this.hook = hook;
             this.fake = fake;
             this.cad = Cadence.of(opts);
+            this.evalOpts = EvaluatorOptions.of(opts);
         }
 
         // ---- progress lines, status, ETA ----
@@ -704,17 +709,42 @@ public final class Loop {
             }
             Path dir = genDir(g).resolve("samples");
             Files.createDirectories(dir);
-            LoopGamesJob job = new LoopGamesJob(dir, g, cfg.settings(g), best.sha256(), best.parameters(), cfg.games(),
-                    cfg.shardGames(), cad.threads(), log, (p, n) -> hook.stop(p, n));
-            job.label = "gen " + g + " selfplay";
-            job.progressSeconds = cad.progressSeconds();
-            phase = "selfplay";
-            log.printf(Locale.ROOT, "gen %d selfplay: best network = generation %d, %d games, %s%n", g, best.generation(),
-                    cfg.games(), cfg.settings(g).describe());
-            long w0 = nanos();
-            int rc = job.run();
-            return endPhase("selfplay", g, rc, job.doneItems, nanos() - w0, job.cpuNanos(),
-                    RunMonitor.Category.SELFPLAY, "");
+            LoopGamesJob.Device device = null;
+            int poolThreads = cad.threads();
+            if (evalOpts.gpu()) {
+                String why = GpuEvaluators.unavailableReason();
+                if (why == null) {
+                    int inFlight = Math.min(evalOpts.gamesInFlight(), cfg.games());
+                    device = new LoopGamesJob.Device(
+                            () -> GpuEvaluators.open(best.parameters(), 0, evalOpts.cohorts(), inFlight),
+                            GpuEvaluators.description(), cad.threads());
+                    poolThreads = inFlight;
+                } else if (!evaluatorWarned) {
+                    evaluatorWarned = true;
+                    stderr.println("loop: --evaluator gpu: " + why + "; playing the self-play games on the CPU instead");
+                }
+            }
+            try {
+                LoopGamesJob job = new LoopGamesJob(dir, g, cfg.settings(g), best.sha256(), best.parameters(), cfg.games(),
+                        cfg.shardGames(), poolThreads, log, (p, n) -> hook.stop(p, n), device);
+                job.label = "gen " + g + " selfplay";
+                job.progressSeconds = cad.progressSeconds();
+                phase = "selfplay";
+                log.printf(Locale.ROOT, "gen %d selfplay: best network = generation %d, %d games, %s%n", g, best.generation(),
+                        cfg.games(), cfg.settings(g).describe());
+                log.printf(Locale.ROOT, "gen %d selfplay: evaluator %s%n", g, device == null
+                        ? "cpu, " + poolThreads + " threads"
+                        : "gpu (" + device.description() + "), " + poolThreads + " games in flight in "
+                                + evalOpts.cohorts() + " cohorts, " + cad.threads() + " compute threads");
+                long w0 = nanos();
+                int rc = job.run();
+                return endPhase("selfplay", g, rc, job.doneItems, nanos() - w0, job.cpuNanos(),
+                        RunMonitor.Category.SELFPLAY, "");
+            } finally {
+                if (device != null) {
+                    device.close();
+                }
+            }
         }
 
         // ---- training ----

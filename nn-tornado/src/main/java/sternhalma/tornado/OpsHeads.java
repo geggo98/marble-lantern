@@ -87,6 +87,15 @@ public final class OpsHeads implements AutoCloseable {
      */
     public static TaskGraph addTasks(TaskGraph graph, OpsParameters parameters, FloatArray trunk, FloatArray out,
             int batch) {
+        return addTasks(graph, parameters, trunk, out, batch, true);
+    }
+
+    /**
+     * As {@link #addTasks(TaskGraph, OpsParameters, FloatArray, FloatArray, int)}; with {@code tanh} false the value head
+     * writes the sum before the tanh (for a network whose value gets a host-side prior before it).
+     */
+    public static TaskGraph addTasks(TaskGraph graph, OpsParameters parameters, FloatArray trunk, FloatArray out,
+            int batch, boolean tanh) {
         NetworkConfig config = parameters.config();
         int c = config.channels();
         int p = config.players();
@@ -103,7 +112,7 @@ public final class OpsHeads implements AutoCloseable {
                         parameters.policyBias(), out, batch, c)
                 .task(VALUE_TASK, OpsKernels::valueHead, new KernelContext(), trunk, parameters.dense1Weight(),
                         parameters.dense1Bias(), parameters.dense2Weight(), parameters.dense2Bias(), out,
-                        OpsKernels.valuesOffset(batch), c, config.valueHidden(), p);
+                        OpsKernels.valuesOffset(batch), c, config.valueHidden(), p, tanh ? 1 : 0);
     }
 
     /** Registers the grid of the value head task of graph {@code graphName} for {@code batch} positions. */

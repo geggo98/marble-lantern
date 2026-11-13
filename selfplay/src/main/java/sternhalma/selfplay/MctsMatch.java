@@ -29,13 +29,16 @@ import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.PooledEvaluator;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.Elo;
 import sternhalma.search.GameRunner;
 import sternhalma.search.MctsPlayer;
+import sternhalma.search.MctsSpec;
 import sternhalma.search.Player;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.Strategies;
+import sternhalma.tornado.GpuEvaluators;
 
 /**
  * Paired games of a network player (raw policy or MCTS) against opponents, with the arithmetic and the openings of
@@ -44,8 +47,16 @@ import sternhalma.search.Strategies;
  * <pre>
  *   MctsMatch --out DIR --subject mcts:sims=100,... [--net FILE] --vs ab:100 [--vs raw] [--vs mcts:...]
  *             [--pairs 100] [--seed 3001] [--threads 4] [--opening-plies 4] [--progress-seconds 10]
- *             [--ladder-spec SPEC]
+ *             [--ladder-spec SPEC] [--evaluator cpu|gpu [--compute-threads 8] [--eval-cohorts 2]] [--subject-seed-offset 0]
  * </pre>
+ *
+ * <p>{@code --evaluator gpu} gives the <em>subject's</em> network the device (docs/training.md, "As implemented (block G1)"):
+ * {@code --threads} pairs run at the same time as virtual threads (the games in flight), {@code --compute-threads} carriers
+ * compute, and the subject's searches take their evaluations from one {@code PooledEvaluator}; the opponent stays on the CPU.
+ * With the same network on both sides this is the strength-neutrality check of the device evaluator. Both players of a game
+ * get the same seed, so with no noise and no sampling the two sides play the same moves until a float difference decides a
+ * move; {@code --subject-seed-offset} gives the subject another seed (another noise and sampling stream) for a match whose
+ * games differ for every pair.
  *
  * <p>An opponent is {@code ab:N} (the {@code --ladder-spec}, default {@code BEST_SPEC}, at N nodes, N = 1 is depth 1, as the ladder rungs), {@code raw}
  * (the raw policy of {@code --net}) or an {@code mcts:...} spec; a spec without {@code net} uses {@code --net}. Each
@@ -164,7 +175,36 @@ final class MctsMatch {
         }
         Parameters own = opts.containsKey("net") ? Parameters.load(Path.of(opts.get("net"))) : null;
         String ladderSpec = opts.getOrDefault("ladder-spec", Strategies.BEST_SPEC);
+        String evaluator = opts.getOrDefault("evaluator", "cpu");
+        long seedOffset = Long.parseLong(opts.getOrDefault("subject-seed-offset", "0"));
+        int computeThreads = Integer.parseInt(opts.getOrDefault("compute-threads", "8"));
+        int cohorts = Integer.parseInt(opts.getOrDefault("eval-cohorts", "2"));
+        if (!evaluator.equals("cpu") && !evaluator.equals("gpu")) {
+            throw new IllegalArgumentException("--evaluator must be cpu or gpu, got " + evaluator);
+        }
+        GpuEvaluators.Session session = null;
         LongFunction<Player> subjectFactory = NetPlayers.factory(subject, own);
+        Scope scope = null;
+        if (evaluator.equals("gpu")) {
+            String why = GpuEvaluators.unavailableReason();
+            if (why != null) {
+                throw new IllegalArgumentException("--evaluator gpu: " + why);
+            }
+            MctsSpec spec = MctsSpec.parse(subject);
+            Parameters parameters = spec.net() != null ? Parameters.load(spec.net()) : own;
+            if (parameters == null) {
+                throw new IllegalArgumentException("--evaluator gpu needs the network of the subject (net= or --net)");
+            }
+            session = GpuEvaluators.open(parameters, 0, cohorts, threads);
+            PooledEvaluator.Model model = session.model();
+            ThreadLocal<PooledEvaluator.Client> mine = ThreadLocal.withInitial(model::newClient);
+            subjectFactory = s -> spec.create(mine.get(), s);
+            scope = new Scope(mine, computeThreads);
+        }
+        if (seedOffset != 0) {
+            LongFunction<Player> inner = subjectFactory;
+            subjectFactory = s -> inner.apply(s + seedOffset);
+        }
         List<LongFunction<Player>> opponentFactories = new ArrayList<>();
         for (String opponent : opponents) {
             opponentFactories.add(opponentFactory(opponent, ladderSpec, own));
@@ -176,6 +216,9 @@ final class MctsMatch {
                 err.println("mctsmatch: running already (" + dir.resolve(".match.lock") + " is held)");
                 return EXIT_RUNNING;
             }
+            LongFunction<Player> finalSubject = subjectFactory;
+            Scope finalScope = scope;
+            GpuEvaluators.Session finalSession = session;
             AtomicBoolean stop = new AtomicBoolean();
             CountDownLatch finished = new CountDownLatch(1);
             Thread hook = new Thread(() -> {
@@ -194,7 +237,9 @@ final class MctsMatch {
                 for (int k = 0; k < opponents.size(); k++) {
                     String opponent = opponents.get(k);
                     Path file = dir.resolve("pairs-" + Gen0.sha256Hex((subject + "|" + opponent + "|" + seed + "|"
-                            + openingPlies + "|" + ladderSpec + "|" + (own == null ? "" : "own")).getBytes(StandardCharsets.UTF_8))
+                            + openingPlies + "|" + ladderSpec + "|" + (own == null ? "" : "own")
+                            + (evaluator.equals("gpu") ? "|gpu" : "") + (seedOffset != 0 ? "|offset" + seedOffset : ""))
+                            .getBytes(StandardCharsets.UTF_8))
                             .substring(0, 12) + ".jsonl");
                     Map<Integer, PairLine> done = read(file);
                     int todo = 0;
@@ -205,8 +250,8 @@ final class MctsMatch {
                     if (todo > 0) {
                         err.printf(Locale.ROOT, "mctsmatch: %s vs %s: %d pairs to play, %d finished before (%s)%n", subject,
                                 opponent, todo, pairs - todo, file);
-                        ok += play(file, subjectFactory, opponentFactories.get(k), subject, opponent, pairs, seed,
-                                openingPlies, threads, done, stop, err, progressSeconds);
+                        ok += play(file, finalSubject, opponentFactories.get(k), subject, opponent, pairs, seed,
+                                openingPlies, threads, done, stop, err, progressSeconds, finalScope);
                         done = read(file);
                     }
                     if (stop.get()) {
@@ -225,7 +270,31 @@ final class MctsMatch {
                 } catch (IllegalStateException e) {
                     // shutting down because of a signal
                 }
+                if (finalSession != null) {
+                    finalSession.close();
+                }
             }
+        }
+    }
+
+    /**
+     * The games of a match on the device: the pairs are virtual threads on a scheduler of {@code computeThreads} carriers, and
+     * a pair is one active game of the pooled evaluator (its two games run one after the other with the same client).
+     */
+    private record Scope(ThreadLocal<PooledEvaluator.Client> clients, int computeThreads) {
+
+        ExecutorService pool(int threads) {
+            System.setProperty("jdk.virtualThreadScheduler.parallelism", Integer.toString(computeThreads));
+            System.setProperty("jdk.virtualThreadScheduler.maxPoolSize", Integer.toString(computeThreads));
+            return Executors.newFixedThreadPool(threads, Thread.ofVirtual().factory());
+        }
+
+        void begin() {
+            clients.get().begin();
+        }
+
+        void end() {
+            clients.get().end();
         }
     }
 
@@ -270,7 +339,7 @@ final class MctsMatch {
 
     private static int play(Path file, LongFunction<Player> subjectFactory, LongFunction<Player> opponentFactory,
             String subject, String opponent, int pairs, long seed, int openingPlies, int threads,
-            Map<Integer, PairLine> done, AtomicBoolean stop, PrintStream err, double progressSeconds)
+            Map<Integer, PairLine> done, AtomicBoolean stop, PrintStream err, double progressSeconds, Scope scope)
             throws IOException {
         RuleSet rules = RuleSet.defaults(2);
         int todo = pairs - done.size();
@@ -278,7 +347,8 @@ final class MctsMatch {
         long t0 = System.nanoTime();
         long[] last = {t0};
         try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND); ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+                StandardOpenOption.APPEND); ExecutorService pool = scope == null ? Executors.newFixedThreadPool(threads)
+                        : scope.pool(threads)) {
             List<Future<?>> futures = new ArrayList<>();
             for (int pair = 0; pair < pairs; pair++) {
                 if (done.containsKey(pair)) {
@@ -290,7 +360,17 @@ final class MctsMatch {
                         return;
                     }
                     Position start = StrengthEstimate.opening(rules, seed, index, openingPlies);
-                    PairLine line = playPair(start, index, subjectFactory, opponentFactory, (seed * 1_000_003L + index) * 2);
+                    PairLine line;
+                    if (scope != null) {
+                        scope.begin();
+                    }
+                    try {
+                        line = playPair(start, index, subjectFactory, opponentFactory, (seed * 1_000_003L + index) * 2);
+                    } finally {
+                        if (scope != null) {
+                            scope.end();
+                        }
+                    }
                     synchronized (writer) {
                         try {
                             writer.write(RunMonitor.json(line.fields()));

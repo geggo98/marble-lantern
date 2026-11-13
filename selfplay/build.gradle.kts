@@ -101,6 +101,25 @@ tasks.register<JavaExec>("gpuCheck") {
     systemProperty("tornado.recover.bailout", "False")
 }
 
+// Games per second of the loop's self-play with the CPU or the device evaluator (a main in the main sources; see
+// LoopSelfPlayBench and docs/training.md, "As implemented (block G1)"). Arguments after --args.
+tasks.register<JavaExec>("selfplayBench") {
+    group = "verification"
+    description = "Games per second of the loop's self-play with the CPU or the GPU evaluator; see sternhalma.selfplay.LoopSelfPlayBench."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("sternhalma.selfplay.LoopSelfPlayBench")
+    workingDir = rootDir
+    if (sdkArgfileTemplate != null && tornadoHome != null) {
+        jvmArgumentProviders.add(objects.newInstance<TornadoJvmArgs>().apply {
+            template.set(sdkArgfileTemplate)
+            home.set(tornadoHome)
+        })
+        jvmArgs("--sun-misc-unsafe-memory-access=allow")
+    }
+    jvmArgs("--add-modules", "jdk.incubator.vector", "-Xmx6g")
+    systemProperty("tornado.recover.bailout", "False")
+}
+
 tasks.withType<Test>().configureEach {
     // The subprocess tests (signals, lock) start the tool in a child JVM with the test's class path.
     workingDir = rootDir
@@ -134,6 +153,14 @@ tasks.register<JavaExec>("mctsMatch") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = "sternhalma.selfplay.MctsMatch"
     workingDir = rootDir
+    // --evaluator gpu needs the TornadoVM flags; without the SDK the task runs as before
+    if (sdkArgfileTemplate != null && tornadoHome != null) {
+        jvmArgumentProviders.add(objects.newInstance<TornadoJvmArgs>().apply {
+            template.set(sdkArgfileTemplate)
+            home.set(tornadoHome)
+        })
+        jvmArgs("--sun-misc-unsafe-memory-access=allow")
+    }
     jvmArgs("--add-modules", "jdk.incubator.vector", "-Xmx3g")
 }
 

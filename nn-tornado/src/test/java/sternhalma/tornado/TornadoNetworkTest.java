@@ -599,11 +599,11 @@ class TornadoNetworkTest {
     }
 
     /**
-     * E11: the first convolution reads the 13 planes of {@code classic1-planes}, as the reference does; a network with the
-     * residual priors is refused (the device value head applies the tanh, so the prior cannot be added before it).
+     * E11: the first convolution reads the 13 planes of {@code classic1-planes}, as the reference does. (The residual
+     * priors of {@code classic1} are tested in {@link TornadoClassic1Test}.)
      */
     @Test
-    void classicalPlanesAgreeWithTheReferenceAndResidualPriorsAreRefused() {
+    void classicalPlanesAgreeWithTheReference() {
         TornadoAssumptions.assumeTornado();
         NetworkConfig config = NetworkConfig.tiny(2).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1_PLANES);
         Parameters parameters = initScale(config, 5);
@@ -629,7 +629,5 @@ class TornadoNetworkTest {
         for (int i = 0; i < values.length; i++) {
             errors.add(values[i], expectedValues[i], "value " + i);
         }
-        Parameters priors = Parameters.init(NetworkConfig.tiny(2).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1), 1);
-        assertThrows(IllegalArgumentException.class, () -> new TornadoNetwork(priors));
     }
 }

@@ -183,3 +183,22 @@ tasks.register<JavaExec>("trainerBenchmark") {
         reason == null
     }
 }
+
+// Evaluations per second that the device delivers to many games with real classic1 planes (a main in the test sources).
+// Arguments: --size small|large --batches 64,128,256,512 --seconds 60 --threads 8 --cohorts 2. See docs/training.md, "As
+// implemented (block G1)". Run: ./gradlew --no-build-cache :nn-tornado:gpuFeed --args="--size small"
+tasks.register<JavaExec>("gpuFeed") {
+    group = "verification"
+    description = "Measures the evaluations per second of the pooled device evaluator under real plane computation."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.tornado.GpuFeedBenchmark")
+    tornadoJvm()
+    systemProperty("tornado.recover.bailout", "False")
+    val reason = sdkMissingReason
+    onlyIf("the TornadoVM SDK is installed") {
+        if (reason != null) {
+            Logging.getLogger("nn-tornado").warn("nn-tornado: skipping gpuFeed: {}", reason)
+        }
+        reason == null
+    }
+}

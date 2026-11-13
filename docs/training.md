@@ -1754,7 +1754,100 @@ Gate scores against the previous best network (200 pairs): 0.605 (generation 1),
 - **Constant learning rate was the cause of the stall in run 2** (three rejections at 0.509, 0.491, 0.496 with lr 3e-4 constant, reuse 6). Sweep 1 isolated the decay: the same data, 15,000 steps constant gave 0.481, with cosine decay 0.563 (confirmed 0.589 over 400 pairs).
 - **The gain per generation falls quickly.** Rejections cluster from generation 4 on and the promotions of the last six generations are one to two standard errors above 0.5 (z between 1.3 and 2.8); the strength against `BEST_SPEC` is flat within the intervals from generation 9 on. For this configuration (SMALL network, 200 simulations, window 1.5 M samples) the recipe is exhausted after about 8 to 9 generations.
 - **Time:** about 31 to 37 minutes of self-play, 2 minutes of GPU training (15,000 steps at 117 to 128 steps/s), 5 to 6.5 minutes of gate, and in the promoted generations 2 minutes of baseline matches. The self-play rate varied between 2150 and 2520 simulations per CPU second without an identified cause (no thermal warning, the owner saw no throttling; competing processes such as the window server were present). Power: the owner replaced the 60 W adapter by a 100 W adapter during the run; the battery went from 80 % to 77 % under full load.
-- **Not tried:** more simulations per move, a larger network (the LARGE preset needs GPU inference for `classic1` in the MCTS), a learning-rate schedule across generations, a smaller promotion margin, and the effect of the window size.
+- **Not tried:** more simulations per move, a larger network (the LARGE preset needed GPU inference for `classic1` in the MCTS; it exists since [block G1](#as-implemented-block-g1)), a learning-rate schedule across generations, a smaller promotion margin, and the effect of the window size.
+
+## As implemented (block G1)
+
+**TL;DR:** The self-play of the loop can take its evaluations from the GPU: `--evaluator gpu` runs `--games-in-flight` games (default 256) at the same time, each with its own tree and batch-1 simulations (no virtual loss, so no cost in strength), and one device thread computes the positions of all games in batches (`PooledEvaluator`, module `nn`). `TornadoNetwork` now runs `classic1` networks (the host adds the priors, [tornado](tornado.md#residual-priors-on-the-host)), which is the precondition for a LARGE network in the loop. A game is the same code as on the CPU and gives the same moves for any number of games in flight, any thread count and any batch composition (tested bit for bit with a CPU backend; the device returns the same bits for a position in any slot and bucket). Strength neutrality: GPU subject against CPU opponent, same network, 100 pairs at 100 simulations: score 0.503 +- 0.032 (Elo +2 +- 43); with an independent seed stream 0.449 +- 0.033, which the CPU-against-CPU control reproduces game for game, and 0.483 +- 0.034 for another stream. **Speed, on a machine whose GPU another job used at the same time: 0.92 to 1.85 games/s against 0.75 on the CPU path for SMALL (200 simulations, 8 compute threads; 1.2 to 2.5 times), 0.10 against 0.06 for LARGE (1.8 times). The device thread is the bottleneck (93 to 100 % of its time is the kernel execution, the host part is about 1 to 2 %), so the 3 to 4 times of the plan were not reached here; see [Bottleneck](#bottleneck-g1).** The evaluator and its options are not part of `run.json`.
+
+### What was built
+
+| Class | Module | Content |
+|---|---|---|
+| `TornadoNetwork` | nn-tornado | `classic1` support: the value head kernel has a scalar `applyTanh` (0 with priors), `forward` adds the priors on the host. |
+| `PooledEvaluator` | nn | One device thread, any number of models (networks), each with cohorts. A game thread calls `Client.forward` like any `ForwardPass`; the call returns when its batch is computed. `warmup`, `abort`, `close`, `stats`. Backends are called by the device thread only (a `TornadoNetwork` is not thread-safe) and closed on it. |
+| `GpuEvaluators` | nn-tornado | The entry without TornadoVM types in its signatures: `unavailableReason`, `network`, `open` (a session: the evaluator, one model, every plan warmed up). |
+| `LoopGamesJob.Device`, `EvaluatorOptions`, `Loop` | selfplay | `--evaluator cpu\|gpu`, `--games-in-flight N`, `--eval-cohorts K`; falls back to the CPU with a message ("loop: --evaluator gpu: ...; playing the self-play games on the CPU instead") where no device is usable. `scripts/loop.sh` passes the TornadoVM flags for it. |
+| `LoopSelfPlayBench`, `MctsBench --stub`, `MctsMatch --evaluator gpu`, `GpuFeedBenchmark` | selfplay, nn-tornado | The measurements below (Gradle tasks `selfplayBench`, `mctsBench`, `mctsMatch`, `gpuFeed`). |
+
+**Design deviation from the plan (project reasoning).** The plan was rounds with a parallel phase A (select, expand, planes into slot g), one evaluator thread and a parallel phase C (backup). Implemented instead: every game is its own thread (virtual) that calls a blocking `ForwardPass`; phase A, the wait and phase C are then simply the code of the game. Reasons: (1) the whole game code stays as it is (`LoopGame`, `Mcts`, adjudication, race play, openings), so the samples cannot differ from the CPU path by anything but the forward pass; (2) the determinism needs no argument: a game depends on its seed and on the evaluation of each of its own positions only; (3) there is no second implementation of the search to keep equal to the first. The cost is one `Encoder.encode` into a per-call array and a 6 KB copy into the slot instead of writing the planes into the slot (copy in is 0.3 to 2 % of the device thread, below). The two cohorts ping-pong as planned: the CPU fills one while the device computes the other.
+
+**Dispatch.** A cohort is computed when all its running games have published their position (a full batch), or the device thread is idle and nothing arrived for 250 microseconds, or the oldest position has waited 20 ms. Games that are not running (not between `begin` and `end`) are not waited for: the end of a generation, with fewer games than the cohort, does not idle (tested with timers of one hour: a batch that waits for absent games would hang). The games that are left refill continuously from the remaining ids (the pool of the Job takes the next id as soon as a game ends).
+
+**Threads.** The games are virtual threads on a scheduler with `--threads` carriers (`jdk.virtualThreadScheduler.parallelism`, set when the pool is made; the first value in a JVM wins), so `--threads` still bounds the compute threads, plus the device thread, which waits for the device. A first version limited the compute threads with a semaphore on 256 platform threads: it reached 29,000 to 46,000 evaluations per second in the feed benchmark against 57,000 to 82,000 with virtual threads (same machine, minutes apart), because every evaluation parked and unparked its thread twice and the whole batch fought for the permits (`PooledEvaluator(n > 0)` still works that way and is tested). A virtual thread has no CPU time of its own: `game_cpu_us` is 0 for device games, and the progress line shows the CPU time of the process.
+
+**Stop and resume.** A stop (SIGINT, SIGTERM, hook) aborts the evaluator: the games in flight get `PooledEvaluator.Aborted` after at most one batch and are discarded (a game takes about a minute with 256 in flight, so waiting for them would break the rule that a stop costs one item); shards whose games are all done are written, as before. The device session is opened by the first game, so a resume that finds every shard complete never touches the device.
+
+**The evaluator is not part of `run.json` (decision).** The two evaluators play the same games up to the float differences of the forward passes (CPU Vector API against GPU kernels, both float, and already different from the scalar path), so a result is a function of the configuration and of float noise, and a resume with the other evaluator is allowed. Each shard records its evaluator in the metadata key `evaluator` (`cpu` or `gpu`; not part of the `selfplay` string that a resume compares), and a resume says for every kept shard of the other evaluator: "was written by the cpu evaluator, this run uses the gpu one: kept". The hash of every run is unchanged (tested).
+
+### Tests
+
+`PooledEvaluatorTest` (14, CPU backends): every game gets its own result for 1, 7 and 40 games and 1, 2 and 3 cohorts; slots are not swapped and results not stale; one device thread serves two networks; a batch does not wait for games that are not running (hour timers) and shrinks as games end; the quiet time takes a partial batch; the other cohort fills while one is on the device; the permits bound the compute threads; virtual threads without permits; a failing backend, abort and close; misuse; warm-up and statistics. `TornadoClassic1Test` (7, device): see [tornado](tornado.md#residual-priors-on-the-host). `LoopGameLockstepTest` (7): a game (moves, scores, labels, policy targets, values) is bit for bit the same on the CPU path and with 1, 7 and 14 games in flight, 1, 3 and 8 permits or virtual threads and 1 and 2 cohorts (14 games); the visit counts of 12 fixed positions equal those of the sequential search; the job writes the shards of the CPU path (11 games, 5 in flight, shards of 4); the tail; a stop discards the games in flight and the restart gives the same shards; a resume with the other evaluator keeps the shards; the options and the hash. `LoopGpuEvaluatorTest` (4, task `gpuTest`, skipped without a device): a GPU run repeats its bits and names the evaluator in the shards and not in `run.json`; a resume with the other evaluator; real processes killed with SIGKILL and SIGTERM during the self-play restart to the results of an uninterrupted run; a JVM without a device falls back with the message.
+
+**Mutation check:** 23 of 23 mutants caught, each put into the code alone: the slot index always 0; policy results read from slot 0; value results read from slot 0; stale results (the batch object not renewed); every client in cohort 0 (wrong cohort); a batch that waits for games that are not running; `end()` not waking the device thread (first survived, then caught by `aGameThatEndsCompletesTheBatchOfTheOthers` and the determinism test); padding rows (the backend gets the capacity, not the count); the compute permit not given back while waiting; a lost backend failure; abort ignored; no quiet-time dispatch; priors applied twice; priors not applied; the value prior with the wrong sign; the plane offset of the plain planes; no host tanh; tanh on the device and on the host; the chunk offset of the host priors; `reload()` not reading the prior scalars; a stop that does not abort the device; no `evaluator` key in the shard metadata; a game that does not leave its cohort. Four of them (wrong cohort, waiting for absent games, permit leak, no quiet-time) are caught by a test that hangs until its own timeout.
+
+### Measurements
+
+Apple M3 Max, JDK 25.0.3, 2026-11-13. **Another job used the CPU and the GPU at the same time** (load average 5 to 9, an unknown GPU share), so every time is indicative, and the device figures vary by a factor of 2 to 3 between runs of the same configuration minutes apart (the SMALL feed benchmark gave 18,100 and 57,300 evaluations per second at batch 64 in two runs). The simulation-limited scores of the neutrality matches do not depend on the load.
+
+**CPU ceiling (`MctsBench --stub classic1`, SMALL, 100 simulations, noise 0, 24 s per row):** a forward pass that costs nothing (uniform priors, value 0); what remains is tree, move generation, the classical planes and the softmax over the legal moves.
+
+| Threads | Simulations per second | per thread |
+|---|---|---|
+| 1 | 192,000 | 192,000 |
+| 8 | 793,000 | 99,000 |
+
+(12 threads were not measured: a job may start at most 8 compute threads.) One Vector API thread computes 3,000 SMALL evaluations per second, so tree and planes are about 2 % of the CPU path's work; at the 110,000 evaluations per second of the uncontended device they would need about 1.1 cores.
+
+**GPU feed (`GpuFeedBenchmark`: SMALL and LARGE classic1, virtual-thread games with real planes and priors, 8 carriers, 2 cohorts, 60 s per row, batch = positions per execution):**
+
+| Net | Batch | Evaluations per s | Device thread busy | Upload / download MB/s | CPU cores |
+|---|---|---|---|---|---|
+| SMALL | 64 | 18,100 (57,300 in a 20 s run) | 100 % | 115 / 18 | 0.5 |
+| SMALL | 128 | 67,700 | 99 % | 430 / 66 | 1.7 |
+| SMALL | 256 | 64,500 (81,500 in a 20 s run) | 99 % | 409 / 63 | 1.4 |
+| SMALL | 512 | 47,000 | 100 % | 298 / 46 | 0.8 |
+| SMALL, 1 cohort | 128 / 256 | 22,800 / 32,300 | 95 % / 93 % | 145 / 205 | 0.4 / 0.5 |
+| LARGE | 64 | 6,900 | 100 % | 44 / 7 | 0.2 |
+| LARGE | 128 | 9,200 | 100 % | 59 / 9 | 0.2 |
+| LARGE | 256 | 12,000 | 100 % | 76 / 12 | 0.2 |
+| LARGE | 512 | 14,500 | 100 % | 92 / 14 | 0.25 |
+
+(Upload is the whole bucket of `inputSize` floats per position, download the bucket's 244 floats per position.) The device thread spends 99 % of its time in `plan.execute()` (kernels and both transfers); copy in 0.3 to 2 %, copy out 0.1 to 0.3 %, host priors 0.3 to 1.5 %. The uncontended rates of [tornado](tornado.md#measured-speed) are 111,000 (SMALL, 256) and 21,000 (LARGE, 256); the GPU gave 60 % to 70 % (SMALL, best row, 73 % in the 20 s run) and 57 % of them here.
+
+**Self-play (`LoopSelfPlayBench`, loop defaults, 200 simulations, 8 compute threads):**
+
+| Net | Evaluator | Games | Wall | Games per s | Notes |
+|---|---|---|---|---|---|
+| SMALL (loop 3 best) | CPU, 8 threads | 200 | 266 s | 0.75 | 11,400 nodes/s; 1.2 to 1.3 in earlier, quieter measurements |
+| SMALL | GPU, 2 cohorts, 200 in flight | 200 | 217 s | 0.92 | device busy 97 %, mean batch 44 (tail), 3.1 ms per execution |
+| SMALL | GPU, 1 cohort, 200 in flight | 200 | 108 s | 1.85 | device busy 67 %, idle 31 s, mean batch 85 |
+| LARGE (random classic1 weights) | CPU, 8 threads | 80 | 1392 s | 0.058 | |
+| LARGE | GPU, 2 cohorts, 80 in flight | 80 | 779 s | 0.103 | device busy 100 %, mean batch 39, 10 ms per execution |
+
+The runs were made one after the other; the load of the other job changed between them, so the comparison is rough.
+
+**Strength neutrality (`MctsMatch`, `mcts:sims=100,noise=0.25,temp=1,race=1`, loop 3 best network, 100 pairs, seed 3001, subject on the GPU, opponent on the CPU):**
+
+| Match | Score | Elo | Games (W-D-L) |
+|---|---|---|---|
+| same seed on both sides | 0.503 +- 0.032 | +2 +- 43 | 97-7-96 |
+| subject seed + 7777, GPU | 0.449 +- 0.033 | -36 +- 46 | 83-14-103 |
+| subject seed + 7777, **CPU control** | 0.449 +- 0.033 | -36 +- 46 | 83-14-103 |
+| subject seed + 31337, GPU | 0.483 +- 0.034 | -12 +- 47 | 94-5-101 |
+
+The 0.449 is the seed stream, not the device: the CPU control with the same seed offset gives the same 83-14-103 games.
+
+### Bottleneck {#bottleneck-g1}
+
+1. **The device execution.** In every device run the device thread spent 93 to 100 % of its time in `plan.execute()`. The host work around it (6 KB per position in, 1 KB out, the priors, the lock) is about 1 to 2 %, so a second host thread would not help; only a faster or fuller GPU does. With the GPU shared, one execution took 2 to 5 ms at batch 40 to 128 for SMALL (0.9 ms uncontended at 64) and 10 ms for LARGE at batch 40.
+2. **Batch size.** With 200 games in 2 cohorts a batch is 100, and at the end of a generation it shrinks to the games that are left (mean batch 44 and 39 over the runs). The 1-cohort run (batch 200) was twice as fast as the 2-cohort run, but its device idled 31 s (the CPU side and the tail). Two cohorts of 256 games each (`--games-in-flight 512`) should combine both; not measured.
+3. **The tail.** The last games of a generation run with a few positions per execution; each simulation is then a full device round trip (0.5 to 1 ms), so a game of 87 plies x 200 simulations takes 10 s or more however few games are left. In the 217 s run the last 12 games took 36 s. A deterministic remedy would play the last K game ids on the CPU path in a second pool from the start (not done: the Job runs one pool).
+4. **The CPU** is not the limit: 0.2 to 1.7 cores for the whole job, against 8 allowed.
+
+### Recommendation for stage 2
+
+Put the gate and strength matches on the same `PooledEvaluator` (`MctsMatch --evaluator gpu` is the pattern: one model per network, the candidate and the best network share the device thread, the pairs are the games in flight). Measure the GPU rate when no other job uses it before settling `--games-in-flight` (512 with 2 cohorts looks right for SMALL), and play the last games of a generation on the CPU by id. A LARGE network is possible but slow: about 12,000 evaluations per second at best here, 0.1 games/s with a shared GPU, 1.8 times the CPU path.
 
 ## Open questions
 

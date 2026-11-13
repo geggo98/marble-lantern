@@ -89,6 +89,11 @@ abstract class Job<R> {
         this.err = err;
     }
 
+    /** The pool that runs the items: {@code threads} threads (a subclass may use virtual threads). */
+    ExecutorService newPool() {
+        return Executors.newFixedThreadPool(threads);
+    }
+
     abstract Path shardFile(int shard);
 
     /** The state of an existing shard file; sets {@link #mismatch(String)} for MISMATCH. */
@@ -258,7 +263,7 @@ abstract class Job<R> {
             int total = todoItems;
             Supplier<Worker<R>> factory = workers();
             ThreadLocal<Worker<R>> local = ThreadLocal.withInitial(factory);
-            try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+            try (ExecutorService pool = newPool()) {
                 List<List<Future<R>>> perShard = new ArrayList<>();
                 for (int sh : todo) {
                     List<Future<R>> fs = new ArrayList<>();

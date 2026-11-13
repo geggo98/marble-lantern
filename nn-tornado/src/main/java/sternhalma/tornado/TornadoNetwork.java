@@ -9,6 +9,7 @@ import sternhalma.nn.ForwardPass;
 import sternhalma.nn.HexGrid;
 import sternhalma.nn.NetworkConfig;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.ResidualPriors;
 import sternhalma.tornado.KernelsHexConvLayer.Variant;
 import uk.ac.manchester.tornado.api.GridScheduler;
 import uk.ac.manchester.tornado.api.TaskGraph;
@@ -26,6 +27,18 @@ import uk.ac.manchester.tornado.api.types.arrays.IntArray;
  * {@link sternhalma.nn.Network} within {@link sternhalma.nn.Network#agrees}; it sums in float, so it is not
  * bit-exact. Use it wherever a {@link ForwardPass} is taken, for example {@code new Evaluator(new
  * TornadoNetwork(parameters))}.
+ *
+ * <h2>Residual priors (classic1)</h2>
+ *
+ * <p>A network of {@link sternhalma.nn.PlaneSet#CLASSIC1} adds the classical priors to its outputs
+ * ({@link ResidualPriors}). The device computes the raw outputs: the policy logits as they are, and the value head
+ * without its tanh ({@link OpsKernels#valueHead} with {@code applyTanh} 0). {@link #forward} adds the priors on the
+ * host, for each position, after the results are back: {@code beta * gain} to the logits through the plane
+ * {@code DIST_OWN} of the input, and {@code k * sign * eval} to the pre-tanh value through the plane {@code EVAL},
+ * then the tanh, with the code of {@link sternhalma.nn.VectorNetwork}. So no extra upload and no new kernel; the cost
+ * is 121 multiply-adds and two tanh per position. {@code prior.beta} and {@code prior.k} are read from the
+ * {@link Parameters} in the constructor and in {@link #reload()}. The planes {@code classic1-planes} and {@code plain}
+ * need none of this and keep the tanh on the device.
  *
  * <h2>What stays on the device</h2>
  *
@@ -82,6 +95,12 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
 
     private final NetworkConfig config;
     private final OpsParameters parameters;
+    /** The host parameters, for the two scalars of the residual priors. */
+    private final Parameters source;
+    /** Whether the plane set has residual priors: the device value head stops before the tanh, the host adds the priors. */
+    private final boolean priors;
+    private float priorBeta;
+    private float priorK;
     private final TornadoDevice device;
     private final int maxBatch;
     /** The kernel of every convolution, or null to choose by bucket with {@link #variantFor}. */
@@ -97,6 +116,11 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
     private final boolean profiled;
     private boolean closed;
     private TornadoProfilerResult lastResult;
+    private long copyInNanos;
+    private long executeNanos;
+    private long copyOutNanos;
+    private long priorNanos;
+    private long calls;
 
     /**
      * A network on the default device ({@link TornadoSupport#defaultDevice()}) with batches of up to
@@ -115,9 +139,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
      * @param device   the device that runs the kernels
      * @param maxBatch positions per execution at most, at least 1; larger batches are split
      * @throws NullPointerException     if an argument is null
-     * @throws IllegalArgumentException if the config has residual priors ({@link sternhalma.nn.PlaneSet#CLASSIC1}), which the device
-     *                                  value head cannot add before its tanh, or if maxBatch is below 1, or so large
-     *                                  that an activation [maxBatch][122][C]
+     * @throws IllegalArgumentException if maxBatch is below 1, or so large that an activation [maxBatch][122][C]
      *                                  would not fit into an int-indexed array
      */
     public TornadoNetwork(Parameters parameters, TornadoDevice device, int maxBatch) {
@@ -145,11 +167,9 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             throw new IllegalArgumentException("maxBatch must be >= 1, got " + maxBatch);
         }
         this.config = parameters.config();
-        if (config.planes().residualPriors()) {
-            // The value prior enters before the tanh, which the device value head applies: not done on the device yet.
-            throw new IllegalArgumentException("TornadoNetwork does not support residual priors (planes "
-                    + config.planes() + "); use the plain or the classic1-planes set, or a CPU forward pass");
-        }
+        this.source = parameters;
+        this.priors = config.planes().residualPriors();
+        readPriorScalars();
         // FloatArray sizes are ints: the largest buffer is an activation [maxBatch][122][C].
         if ((long) maxBatch * HexGrid.ROWS * config.channels() > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("maxBatch " + maxBatch + " is too large for " + config.channels()
@@ -237,6 +257,12 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             for (int first = 0; first < batch; first += maxBatch) {
                 int n = Math.min(maxBatch, batch - first);
                 plan(bucket(n, maxBatch)).run(input, first, n, policyLogits, values);
+                if (priors) {
+                    long t = System.nanoTime();
+                    addPriors(input, first, n, policyLogits, values);
+                    priorNanos += System.nanoTime() - t;
+                }
+                calls++;
             }
         } finally {
             busy.set(false);
@@ -253,8 +279,34 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
         enter("reload");
         try {
             parameters.reload();
+            readPriorScalars();
         } finally {
             busy.set(false);
+        }
+    }
+
+    private void readPriorScalars() {
+        if (priors) {
+            priorBeta = source.get(ResidualPriors.BETA).data()[0];
+            priorK = source.get(ResidualPriors.K).data()[0];
+        }
+    }
+
+    /**
+     * The priors of positions {@code first .. first + n - 1}, on the raw outputs of the device: the logits get
+     * {@code beta * gain}, the value its term before the tanh, then the tanh (as in {@code VectorNetwork}).
+     */
+    private void addPriors(float[] input, int first, int n, float[] policyLogits, float[] values) {
+        int players = config.players();
+        int stride = config.inputPlanes();
+        for (int b = first; b < first + n; b++) {
+            int inputOffset = b * config.inputSize();
+            ResidualPriors.addPolicy(priorBeta, input, inputOffset, stride, policyLogits, b * Encoder.POLICY_SIZE);
+            for (int o = 0; o < players; o++) {
+                float pre = values[b * players + o];
+                pre += priorK * ResidualPriors.valueBase(input, inputOffset, stride, o);
+                values[b * players + o] = (float) Math.tanh(pre);
+            }
         }
     }
 
@@ -276,6 +328,17 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
             throw new IllegalStateException("forward has not run yet");
         }
         return lastResult;
+    }
+
+    /**
+     * Where the time of {@link #forward} went since the instance was made, for tools: calls (executions), the copy of the input
+     * into the device buffer, the execution (kernels and both transfers, as TornadoVM runs them), the copy of the results out
+     * of it and the host priors, in nanoseconds. Read it from the thread that calls {@link #forward}, or when no call runs.
+     */
+    public String timings() {
+        return String.format(java.util.Locale.ROOT, "%d executions: copy in %.1f ms, execute %.1f ms, copy out %.1f ms,"
+                + " host priors %.1f ms (totals)", calls, copyInNanos / 1e6, executeNanos / 1e6, copyOutNanos / 1e6,
+                priorNanos / 1e6);
     }
 
     /** Number of plans built so far, one per bucket in use. */
@@ -412,7 +475,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
                 x = u;
                 u = swap;
             }
-            OpsHeads.addTasks(graph, parameters, x, out, batch)
+            OpsHeads.addTasks(graph, parameters, x, out, batch, !priors)
                     .transferToHost(DataTransferMode.EVERY_EXECUTION, out);
             OpsHeads.schedule(grids, graphName, batch);
             TornadoExecutionPlan p = new TornadoExecutionPlan(graph.snapshot()).withDevice(device)
@@ -424,14 +487,20 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
         /** Computes positions {@code first .. first + n - 1} of the caller's arrays, n &lt;= batch. */
         void run(float[] in, int first, int n, float[] policyLogits, float[] values) {
             int players = config.players();
+            long t0 = System.nanoTime();
             OpsCopy.copy(in, first * config.inputSize(), input, 0, n * config.inputSize());
             residency.beforeExecute();
+            long t1 = System.nanoTime();
             TornadoProfilerResult result = plan.execute().getProfilerResult();
             if (profiled) {
                 lastResult = result;
             }
+            long t2 = System.nanoTime();
             OpsCopy.copy(out, 0, policyLogits, first * Encoder.POLICY_SIZE, n * Encoder.POLICY_SIZE);
             OpsCopy.copy(out, OpsKernels.valuesOffset(batch), values, first * players, n * players);
+            copyInNanos += t1 - t0;
+            executeNanos += t2 - t1;
+            copyOutNanos += System.nanoTime() - t2;
         }
     }
 

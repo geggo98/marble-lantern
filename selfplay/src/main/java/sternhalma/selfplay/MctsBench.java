@@ -14,7 +14,11 @@ import java.util.function.LongFunction;
 
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.nn.ForwardPass;
+import sternhalma.nn.NetworkConfig;
 import sternhalma.nn.Parameters;
+import sternhalma.nn.PlaneSet;
+import sternhalma.search.MctsSpec;
 import sternhalma.search.MctsPlayer;
 import sternhalma.search.Player;
 
@@ -24,7 +28,12 @@ import sternhalma.search.Player;
  *
  * <pre>
  *   MctsBench --net FILE --subject mcts:sims=100,... [--threads 1,8] [--seconds 20] [--positions 40]
+ *   MctsBench --stub classic1|plain --subject mcts:sims=100,... [--threads 1,8] [--seconds 20]
  * </pre>
+ *
+ * <p>{@code --stub} replaces the network by a forward pass that costs nothing (uniform priors, value 0), so the figure is the
+ * CPU ceiling of everything around the network: tree, move generation, the planes of the plane set and the softmax over the
+ * legal moves (docs/training.md, "As implemented (block G1)"); no network file is read.
  *
  * <p>Each thread searches the positions in turn with a new player per search (as a game does) for the given time after
  * a warm-up of a quarter of it; the report gives, per thread count, the simulations per wall-clock second of all threads
@@ -38,6 +47,7 @@ final class MctsBench {
 
     public static void main(String[] args) throws Exception {
         String net = null;
+        String stub = null;
         String subject = null;
         String threadsText = "1";
         double seconds = 20;
@@ -45,6 +55,7 @@ final class MctsBench {
         for (int i = 0; i < args.length; i += 2) {
             switch (args[i]) {
                 case "--net" -> net = args[i + 1];
+                case "--stub" -> stub = args[i + 1];
                 case "--subject" -> subject = args[i + 1];
                 case "--threads" -> threadsText = args[i + 1];
                 case "--seconds" -> seconds = Double.parseDouble(args[i + 1]);
@@ -52,11 +63,17 @@ final class MctsBench {
                 default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
-        if (net == null || subject == null) {
-            throw new IllegalArgumentException("usage: MctsBench --net FILE --subject mcts:... [--threads 1,8] [--seconds 20]");
+        if ((net == null) == (stub == null) || subject == null) {
+            throw new IllegalArgumentException("usage: MctsBench --net FILE|--stub classic1|plain --subject mcts:... [--threads 1,8] [--seconds 20]");
         }
-        Parameters parameters = Parameters.load(Path.of(net));
-        LongFunction<Player> factory = NetPlayers.factory(subject, parameters);
+        LongFunction<Player> factory;
+        if (stub != null) {
+            ForwardPass free = new FreeForward(NetworkConfig.small(2).withPlanes(PlaneSet.ofId(stub)));
+            MctsSpec spec = MctsSpec.parse(subject);
+            factory = seed -> spec.create(free, seed);
+        } else {
+            factory = NetPlayers.factory(subject, Parameters.load(Path.of(net)));
+        }
         List<Position> set = positions(positions);
         System.out.printf(Locale.ROOT, "%s, %d positions, vector=%b, %d cores, load %.1f%n", subject, set.size(),
                 sternhalma.nn.Networks.vectorAvailable(), Runtime.getRuntime().availableProcessors(),
@@ -65,6 +82,20 @@ final class MctsBench {
             int threads = Integer.parseInt(t.trim());
             run(factory, set, threads, seconds / 4, false);
             run(factory, set, threads, seconds, true);
+        }
+    }
+
+    /** A forward pass that does nothing: the outputs stay 0 (uniform priors, value 0). Thread-safe, as it has no state. */
+    private record FreeForward(NetworkConfig config) implements ForwardPass {
+
+        @Override
+        public boolean threadSafe() {
+            return true;
+        }
+
+        @Override
+        public void forward(float[] input, int batch, float[] policyLogits, float[] values) {
+            // nothing: the caller's arrays are new and zero
         }
     }
 

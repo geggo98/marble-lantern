@@ -133,8 +133,8 @@ public final class OpsKernels {
      * and then one work item per channel adds the {@code parts} partial sums in local memory and divides by
      * 121. With C &gt; {@link #VALUE_GROUP}, each work item sums whole channels.</li>
      * <li>Dense C to H with bias and ReLU (NaN stays NaN), one work item per hidden unit.</li>
-     * <li>Dense H to P with bias and tanh ({@code DeviceMath.tanh}: exactly +-1 when saturated, NaN stays NaN),
-     * one work item per player, written to
+     * <li>Dense H to P with bias and tanh ({@code DeviceMath.tanh}: exactly +-1 when saturated, NaN stays NaN; no tanh
+     * with {@code applyTanh} 0), one work item per player, written to
      * {@code out[outOffset + b * players + p]}.</li>
      * </ol>
      *
@@ -152,9 +152,12 @@ public final class OpsKernels {
      * @param channels  channel count C, 1 to {@link #MAX_WIDTH}
      * @param hidden    hidden width H, 1 to {@link #MAX_WIDTH}
      * @param players   number of players P
+     * @param applyTanh 1: step 3 ends with the tanh; 0: the value is the sum before the tanh (a network with residual
+     *                  priors: the host adds {@code k * sign * eval} and applies the tanh, {@link TornadoNetwork})
      */
     public static void valueHead(KernelContext context, FloatArray trunk, FloatArray w1, FloatArray b1,
-            FloatArray w2, FloatArray b2, FloatArray out, int outOffset, int channels, int hidden, int players) {
+            FloatArray w2, FloatArray b2, FloatArray out, int outOffset, int channels, int hidden, int players,
+            int applyTanh) {
         float[] partial = context.allocateFloatLocalArray(VALUE_GROUP);
         float[] pooled = context.allocateFloatLocalArray(MAX_WIDTH);
         float[] act = context.allocateFloatLocalArray(MAX_WIDTH);
@@ -205,7 +208,7 @@ public final class OpsKernels {
             for (int j = 0; j < hidden; j++) {
                 sum += w2.get(p * hidden + j) * act[j];
             }
-            out.set(outOffset + b * players + p, DeviceMath.tanh(sum));
+            out.set(outOffset + b * players + p, applyTanh != 0 ? DeviceMath.tanh(sum) : sum);
         }
     }
 }

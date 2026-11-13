@@ -332,6 +332,21 @@ A caller who wants no wasted work uses power-of-two batches. Device memory per b
 
 **Threads.** Not thread-safe, like `VectorNetwork`: an atomic busy flag makes a concurrent `forward`, `reload()` or `close()` throw `IllegalStateException`, and so does every call after `close()`. `close()` frees all plans. `Evaluator` over a `TornadoNetwork` is exactly as thread-safe as the network.
 
+### Residual priors on the host
+
+**TL;DR:** `TornadoNetwork` runs `classic1` networks (block G1). The value head kernel gets a scalar argument `applyTanh`; with the residual priors it is 0, the device writes the value before its tanh, and `forward` adds `beta · 16 · d` to the "from" logits (minus it to the "to" logits) and `k · sign · eval` to the value, then applies the tanh, per position, with the code of `ResidualPriors` and `VectorNetwork`. No new kernel, no extra upload: the two planes it reads (`DIST_OWN` and `EVAL`) are in the input that the host already holds. The host part costs about 0.1 % of the call (below), the plain and the `classic1-planes` networks keep the tanh on the device and run the same kernels as before.
+
+`beta` and `k` are read from the `Parameters` in the constructor and in `reload()`. Why not the prior on the device: the policy prior would be one more task over the same plane that is uploaded anyway, but the value prior needs the tanh after the sum, which is the last step of the fused value head, and a second value kernel for 2 floats per position is a poor trade for a host loop of 121 multiply-adds. Why the value before the tanh and not `atanh` of the device value: the device tanh returns exactly ±1 when it saturates (tested), and `atanh` of that is infinite.
+
+`TornadoClassic1Test` checks it (all with `beta = 0.7`, `k = 1.3`, away from the initial values):
+
+- **Against `Network` and `VectorNetwork`:** SMALL and LARGE with `classic1` and the plain planes, batch 1, 2, 3, 16, 64, 100 and 512 (SMALL), 1, 3, 64, 130 and 512 (LARGE): every logit and value agrees within the tolerance of [network](network.md#numeric-conventions). Largest error as a fraction of the bound: SMALL classic1 0.0187, LARGE classic1 0.0200 (SMALL plain 0.0073, LARGE plain 0.0133).
+- **The priors matter:** the outputs with and without the priors differ by more than 1 in a logit and by more than 0.05 in a value, and the difference of every "from" and "to" logit is `±beta · 16 · d` to 1e-4 (so a prior added twice, not at all, with the wrong sign or from the wrong plane cannot pass).
+- **Chunks:** maxBatch 4 with batch 11 and maxBatch 6 with batch 13: the priors of each chunk use the positions of that chunk.
+- **`reload()`** takes the new scalars; before it the old ones are used.
+- **Independent of slot and bucket:** the same position in slot 0 of a batch of 1, slot 5 of 64, slot 300 of 512, slot 36 of 37, slot 1 of 2 and slot 129 of 130 gives the same bits, for SMALL and LARGE (largest difference 0.0). The kernels give a position the same result in every bucket, NAIVE or SIMDGROUP. The lockstep self-play ([training](training.md#as-implemented-block-g1)) relies on it.
+- `Evaluator` over a classic1 `TornadoNetwork` gives the moves, priors and values of the CPU evaluator within the tolerance; a dirty padding row is refused.
+
 ### Tests and what they catch
 
 `TornadoNetworkTest`, 12 tests, all against the scalar `Network` with the tolerance of [network](network.md#numeric-conventions). Weights are `Parameters.init` and `Parameters.uniform` at the init bound √(6 / 7C), which also draws the biases. Inputs are encoded positions of seeded random games and random planes.
