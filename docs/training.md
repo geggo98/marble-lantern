@@ -1849,6 +1849,127 @@ The 0.449 is the seed stream, not the device: the CPU control with the same seed
 
 Put the gate and strength matches on the same `PooledEvaluator` (`MctsMatch --evaluator gpu` is the pattern: one model per network, the candidate and the best network share the device thread, the pairs are the games in flight). Measure the GPU rate when no other job uses it before settling `--games-in-flight` (512 with 2 cohorts looks right for SMALL), and play the last games of a generation on the CPU by id. A LARGE network is possible but slow: about 12,000 evaluations per second at best here, 0.1 games/s with a shared GPU, 1.8 times the CPU path.
 
+## Capacity diagnostics 1 (measured)
+
+**TL;DR:** Three cheap diagnostics on the best network of loop run 3 (SMALL `classic1`, 32 channels x 4 blocks, generation 13) to decide whether a larger network is worth building into the loop. **E1:** two self-play searches of the same position differ by a median KL of 0.057 (mean 0.097, p90 0.19), far below the held-out policy KL of about 0.42: the 0.42 is not target noise, the network underfits its targets. **E2:** more simulations are strong and cost linearly: 400 simulations beat 200 with 0.669 (+122 Elo) at 2.0 times the CPU time per move, 1000 beat 200 with 0.829 (+274 Elo) at 4.9 times. **E3:** four networks trained from scratch on the same 2.02 M samples with the same batches order the same way on every measure: the held-out policy KL falls from 0.549 (32x4) to 0.507 (32x8), 0.465 (48x6) and **0.438 (64x6)**, and against the from-scratch 32x4 control at 100 simulations the gate scores 0.602, 0.720 and **0.782** (+72, +164, +222 Elo). Against the loop's own generation 13 network (trained for 14 generations) even the LARGE network only reaches 0.473 (-19 Elo); the from-scratch control sits at 0.188 (-254 Elo). **Reading:** capacity is a real limit of the SMALL network (both conditions for "go" are met against the control), but per unit of cost it buys somewhat less Elo than search (LARGE at 5.8 times the work: +222; search at 4.9 times: +274), and a from-scratch LARGE has not caught the incrementally trained SMALL. One seed each; see the limits.
+
+Measured 2026-11-13 on an Apple M3 Max, 100 W adapter (battery 76 to 77 %, "AC attached; not charging" before and after every long run). Another agent ran CPU and GPU jobs on the same machine during all of it (load average 10 to 67), so every wall time and every steps-per-second figure is indicative; the CPU time per move is thread CPU time and less affected, but not free of cache and SMT contention (the MCTS rate was 1811 simulations per CPU second against 2150 to 2520 in loop run 3). Scores, KLs and losses come from fixed seeds and do not depend on the load.
+
+### The tools
+
+- `TargetNoise` (E1): `TargetNoise --loop DIR --net FILE --out DIR [--generations 10-13] [--positions 2000] [--sims 200] [--long-sims 1600] [--noise 0.25] [--alpha 0.3] [--race 1] [--threads 8] [--seed 1]`. Positions are drawn (seed 1) from the games that the loop holds out (`Loop.heldOut`) in generations 10 to 13, 500 per generation, among the samples with a full search and plies 10 to 80 (both movers); every position is replayed from the moves of its game. Resumable (one line per position in `OUT/positions.jsonl`).
+- `Capacity` (E3): `Capacity --loop DIR --teacher DIR --best FILE --out DIR --nets NAME=CxB,... --steps N [--stage train|gate|all] [--pairs 150] [--gate-sims 100] [--tag NAME] ...`. Random initialisation (`Parameters.init`, seed 1), the loop's trainer (GPU, AdamW, batch 256, warm-up 100 steps, mirror augmentation, value coefficient 1), the batches of `ReplayBuffer.batch(seed, 1, step, 256)` (so every network sees the same batches), a cosine from 3e-4 to 1e-5 over all steps, checkpoints every 2500 steps and a resumable gate (`Gate.PairJob`). `--best` is the reference network of the gate; `--tag` gives another gate its own directory and results file.
+- E2 needs no new code: `MctsMatch --net FILE --subject mcts:sims=400,batch=1,cpuct=1.0,noise=0,temp=0,race=1 --vs mcts:sims=200,... --pairs 200 --seed 6001 --threads 8` (4 random opening plies, paired colours, the evaluation player of the loop).
+
+The GPU trainer ran unchanged for 32x8, 48x6 and 64x6 (the docs listed LARGE as untested; 48 channels is not a power of two and worked). The data are under `data/D1` (git-ignored).
+
+### E1: noise floor of the policy targets
+
+2000 positions, the network of generation 13, MCTS with 200 simulations, `batch=1`, cpuct 1.0, root noise 0.25 (alpha 0.3), race play on, as in the loop's self-play (218 s on 8 threads). **Seed to seed:** two searches with different seeds (different Dirichlet noise); **noise-free, 200 against 1600 simulations:** `KL(visits@1600 || visits@200)`. Visit counts contain zeros, so a plain KL is infinite; the primary figure adds half a visit to every legal move in both distributions (Jeffreys), the second row mixes 1 % of the uniform distribution into both, and the Jensen-Shannon divergence needs no smoothing. In nats.
+
+| Measure | mean | median | p10 | p90 | p99 |
+|---|---|---|---|---|---|
+| seed to seed, KL (both directions averaged, +0.5 visit) | 0.097 | **0.057** | 0.035 | **0.195** | 0.378 |
+| seed to seed, KL (both directions, 1 % uniform mixture) | 0.233 | 0.180 | 0.113 | 0.408 | 0.751 |
+| seed to seed, Jensen-Shannon | 0.044 | 0.036 | 0.024 | 0.074 | 0.121 |
+| 200 against 1600 simulations, no noise, KL(1600 \|\| 200) (+0.5 visit) | 0.297 | 0.124 | 0.026 | 0.706 | 2.73 |
+| 200 against 1600 simulations, KL (1 % mixture) | 0.281 | 0.090 | 0.026 | 0.691 | 2.91 |
+| 200 against 1600 simulations, Jensen-Shannon | 0.055 | 0.025 | 0.008 | 0.144 | 0.381 |
+
+The two directions agree (0.0988 and 0.0954). Top-1 (the most visited move) is the same in 94.0 % of the seed pairs and in 80.6 % of the 200-against-1600 pairs. By ply band the seed-to-seed KL is 0.083 (plies 10 to 29, median 0.052), 0.094 (30 to 54, 0.058) and 0.112 (55 to 80, 0.062); by mover 0.090 (even plies) and 0.104 (odd). The average legal-move count is 59 and the entropy of a visit distribution 1.66 nats.
+
+**Reading with the rule of the task:** a seed-to-seed KL at or below 0.15 means underfitting. The median (0.057) and the mean (0.097) are below it, the p90 (0.195) above; with the 1 % mixture the median is 0.18 and the mean 0.23, between the two thresholds and still far from "mostly noise". Either way the held-out KL of about 0.42 is several times the disagreement of the targets with themselves: the network misses its targets by much more than the targets scatter. **The other finding:** the noise-free 200-simulation target is a long way from the 1600-simulation one (median 0.12, mean 0.30, p99 2.7): the target is not noisy but shallow, and a deeper search moves it by more than the seed does. Target quality has a second lever, simulations, apart from capacity.
+
+### E2: search scaling of the network
+
+The network of generation 13 at 200 simulations against itself at 400 and at 1000, 200 pairs each (4 random opening plies, paired colours, no noise, temperature 0, race play on, seed 6001). Cost is thread CPU time per move of each side, race-module moves (12 to 13 %) included, measured in the same games.
+
+| Subject | Opponent | Score +- se | Elo (95 %) | W-D-L games | Subject CPU ms/move | Opponent CPU ms/move | Cost ratio |
+|---|---|---|---|---|---|---|---|
+| 400 simulations | 200 | 0.669 +- 0.019 | +122 +- 30 | 266-3-131 | 193.3 | 97.5 | 1.98 |
+| 1000 simulations | 200 | 0.829 +- 0.017 | +274 +- 40 | 330-3-67 | 481.1 | 97.9 | 4.91 |
+
+The games last 92 plies on average. Elo grows with the logarithm of the cost over this range (+122 for the first doubling, +274 for 4.9 times, about +120 per doubling), so a network that costs 5 times as much per simulation has to beat +274 Elo at equal simulations to be the better use of the same compute.
+
+### E3: offline capacity test
+
+Data: the loop's window for a generation-13 candidate as far as it fits the task, that is generations 7 to 13 of `data/loop3` (training games only: 1,368,927 samples) plus the 300 shards of `data/teacher-loop2` as generation 0 (653,151 samples): 2,022,078 training samples. Held out: the games that the loop holds out (every 10th game id of each generation, `Loop.heldOut`) of the same generations, 153,473 samples, the same for all networks; 12,000 evenly spaced samples of them are evaluated (the table), and the 22,122 of generation 13 alone (12,000 evaluated; the number the loop prints). 32,000 steps of 256 = 4.05 passes over the samples (2.03 passes over the samples with their mirror images). All networks: `classic1` planes and priors, GPU trainer, seed 1, the same batches, lr 3e-4 with a cosine to 1e-5, 100 warm-up steps. The time per network is wall time under load.
+
+| | SMALL 32x4 (control) | DEEP 32x8 | MID 48x6 | LARGE 64x6 |
+|---|---|---|---|---|
+| parameters | 61,734 | 119,334 | 200,262 | 352,998 |
+| MACs per forward pass | 7.30 M | 14.24 M | 23.96 M | 42.35 M |
+| MACs against SMALL | 1.00 | 1.95 | 3.28 | 5.80 |
+| steps/s (loaded machine) | 121.6 | 53.8 | 27.7 | 18.6 |
+| training time | 4.4 min | 9.9 min | 19.2 min | 28.7 min |
+| train loss, last 1000 steps (data term) | 2.369 | 2.318 | 2.274 | 2.239 |
+| train policy KL, last 1000 steps | 0.467 | 0.432 | 0.399 | 0.373 |
+| train value loss, last 1000 steps | 0.477 | 0.461 | 0.450 | 0.441 |
+| **held-out policy KL** | 0.549 | 0.507 | 0.465 | **0.438** |
+| held-out policy KL, generation 13 only | 0.556 | 0.515 | 0.473 | 0.443 |
+| held-out top-1 | 62.07 % | 64.52 % | 67.07 % | 68.91 % |
+| held-out value loss | 0.487 | 0.474 | 0.462 | 0.457 |
+| held-out winner prediction | 81.10 % | 81.39 % | 81.93 % | 82.31 % |
+| KL against the control | 0 | -0.042 | -0.084 | **-0.111** |
+
+For reference: the generation-13 network (14 generations, about 210,000 steps in all) has a held-out KL of about 0.42 on the games of its own generation (loop run 3).
+
+**Gate against the generation-13 network** of loop run 3 (the reference; evaluation player at 100 simulations, 150 pairs, openings of seed 7001, four random plies):
+
+| Network | Score +- se | W-D-L games | Elo | CPU ms/move (network / reference) | Cost ratio |
+|---|---|---|---|---|---|
+| SMALL 32x4 control | 0.188 +- 0.020 | 53-7-240 | -254 | 33.9 / 33.4 | 1.0 |
+| DEEP 32x8 | 0.320 +- 0.024 | 91-10-199 | -131 | 67.1 / 35.1 | 2.0 |
+| MID 48x6 | 0.405 +- 0.023 | 119-5-176 | -67 | 111.0 / 36.4 | 3.3 |
+| LARGE 64x6 | 0.473 +- 0.022 | 140-4-156 | -19 | 220.0 / 42.1 | 6.5 |
+
+**Gate against the SMALL control** (the same pairs and openings; the isolated effect of the size):
+
+| Network | Score +- se | W-D-L games | Elo | CPU ms/move (network / control) |
+|---|---|---|---|---|
+| DEEP 32x8 | 0.602 +- 0.025 | 175-11-114 | +72 | 66.1 / 34.8 |
+| MID 48x6 | 0.720 +- 0.022 | 212-8-80 | +164 | 112.3 / 36.9 |
+| LARGE 64x6 | 0.782 +- 0.022 | 232-5-63 | +222 | 222.4 / 42.9 |
+
+### Go / no-go
+
+The rule of the task: a bigger network wins if the held-out KL is at least 0.03 lower than the control's **and** its gate is at least 0.58 (about +55 Elo) at equal simulations.
+
+- **KL:** met by all three (-0.042, -0.084, -0.111).
+- **Gate against generation 13:** met by none (0.320, 0.405, 0.473). The premise of this gate, that a from-scratch SMALL on the same data scores about equal to generation 13 or weaker, holds only in the weak sense: it scores 0.188, so the reference is 254 Elo above anything that 32,000 steps from scratch reach, and the gate cannot show a gain of 55 Elo of the larger network over the SMALL one.
+- **Gate against the control:** met by all three (0.602, 0.720, 0.782).
+
+**Decision:** read literally (against generation 13) no-go; read for what the test is for, the isolated effect of capacity on identical data (against the control), go for all three, clearly for MID and LARGE. The deciding fact for the loop is the cost-adjusted view below, which does not make LARGE an obvious win.
+
+**Cost-adjusted view.** The GPU inference cost of LARGE is about 5.3 times a SMALL evaluation (MACs 5.8; the CPU time per move at equal simulations was 6.5 times here).
+
+| Way to spend about 5 times the compute of SMALL | Elo |
+|---|---|
+| LARGE 64x6, equal simulations, against the SMALL control (MACs 5.8, CPU 6.5) | +222 (95 %: +-44) |
+| generation-13 SMALL with 4.9 times the simulations (E2, 200 simulations as the base) | +274 +- 40 |
+| MID 48x6 against the control (MACs 3.3) | +164 |
+| generation-13 SMALL with 2.0 times the simulations (E2) | +122 |
+| DEEP 32x8 against the control (MACs 2.0) | +72 |
+
+At every size the larger network buys somewhat less than the same compute spent on simulations (+72 against +122 at 2 times, +164 against about +200 interpolated at 3.3 times, +222 against +274 at 5 times), with the caveats that the two series have different baselines (100 and 200 simulations, a from-scratch network and a loop network) and that on the GPU the cost of simulations and of network size will not scale as on this CPU. **The gains do not exclude each other:** a larger network improves the targets that the next generation trains on, which simulations cannot do for a network that cannot represent them (E1: the targets are stable, the network does not fit them).
+
+### Limits
+
+- **One seed** of initialisation and batches per network; the differences between the networks (0.04 to 0.11 in KL, 72 to 222 Elo) are large against the standard errors of the gates (0.02 in score), but a second seed would give the run-to-run scatter of the KL, which the 0.03 threshold is about.
+- **From scratch against the loop's incremental network:** generation 13 comes from 14 rounds of self-play and 14 trainings with cosine decay (about 210,000 steps, on data of its own play); the test networks see 32,000 steps on a fixed window. The gap of the control to generation 13 (-254 Elo) is the largest number in the table and mostly says "training length and on-policy data matter", not "capacity". The step count was fixed by the SMALL control's four passes; the larger networks may not have converged.
+- **Four passes over the samples** is a budget chosen for the SMALL network; larger networks may want more, and would then gain more.
+- **E1** measures the scatter of the visit distribution of one network from the search's own randomness, not the difference between the networks that produced the stored targets (generations 10 to 13), and the KL of visit counts depends on the smoothing (reported in three ways).
+- **The gate plays 100 simulations** (the loop plays 200), 150 pairs (a standard error of 0.02 in score, 14 Elo), only the evaluation player (no noise, temperature 0), and the opening scheme of the loop's gate (four random plies).
+- **Timings under heavy load** (steps per second, CPU ms per move); the cost ratios between the networks are measured in the same session and are the more reliable part.
+
+### Recommendation for the next experiment
+
+Capacity is a limit, so test it where it counts but cheaply, in this order:
+
+1. **Equal training length, longer** (offline, about 2.5 hours of GPU for MID and LARGE with the SMALL control): 128,000 steps (16 passes, the cosine over all of them), same data, same gates. It answers whether the gap to generation 13 is training length (SMALL then closes in on 0.42 and the larger ones go below) and whether the advantage of LARGE persists when SMALL is no longer starved. If LARGE at 128,000 steps beats generation 13 at 100 simulations with a score of 0.55 or more, the capacity case is made for the loop.
+2. **Warm start instead of from scratch:** initialise MID or LARGE by distillation from generation 13 (policy and value of the network plus the stored visit targets) and train on the loop's window as in a generation; this is the form in which a larger network would enter the loop, and it removes the 14-generation handicap of E3.
+3. In parallel, **GPU inference for `classic1`** is the precondition for self-play with a LARGE network (the CPU forward pass costs 6.5 times per move), and **self-play with more simulations** (E1: 200 simulations give a shallow target, E2: twice the simulations is +122 Elo) is the cheaper lever that needs no new network: both can be compared in the loop at equal wall time.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
