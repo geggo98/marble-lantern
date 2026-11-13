@@ -1735,6 +1735,27 @@ One generation of loop run 1, trained again on the device (`GpuCheck`, `./gradle
 - **Inference with `classic1`** on the device (MCTS) is still not supported, so self-play stays on the CPU.
 - **An aborted GPU run** stops after the current step like the CPU one; a step takes 5 ms against 280 ms, so the stop is faster.
 
+## Loop run 3 (measured 2026-11-14)
+
+**TL;DR:** The learning-rate decay of sweep 1 (`--lr 3e-4 --lr-final 1e-5 --reuse 20`, about 15,000 steps per generation on the GPU trainer) lifts the loop out of the stall of run 2. `data/loop3` ran 14 generations of 2500 self-play games at 200 simulations in 10 h 34 min (promotion needs `score - 1.28 se > 0.5` over 200 pairs; start network = loop 1's best network; the 7500 rejected games of run 2 serve as the generation-0 window via `--teacher`). Eight generations were promoted (1, 2, 3, 5, 8, 9, 12, 13), six rejected (4, 6, 7, 10, 11, 14); the best network is generation 13. Measured with 200 pairs against `BEST_SPEC`, the network gains about +90 Elo at 102,400 nodes from generation 0 to its best generations (+211 +- 35 to +354 +- 54 for generation 9) and then stays on that level; the gate gains of the promoted generations shrink from +74 Elo (generation 1) to +15 to +35 Elo and the later promotions are not visible against the classical rungs.
+
+| Generation (best network) | vs 6400 nodes | vs 25,600 nodes | vs 102,400 nodes |
+|---|---|---|---|
+| 0 (start) | +511 +- 80 | +363 +- 52 | +211 +- 35 |
+| 5 | +541 +- 89 | +430 +- 63 | +288 +- 44 |
+| 9 | +590 +- 105 | +498 +- 77 | +354 +- 54 |
+| 13 (final) | +564 +- 96 | +490 +- 75 | +298 +- 46 |
+
+200 pairs per rung, seed 5002, MCTS at 200 simulations, `scripts/loop.sh strength data/loop3 --generation N --ladder 6400,25600,102400 --strength-pairs 200 --strength-seed 5002`. The in-loop records (100 pairs, seed 3001) read +173 (generation 0), +246 (3), +312 (5), +246 (9), +266 (12) against 102,400 nodes; the two series agree within their intervals, but neither separates generation 9 from generation 13.
+
+Gate scores against the previous best network (200 pairs): 0.605 (generation 1), 0.550, 0.522, 0.517 (rejected), 0.545, 0.508 (rejected), 0.511 (rejected), 0.551, 0.524, 0.483 (rejected), 0.518 (rejected), 0.539, 0.524, 0.490 (rejected, generation 14).
+
+**Findings**
+- **Constant learning rate was the cause of the stall in run 2** (three rejections at 0.509, 0.491, 0.496 with lr 3e-4 constant, reuse 6). Sweep 1 isolated the decay: the same data, 15,000 steps constant gave 0.481, with cosine decay 0.563 (confirmed 0.589 over 400 pairs).
+- **The gain per generation falls quickly.** Rejections cluster from generation 4 on and the promotions of the last six generations are one to two standard errors above 0.5 (z between 1.3 and 2.8); the strength against `BEST_SPEC` is flat within the intervals from generation 9 on. For this configuration (SMALL network, 200 simulations, window 1.5 M samples) the recipe is exhausted after about 8 to 9 generations.
+- **Time:** about 31 to 37 minutes of self-play, 2 minutes of GPU training (15,000 steps at 117 to 128 steps/s), 5 to 6.5 minutes of gate, and in the promoted generations 2 minutes of baseline matches. The self-play rate varied between 2150 and 2520 simulations per CPU second without an identified cause (no thermal warning, the owner saw no throttling; competing processes such as the window server were present). Power: the owner replaced the 60 W adapter by a 100 W adapter during the run; the battery went from 80 % to 77 % under full load.
+- **Not tried:** more simulations per move, a larger network (the LARGE preset needs GPU inference for `classic1` in the MCTS), a learning-rate schedule across generations, a smaller promotion margin, and the effect of the window size.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
