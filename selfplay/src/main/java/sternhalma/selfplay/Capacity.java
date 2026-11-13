@@ -39,13 +39,15 @@ import sternhalma.tornado.GpuTrainers;
  *   Capacity --loop DIR --teacher DIR --best FILE --out DIR --nets SMALL=32x4,MID=48x6 --steps 30000
  *            [--first-generation 7] [--last-generation 13] [--lr 3e-4] [--lr-final 1e-5] [--batch 256] [--seed 1]
  *            [--stage train|gate|all] [--pairs 150] [--gate-sims 100] [--gate-seed 7001] [--threads 8]
- *            [--train-threads 4] [--eval-samples 12000] [--trainer gpu|cpu] [--checkpoint-steps 2500] [--tag NAME]
+ *            [--train-threads 4] [--eval-samples 12000] [--trainer gpu|cpu] [--checkpoint-steps 2500] [--curve-steps 16000,32000,64000] [--tag NAME]
  * </pre>
  *
  * The training data is the window {@code first..last} of the loop's generations (the games that the loop does not hold
  * out, {@link Loop#heldOut}) plus every shard of {@code --teacher} as generation 0; the held-out games of the same
  * generations are the evaluation set (the same for all networks). {@code NAME=CxB} is C channels and B residual blocks
- * with the plane set of {@code --best}. {@code --best} is also the reference network of the gate; {@code --tag} names another gate (own shard directory and results file), for example
+ * with the plane set of {@code --best}. {@code --best} is also the reference network of the gate; {@code --curve-steps} lists steps at which the held-out proxies of the network in training are measured and appended
+ * to {@code OUT/NAME/curve.jsonl} (the training curve; every such step must be a multiple of {@code --checkpoint-steps},
+ * because the parameters of the GPU trainer are only synced into the checkpoint). {@code --tag} names another gate (own shard directory and results file), for example
  * against one of the trained networks. Resumable: a candidate that exists is not trained again (a run that was
  * interrupted continues from its last checkpoint), a gate shard that exists is not played again. The result of every
  * network is one line of {@code OUT/results.jsonl}. One run at a time (exit 75 otherwise); 0 done, 1 error, 2 usage.
@@ -130,6 +132,7 @@ final class Capacity {
         private final String trainer;
         private final long checkpointSteps;
         private final String tag;
+        private final List<Long> curveSteps = new ArrayList<>();
         private final LoopConfig cfg;
         private final Parameters best;
         private final String bestSha;
@@ -166,9 +169,15 @@ final class Capacity {
             trainer = o.getOrDefault("trainer", "gpu");
             checkpointSteps = LoopConfig.lng(o, "checkpoint-steps", 2500);
             tag = o.getOrDefault("tag", "");
+            for (String c : o.getOrDefault("curve-steps", "").split(",")) {
+                if (!c.isBlank()) {
+                    curveSteps.add(Long.parseLong(c.strip()));
+                }
+            }
             if (steps < 1 || firstGen < 1 || lastGen < firstGen || !(lr > 0) || lrFinal < 0 || lrFinal > lr || batch < 1
                     || pairs < 2 || threads < 1 || trainThreads < 1 || !List.of("train", "gate", "all").contains(stage)
-                    || !trainer.equals("gpu") && !trainer.equals("cpu")) {
+                    || !trainer.equals("gpu") && !trainer.equals("cpu") || checkpointSteps < 1
+                    || curveSteps.stream().anyMatch(c -> c < 1 || c % checkpointSteps != 0)) {
                 throw new IllegalArgumentException("an option is out of range");
             }
             cfg = LoopConfig.fromJson(RunMonitor.parse(Files.readString(loop.resolve("run.json"))));
@@ -247,7 +256,7 @@ final class Capacity {
                 row.put("steps", steps);
                 Parameters p;
                 if (!stage.equals("gate")) {
-                    p = trainOrLoad(spec, config, dir, candidate, window, row);
+                    p = trainOrLoad(spec, config, dir, candidate, window, heldAll, heldLast, row);
                     HeldOutMetrics.Metrics all = proxies(spec.name() + " (generations " + firstGen + "-" + lastGen + ")", p,
                             heldAll);
                     HeldOutMetrics.Metrics last = proxies(spec.name() + " (generation " + lastGen + ")", p, heldLast);
@@ -316,7 +325,7 @@ final class Capacity {
         }
 
         private Parameters trainOrLoad(Spec spec, NetworkConfig config, Path dir, Path candidate, ReplayBuffer window,
-                Map<String, Object> row) throws IOException {
+                ReplayBuffer heldAll, ReplayBuffer heldLast, Map<String, Object> row) throws IOException {
             String variantKey = key() + "; net " + spec.channels() + "x" + spec.blocks();
             if (Files.isRegularFile(candidate)) {
                 Parameters existing = Parameters.load(candidate);
@@ -357,7 +366,38 @@ final class Capacity {
             TrainingRun.Checkpointing checkpointing = new TrainingRun.Checkpointing(trainDir, checkpointSteps, 15L * 60_000_000_000L,
                     1, Gen0.sha256Hex(variantKey.getBytes(StandardCharsets.UTF_8)));
             Tail tail = new Tail(Math.max(0, steps - 1000));
-            TrainingRun.Reporting reporting = new TrainingRun.Reporting(List.<TrainingObserver>of(tail), err, 60_000_000_000L);
+            TrainingObserver curve = new TrainingObserver() {
+                private long step;
+
+                @Override
+                public void onStep(long s, double l, double k, double v, long wallNanos) {
+                    step = s;
+                }
+
+                @Override
+                public void onCheckpoint(Path path, long wallNanos, long bytes) {
+                    if (!curveSteps.contains(step)) {
+                        return;
+                    }
+                    HeldOutMetrics.Metrics all = proxies(spec.name() + " at step " + step, parameters, heldAll);
+                    HeldOutMetrics.Metrics last = proxies(spec.name() + " at step " + step + " (last)", parameters, heldLast);
+                    Map<String, Object> c = new LinkedHashMap<>();
+                    c.put("net", spec.name());
+                    c.put("step", step);
+                    c.put("kl", all.klPolicy());
+                    c.put("top1", all.top1());
+                    c.put("value_loss", all.valueLoss());
+                    c.put("winner_accuracy", all.winnerAccuracy());
+                    c.put("kl_last_generation", last.klPolicy());
+                    try {
+                        Files.writeString(dir.resolve("curve.jsonl"), RunMonitor.json(c) + "\n", StandardCharsets.UTF_8,
+                                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } catch (IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
+                }
+            };
+            TrainingRun.Reporting reporting = new TrainingRun.Reporting(List.<TrainingObserver>of(tail, curve), err, 60_000_000_000L);
             StepTrainer stepTrainer = trainer.equals("gpu")
                     ? GpuTrainers.create(parameters, optimizer, batch, cfg.valueCoefficient())
                     : StepTrainer.cpu(parameters, optimizer, cfg.valueCoefficient(), cfg.microbatch(), trainThreads);

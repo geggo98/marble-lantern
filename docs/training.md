@@ -1858,7 +1858,7 @@ Measured 2026-11-13 on an Apple M3 Max, 100 W adapter (battery 76 to 77 %, "AC a
 ### The tools
 
 - `TargetNoise` (E1): `TargetNoise --loop DIR --net FILE --out DIR [--generations 10-13] [--positions 2000] [--sims 200] [--long-sims 1600] [--noise 0.25] [--alpha 0.3] [--race 1] [--threads 8] [--seed 1]`. Positions are drawn (seed 1) from the games that the loop holds out (`Loop.heldOut`) in generations 10 to 13, 500 per generation, among the samples with a full search and plies 10 to 80 (both movers); every position is replayed from the moves of its game. Resumable (one line per position in `OUT/positions.jsonl`).
-- `Capacity` (E3): `Capacity --loop DIR --teacher DIR --best FILE --out DIR --nets NAME=CxB,... --steps N [--stage train|gate|all] [--pairs 150] [--gate-sims 100] [--tag NAME] ...`. Random initialisation (`Parameters.init`, seed 1), the loop's trainer (GPU, AdamW, batch 256, warm-up 100 steps, mirror augmentation, value coefficient 1), the batches of `ReplayBuffer.batch(seed, 1, step, 256)` (so every network sees the same batches), a cosine from 3e-4 to 1e-5 over all steps, checkpoints every 2500 steps and a resumable gate (`Gate.PairJob`). `--best` is the reference network of the gate; `--tag` gives another gate its own directory and results file.
+- `Capacity` (E3): `Capacity --loop DIR --teacher DIR --best FILE --out DIR --nets NAME=CxB,... --steps N [--stage train|gate|all] [--pairs 150] [--gate-sims 100] [--tag NAME] [--curve-steps N,...] ...`. Random initialisation (`Parameters.init`, seed 1), the loop's trainer (GPU, AdamW, batch 256, warm-up 100 steps, mirror augmentation, value coefficient 1), the batches of `ReplayBuffer.batch(seed, 1, step, 256)` (so every network sees the same batches), a cosine from 3e-4 to 1e-5 over all steps, checkpoints every 2500 steps and a resumable gate (`Gate.PairJob`). `--best` is the reference network of the gate; `--tag` gives another gate its own directory and results file.
 - E2 needs no new code: `MctsMatch --net FILE --subject mcts:sims=400,batch=1,cpuct=1.0,noise=0,temp=0,race=1 --vs mcts:sims=200,... --pairs 200 --seed 6001 --threads 8` (4 random opening plies, paired colours, the evaluation player of the loop).
 
 The GPU trainer ran unchanged for 32x8, 48x6 and 64x6 (the docs listed LARGE as untested; 48 channels is not a power of two and worked). The data are under `data/D1` (git-ignored).
@@ -1969,6 +1969,97 @@ Capacity is a limit, so test it where it counts but cheaply, in this order:
 1. **Equal training length, longer** (offline, about 2.5 hours of GPU for MID and LARGE with the SMALL control): 128,000 steps (16 passes, the cosine over all of them), same data, same gates. It answers whether the gap to generation 13 is training length (SMALL then closes in on 0.42 and the larger ones go below) and whether the advantage of LARGE persists when SMALL is no longer starved. If LARGE at 128,000 steps beats generation 13 at 100 simulations with a score of 0.55 or more, the capacity case is made for the loop.
 2. **Warm start instead of from scratch:** initialise MID or LARGE by distillation from generation 13 (policy and value of the network plus the stored visit targets) and train on the loop's window as in a generation; this is the form in which a larger network would enter the loop, and it removes the 14-generation handicap of E3.
 3. In parallel, **GPU inference for `classic1`** is the precondition for self-play with a LARGE network (the CPU forward pass costs 6.5 times per move), and **self-play with more simulations** (E1: 200 simulations give a shallow target, E2: twice the simulations is +122 Elo) is the cheaper lever that needs no new network: both can be compared in the loop at equal wall time.
+
+## Capacity diagnostics 2 (measured)
+
+**TL;DR:** The longer, equal-budget version of E3: SMALL 32x4, MID 48x6 and LARGE 64x6 trained from scratch for **128,000 steps** (16.2 passes over the 2.02 M samples, 8.1 with the mirror images; lr 3e-4 with a cosine to 1e-5) on the same window, held-out set, seed and batches as [capacity diagnostics 1](#capacity-diagnostics-1-measured). The held-out policy KL falls to 0.479 (SMALL), 0.417 (MID) and **0.399 (LARGE)**. At 100 simulations against the loop-3 generation 13 network (SMALL, 14 on-policy generations, about 210,000 steps) the gate scores **0.412 (SMALL, -62 Elo), 0.588 (MID, +62) and 0.688 (LARGE, +138)**; LARGE at the loop's 200 simulations (100 pairs) scores 0.678 (+129). Against the equally trained SMALL: MID 0.692 (+141), LARGE 0.735 (+177). **Decision rules:** (1) LARGE >= 0.50: met, clearly; (2) MID >= 0.50: met; (3) does not apply. Training length alone moved the SMALL control from -254 to -62 Elo against generation 13, and the capacity advantage persists: a supervised LARGE trained for 128,000 steps on the loop-3 window is already stronger than 14 generations of SMALL self-play at equal simulations. **Cost-adjusted**, search still buys more per unit of compute than size (LARGE at about 5.2 times the CPU time per move: +138 Elo; generation 13 with 4.9 times the simulations: +274 over a 200-simulation base, about +120 per doubling), so the case for LARGE is the quality of the targets it can produce in a loop, not a cheaper way to the same move quality. One seed each; see the limits.
+
+Measured 2026-11-13 on an Apple M3 Max, 100 W adapter (battery 76 %, "AC attached; not charging" before and after the long runs). Another agent ran on the same machine, and the gates of SMALL and MID ran (4 threads) while the next network trained, so steps per second and CPU ms per move are indicative; scores, KLs and losses come from fixed seeds and do not depend on the load. The data are under `data/D2` (git-ignored).
+
+### What was run
+
+`Capacity` as in diagnostics 1 with `--steps 128000 --checkpoint-steps 4000 --curve-steps 16000,32000,64000`. New: `--curve-steps` measures the held-out proxies of the network in training at those steps, from the parameters that the checkpoint synced, and appends them to `OUT/NAME/curve.jsonl`; the steps must be multiples of the checkpoint cadence. Same reference (`data/loop3/gen-0013/candidate.safetensors`), `--gate-sims 100 --pairs 150`, gate seed 7001, four random opening plies. The 200-simulation gate of LARGE: `--gate-sims 200 --pairs 100 --tag sims200`. The control gates use the trained 128,000-step SMALL as `--best` with `--tag vs-control`. The ETA of the LARGE run was 75 to 90 minutes (82 minutes measured), far below the 3-hour limit, so the budget stayed at 128,000 steps for all three.
+
+### Training
+
+| | SMALL 32x4 | MID 48x6 | LARGE 64x6 |
+|---|---|---|---|
+| parameters | 61,734 | 200,262 | 352,998 |
+| MACs against SMALL | 1.00 | 3.28 | 5.80 |
+| steps/s (loaded machine) | 83.6 | 30.7 | 26.0 |
+| training time | 25.5 min | 69.6 min | 82.0 min |
+| train policy KL, last 1000 steps | 0.409 | 0.354 | 0.338 |
+| train value loss, last 1000 steps | 0.449 | 0.419 | 0.399 |
+| **held-out policy KL** (generations 7 to 13) | 0.479 | 0.417 | **0.399** |
+| held-out policy KL, generation 13 only | 0.483 | 0.422 | 0.406 |
+| held-out top-1 | 66.43 % | 69.67 % | 70.94 % |
+| held-out value loss | 0.457 | 0.445 | 0.447 |
+| held-out winner prediction | 82.25 % | 82.58 % | 82.75 % |
+
+For comparison, the 32,000-step networks of diagnostics 1: 0.549 (SMALL), 0.465 (MID), 0.438 (LARGE). Four times the steps lowered the KL by 0.070, 0.048 and 0.039.
+
+### Convergence (held-out policy KL, generations 7 to 13)
+
+| steps | SMALL | MID | LARGE |
+|---|---|---|---|
+| 16,000 | 0.565 | 0.503 | 0.467 |
+| 32,000 | 0.528 | 0.460 | 0.438 |
+| 64,000 | 0.496 | 0.435 | 0.412 |
+| 128,000 (end, lr 1e-5) | 0.479 | 0.417 | 0.399 |
+
+The intermediate values are taken at the learning rate of that point of the cosine (about 2.8e-4, 2.5e-4 and 1.6e-4 at 16,000, 32,000 and 64,000 steps), so they are not what a run of that length with its own decay would give (diagnostics 1: 0.549, 0.465, 0.438 at 32,000 steps with the decay). From 64,000 to 128,000 steps the KL still falls by 0.017 (SMALL), 0.018 (MID) and 0.013 (LARGE), part of it the decay. The curves flatten but are not flat: the networks are not converged on this window. The spacing of the three stays: MID to SMALL 0.062, LARGE to MID 0.018. The train KL of LARGE (0.338) lies 0.061 below its held-out KL, MID 0.063, SMALL 0.071: a little overfitting after 16 passes, no more for the larger networks.
+
+### Gates (100 simulations, 150 pairs, seed 7001)
+
+**Against generation 13** (the loop's best network):
+
+| Network | Score +- se | W-D-L games | Elo | CPU ms/move (network / reference) | Cost ratio |
+|---|---|---|---|---|---|
+| SMALL 32x4, 128k steps | 0.412 +- 0.024 | 121-5-174 | -62 | 64.9 / 64.7 | 1.0 |
+| MID 48x6 | 0.588 +- 0.023 | 171-11-118 | +62 | 147.3 / 48.5 | 3.0 |
+| LARGE 64x6 | **0.688 +- 0.021** | 203-7-90 | **+138** | 196.0 / 37.8 | 5.2 |
+
+(Run 1, 32,000 steps: SMALL 0.188, MID 0.405, LARGE 0.473.) The CPU time of the SMALL pair is distorted by the load of other jobs (64.9 against 33 in run 1); the ratios within a pair are the usable part.
+
+**Against the equally trained SMALL (128,000 steps):**
+
+| Network | Score +- se | W-D-L games | Elo | CPU ms/move (network / SMALL) |
+|---|---|---|---|---|
+| MID 48x6 | 0.692 +- 0.023 | 204-7-89 | +141 | 136.8 / 45.3 |
+| LARGE 64x6 | 0.735 +- 0.020 | 218-5-77 | +177 | 217.9 / 42.1 |
+
+(Run 1: +164 and +222 against a 32,000-step SMALL.) The advantage shrinks when SMALL is no longer starved (MID +164 to +141, LARGE +222 to +177) but stays large.
+
+**LARGE against generation 13 at the loop's 200 simulations, 100 pairs:** 0.678 +- 0.026 (135-1-64 games), +129 Elo, 426.1 against 82.4 CPU ms/move (5.2 times). The same as at 100 simulations within the noise.
+
+### Decision rules
+
+1. **LARGE >= 0.50 against generation 13 at equal simulations: met** (0.688; 0.678 at 200 simulations). 128,000 steps of supervised training on the loop-3 window already beat 14 generations of SMALL self-play, so a LARGE loop can start from this network and a clear edge is expected.
+2. **MID >= 0.50: met** (0.588, +62 Elo for 3.0 times the CPU time).
+3. **Neither reaches 0.45:** not the case; no warm start or distillation is needed to get there.
+
+### Cost-adjusted comparison
+
+| Way to spend more compute | Elo | Cost | Elo per doubling of cost |
+|---|---|---|---|
+| MID against generation 13, 100 simulations | +62 | 3.0 | 39 |
+| LARGE against generation 13, 100 simulations | +138 | 5.2 | 58 |
+| generation 13, 400 against 200 simulations (diagnostics 1) | +122 | 2.0 | 122 |
+| generation 13, 1000 against 200 simulations (diagnostics 1) | +274 | 4.9 | 120 |
+
+Per unit of compute, simulations are still worth about twice what size buys, so at equal wall time per move generation 13 with 5 times the simulations should beat LARGE at 100 simulations. That is not measured here (it needs generation 13 at 500 simulations against LARGE at 100, with the cost on the GPU). What size buys that search does not: the trained network is the source of the targets, and LARGE fits them better (held-out KL 0.399 against 0.479 for an equal SMALL; generation 13 has about 0.42 on its own generation). And a LARGE network can still be searched deeper.
+
+### Limits
+
+- One seed of initialisation and batches per network. Differences of 0.02 in KL or 0.04 in score are near the noise; the order of the three networks is not.
+- The gate has 150 pairs (se 0.02 in score, 14 Elo) and the evaluation player of the loop (no noise, temperature 0, four random opening plies); the 200-simulation gate of LARGE only 100.
+- The window contains the self-play data of generations 7 to 13, whose targets come from searches of generation-13-class networks; the result says "supervised training on the loop-3 window is enough to match and pass generation 13", not "a larger network would find these targets without such data".
+- Timings under load; ratios within a pair are the reliable part. The GPU inference cost of LARGE was not measured here (diagnostics 1: 5.3 to 6.5 times per evaluation).
+- Intermediate KLs are taken at a high learning rate and are not what a shorter run would give.
+
+### Recommendation
+
+**Put LARGE 64x6 into the loop first, starting from this 128,000-step network** (`data/D2/e3/LARGE/candidate.safetensors`, already +138 Elo above generation 13 at equal simulations) as generation 0 of a new loop run, with the recipe of run 3: GPU evaluator and GPU trainer, 200 simulations in self-play and gate, the learning rate decayed within each generation (`--lr-final`), the promotion rule with z = 1.28, and the loop-3 samples as the initial window. First measure the self-play throughput of LARGE with the pooled GPU evaluator at equal wall time against SMALL with more simulations; if it is too low, MID (+62 Elo, 3.0 times the cost) is the fallback with the same recipe. More offline training is worth a little (0.013 to 0.018 KL per doubling of the steps), but the on-policy data of a LARGE loop is the better use of the GPU.
 
 ## Open questions
 
