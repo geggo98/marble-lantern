@@ -11,11 +11,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongFunction;
 import java.util.function.Supplier;
 
 import sternhalma.engine.RuleSet;
+import sternhalma.nn.PooledEvaluator;
 import sternhalma.search.Elo;
 import sternhalma.search.Player;
 import sternhalma.selfplay.MctsMatch.PairLine;
@@ -144,6 +147,11 @@ final class Gate {
         private final Loop.StopHook hook;
         private final String hookPhase;
         private final AtomicLong finished = new AtomicLong();
+        private int carriers;
+        private Runnable onStop;
+        private int tailPairs;
+        private int tailThreads;
+        private Supplier<Worker<PairLine>> tailPlay;
 
         /**
          * @param identity names the match: shards of another match in the directory are not reused
@@ -193,12 +201,74 @@ final class Gate {
             }
         }
 
+        /**
+         * Plays the pairs as games in flight that wait for a device (docs/training.md, "As implemented (block G2)"): the pairs
+         * are virtual threads on a scheduler of {@code carriers} carriers, and a stop calls {@code onStop} (the device aborts: the
+         * pairs in flight are discarded and the job ends after the shards that are complete).
+         */
+        void device(int carriers, Runnable onStop) {
+            this.carriers = carriers;
+            this.onStop = onStop;
+        }
+
+        /**
+         * Plays the last {@code pairs} pairs of the to-do list on the CPU, from the start, in {@code threads} platform threads
+         * (taken from the carriers of {@link #device}), so that the end of the match does not run with a few pairs on the device.
+         */
+        void tail(int pairs, int threads, Supplier<Worker<PairLine>> cpuPlay) {
+            if (pairs < 0 || pairs > 0 && (threads < 1 || cpuPlay == null)) {
+                throw new IllegalArgumentException("a tail needs threads >= 1 and a CPU player");
+            }
+            this.tailPairs = pairs;
+            this.tailThreads = pairs > 0 ? threads : 0;
+            this.tailPlay = cpuPlay;
+        }
+
+        @Override
+        ExecutorService newPool() {
+            return carriers > 0 ? virtualPool(threads, Math.max(1, carriers - tailThreads)) : super.newPool();
+        }
+
+        @Override
+        int tailItems() {
+            return tailPairs;
+        }
+
+        @Override
+        ExecutorService newTailPool() {
+            return Executors.newFixedThreadPool(tailThreads, Thread.ofPlatform().name("tail-pair-", 0).factory());
+        }
+
+        @Override
+        void requestStop() {
+            super.requestStop();
+            if (onStop != null) {
+                onStop.run();
+            }
+        }
+
         @Override
         Supplier<Worker<PairLine>> workers() {
+            return counted(factory);
+        }
+
+        @Override
+        Supplier<Worker<PairLine>> tailWorkers() {
+            return counted(tailPlay);
+        }
+
+        /** A pair that ends with {@link PooledEvaluator.Aborted} is discarded (null: the shard is not written). */
+        private Supplier<Worker<PairLine>> counted(Supplier<Worker<PairLine>> play) {
             return () -> {
-                Worker<PairLine> inner = factory.get();
+                Worker<PairLine> inner = play.get();
                 return pair -> {
-                    PairLine line = inner.run(pair);
+                    PairLine line;
+                    try {
+                        line = inner.run(pair);
+                    } catch (PooledEvaluator.Aborted e) {
+                        return null;
+                    }
+                    line = nonNegative(line);
                     cpuNanos.addAndGet(line.subjectCpuNanos() + line.opponentCpuNanos());
                     if (hook != null && hook.stop(hookPhase, finished.incrementAndGet())) {
                         requestStop();
@@ -206,6 +276,16 @@ final class Gate {
                     return line;
                 };
             };
+        }
+
+        /** A virtual thread has no CPU time of its own ({@code -1}): the pairs of a device record 0 and not a negative time. */
+        private static PairLine nonNegative(PairLine l) {
+            if (l.subjectCpuNanos() >= 0 && l.opponentCpuNanos() >= 0) {
+                return l;
+            }
+            return new PairLine(l.pair(), l.score(), l.wins(), l.draws(), l.losses(), l.plies(),
+                    Math.max(0, l.subjectCpuNanos()), l.subjectMoves(), l.subjectSims(), l.subjectRaceMoves(),
+                    Math.max(0, l.opponentCpuNanos()), l.opponentMoves(), l.opponentNodes());
         }
 
         @Override

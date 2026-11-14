@@ -38,6 +38,8 @@ import sternhalma.tornado.GpuEvaluators;
  */
 final class LoopGamesJob extends Job<GameRecord> {
 
+    private int tailGames;
+    private int tailThreads;
     private final LoopGame.Settings settings;
     private final String networkSha256;
     private final Parameters network;
@@ -59,11 +61,11 @@ final class LoopGamesJob extends Job<GameRecord> {
      */
     static final class Device implements AutoCloseable {
 
-        private final Supplier<GpuEvaluators.Session> opener;
+        private final Supplier<GpuEvaluators.Pool> opener;
         private final String description;
         private final int computeThreads;
         private final ReentrantLock lock = new ReentrantLock();
-        private GpuEvaluators.Session session;
+        private GpuEvaluators.Pool pool;
         private boolean aborted;
         private boolean closed;
 
@@ -73,9 +75,25 @@ final class LoopGamesJob extends Job<GameRecord> {
          * @param computeThreads carriers of the scheduler of the games, which are virtual threads (the first value in a JVM wins)
          */
         Device(Supplier<GpuEvaluators.Session> opener, String description, int computeThreads) {
+            this(description, computeThreads, () -> {
+                GpuEvaluators.Session s = opener.get();
+                return new GpuEvaluators.Pool(s.service(), List.of(s.model()), List.of(s.timings()));
+            });
+        }
+
+        private Device(String description, int computeThreads, Supplier<GpuEvaluators.Pool> opener) {
             this.opener = opener;
             this.description = description;
             this.computeThreads = computeThreads;
+        }
+
+        /**
+         * A device with several networks on one device thread (a match: the candidate and the best network).
+         *
+         * @param opener opens the service with its models, one per network in the order the match names them
+         */
+        static Device ofPool(Supplier<GpuEvaluators.Pool> opener, String description, int computeThreads) {
+            return new Device(description, computeThreads, opener);
         }
 
         String description() {
@@ -86,20 +104,20 @@ final class LoopGamesJob extends Job<GameRecord> {
             return computeThreads;
         }
 
-        /** The session, opened by the first caller (a lock, not a monitor: the callers are virtual threads). */
-        GpuEvaluators.Session session() {
+        /** The service and its models, opened by the first caller (a lock, not a monitor: the callers are virtual threads). */
+        GpuEvaluators.Pool pool() {
             lock.lock();
             try {
                 if (closed) {
                     throw new IllegalStateException("the device evaluator is closed");
                 }
-                if (session == null) {
-                    session = opener.get();
+                if (pool == null) {
+                    pool = opener.get();
                     if (aborted) {
-                        session.service().abort();
+                        pool.service().abort();
                     }
                 }
-                return session;
+                return pool;
             } finally {
                 lock.unlock();
             }
@@ -119,8 +137,8 @@ final class LoopGamesJob extends Job<GameRecord> {
             lock.lock();
             try {
                 aborted = true;
-                if (session != null) {
-                    session.service().abort();
+                if (pool != null) {
+                    pool.service().abort();
                 }
             } finally {
                 lock.unlock();
@@ -131,7 +149,10 @@ final class LoopGamesJob extends Job<GameRecord> {
         String timings() {
             lock.lock();
             try {
-                return session == null ? "" : session.timings().get();
+                if (pool == null) {
+                    return "";
+                }
+                return pool.timings().stream().map(Supplier::get).collect(java.util.stream.Collectors.joining(" | "));
             } finally {
                 lock.unlock();
             }
@@ -140,7 +161,7 @@ final class LoopGamesJob extends Job<GameRecord> {
         PooledEvaluator.Stats stats() {
             lock.lock();
             try {
-                return session == null ? null : session.service().stats();
+                return pool == null ? null : pool.service().stats();
             } finally {
                 lock.unlock();
             }
@@ -151,8 +172,8 @@ final class LoopGamesJob extends Job<GameRecord> {
             lock.lock();
             try {
                 closed = true;
-                if (session != null) {
-                    session.close();
+                if (pool != null) {
+                    pool.close();
                 }
             } finally {
                 lock.unlock();
@@ -173,6 +194,11 @@ final class LoopGamesJob extends Job<GameRecord> {
         this.networkSha256 = networkSha256;
         this.network = network;
         this.hook = hook;
+    }
+
+    /** CPU time of the whole process, for the phases whose games are virtual threads. */
+    static long processCpuNanos() {
+        return PROCESS.getProcessCpuTime();
     }
 
     /** Search nodes of all games of this process. */
@@ -196,10 +222,39 @@ final class LoopGamesJob extends Job<GameRecord> {
         if (device == null) {
             return super.newPool();
         }
-        // read when the first virtual thread of the JVM starts; the carriers are the compute threads
-        System.setProperty("jdk.virtualThreadScheduler.parallelism", Integer.toString(device.computeThreads()));
-        System.setProperty("jdk.virtualThreadScheduler.maxPoolSize", Integer.toString(device.computeThreads()));
-        return Executors.newFixedThreadPool(threads, Thread.ofVirtual().name("game-", 0).factory());
+        return virtualPool(threads, Math.max(1, device.computeThreads() - tailThreads()));
+    }
+
+    /**
+     * Plays the last {@code games} games of the to-do list on the CPU path in {@code threads} platform threads, from the start,
+     * next to the games on the device (docs/training.md, "As implemented (block G2)"); the threads are taken from the compute
+     * threads of the device games. Only with a device; call before {@link #run()}.
+     */
+    void tail(int games, int threads) {
+        if (games < 0 || threads < 0 || games > 0 && threads < 1) {
+            throw new IllegalArgumentException("tail games >= 0 and, with games, threads >= 1 expected");
+        }
+        this.tailGames = device == null ? 0 : games;
+        this.tailThreads = device == null || games == 0 ? 0 : threads;
+    }
+
+    private int tailThreads() {
+        return tailGames > 0 ? tailThreads : 0;
+    }
+
+    @Override
+    int tailItems() {
+        return tailGames;
+    }
+
+    @Override
+    ExecutorService newTailPool() {
+        return Executors.newFixedThreadPool(tailThreads, Thread.ofPlatform().name("tail-game-", 0).factory());
+    }
+
+    @Override
+    Supplier<Worker<GameRecord>> tailWorkers() {
+        return cpuWorkers();
     }
 
     @Override
@@ -256,7 +311,7 @@ final class LoopGamesJob extends Job<GameRecord> {
     Supplier<Worker<GameRecord>> workers() {
         if (device != null) {
             return () -> {
-                PooledEvaluator.Client client = device.session().model().newClient();
+                PooledEvaluator.Client client = device.pool().models().get(0).newClient();
                 LoopGame game = new LoopGame(settings, client);
                 return id -> {
                     client.begin();
@@ -270,6 +325,11 @@ final class LoopGamesJob extends Job<GameRecord> {
                 };
             };
         }
+        return cpuWorkers();
+    }
+
+    /** One game per thread with its own CPU forward pass. */
+    private Supplier<Worker<GameRecord>> cpuWorkers() {
         return () -> {
             LoopGame game = new LoopGame(settings, Networks.fastest(network));
             return id -> finished(game.play(id));

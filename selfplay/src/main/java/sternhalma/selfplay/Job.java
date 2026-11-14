@@ -94,6 +94,37 @@ abstract class Job<R> {
         return Executors.newFixedThreadPool(threads);
     }
 
+    /**
+     * Virtual threads for games that wait for a device: {@code threads} of them (a parked one costs nothing) on a scheduler of
+     * {@code carriers} carriers, which bounds the CPU use (the properties are read when the first virtual thread of the JVM
+     * starts: the first value in a JVM wins).
+     */
+    static ExecutorService virtualPool(int threads, int carriers) {
+        System.setProperty("jdk.virtualThreadScheduler.parallelism", Integer.toString(carriers));
+        System.setProperty("jdk.virtualThreadScheduler.maxPoolSize", Integer.toString(carriers));
+        return Executors.newFixedThreadPool(threads, Thread.ofVirtual().name("game-", 0).factory());
+    }
+
+    /**
+     * The tail of the job: the last this many items of the to-do list run in {@link #newTailPool()} with
+     * {@link #tailWorkers()} from the start, so that the end of a phase on a device does not run with a few positions per
+     * execution (docs/training.md, "As implemented (block G2)"). 0: no tail, one pool. Which items form the tail is a function of
+     * the to-do list, not of the timing, so a restart plays the same items in the same way.
+     */
+    int tailItems() {
+        return 0;
+    }
+
+    /** The pool of the tail items; null if {@link #tailItems()} is 0. Closed by the job. */
+    ExecutorService newTailPool() {
+        return null;
+    }
+
+    /** The workers of the tail items. */
+    Supplier<Worker<R>> tailWorkers() {
+        return workers();
+    }
+
     abstract Path shardFile(int shard);
 
     /** The state of an existing shard file; sets {@link #mismatch(String)} for MISMATCH. */
@@ -263,17 +294,21 @@ abstract class Job<R> {
             int total = todoItems;
             Supplier<Worker<R>> factory = workers();
             ThreadLocal<Worker<R>> local = ThreadLocal.withInitial(factory);
-            try (ExecutorService pool = newPool()) {
+            int tail = Math.min(tailItems(), todoItems);
+            ThreadLocal<Worker<R>> tailLocal = tail > 0 ? ThreadLocal.withInitial(tailWorkers()) : null;
+            int ordinal = 0;
+            try (ExecutorService pool = newPool(); ExecutorService tailPool = tail > 0 ? newTailPool() : null) {
                 List<List<Future<R>>> perShard = new ArrayList<>();
                 for (int sh : todo) {
                     List<Future<R>> fs = new ArrayList<>();
                     for (int item = sh * shardSize; item < Math.min(items, sh * shardSize + shardSize); item++) {
                         int it = item;
-                        fs.add(pool.submit(() -> {
+                        boolean inTail = ordinal++ >= todoItems - tail;
+                        fs.add((inTail ? tailPool : pool).submit(() -> {
                             if (stop) {
                                 return null;
                             }
-                            R r = local.get().run(it);
+                            R r = (inTail ? tailLocal : local).get().run(it);
                             int n = done.incrementAndGet();
                             if (stopAfter > 0 && n >= stopAfter) {
                                 requestStop();

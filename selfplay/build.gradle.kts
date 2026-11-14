@@ -120,6 +120,25 @@ tasks.register<JavaExec>("selfplayBench") {
     systemProperty("tornado.recover.bailout", "False")
 }
 
+// Pairs per second of the loop's matches (gate, strength record) with the CPU or the device evaluator; see LoopMatchBench and
+// docs/training.md, "As implemented (block G2)". Arguments after --args.
+tasks.register<JavaExec>("matchBench") {
+    group = "verification"
+    description = "Pairs per second of the loop's matches with the CPU or the GPU evaluator; see sternhalma.selfplay.LoopMatchBench."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("sternhalma.selfplay.LoopMatchBench")
+    workingDir = rootDir
+    if (sdkArgfileTemplate != null && tornadoHome != null) {
+        jvmArgumentProviders.add(objects.newInstance<TornadoJvmArgs>().apply {
+            template.set(sdkArgfileTemplate)
+            home.set(tornadoHome)
+        })
+        jvmArgs("--sun-misc-unsafe-memory-access=allow")
+    }
+    jvmArgs("--add-modules", "jdk.incubator.vector", "-Xmx6g")
+    systemProperty("tornado.recover.bailout", "False")
+}
+
 tasks.withType<Test>().configureEach {
     // The subprocess tests (signals, lock) start the tool in a child JVM with the test's class path.
     workingDir = rootDir

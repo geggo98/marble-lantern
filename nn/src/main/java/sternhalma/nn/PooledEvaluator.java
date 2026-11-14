@@ -56,8 +56,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * {@link AutoCloseable} is closed on that thread when this instance is closed.
  *
  * <p>{@link #abort()} ends the work of the games without a failure: they get an {@link Aborted}, the caller discards
- * the games. A failure of a backend (an exception) fails every game that waits in that batch and every later call with an
- * {@link IllegalStateException} that names the cause.
+ * the games. A failure of a backend (an exception) fails every game that waits in that batch and every later {@link #add},
+ * {@link #warmup}, {@link Client#begin} and {@link Client#forward} with an {@link IllegalStateException} that names the cause
+ * ({@link Client#end} and {@link #close} still work: they run in finally blocks).
  */
 public final class PooledEvaluator implements AutoCloseable {
 
@@ -77,7 +78,8 @@ public final class PooledEvaluator implements AutoCloseable {
     private final ArrayDeque<Runnable> tasks = new ArrayDeque<>();
     private final Thread thread;
     private boolean closed;
-    private boolean aborted;
+    /** Written under the lock; volatile because a game thread reads it after its batch is done, outside the lock. */
+    private volatile boolean aborted;
     private Throwable failure;
     private Throwable closeFailure;
     private long batches;
@@ -119,6 +121,11 @@ public final class PooledEvaluator implements AutoCloseable {
         Aborted() {
             super("the evaluator was aborted");
         }
+    }
+
+    /** Whether {@link #abort()} was called (tests and the owner of the service). */
+    public boolean isAborted() {
+        return aborted;
     }
 
     /**

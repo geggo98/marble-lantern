@@ -295,6 +295,82 @@ class LoopGameLockstepTest {
     }
 
     /**
+     * A stop while the games are in flight aborts the evaluator and the job ends at once: the backend is slow (40 ms a batch), so
+     * the eight games would need minutes; after the stop the backend computes at most the batch that was on the device. Without
+     * the abort the shutdown waits for the games to finish (the shutdown hook gives them 60 s, a test cannot).
+     */
+    @Test
+    void aStopAbortsTheGamesAlreadyInFlightAndTheShutdownDoesNotWaitForThem(@TempDir Path tmp) throws Exception {
+        CpuDevices slow = new CpuDevices(40);
+        LoopGamesJob.Device device = LoopGamesJob.Device.ofPool(() -> slow.open(List.of(NET), 2, 8), "slow", 4);
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        LoopGamesJob job = new LoopGamesJob(tmp, 1, settings(), "sha-of-the-network", NET, 8, 8, 8,
+                new PrintStream(err, true, StandardCharsets.UTF_8), LoopFixture.NEVER, device);
+        job.progressSeconds = 0.05;
+        Thread stopper = new Thread(() -> {
+            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+            while (slow.batches.get() < 10 && System.nanoTime() < deadline) {
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+            job.requestStop();
+        });
+        stopper.start();
+        long t0 = System.nanoTime();
+        int code;
+        try {
+            code = assertTimeoutPreemptively(Duration.ofSeconds(60), job::run);
+        } finally {
+            device.close();
+        }
+        double seconds = (System.nanoTime() - t0) / 1e9;
+        assertEquals(130, code, err.toString(StandardCharsets.UTF_8));
+        assertTrue(device.aborted());
+        assertTrue(slow.batches.get() < 60, "the games stopped computing: " + slow.batches.get() + " batches");
+        assertTrue(seconds < 20, "no waiting for the games: " + seconds + " s");
+        try (Stream<Path> s = Files.list(tmp)) {
+            assertTrue(s.noneMatch(f -> f.getFileName().toString().endsWith(".safetensors")), "no shard of unfinished games");
+        }
+    }
+
+    /**
+     * The last games of a generation on the CPU in a tail pool: the shards equal those of the CPU path, and the tail games did
+     * run in the tail pool (the device sees fewer positions than with every game on it).
+     */
+    @Test
+    void theTailGamesOnTheCpuGiveTheShardsOfTheCpuPath(@TempDir Path tmp) throws Exception {
+        Run cpu = job(tmp.resolve("cpu"), 11, 4, 2, null, LoopFixture.NEVER);
+        assertEquals(0, cpu.code(), cpu.err());
+        CpuDevices devices = new CpuDevices(0);
+        LoopGamesJob.Device device = LoopGamesJob.Device.ofPool(() -> devices.open(List.of(NET), 2, 8), "tail", 3);
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        LoopGamesJob tailed = new LoopGamesJob(tmp.resolve("tail"), 1, settings(), "sha-of-the-network", NET, 11, 4, 8,
+                new PrintStream(err, true, StandardCharsets.UTF_8), LoopFixture.NEVER, device);
+        tailed.progressSeconds = 0.05;
+        tailed.tail(3, 1);
+        int code;
+        try {
+            code = assertTimeoutPreemptively(Duration.ofMinutes(3), tailed::run);
+        } finally {
+            device.close();
+        }
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        assertEquals(11, tailed.doneItems);
+        assertSameShards(tmp.resolve("cpu"), tmp.resolve("tail"));
+        // all games on the device for comparison: more batches
+        CpuDevices all = new CpuDevices(0);
+        Run every = assertTimeoutPreemptively(Duration.ofMinutes(3), () -> job(tmp.resolve("all"), 11, 4, 8,
+                LoopGamesJob.Device.ofPool(() -> all.open(List.of(NET), 2, 8), "all", 3), LoopFixture.NEVER));
+        assertEquals(0, every.code(), every.err());
+        assertTrue(devices.batches.get() < all.batches.get(),
+                "the tail games did not use the device: " + devices.batches.get() + " against " + all.batches.get() + " batches");
+        assertSameShards(tmp.resolve("all"), tmp.resolve("tail"));
+    }
+
+    /**
      * Another evaluator on a resume is allowed: the shards of the CPU path are kept (and the log says so), the rest comes from
      * the device; the settings are the same, so the run is not refused.
      */

@@ -438,13 +438,13 @@ final class MctsMatch {
             sMoves += r.moves()[index];
             oCpu += r.cpuNanos()[1 - index];
             oMoves += r.moves()[1 - index];
-            if (mine instanceof MctsPlayer m) {
+            if (NetPlayers.unwrap(mine) instanceof MctsPlayer m) {
                 sSims += m.totalSims();
                 sRace += m.raceMoves();
             }
-            if (theirs instanceof AlphaBetaPlayer a) {
+            if (NetPlayers.unwrap(theirs) instanceof AlphaBetaPlayer a) {
                 oNodes += a.totalNodes();
-            } else if (theirs instanceof MctsPlayer m) {
+            } else if (NetPlayers.unwrap(theirs) instanceof MctsPlayer m) {
                 oNodes += m.totalSims();
             }
         }

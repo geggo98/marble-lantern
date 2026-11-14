@@ -1849,6 +1849,153 @@ The 0.449 is the seed stream, not the device: the CPU control with the same seed
 
 Put the gate and strength matches on the same `PooledEvaluator` (`MctsMatch --evaluator gpu` is the pattern: one model per network, the candidate and the best network share the device thread, the pairs are the games in flight). Measure the GPU rate when no other job uses it before settling `--games-in-flight` (512 with 2 cohorts looks right for SMALL), and play the last games of a generation on the CPU by id. A LARGE network is possible but slow: about 12,000 evaluations per second at best here, 0.1 games/s with a shared GPU, 1.8 times the CPU path.
 
+## As implemented (block G2)
+
+**TL;DR:** The gate, baseline and strength matches of the loop can play on the GPU too: with `--evaluator gpu` (or `--match-evaluator gpu`) the networks of a match (candidate and best network, or the network of a strength record) share one device thread and the pairs of the match are the games in flight (virtual threads, as in [block G1](#as-implemented-block-g1)); a classical rung stays on the CPU. A pair is the same code as on the CPU, so the match gives the same pair lines (gate and strength shards were identical for 60 gate pairs and 80 strength pairs, but for the CPU time fields, which are 0 on the device). **Idle-machine measurements (200 simulations): self-play 3.3 games/s on the device against 1.35 on the CPU for SMALL (2.4 times) and 1.0 to 1.3 against 0.21 for LARGE (4.8 to 6 times); a 200-pair gate 1.6 times faster for SMALL against SMALL, 4.3 times for LARGE against SMALL and 3.6 times for LARGE against LARGE; strength records against the rungs 1.3 to 1.8 times (SMALL) and 2.9 to 3.5 times (LARGE).** All matches at 200 simulations are at least 1.3 times faster on the device, so `--match-evaluator` defaults to `auto` (the matches follow `--evaluator`); at 16 and 50 simulations the device gains only 1.05 and 1.14 times, so use `--match-evaluator cpu` there. A CPU tail (`--tail-games`, `--tail-pairs`, default 0) did nothing for SMALL and cost about 10 % for LARGE (0.88 against 0.99 games/s on average of three runs each): leave it off. The estimate for one LARGE generation (2500 games, 200 pairs gate, 15,000 training steps) is about 60 minutes, against about 91 with the matches on the CPU.
+
+### What was built
+
+| Part | Module | Content |
+|---|---|---|
+| `PooledEvaluator.isAborted`, `Aborted` | nn | `abort` is now a volatile flag that the games read without the lock; `isAborted()` tells the owner. |
+| `GpuEvaluators.openAll`, `Pool` | nn-tornado | One service with several networks (one model each, all warmed up) on one device thread; `open` is the single-network case of it. |
+| `NetPlayers.onDevice`, `Scoped` | selfplay | An MCTS player (`mcts` spec without `net`, `batch=1`) whose searches take their evaluations from a model of the pool. It is a member of its cohort only between `begin` and `end` of one move, so a batch waits for the searches that run and not for games that wait for the opponent's move or for the other game of the pair. |
+| `Gate.PairJob.device`, `tail`, `Job.virtualPool`, `Job.tailItems` | selfplay | The pairs are virtual threads on `--threads` carriers; a stop calls the `onStop` of the device (the pairs in flight end with `Aborted` and are discarded, no shard of an unfinished pair). The CPU time of a virtual thread is `-1`; the guard `nonNegative` writes 0 and the phase takes the CPU time of the process instead. |
+| `Job` tail | selfplay | `tailItems()`, `newTailPool()`, `tailWorkers()`: the last N items of the to-do list run from the start in a pool of platform threads with CPU workers, next to the device games. Which items they are depends only on the to-do list (the last N of what is left), so a restart does the same. The CPU threads of the tail are taken from the compute threads (`--threads` minus `--tail-threads`, at least 1). |
+| `Loop.pairJob`, `Loop.Devices` | selfplay | The wiring: one device per match, closed after it; `Loop.devices` is the source of devices that tests replace by a CPU-backed one. A player the device cannot run (batch above 1, `net=`) keeps the matches on the CPU with a message. |
+| `EvaluatorOptions` | selfplay | `--tail-games N`, `--tail-pairs N`, `--tail-threads T` (default 0, 0, 2) and `--match-evaluator cpu\|gpu\|auto` (default `auto`). None of them is part of `run.json`. |
+| `LoopMatchBench`, task `matchBench` | selfplay | Pairs per second of a gate or strength match with either evaluator, written as shards (the measurements below). |
+
+**Which side plays a match.** `--match-evaluator cpu` keeps every match on the CPU, `gpu` puts the matches on the device even with `--evaluator cpu`, `auto` follows `--evaluator`. The self-play follows `--evaluator` alone. A rung (an alpha-beta player) is always on the CPU: in a strength record the pairs are device games whose opponent moves are CPU work on the same virtual threads.
+
+**CPU time.** A virtual thread has no CPU time of its own. A device match therefore records 0 in the pair fields `s_cpu_ns` and `o_cpu_ns`, and the cost line of the phase in `metrics.jsonl` carries the CPU time of the whole process (the difference of `getProcessCpuTime` over the match). The shards of a device gate differ from the CPU shards in these two fields only.
+
+### Tests
+
+- `MatchPoolTest` (7): a pair with both networks on one device thread equals the pair on the CPU for 1, 3 and 8 pairs in flight, 1 and 2 cohorts, 1 and 4 carriers; a device job with a tail writes the shards of the CPU job (and the device pairs run on the device, the tail pairs on the CPU path); a stop discards the pairs in flight at once (a backend of 40 ms per batch), leaves no temporary file and the restart gives the uninterrupted result; which players run on the device; `begin` and `end` once per move; the whole loop on a CPU-backed device with a tail of games and pairs makes the same samples, candidates, pairs and decisions as the CPU loop; a player that cannot run on the device keeps the matches on the CPU.
+- `GateDeviceTest` (14): the corners that the large tests do not pin down. An aborted pair is discarded and not propagated (no "item failed", no shard, no error exit); the CPU time of device pairs is never negative, and a negative time is clamped with the rest of the line kept; the tail of a match uses the tail workers and the tail pool has the threads asked for; the tail of games has the exact size (a tail as long as the job leaves the device untouched, one shorter uses it); a stop in a match of the loop aborts the device; the log lines (pairs in flight capped by the pairs, tail pairs capped by the pairs, tail threads capped by the compute threads, the baseline on the device too); every device is closed after its match and the match line has the CPU time of the process; `--match-evaluator cpu` and `gpu`; the checks of the options; the carriers of `Job.virtualPool`.
+- `JobTailTest` (4): the last items of the to-do list run in the tail pool with the tail workers; after a restart the tail is the end of what is left; a tail larger than the to-do list takes everything; no tail, no tail pool.
+- `LoopGameLockstepTest` (9) and `PooledEvaluatorTest` (20): the tail games of a generation give the shards of the CPU path, and the abort flag, close and the other corners of the evaluator (the volatile flag, abort before and during a batch).
+
+The build has 1,149 tests, 2 skipped (the two `strategyBeatsARandomPlayer` contract tests, as before), none failed; the module `selfplay` has 275.
+
+**Mutation check:** 29 of 29 mutants caught, each put into the code alone and run against `GateDeviceTest`, `MatchPoolTest`, `JobTailTest`, `LoopGameLockstepTest` and `PooledEvaluatorTest` (the script is not part of the repository; a mutant is a one-line text replacement, the run stops at the first failing test). The first pass caught 21 of the first 25; the survivors drove new tests: the cap of the tail by the pairs (an equivalent mutant of the job, which caps it as well, but the log line was wrong), the carriers property of `Job.virtualPool` (the first value in a JVM wins, so only the property is tested), the CPU time of the process in the cost line of a device match, and a device that is not closed after its match. The four mutants the review listed (an aborted pair rethrown, `tailWorkers` on the main path, no `nonNegative`, no `d::abort` in `Loop`) and the boundary of `LoopGamesJob.tail` are numbers 1, 2, 3, 4, 5 and 6. The rest were written against the new code (the options, the player wrapper, the wiring, the abort flag). The mutants 26 to 29 are of the option `--match-evaluator`. One more finding: `*Gpu*` in a test name makes the Gradle task `test` skip it (the pattern excludes the device tests of the GPU trainer), so a test of this block must not have `Gpu` in its name.
+
+| # | Mutant | Caught by |
+|---|---|---|
+| 1 | Gate: rethrow Aborted | `GateDeviceTest.anAbortedPairIsDiscardedAndNotPropagated` |
+| 2 | Gate: tailWorkers use main workers | `GateDeviceTest.theTailOfAMatchUsesTheTailWorkersAndNotTheMainOnes` |
+| 3 | Gate: no nonNegative | `GateDeviceTest.aNegativeCpuTimeIsClampedAndTheRestOfTheLineIsKept` |
+| 4 | Loop: no device abort wiring | `GateDeviceTest.aStopInAMatchOfTheLoopAbortsTheDevice` |
+| 5 | LoopGamesJob: tailItems off by one | `GateDeviceTest.aTailAsLongAsTheJobLeavesTheDeviceUntouchedAndOneLessDoesNot` |
+| 6 | Job: tail boundary > instead of >= | `GateDeviceTest.theTailOfAMatchUsesTheTailWorkersAndNotTheMainOnes` |
+| 7 | Job: tail pool and main pool swapped | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 8 | Job: tail items use the main workers | `GateDeviceTest.theTailOfAMatchUsesTheTailWorkersAndNotTheMainOnes` |
+| 9 | Gate: requestStop does not set the flag | `GateDeviceTest.aStopInAMatchOfTheLoopAbortsTheDevice` |
+| 10 | Gate: tail check pairs >= 0 | `GateDeviceTest.theTailOfAMatchUsesTheTailWorkersAndNotTheMainOnes` |
+| 11 | Gate: tailItems always 0 | `GateDeviceTest.theTailOfAMatchUsesTheTailWorkersAndNotTheMainOnes` |
+| 12 | NetPlayers: Scoped without end | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 13 | NetPlayers: runsOnDevice batch >= 1 | `MatchPoolTest.onlyAnMctsPlayerWithoutNetAndWithBatchOneRunsOnTheDevice` |
+| 14 | NetPlayers: unwrap returns player | `MatchPoolTest.aDevicePlayerBeginsAndEndsOncePerMove` |
+| 15 | MctsMatch: no unwrap of opponent | `MatchPoolTest.aPairWithBothNetworksOnTheDeviceEqualsThePairOnTheCpu` |
+| 16 | Loop: tailThreads not capped by compute threads | `GateDeviceTest.theLoopLogsTheTailsAndTheFlightsOfTheMatches` |
+| 17 | Loop: in flight not capped by pairs | `GateDeviceTest.theLoopLogsTheTailsAndTheFlightsOfTheMatches` |
+| 18 | Loop: only matches with two nets on device | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 19 | EvaluatorOptions: tailThreads < 0 | `GateDeviceTest.theOptionsOfTheTailsAreChecked` |
+| 20 | Loop: tail pairs not capped by pairs | `GateDeviceTest.theLoopLogsTheTailsAndTheFlightsOfTheMatches` |
+| 21 | Job: virtualPool carriers ignored | `GateDeviceTest.aVirtualPoolSetsTheCarriersOfTheScheduler` |
+| 22 | Loop: device opened with wrong model order | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 23 | PooledEvaluator: abort does not set flag | `PooledEvaluatorTest.abortEndsTheGamesThatWaitWithoutAFailure` |
+| 24 | Loop: match cpu always job.cpuNanos | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 25 | Loop: device not closed after match | `GateDeviceTest.theMatchesCloseTheirDevicesAndRecordTheProcessCpuTime` |
+| 26 | EvaluatorOptions: auto ignores the evaluator | `GateDeviceTest.theMatchEvaluatorFollowsTheOptionOrTheEvaluator` |
+| 27 | EvaluatorOptions: default match evaluator cpu | `GateDeviceTest.theMatchEvaluatorFollowsTheOptionOrTheEvaluator` |
+| 28 | Loop: matches follow only --evaluator | `GateDeviceTest.aCpuMatchEvaluatorKeepsTheMatchesOffTheDevice` |
+| 29 | EvaluatorOptions: gpu match evaluator ignored | `GateDeviceTest.theMatchEvaluatorFollowsTheOptionOrTheEvaluator` |
+
+### Measurements
+
+Apple M3 Max, 100 W adapter (AC attached, battery 76 % before, during and after every run, no discharge), JDK 25.0.3, 2026-11-13 and 14, one agent on the machine. **The machine was not idle in the strict sense:** the load average was 4.3 to 5 with only background processes (CloudMounter at 75 % of a core, a Chrome renderer at 50 %, the window server) before and between the runs, and 7 to 10 during and after a run (a run uses 8 threads); never below 3. Rates therefore have a noise of 10 to 20 % (the same LARGE self-play gave 0.90, 1.03 and 1.03 games/s; the same 400-game LARGE run 1.27 and 1.04 games/s with the same number of batches, 313 s and 383 s of device time). All runs used the classic1 networks SMALL = `data/loop3/gen-0013/candidate.safetensors` (32 channels x 4 blocks) and LARGE = `data/D2/e3/LARGE/candidate.safetensors` (64 x 6, 128,000 steps), 200 simulations, 8 threads, the loop's self-play settings and evaluation player (`mcts:...,batch=1,noise=0,temp=0,race=1`), `--games-in-flight 256`, 2 cohorts unless stated.
+
+**(a) Self-play, 200 games (`LoopSelfPlayBench`).**
+
+| Net | Evaluator | Games per s (runs) | Device busy | Mean batch |
+|---|---|---|---|---|
+| SMALL | CPU, 8 threads | 1.35 (148 s) | | |
+| SMALL | GPU, 2 cohorts | 2.97, 3.54, 3.26 | 78, 96, 95 % | 43.7 |
+| SMALL | GPU, 1 cohort | 3.44 | 75 % (idle 12.5 s) | 85.2 |
+| SMALL | GPU, 2 cohorts, tail 8 games on 2 CPU threads | 2.96, 3.56, 3.23 | 94 % | 43 |
+| LARGE | CPU, 8 threads | 0.21 (940 s) | | |
+| LARGE | GPU, 2 cohorts | 0.90, 1.03, 1.03 | 98 to 99 % | 40.7 |
+| LARGE | GPU, 1 cohort | 0.85 | 89 % (idle 22 s) | 81.1 |
+| LARGE | GPU, 2 cohorts, tail 8 games on 2 CPU threads | 1.04, 0.74, 0.86 | 99 % | 39.3 |
+
+400 games, 2 cohorts (the end of a short run is a large share of 200 games, so a longer run shows the rate of a generation better):
+
+| Net | Games in flight | Games per s | Device busy | Mean batch |
+|---|---|---|---|---|
+| SMALL | 256 | 4.51 | 96 % | 76.8 |
+| SMALL | 512 (400 games: all in flight) | 4.34 | 96 % | 86.4 |
+| LARGE | 256 | 1.27 | 99 % | 79.2 |
+| LARGE | 512 (400 games: all in flight) | 1.04 | 100 % | 79.2 |
+
+The device is the limit for LARGE (99 % busy) and nearly for SMALL (94 to 96 %), the CPU use of a device run is 0.4 to 1.5 cores (one core-second per 1.5 to 2.5 s of wall). One cohort and two cohorts are within the noise (SMALL 3.44 against 2.97 to 3.54, LARGE 0.85 against 0.90 to 1.03); two keep the device busier at the cost of a smaller batch. More games in flight than 256 did not help. **Tail:** 8 games on 2 CPU threads gave no change for SMALL (the device is busy to the end) and a loss for LARGE (a CPU game of LARGE takes about 38 s on one thread, so 8 games on 2 threads need about 150 s and the carriers lose 2 of their 8 threads), so the tail stays off.
+
+**(b) Gate, 200 pairs, candidate against best, both on the device or both on the CPU (`LoopMatchBench`).**
+
+| Match | Evaluator | Pairs per s | Wall | Speed-up | Device busy |
+|---|---|---|---|---|---|
+| SMALL against SMALL | GPU | 1.073 | 186 s | 1.6 | 97 % |
+| | CPU | 0.672 | 297 s | | |
+| LARGE against SMALL (gen 13) | GPU | 0.819 | 244 s | 4.3 | 99 % |
+| | CPU | 0.190 | 1054 s | | |
+| LARGE against LARGE | GPU | 0.387 | 516 s | 3.6 | 99 % |
+| | CPU | 0.108 | 1850 s | | |
+
+CPU seconds of the process: 434 (device) against 2332 (CPU) for SMALL against SMALL, 443 against 14,531 for LARGE against LARGE.
+
+**(c) Strength against the classical rungs, 50 pairs, the network on the device or on the CPU, the rung on the CPU.**
+
+| Net | Rung (nodes) | GPU pairs per s | CPU pairs per s | Speed-up |
+|---|---|---|---|---|
+| SMALL | 6400 | 1.91, 1.89 (and one outlier, below) | 1.46, 1.06 | 1.3 to 1.8 |
+| SMALL | 25,600 | 1.51 | 0.99 | 1.5 |
+| SMALL | 102,400 | 0.80 | 0.57 | 1.4 |
+| LARGE | 6400 | 0.72 | 0.20 | 3.5 |
+| LARGE | 25,600 | 0.57 | 0.18 | 3.1 |
+| LARGE | 102,400 | 0.47 | 0.16 | 2.9 |
+
+**One unexplained outlier:** the first SMALL against 6400 nodes run on the device took 253 s (0.198 pairs/s) with the device 9 % busy and 706 process CPU seconds; two repeats an hour later took 26 s. It followed a 31-minute CPU run directly; the cause was not found (no log line, no failure). If a match in a real loop stalls for minutes with an idle device, this is the first suspect.
+
+**Low simulation counts** (SMALL against SMALL, 100 pairs, both on the device): 16 simulations 7.23 against 6.88 pairs/s on the CPU (1.05 times), 50 simulations 2.72 against 2.39 (1.14 times). The 16-simulation 60-pair gate with a shared GPU that the review found slower on the device (2.57 against 6.19) is this regime.
+
+**Decision for `--match-evaluator`.** The rule was: follow `--evaluator` by default only if the device matches are at least 1.3 times faster than the CPU matches for the network in use. At the loop's 200 simulations every measured match is: the smallest ratio is 1.3 (SMALL against the 6400 rung, single runs 1.3 to 1.8), the next 1.4 and 1.5; for LARGE it is 2.9 or more. The default is therefore `auto`. With fewer than about 100 simulations per move the gain is below 1.3 and a shared device can make it a loss: use `--match-evaluator cpu` there.
+
+### Recommended settings
+
+| | SMALL | LARGE |
+|---|---|---|
+| `--evaluator` | gpu | gpu |
+| `--games-in-flight` | 256 | 256 |
+| `--eval-cohorts` | 2 (1 is as good within the noise) | 2 |
+| `--tail-games`, `--tail-pairs` | 0 | 0 |
+| `--match-evaluator` | auto (gpu) | auto (gpu) |
+| `--threads` | 8 | 8 |
+
+**Time per generation** (loop run 3 settings: 2500 games, 200 simulations, 200 gate pairs, baseline of 100 pairs against 25,600 nodes in the promoted generations (about 55 %), strength record every third generation with the rungs 6400, 25,600 and 102,400 at 100 pairs, training 15,000 steps at batch 256):
+
+| Phase | SMALL | LARGE |
+|---|---|---|
+| Self-play (2500 games at 4.4 and 1.15 games/s; 1.0 to 1.27 for LARGE) | 9.5 min | 36 min (33 to 42) |
+| Training (SMALL 117 to 128 steps/s, LARGE 26 steps/s under load) | 2 min | 9.6 min |
+| Gate (200 pairs, 1.07 and 0.39 pairs/s) | 3.1 min | 8.6 min |
+| Baseline (100 pairs at 1.5 and 0.57 pairs/s, 2.9 min for LARGE in a promoted generation, 55 % of them) | 0.6 min | 1.6 min |
+| Strength every third generation (100 pairs on 3 rungs: SMALL 4.1 min, LARGE 8.8 min; one third of that) | 1.4 min | 2.9 min |
+| **Per generation** | **about 17 min** (run 3: about 45) | **about 59 min** (55 to 65) |
+| With the matches on the CPU (gate 31 min, baseline 9.2 min, strength 27.6 min every third generation) | | about 91 min |
+
+A 14-generation LARGE run is then about 14 hours, or 21 hours with the matches on the CPU. The self-play and the gate dominate; the device is the limit in both, so a second job on the GPU slows both down.
+
 ## Capacity diagnostics 1 (measured)
 
 **TL;DR:** Three cheap diagnostics on the best network of loop run 3 (SMALL `classic1`, 32 channels x 4 blocks, generation 13) to decide whether a larger network is worth building into the loop. **E1:** two self-play searches of the same position differ by a median KL of 0.057 (mean 0.097, p90 0.19), far below the held-out policy KL of about 0.42: the 0.42 is not target noise, the network underfits its targets. **E2:** more simulations are strong and cost linearly: 400 simulations beat 200 with 0.669 (+122 Elo) at 2.0 times the CPU time per move, 1000 beat 200 with 0.829 (+274 Elo) at 4.9 times. **E3:** four networks trained from scratch on the same 2.02 M samples with the same batches order the same way on every measure: the held-out policy KL falls from 0.549 (32x4) to 0.507 (32x8), 0.465 (48x6) and **0.438 (64x6)**, and against the from-scratch 32x4 control at 100 simulations the gate scores 0.602, 0.720 and **0.782** (+72, +164, +222 Elo). Against the loop's own generation 13 network (trained for 14 generations) even the LARGE network only reaches 0.473 (-19 Elo); the from-scratch control sits at 0.188 (-254 Elo). **Reading:** capacity is a real limit of the SMALL network (both conditions for "go" are met against the control), but per unit of cost it buys somewhat less Elo than search (LARGE at 5.8 times the work: +222; search at 4.9 times: +274), and a from-scratch LARGE has not caught the incrementally trained SMALL. One seed each; see the limits.

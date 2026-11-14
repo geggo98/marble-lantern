@@ -1,5 +1,9 @@
 package sternhalma.tornado;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Supplier;
+
 import sternhalma.nn.ForwardPass;
 import sternhalma.nn.Parameters;
 import sternhalma.nn.PooledEvaluator;
@@ -56,7 +60,7 @@ public final class GpuEvaluators {
      * @param timings where the time of the device thread went (see {@code TornadoNetwork.timings}); read it after
      *                the games, or on the device thread's behalf
      */
-    public record Session(PooledEvaluator service, PooledEvaluator.Model model, java.util.function.Supplier<String> timings)
+    public record Session(PooledEvaluator service, PooledEvaluator.Model model, Supplier<String> timings)
             implements AutoCloseable {
 
         /** A session without timings (tests with another backend). */
@@ -79,19 +83,51 @@ public final class GpuEvaluators {
      * @throws IllegalStateException if {@link #unavailableReason()} is not null
      */
     public static Session open(Parameters parameters, int computeThreads, int cohorts, int gamesInFlight) {
+        Pool pool = openAll(List.of(parameters), computeThreads, cohorts, gamesInFlight);
+        return new Session(pool.service(), pool.models().get(0), pool.timings().get(0));
+    }
+
+    /**
+     * A pooled evaluator with several networks on the device and one device thread (the matches of the loop: the candidate and
+     * the best network, docs/training.md, "As implemented (block G2)").
+     *
+     * @param service the evaluator; close it to release the device memory of every network
+     * @param models  the networks in it, in the order they were given; each has {@code cohorts} cohorts
+     * @param timings per network, where the time of the device thread went
+     */
+    public record Pool(PooledEvaluator service, List<PooledEvaluator.Model> models, List<Supplier<String>> timings)
+            implements AutoCloseable {
+
+        @Override
+        public void close() {
+            service.close();
+        }
+    }
+
+    /** {@link #open} for several networks that share the device thread; each is sized for {@code gamesInFlight} games. */
+    public static Pool openAll(List<Parameters> networks, int computeThreads, int cohorts, int gamesInFlight) {
+        if (networks.isEmpty()) {
+            throw new IllegalArgumentException("at least one network is needed");
+        }
         int capacity = maxBatchFor(gamesInFlight);
         PooledEvaluator service = new PooledEvaluator(computeThreads);
         try {
-            TornadoNetwork device = new TornadoNetwork(parameters, TornadoSupport.defaultDevice(), capacity);
-            PooledEvaluator.Model model = service.add(device, cohorts, capacity);
+            List<PooledEvaluator.Model> models = new ArrayList<>();
+            List<Supplier<String>> timings = new ArrayList<>();
             int largest = maxBatchFor((gamesInFlight + cohorts - 1) / cohorts);
             int sizes = Integer.numberOfTrailingZeros(largest) + 1;
             int[] warm = new int[sizes];
             for (int i = 0; i < sizes; i++) {
                 warm[i] = 1 << i;
             }
-            service.warmup(model, warm);
-            return new Session(service, model, device::timings);
+            for (Parameters parameters : networks) {
+                TornadoNetwork device = new TornadoNetwork(parameters, TornadoSupport.defaultDevice(), capacity);
+                PooledEvaluator.Model model = service.add(device, cohorts, capacity);
+                service.warmup(model, warm);
+                models.add(model);
+                timings.add(device::timings);
+            }
+            return new Pool(service, List.copyOf(models), List.copyOf(timings));
         } catch (RuntimeException | Error e) {
             service.close();
             throw e;

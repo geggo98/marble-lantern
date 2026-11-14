@@ -59,7 +59,9 @@ import sternhalma.search.PlayerSpec;
  *                [--baseline-pairs 50] [--baseline-seed 4001] [--baseline-sigmas 2] [--promote-z 1.28]
  *                [--ladder-spec SPEC]
  *                [--strength-every 1] [--ladder 100,400,1600,6400] [--strength-pairs 50] [--strength-seed 3001]
- *                [--evaluator cpu|gpu] [--games-in-flight 256] [--eval-cohorts 2]
+ *                [--evaluator cpu|gpu] [--games-in-flight 256] [--eval-cohorts 2] [--tail-games 0] [--tail-pairs 0]
+ *                [--tail-threads 2]
+ *                [--match-evaluator cpu|gpu|auto]
  *                [--threads 8] [--train-threads T] [--checkpoint-steps 50] [--checkpoint-seconds 60] [--keep 2]
  *                [--progress-seconds 10] [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120]
  *   Loop run --status RUN
@@ -152,6 +154,42 @@ public final class Loop {
     interface PairFake {
         MctsMatch.PairLine pair(String prefix, int generation, int pair);
     }
+
+    /**
+     * Where the evaluators on a device come from: the real device, or (tests) a pool with CPU backends, so that the paths of
+     * {@code --evaluator gpu} run without TornadoVM.
+     */
+    interface Devices {
+
+        /** Why no device can be used, or null. */
+        String unavailableReason();
+
+        String description();
+
+        /** The service with one model per network (in order), each for {@code gamesInFlight} games in {@code cohorts} cohorts. */
+        GpuEvaluators.Pool open(List<Parameters> networks, int cohorts, int gamesInFlight);
+    }
+
+    /** The device of the machine. */
+    static final Devices DEVICE = new Devices() {
+        @Override
+        public String unavailableReason() {
+            return GpuEvaluators.unavailableReason();
+        }
+
+        @Override
+        public String description() {
+            return GpuEvaluators.description();
+        }
+
+        @Override
+        public GpuEvaluators.Pool open(List<Parameters> networks, int cohorts, int gamesInFlight) {
+            return GpuEvaluators.openAll(networks, 0, cohorts, gamesInFlight);
+        }
+    };
+
+    /** The source of the devices of every run; tests replace it. */
+    static volatile Devices devices = DEVICE;
 
     static int run(String[] args, PrintStream out, PrintStream err, StopHook hook) throws Exception {
         return run(args, out, err, hook, null);
@@ -712,16 +750,16 @@ public final class Loop {
             LoopGamesJob.Device device = null;
             int poolThreads = cad.threads();
             if (evalOpts.gpu()) {
-                String why = GpuEvaluators.unavailableReason();
+                Devices dv = devices;
+                String why = dv.unavailableReason();
                 if (why == null) {
                     int inFlight = Math.min(evalOpts.gamesInFlight(), cfg.games());
-                    device = new LoopGamesJob.Device(
-                            () -> GpuEvaluators.open(best.parameters(), 0, evalOpts.cohorts(), inFlight),
-                            GpuEvaluators.description(), cad.threads());
+                    device = LoopGamesJob.Device.ofPool(() -> dv.open(List.of(best.parameters()), evalOpts.cohorts(), inFlight),
+                            dv.description(), cad.threads());
                     poolThreads = inFlight;
                 } else if (!evaluatorWarned) {
                     evaluatorWarned = true;
-                    stderr.println("loop: --evaluator gpu: " + why + "; playing the self-play games on the CPU instead");
+                    stderr.println("loop: --evaluator gpu: " + why + "; playing the games on the CPU instead");
                 }
             }
             try {
@@ -729,13 +767,18 @@ public final class Loop {
                         cfg.shardGames(), poolThreads, log, (p, n) -> hook.stop(p, n), device);
                 job.label = "gen " + g + " selfplay";
                 job.progressSeconds = cad.progressSeconds();
+                if (device != null) {
+                    job.tail(evalOpts.tailGames(), tailThreads());
+                }
                 phase = "selfplay";
                 log.printf(Locale.ROOT, "gen %d selfplay: best network = generation %d, %d games, %s%n", g, best.generation(),
                         cfg.games(), cfg.settings(g).describe());
                 log.printf(Locale.ROOT, "gen %d selfplay: evaluator %s%n", g, device == null
                         ? "cpu, " + poolThreads + " threads"
                         : "gpu (" + device.description() + "), " + poolThreads + " games in flight in "
-                                + evalOpts.cohorts() + " cohorts, " + cad.threads() + " compute threads");
+                                + evalOpts.cohorts() + " cohorts, " + cad.threads() + " compute threads"
+                                + (evalOpts.tailGames() > 0 ? ", the last " + evalOpts.tailGames() + " games on " + tailThreads()
+                                        + " CPU threads" : ""));
                 long w0 = nanos();
                 int rc = job.run();
                 return endPhase("selfplay", g, rc, job.doneItems, nanos() - w0, job.cpuNanos(),
@@ -1014,31 +1057,125 @@ public final class Loop {
         private record Played(int exit, List<MctsMatch.PairLine> pairs) {
         }
 
+        /**
+         * One side of a match: a network (its parameters, for the device) or a classical rung; {@code cpu} makes its players
+         * on the CPU.
+         */
+        private record Side(Parameters net, LongFunction<Player> cpu) {
+        }
+
+        private Side side(Parameters parameters) {
+            return new Side(parameters, network(parameters));
+        }
+
+        private Side rungSide(int nodes) {
+            return new Side(null, rung(nodes));
+        }
+
+        /** CPU threads of the tail, taken from the compute threads: at least one stays for the games on the device. */
+        private int tailThreads() {
+            return Math.max(1, Math.min(evalOpts.tailThreads(), cad.threads() - 1));
+        }
+
+        /** A match that is played, and the device it uses (null: on the CPU). The caller closes the device. */
+        private record Prepared(Gate.PairJob job, LoopGamesJob.Device device) {
+        }
+
+        /**
+         * The job of a match. With {@code --evaluator gpu} the networks of the sides share one device thread, the pairs are
+         * games in flight (virtual threads), and the last {@code --tail-pairs} pairs play on the CPU (docs/training.md, "As
+         * implemented (block G2)"); a pair depends on its seeds and the networks only, so which side of the machine plays it does
+         * not change the result beyond the float differences of the forward passes. A rung stays on the CPU.
+         */
+        private Prepared pairJob(Path dir, String prefix, String label, String identity, int pairs, long seed, int openingPlies,
+                Side subject, Side opponent, String eloPhase, int g) {
+            Supplier<Job.Worker<MctsMatch.PairLine>> cpuPlay = Gate.pairWorkers(seed, openingPlies, subject.cpu(), opponent.cpu());
+            LoopGamesJob.Device device = null;
+            Supplier<Job.Worker<MctsMatch.PairLine>> devicePlay = null;
+            int inFlight = cad.threads();
+            if (evalOpts.matchesOnDevice() && (subject.net() != null || opponent.net() != null)) {
+                Devices dv = devices;
+                String why = dv.unavailableReason();
+                if (why == null && !NetPlayers.runsOnDevice(cfg.evalPlayer())) {
+                    why = "the player " + cfg.evalPlayer() + " cannot run on the device (it needs an mcts player with batch=1)";
+                }
+                if (why == null) {
+                    List<Parameters> nets = new ArrayList<>();
+                    int subjectModel = subject.net() == null ? -1 : nets.size();
+                    if (subject.net() != null) {
+                        nets.add(subject.net());
+                    }
+                    int opponentModel = opponent.net() == null ? -1 : nets.size();
+                    if (opponent.net() != null) {
+                        nets.add(opponent.net());
+                    }
+                    inFlight = Math.max(1, Math.min(evalOpts.gamesInFlight(), pairs));
+                    int flights = inFlight;
+                    LoopGamesJob.Device opened = LoopGamesJob.Device.ofPool(() -> dv.open(nets, evalOpts.cohorts(), flights),
+                            dv.description(), cad.threads());
+                    device = opened;
+                    LongFunction<Player> s = subjectModel < 0 ? subject.cpu()
+                            : NetPlayers.onDevice(cfg.evalPlayer(), () -> opened.pool().models().get(subjectModel));
+                    LongFunction<Player> o = opponentModel < 0 ? opponent.cpu()
+                            : NetPlayers.onDevice(cfg.evalPlayer(), () -> opened.pool().models().get(opponentModel));
+                    devicePlay = Gate.pairWorkers(seed, openingPlies, s, o);
+                } else if (!evaluatorWarned) {
+                    evaluatorWarned = true;
+                    stderr.println("loop: --evaluator gpu: " + why + "; playing the games on the CPU instead");
+                }
+            }
+            Supplier<Job.Worker<MctsMatch.PairLine>> played = withFake(devicePlay != null ? devicePlay : cpuPlay, prefix, g);
+            Gate.PairJob job = new Gate.PairJob(dir, prefix, label, identity, pairs, cfg.pairShard(), inFlight, log, played, hook,
+                    eloPhase);
+            job.progressSeconds = cad.progressSeconds();
+            if (device != null) {
+                LoopGamesJob.Device d = device;
+                job.device(cad.threads(), d::abort);
+                int tailPairs = Math.min(evalOpts.tailPairs(), pairs);
+                job.tail(tailPairs, tailThreads(), withFake(cpuPlay, prefix, g));
+                log.printf(Locale.ROOT, "%s: evaluator gpu (%s), %d pairs in flight in %d cohorts, %d compute threads%s%n", label,
+                        d.description(), inFlight, evalOpts.cohorts(), cad.threads(), tailPairs > 0
+                                ? ", the last " + tailPairs + " pairs on " + tailThreads() + " CPU threads" : "");
+            }
+            return new Prepared(job, device);
+        }
+
+        private Supplier<Job.Worker<MctsMatch.PairLine>> withFake(Supplier<Job.Worker<MctsMatch.PairLine>> real, String prefix,
+                int g) {
+            if (fake == null) {
+                return real;
+            }
+            return () -> {
+                Job.Worker<MctsMatch.PairLine> worker = real.get();
+                return pair -> {
+                    MctsMatch.PairLine given = fake.pair(prefix, g, pair);
+                    return given != null ? given : worker.run(pair);
+                };
+            };
+        }
+
         private Played match(Path dir, String prefix, String label, String identity, int pairs, long seed,
-                int openingPlies, LongFunction<Player> subject, LongFunction<Player> opponent, RunMonitor.Category category,
+                int openingPlies, Side subject, Side opponent, RunMonitor.Category category,
                 String kind, String eloPhase, int g) throws IOException, InterruptedException {
             if (stopped()) {
                 return new Played(EXIT_ABORTED, null);
             }
             Files.createDirectories(dir);
-            Supplier<Job.Worker<MctsMatch.PairLine>> played = Gate.pairWorkers(seed, openingPlies, subject, opponent);
-            if (fake != null) {
-                Supplier<Job.Worker<MctsMatch.PairLine>> real = played;
-                played = () -> {
-                    Job.Worker<MctsMatch.PairLine> worker = real.get();
-                    return pair -> {
-                        MctsMatch.PairLine given = fake.pair(prefix, g, pair);
-                        return given != null ? given : worker.run(pair);
-                    };
-                };
-            }
-            Gate.PairJob job = new Gate.PairJob(dir, prefix, label, identity, pairs, cfg.pairShard(), cad.threads(), log,
-                    played, hook, eloPhase);
-            job.progressSeconds = cad.progressSeconds();
+            Prepared p = pairJob(dir, prefix, label, identity, pairs, seed, openingPlies, subject, opponent, eloPhase, g);
+            Gate.PairJob job = p.job();
             phase = eloPhase;
             long w0 = nanos();
-            int rc = job.run();
-            int exit = endPhase(eloPhase, g, rc, job.doneItems, nanos() - w0, job.cpuNanos.get(), category, kind);
+            long c0 = LoopGamesJob.processCpuNanos();
+            int rc;
+            try {
+                rc = job.run();
+            } finally {
+                if (p.device() != null) {
+                    p.device().close();
+                }
+            }
+            long cpu = p.device() != null ? LoopGamesJob.processCpuNanos() - c0 : job.cpuNanos.get();
+            int exit = endPhase(eloPhase, g, rc, job.doneItems, nanos() - w0, cpu, category, kind);
             return new Played(exit, exit == EXIT_OK ? job.results() : null);
         }
 
@@ -1054,7 +1191,7 @@ public final class Loop {
             String identity = String.format(Locale.ROOT, "gate;g=%d;cand=%s;best=%s;player=%s;seed=%d;opening=%d", g,
                     candSha, bestSha, cfg.evalPlayer(), cfg.gateSeed(g), cfg.gateOpening());
             Played vs = match(gateDir, "vs-best", "gen " + g + " gate", identity, cfg.gatePairs(),
-                    cfg.gateSeed(g), cfg.gateOpening(), network(cand), network(best.parameters()),
+                    cfg.gateSeed(g), cfg.gateOpening(), side(cand), side(best.parameters()),
                     RunMonitor.Category.GATE, "vs-best", "gate", g);
             if (vs.exit() != EXIT_OK) {
                 return vs.exit();
@@ -1132,8 +1269,8 @@ public final class Loop {
                     cfg.baselineRung(), Gen0.sha256Hex(cfg.ladderSpec().getBytes(StandardCharsets.UTF_8)).substring(0, 12),
                     cfg.evalPlayer(), cfg.baselineSeed(), cfg.gateOpening());
             return match(ownerDir.resolve("gate"), "vs-baseline", "gen " + generation + " baseline of generation "
-                    + owner, identity, cfg.baselinePairs(), cfg.baselineSeed(), cfg.gateOpening(), network(network),
-                    rung(cfg.baselineRung()), RunMonitor.Category.GATE, "baseline", "baseline", generation);
+                    + owner, identity, cfg.baselinePairs(), cfg.baselineSeed(), cfg.gateOpening(), side(network),
+                    rungSide(cfg.baselineRung()), RunMonitor.Category.GATE, "baseline", "baseline", generation);
         }
 
         // ---- strength ----
@@ -1162,15 +1299,22 @@ public final class Loop {
                         Gen0.sha256Hex(cfg.ladderSpec().getBytes(StandardCharsets.UTF_8)).substring(0, 12), cfg.evalPlayer(),
                         cad.strengthSeed(), StrengthEstimate.OPENING_PLIES);
                 Files.createDirectories(dir);
-                Gate.PairJob job = new Gate.PairJob(dir, "ab" + rung, "gen " + g + " strength vs " + rung + " nodes",
-                        identity, cad.strengthPairs(), cfg.pairShard(), cad.threads(), log,
-                        Gate.pairWorkers(cad.strengthSeed(), StrengthEstimate.OPENING_PLIES, network(best.parameters()),
-                                rung(rung)), hook, "strength");
-                job.progressSeconds = cad.progressSeconds();
+                Prepared prepared = pairJob(dir, "ab" + rung, "gen " + g + " strength vs " + rung + " nodes", identity,
+                        cad.strengthPairs(), cad.strengthSeed(), StrengthEstimate.OPENING_PLIES, side(best.parameters()),
+                        rungSide(rung), "strength", g);
+                Gate.PairJob job = prepared.job();
                 phase = "strength";
-                int rc = job.run();
+                long c0 = LoopGamesJob.processCpuNanos();
+                int rc;
+                try {
+                    rc = job.run();
+                } finally {
+                    if (prepared.device() != null) {
+                        prepared.device().close();
+                    }
+                }
                 done += job.doneItems;
-                cpu += job.cpuNanos.get();
+                cpu += prepared.device() != null ? LoopGamesJob.processCpuNanos() - c0 : job.cpuNanos.get();
                 if (rc != Job.EXIT_OK || stopped()) {
                     return endPhase("strength", g, rc != Job.EXIT_OK ? rc : Job.EXIT_ABORTED, done, nanos() - w0, cpu,
                             RunMonitor.Category.STRENGTH, RunMonitor.ELO);

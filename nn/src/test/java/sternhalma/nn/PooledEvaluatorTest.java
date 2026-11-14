@@ -590,4 +590,245 @@ class PooledEvaluatorTest {
             assertTrue(stats.meanBatch() >= 1 && stats.meanBatch() <= 5);
         }
     }
+
+    // ---- block G2: the review gaps of stage 1 ----
+
+    /** A backend whose batches wait for a latch until it is released; {@code inside} counts down when the first batch arrives. */
+    private static final class Gated extends Recording {
+        final CountDownLatch inside = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final String name;
+        final List<String> order;
+
+        Gated(ForwardPass inner, String name, List<String> order, boolean gate) {
+            super(inner);
+            this.name = name;
+            this.order = order;
+            if (!gate) {
+                release.countDown();
+            }
+        }
+
+        @Override
+        public void forward(float[] input, int batch, float[] policyLogits, float[] values) {
+            inside.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            order.add(name);
+            super.forward(input, batch, policyLogits, values);
+        }
+    }
+
+    /** Waits until the thread is parked (waiting for its batch or for a slot) and not just starting. */
+    private static void awaitParked(Thread thread) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (thread.getState() != Thread.State.WAITING && thread.getState() != Thread.State.TIMED_WAITING) {
+            assertTrue(System.nanoTime() < deadline, "the thread never parked: " + thread.getState());
+            Thread.sleep(1);
+        }
+    }
+
+    /** A thread that calls one forward pass and keeps what it threw. */
+    private static final class Caller extends Thread {
+        final PooledEvaluator.Client client;
+        final float[] input;
+        volatile Throwable thrown;
+        volatile boolean done;
+
+        Caller(PooledEvaluator.Client client, Position position) {
+            this.client = client;
+            this.input = encode(position);
+        }
+
+        @Override
+        public void run() {
+            client.begin();
+            try {
+                viaClient(client, input);
+            } catch (Throwable t) {
+                thrown = t;
+            } finally {
+                client.end();
+                done = true;
+            }
+        }
+    }
+
+    /**
+     * Two cohorts are ready while the device thread is busy: the one that has waited longest is computed first, whatever the
+     * order in which the models were added. (A first-found or a youngest-first choice lets a cohort starve behind newer ones.)
+     */
+    @Test
+    void theCohortThatWaitedLongestIsComputedFirst() throws Exception {
+        Network network = new Network(weights(21));
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        Gated blocker = new Gated(network, "blocker", order, true);
+        Gated younger = new Gated(network, "younger", order, false);
+        Gated older = new Gated(network, "older", order, false);
+        List<Position> positions = Playouts.positions(2, 4, 40, 5);
+        assertTimeoutPreemptively(Duration.ofSeconds(60), () -> {
+            try (PooledEvaluator service = new PooledEvaluator(0)) {
+                // the order of the models is the order of a first-found choice: younger comes before older
+                PooledEvaluator.Model blockerModel = service.add(blocker, 1, 4);
+                PooledEvaluator.Model youngerModel = service.add(younger, 1, 4);
+                PooledEvaluator.Model olderModel = service.add(older, 1, 4);
+                Caller busy = new Caller(blockerModel.newClient(), positions.get(1));
+                busy.start();
+                assertTrue(blocker.inside.await(30, java.util.concurrent.TimeUnit.SECONDS));
+                Caller first = new Caller(olderModel.newClient(), positions.get(2));
+                first.start();
+                awaitParked(first);
+                Thread.sleep(20); // the older one has waited longer than the 20 ms of a tie
+                Caller second = new Caller(youngerModel.newClient(), positions.get(3));
+                second.start();
+                awaitParked(second);
+                blocker.release.countDown();
+                for (Caller c : List.of(busy, first, second)) {
+                    c.join();
+                    assertEquals(null, c.thrown);
+                }
+            }
+        });
+        assertEquals(List.of("blocker", "older", "younger"), order);
+    }
+
+    /**
+     * A stop while a batch is on the device: a game that waits for a slot of that cohort is ended by {@code abort()} itself, not
+     * when the batch is back (the release comes after the check).
+     */
+    @Test
+    void abortWakesTheGamesThatWaitForASlotWhileTheBatchIsStillOnTheDevice() throws Exception {
+        Network network = new Network(weights(22));
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        Gated backend = new Gated(network, "m", order, true);
+        List<Position> positions = Playouts.positions(2, 4, 40, 6);
+        try (PooledEvaluator service = new PooledEvaluator(0)) {
+            PooledEvaluator.Model model = service.add(backend, 1, 4);
+            Caller onDevice = new Caller(model.newClient(), positions.get(1));
+            Caller queued = new Caller(model.newClient(), positions.get(2));
+            onDevice.start();
+            assertTrue(backend.inside.await(30, java.util.concurrent.TimeUnit.SECONDS));
+            queued.start();
+            awaitParked(queued); // waits for a slot: the cohort is executing
+            service.abort();
+            queued.join(10_000);
+            boolean ended = queued.done;
+            backend.release.countDown(); // only now does the batch return
+            onDevice.join(30_000);
+            assertTrue(ended, "abort() must wake the games that wait for a slot");
+            assertTrue(queued.thrown instanceof PooledEvaluator.Aborted, String.valueOf(queued.thrown));
+        }
+    }
+
+    /**
+     * {@code close()} while a batch is on the device: a game that waits for a slot gets its IllegalStateException when close
+     * says so, not when the batch is back; the game whose batch is on the device still gets its result.
+     */
+    @Test
+    void closeWakesTheGamesThatWaitForASlotAndLetsTheBatchInFlightFinish() throws Exception {
+        Network network = new Network(weights(23));
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        Gated backend = new Gated(network, "m", order, true);
+        List<Position> positions = Playouts.positions(2, 4, 40, 7);
+        PooledEvaluator service = new PooledEvaluator(0);
+        PooledEvaluator.Model model = service.add(backend, 1, 4);
+        Caller onDevice = new Caller(model.newClient(), positions.get(1));
+        Caller queued = new Caller(model.newClient(), positions.get(2));
+        onDevice.start();
+        assertTrue(backend.inside.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        queued.start();
+        awaitParked(queued);
+        Thread closer = new Thread(service::close, "closer");
+        closer.start();
+        queued.join(10_000);
+        boolean ended = queued.done;
+        backend.release.countDown();
+        closer.join(30_000);
+        onDevice.join(30_000);
+        assertTrue(ended, "close() must wake the games that wait for a slot");
+        assertTrue(queued.thrown instanceof IllegalStateException, String.valueOf(queued.thrown));
+        assertEquals(null, onDevice.thrown, "the batch in flight is computed and its game gets the result");
+        assertFalse(closer.isAlive());
+    }
+
+    /** After a backend failure every later add, warm-up, begin and forward throws an IllegalStateException that names the cause. */
+    @Test
+    void afterABackendFailureEveryLaterCallThrowsIllegalState() throws Exception {
+        Network network = new Network(weights(24));
+        ForwardPass broken = new Recording(network) {
+            @Override
+            public void forward(float[] input, int batch, float[] policyLogits, float[] values) {
+                throw new IllegalStateException("device lost");
+            }
+        };
+        try (PooledEvaluator service = new PooledEvaluator(0)) {
+            PooledEvaluator.Model model = service.add(broken, 2, 4);
+            PooledEvaluator.Client client = model.newClient();
+            PooledEvaluator.Client other = model.newClient();
+            Position p = Playouts.positions(2, 1, 5, 1).get(1);
+            other.begin(); // a game that began before the failure
+            client.begin();
+            assertThrows(IllegalStateException.class, () -> viaClient(client, encode(p)));
+            client.end();
+            IllegalStateException forward = assertThrows(IllegalStateException.class, () -> viaClient(other, encode(p)));
+            assertTrue(forward.getMessage().contains("device lost"), forward.getMessage());
+            other.end();
+            for (PooledEvaluator.Client c : List.of(client, other)) {
+                IllegalStateException begin = assertThrows(IllegalStateException.class, c::begin);
+                assertTrue(begin.getMessage().contains("device lost"), begin.getMessage());
+            }
+            assertThrows(IllegalStateException.class, () -> service.add(network, 1, 4));
+            assertThrows(IllegalStateException.class, () -> service.warmup(model, 1));
+        }
+    }
+
+    /** The capacity is a hard limit: a batch of exactly the capacity works, one more is refused, as is a batch of 0. */
+    @Test
+    void theBatchOfACallIsCheckedAgainstTheCapacity() throws Exception {
+        Network network = new Network(weights(25));
+        Recording backend = new Recording(network);
+        try (PooledEvaluator service = new PooledEvaluator(0)) {
+            PooledEvaluator.Model model = service.add(backend, 1, 4);
+            PooledEvaluator.Client client = model.newClient();
+            int size = CONFIG.inputSize();
+            client.begin();
+            float[] policy = new float[8 * Encoder.POLICY_SIZE];
+            float[] values = new float[8 * 2];
+            float[] input = new float[8 * size]; // long enough for 8: only the capacity can refuse
+            client.forward(input, 4, policy, values);
+            assertEquals(List.of(4), backend.sizes, "a batch of exactly the capacity is computed");
+            IllegalArgumentException tooMany = assertThrows(IllegalArgumentException.class,
+                    () -> client.forward(input, 5, policy, values));
+            assertTrue(tooMany.getMessage().contains("1 to 4"), tooMany.getMessage());
+            assertThrows(IllegalArgumentException.class, () -> client.forward(input, 0, policy, values));
+            assertEquals(List.of(4), backend.sizes, "a refused call computes nothing");
+            client.end();
+        }
+    }
+
+    /**
+     * An abort that comes while the batch of a game is on the device still ends that game with Aborted when the batch is back:
+     * the flag is read after the batch is done (it is volatile), and the game is not served a result that the caller would
+     * take for a normal one.
+     */
+    @Test
+    void anAbortWhileTheBatchIsOnTheDeviceEndsTheGameThatIsServedByIt() throws Exception {
+        Network network = new Network(weights(26));
+        List<String> order = Collections.synchronizedList(new ArrayList<>());
+        Gated backend = new Gated(network, "m", order, true);
+        List<Position> positions = Playouts.positions(2, 3, 40, 8);
+        try (PooledEvaluator service = new PooledEvaluator(0)) {
+            PooledEvaluator.Model model = service.add(backend, 1, 4);
+            Caller caller = new Caller(model.newClient(), positions.get(1));
+            caller.start();
+            assertTrue(backend.inside.await(30, java.util.concurrent.TimeUnit.SECONDS));
+            service.abort();
+            backend.release.countDown();
+            caller.join(30_000);
+            assertTrue(caller.thrown instanceof PooledEvaluator.Aborted, String.valueOf(caller.thrown));
+        }
+    }
 }

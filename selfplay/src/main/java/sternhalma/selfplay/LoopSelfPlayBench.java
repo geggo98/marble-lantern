@@ -14,7 +14,7 @@ import sternhalma.tornado.GpuEvaluators;
  *
  * <pre>
  *   LoopSelfPlayBench --net FILE --out DIR [--games 200] [--sims 200] [--evaluator cpu|gpu] [--games-in-flight 256]
- *                     [--eval-cohorts 2] [--threads 8] [--shard-games 25] [--seed 1]
+ *                     [--eval-cohorts 2] [--tail-games 0] [--tail-threads 2] [--threads 8] [--shard-games 25] [--seed 1]
  * </pre>
  *
  * The settings are the loop's defaults ({@link LoopConfig#of}): noise 0.25, temperature 1 for 14 plies, openings of 4 to 10
@@ -54,6 +54,9 @@ final class LoopSelfPlayBench {
         LoopGamesJob job = new LoopGamesJob(out, 0, cfg.settings(0), "bench", network, games, cfg.shardGames(), pool, System.err,
                 (p, n) -> false, device);
         job.label = "bench selfplay";
+        if (device != null) {
+            job.tail(eval.tailGames(), Math.max(1, Math.min(eval.tailThreads(), threads - 1)));
+        }
         job.progressSeconds = 10;
         long t0 = System.nanoTime();
         int code = job.run();

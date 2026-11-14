@@ -14,6 +14,10 @@
 # --evaluator gpu plays the self-play games with the network on the GPU (--games-in-flight N games at the same time in --eval-cohorts K
 # groups, --threads compute threads); it needs the TornadoVM SDK like --trainer gpu, falls back to the CPU with a message, and is not
 # part of run.json: a run may be resumed with the other evaluator (docs/training.md, "As implemented (block G1)").
+# --match-evaluator cpu|gpu|auto (default auto = as --evaluator; docs/training.md, "As implemented (block G2)") chooses where the matches play.
+# With --evaluator gpu the gate, baseline and strength matches play on the device as well (the networks of a match share one device thread, the
+# pairs are the games in flight; the classical rungs stay on the CPU), and --tail-games N / --tail-pairs N play the last N games
+# or pairs of a phase on the CPU, in --tail-threads T threads (default off; docs/training.md, "As implemented (block G2)").
 # --trainer gpu trains the candidates on the GPU (TornadoVM, Metal): it needs the TornadoVM SDK (TORNADOVM_HOME, set by the
 # devenv shell) and gives different networks than the CPU trainer; it falls back to the CPU, with a message, where no device
 # is usable. The trainer is part of run.json: repeat it on a resume.
@@ -27,7 +31,7 @@ cp="$root/engine/build/classes/java/main:$root/tablebase/build/classes/java/main
 cp="$cp:$root/nn/build/classes/java/main:$root/nn-tornado/build/classes/java/main:$root/selfplay/build/classes/java/main"
 # the TornadoVM runtime flags of the SDK, only for --trainer gpu or --evaluator gpu (they put the TornadoVM modules on the module path)
 tornado=()
-if [[ ( " $* " == *" --trainer gpu "* || " $* " == *" --evaluator gpu "* ) && -n ${TORNADOVM_HOME:-} && -f $TORNADOVM_HOME/tornado-argfile ]]; then
+if [[ ( " $* " == *" --trainer gpu "* || " $* " == *" --evaluator gpu "* || " $* " == *" --match-evaluator gpu "* ) && -n ${TORNADOVM_HOME:-} && -f $TORNADOVM_HOME/tornado-argfile ]]; then
   tornado=(@"$TORNADOVM_HOME/tornado-argfile" --sun-misc-unsafe-memory-access=allow)
 fi
 # the Vector API module makes the MCTS forward pass about 15 times faster
