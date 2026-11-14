@@ -27,6 +27,7 @@ make_sandbox() {
   trap 'rm -rf "$T"' EXIT
 }
 
+export VERIFY_SLEEP=0   # the leftover verification retries; do not sleep in tests
 write_stubs() {
   cat > "$STUB_BIN/aws" <<'STUB'
 #!/bin/bash

@@ -239,7 +239,7 @@ cleanup_run() {  # RUN_ID -> deletes everything tagged with it; idempotent
   for k in $KEY_NAME; do mut aws ec2 delete-key-pair --key-name "$k" > /dev/null; done
   [ -z "$KEY_DIR" ] || rm -rf "$KEY_DIR"
 }
-verify_clean() {  # RUN_ID -> lists leftovers, returns 1 if there are any
+verify_once() {  # RUN_ID -> lists leftovers, returns 1 if there are any
   local id=$1 left=0 out
   log "verification: nothing may be left of $id"
   out=$(aws ec2 describe-instances --filters "Name=tag:RunId,Values=$id" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output text)
@@ -254,6 +254,15 @@ verify_clean() {  # RUN_ID -> lists leftovers, returns 1 if there are any
   [ -z "$out" ] || { echo "  LEFT: spot request $out" >&2; left=1; }
   [ "$left" = 0 ] && echo "  nothing left: no instance, volume, security group, key pair or open spot request with RunId=$id" >&2
   return $left
+}
+# The state of a just cancelled spot request or a just terminated instance settles a few seconds later: retry before reporting a leftover.
+verify_clean() {
+  local id=$1 try=1 max=${VERIFY_TRIES:-6}
+  while ! verify_once "$id"; do
+    [ "$try" -lt "$max" ] || return 1
+    log "something still shows up (the state may still be settling); checking again in ${VERIFY_SLEEP:-10} s ($try/$max)"
+    sleep "${VERIFY_SLEEP:-10}"; try=$((try + 1))
+  done
 }
 
 if [ "$CMD" = preflight ]; then
