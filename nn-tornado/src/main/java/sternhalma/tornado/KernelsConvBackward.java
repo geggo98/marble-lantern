@@ -36,6 +36,8 @@ public final class KernelsConvBackward {
     public static final int WG_TILE_R = 32;
     /** Work items per work group of {@link #weightPartialSimdgroup}: 4 SIMD groups of 32. */
     public static final int WG_GROUP_SIZE = 128;
+    /** Work items per work group of {@link #weightPartialTiled}: 16 x 16 items, each with a 2 x 2 block of the tile. */
+    public static final int WG_TILED_GROUP_SIZE = 256;
 
     private KernelsConvBackward() {
     }
@@ -245,6 +247,128 @@ public final class KernelsConvBackward {
         int groupsO = (outChannels + WG_TILE - 1) / WG_TILE;
         WorkerGrid grid = new WorkerGrid1D(splits * groupsO * groupsJ * WG_GROUP_SIZE);
         grid.setLocalWork(WG_GROUP_SIZE, 1, 1);
+        return grid;
+    }
+
+    /**
+     * Kernel 7 without matrix units: the generic fallback of {@link #weightPartialSimdgroup} for every device that
+     * has no Metal SIMD-group matrix operations (CUDA, OpenCL). The same tiles, the same grid of work groups
+     * (one per chunk, tile of channels and tile of columns) and the same output; each of the
+     * {@link #WG_TILED_GROUP_SIZE} work items of a group (16 x 16) keeps a 2 x 2 block of the 32 x 32 tile in
+     * registers and adds the products of the rows of the local tiles in ascending order. The bias column is summed
+     * as in {@link #weightPartialSimdgroup}, eight items per channel. It uses 8 KiB of local memory and no
+     * SIMD-group size. Launch it with {@link #weightGridTiled}.
+     */
+    public static void weightPartialTiled(KernelContext context, FloatArray dz, FloatArray in, IntArray gather,
+            FloatArray partial, int rows, int inChannels, int outChannels, int splits) {
+        float[] dzTile = context.allocateFloatLocalArray(WG_TILE_R * WG_TILE);
+        float[] aTile = context.allocateFloatLocalArray(WG_TILE_R * WG_TILE);
+        float[] biasTile = context.allocateFloatLocalArray(WG_TILED_GROUP_SIZE);
+        int columns = STENCIL * inChannels;
+        int width = columns + 1;
+        int groupsJ = (columns + WG_TILE - 1) / WG_TILE;
+        int groupsO = (outChannels + WG_TILE - 1) / WG_TILE;
+        int group = context.groupIdx;
+        int chunk = group / (groupsO * groupsJ);
+        int rest = group - chunk * groupsO * groupsJ;
+        int o0 = (rest / groupsJ) * WG_TILE;
+        int j0 = (rest % groupsJ) * WG_TILE;
+        int per = (rows + splits - 1) / splits;
+        int first = chunk * per;
+        int last = first + per;
+        if (last > rows) {
+            last = rows;
+        }
+        int item = context.localIdx;
+        // item (ti, tj) of the 16 x 16 items owns channels 2 ti, 2 ti + 1 and columns 2 tj, 2 tj + 1 of the tile
+        int ti = (item / 16) * 2;
+        int tj = (item % 16) * 2;
+
+        float c00 = 0f;
+        float c01 = 0f;
+        float c10 = 0f;
+        float c11 = 0f;
+        float bias = 0f;
+
+        for (int r0 = first; r0 < last; r0 += WG_TILE_R) {
+            for (int i = item; i < WG_TILE_R * WG_TILE; i += WG_TILED_GROUP_SIZE) {
+                int rr = i / WG_TILE;
+                int col = i - rr * WG_TILE;
+                int r = r0 + rr;
+                float g = 0f;
+                float a = 0f;
+                if (r < last) {
+                    int cell = r % ROWS;
+                    if (cell < CELLS) {
+                        if (o0 + col < outChannels) {
+                            g = dz.get(r * outChannels + o0 + col);
+                        }
+                        int j = j0 + col;
+                        if (j < columns) {
+                            int k = j / inChannels;
+                            int ch = j - k * inChannels;
+                            a = in.get((r - cell + gather.get(cell * STENCIL + k)) * inChannels + ch);
+                        }
+                    }
+                }
+                dzTile[i] = g;
+                aTile[i] = a;
+                bias += g;
+            }
+            context.localBarrier();
+
+            for (int rr = 0; rr < WG_TILE_R; rr++) {
+                float d0 = dzTile[rr * WG_TILE + ti];
+                float d1 = dzTile[rr * WG_TILE + ti + 1];
+                float a0 = aTile[rr * WG_TILE + tj];
+                float a1 = aTile[rr * WG_TILE + tj + 1];
+                c00 += d0 * a0;
+                c01 += d0 * a1;
+                c10 += d1 * a0;
+                c11 += d1 * a1;
+            }
+            context.localBarrier();
+        }
+
+        biasTile[item] = bias;
+        int o = o0 + ti;
+        int j = j0 + tj;
+        if (o < outChannels) {
+            if (j < columns) {
+                partial.set((chunk * outChannels + o) * width + j, c00);
+            }
+            if (j + 1 < columns) {
+                partial.set((chunk * outChannels + o) * width + j + 1, c01);
+            }
+        }
+        if (o + 1 < outChannels) {
+            if (j < columns) {
+                partial.set((chunk * outChannels + o + 1) * width + j, c10);
+            }
+            if (j + 1 < columns) {
+                partial.set((chunk * outChannels + o + 1) * width + j + 1, c11);
+            }
+        }
+        context.localBarrier();
+        // The bias column: item c < 32 adds the sums of the items c, c + 32, ..., c + 224, which loaded channel c.
+        if (j0 == 0 && item < WG_TILE && o0 + item < outChannels) {
+            float sum = 0f;
+            for (int m = 0; m < WG_TILED_GROUP_SIZE; m += WG_TILE) {
+                sum += biasTile[item + m];
+            }
+            partial.set((chunk * outChannels + o0 + item) * width + columns, sum);
+        }
+    }
+
+    /**
+     * The launch grid of {@link #weightPartialTiled}: the work groups of {@link #weightGrid}, with
+     * {@link #WG_TILED_GROUP_SIZE} items each.
+     */
+    public static WorkerGrid weightGridTiled(int inChannels, int outChannels, int splits) {
+        int groupsJ = (STENCIL * inChannels + WG_TILE - 1) / WG_TILE;
+        int groupsO = (outChannels + WG_TILE - 1) / WG_TILE;
+        WorkerGrid grid = new WorkerGrid1D(splits * groupsO * groupsJ * WG_TILED_GROUP_SIZE);
+        grid.setLocalWork(WG_TILED_GROUP_SIZE, 1, 1);
         return grid;
     }
 

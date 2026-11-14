@@ -73,6 +73,10 @@ public final class KernelsHexConvLayer implements AutoCloseable {
      */
     KernelsHexConvLayer(Variant variant, float[] weight, float[] bias, int inChannels, int outChannels, int batch,
             boolean residual, boolean relu, TornadoDevice device, int[] gatherTable, float outputFill) {
+        DeviceBackend.requireLimits(device);
+        if (variant == Variant.SIMDGROUP) {
+            DeviceBackend.requireSimdgroup(device);
+        }
         if (inChannels < 1 || outChannels < 1 || batch < 1) {
             throw new IllegalArgumentException("sizes must be positive: inChannels=" + inChannels
                     + " outChannels=" + outChannels + " batch=" + batch);

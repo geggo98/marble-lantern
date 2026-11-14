@@ -12,6 +12,17 @@ import sternhalma.nn.ReferenceOps;
 /** Oracles, random data and the tolerance check of docs/network.md for the kernel tests. */
 final class KernelsChecks {
 
+    /** The convolution variants that run on the selected device: SIMDGROUP only where it exists. */
+    static sternhalma.tornado.KernelsHexConvLayer.Variant[] variants() {
+        var all = sternhalma.tornado.KernelsHexConvLayer.Variant.values();
+        if (DeviceBackend.of(TornadoSupport.defaultDevice()).hasSimdgroupMatrix()) {
+            return all;
+        }
+        return java.util.Arrays.stream(all).filter(v -> v != sternhalma.tornado.KernelsHexConvLayer.Variant.SIMDGROUP)
+                .toArray(sternhalma.tornado.KernelsHexConvLayer.Variant[]::new);
+    }
+
+
     private KernelsChecks() {
     }
 

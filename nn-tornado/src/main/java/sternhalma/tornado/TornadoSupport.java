@@ -60,9 +60,28 @@ public final class TornadoSupport {
     private TornadoSupport() {
     }
 
+    /** Environment variable that names the backend ({@code metal}, {@code cuda}, {@code ptx}, {@code opencl}). */
+    public static final String BACKEND_ENV = "TORNADO_BACKEND";
+    /** System property for the backend; it wins over {@link #BACKEND_ENV}. */
+    public static final String BACKEND_PROPERTY = "sternhalma.tornado.backend";
+    /** Environment variable that names the device index within the backend (default 0). */
+    public static final String DEVICE_ENV = "TORNADO_DEVICE";
+    /** System property for the device index; it wins over {@link #DEVICE_ENV}. */
+    public static final String DEVICE_PROPERTY = "sternhalma.tornado.device";
+
+    /**
+     * The backend named by {@link #BACKEND_PROPERTY} or {@link #BACKEND_ENV}, empty if none or {@code auto}. A named
+     * backend that is not usable is an error, never a reason to run on something else.
+     */
+    public static Optional<String> requestedBackend() {
+        String named = setting(BACKEND_PROPERTY, BACKEND_ENV);
+        return named == null || named.isBlank() || named.trim().equalsIgnoreCase("auto")
+                ? Optional.empty() : Optional.of(named.trim());
+    }
+
     /** The probe result; computed once per JVM. */
     public static Status status() {
-        return Holder.STATUS;
+        return Holder.PROBE.status();
     }
 
     /** True if kernels can run on {@link #defaultDevice()}. */
@@ -71,14 +90,22 @@ public final class TornadoSupport {
     }
 
     /**
-     * The device TornadoVM uses when an execution plan names none (system properties
-     * {@code tornado.driver} and {@code tornado.device}, both 0 by default).
+     * The device this project runs on. With a backend named by {@link #BACKEND_PROPERTY} or {@link #BACKEND_ENV}
+     * it is device number {@link #DEVICE_PROPERTY} / {@link #DEVICE_ENV} (default 0) of that backend; a backend or
+     * index that does not exist makes TornadoVM not usable, with the reason, and never selects another device.
+     * Without a name it is the device TornadoVM uses when an execution plan names none (system properties
+     * {@code tornado.driver} and {@code tornado.device}, both 0 by default). The choice is logged once.
      *
      * @throws IllegalStateException if TornadoVM is not usable
      */
     public static TornadoDevice defaultDevice() {
         requireUsable();
-        return TornadoExecutionPlan.DEFAULT_DEVICE;
+        return Holder.PROBE.device();
+    }
+
+    /** The {@link DeviceBackend} of {@link #defaultDevice()}. */
+    public static DeviceBackend backend() {
+        return DeviceBackend.of(defaultDevice());
     }
 
     /**
@@ -106,30 +133,86 @@ public final class TornadoSupport {
         return TornadoExecutionPlan.getTornadoDeviceMap().getAllBackends();
     }
 
-    /** Probes on first access, so that loading TornadoSupport alone never touches TornadoVM. */
-    private static final class Holder {
-        static final Status STATUS = probe();
+    /** The probe result and the selected device (null if not usable). */
+    private record Probe(Status status, TornadoDevice device) {
     }
 
-    private static Status probe() {
+    /** Probes on first access, so that loading TornadoSupport alone never touches TornadoVM. */
+    private static final class Holder {
+        static final Probe PROBE = probe();
+    }
+
+    private static Probe probe() {
         if (ModuleLayer.boot().findModule(RUNTIME_MODULE).isEmpty()) {
-            return Status.unusable(Availability.NO_FLAGS, "module " + RUNTIME_MODULE
-                    + " is not in the boot layer: the JVM was started without the TornadoVM flags (see docs/tornado.md)");
+            return new Probe(Status.unusable(Availability.NO_FLAGS, "module " + RUNTIME_MODULE
+                    + " is not in the boot layer: the JVM was started without the TornadoVM flags (see docs/tornado.md)"),
+                    null);
         }
         try {
             List<TornadoBackend> backends = backends();
             int devices = backends.stream().mapToInt(TornadoBackend::getNumDevices).sum();
             if (devices == 0) {
-                return Status.unusable(Availability.NO_DEVICE,
-                        "TornadoVM found " + backends.size() + " backends but no device");
+                return new Probe(Status.unusable(Availability.NO_DEVICE,
+                        "TornadoVM found " + backends.size() + " backends but no device"), null);
             }
-            TornadoDevice device = TornadoExecutionPlan.DEFAULT_DEVICE;
-            return new Status(Availability.USABLE, device.getTornadoVMBackend().name(),
+            String named = setting(BACKEND_PROPERTY, BACKEND_ENV);
+            TornadoDevice device;
+            if (named == null || named.isBlank() || named.trim().equalsIgnoreCase("auto")) {
+                device = TornadoExecutionPlan.DEFAULT_DEVICE;
+            } else {
+                DeviceBackend wanted = DeviceBackend.parse(named);
+                int index = Integer.parseInt(setting(DEVICE_PROPERTY, DEVICE_ENV, "0").trim());
+                Optional<TornadoDevice> found = Optional.empty();
+                for (TornadoBackend b : backends) {
+                    if (DeviceBackend.of(b.getBackendType()) == wanted && index >= 0 && index < b.getNumDevices()) {
+                        found = Optional.of(b.getDevice(index));
+                        break;
+                    }
+                }
+                if (found.isEmpty()) {
+                    return new Probe(Status.unusable(Availability.NO_DEVICE, "backend " + wanted + " device " + index
+                            + " was requested (" + BACKEND_ENV + "=" + named + ") but is not available; installed: "
+                            + describe(backends)), null);
+                }
+                device = found.get();
+            }
+            Status status = new Status(Availability.USABLE, device.getTornadoVMBackend().name(),
                     device.getPhysicalDevice().getDeviceName(), devices, "");
+            System.getLogger("sternhalma.tornado").log(System.Logger.Level.INFO,
+                    "TornadoVM device: backend {0}, name {1}, {2} device(s) in total; available: {3}",
+                    status.backend(), status.device(), devices, describe(backends));
+            return new Probe(status, device);
         } catch (RuntimeException | LinkageError e) {
             Availability availability = noPlatform(e) ? Availability.NO_DEVICE : Availability.START_FAILED;
-            return Status.unusable(availability, "TornadoVM failed to start: " + e);
+            return new Probe(Status.unusable(availability, "TornadoVM failed to start: " + e), null);
         }
+    }
+
+    /** {@code BACKEND[index]=name, ...} of every device. */
+    private static String describe(List<TornadoBackend> backends) {
+        StringBuilder sb = new StringBuilder();
+        for (TornadoBackend b : backends) {
+            for (int i = 0; i < b.getNumDevices(); i++) {
+                if (!sb.isEmpty()) {
+                    sb.append(", ");
+                }
+                sb.append(b.getBackendType()).append('[').append(i).append("]=")
+                        .append(b.getDevice(i).getPhysicalDevice().getDeviceName());
+            }
+        }
+        return sb.isEmpty() ? "none" : sb.toString();
+    }
+
+    private static String setting(String property, String env) {
+        return setting(property, env, null);
+    }
+
+    private static String setting(String property, String env, String fallback) {
+        String value = System.getProperty(property);
+        if (value == null || value.isBlank()) {
+            value = System.getenv(env);
+        }
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     /** True if the failure, or one of its causes, says that the backend found no platform or device. */

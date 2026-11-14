@@ -90,6 +90,13 @@ fun JavaForkOptions.tornadoJvm() {
     }
     // Classes of module nn use the Vector API.
     jvmArgs("--add-modules", "jdk.incubator.vector")
+    // Backend and kernel selection (docs/tornado.md, "Backends"): -Psternhalma.tornado.generic=true forces the generic
+    // kernels on Metal, ...backend=metal|cuda|opencl and ...device=N choose the device (the environment variables
+    // TORNADO_BACKEND and TORNADO_DEVICE do the same), ...devicemath=native|portable.
+    for (name in listOf("sternhalma.tornado.generic", "sternhalma.tornado.backend", "sternhalma.tornado.device",
+        "sternhalma.tornado.devicemath")) {
+        providers.gradleProperty(name).orNull?.let { systemProperty(name, it) }
+    }
 }
 
 tasks.test {

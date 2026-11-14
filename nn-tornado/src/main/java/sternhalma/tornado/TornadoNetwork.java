@@ -163,6 +163,10 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
     TornadoNetwork(Parameters parameters, TornadoDevice device, int maxBatch, Variant variant, boolean profiled) {
         Objects.requireNonNull(parameters, "parameters");
         this.device = Objects.requireNonNull(device, "device");
+        DeviceBackend.requireLimits(device);
+        if (variant == Variant.SIMDGROUP) {
+            DeviceBackend.requireSimdgroup(device);
+        }
         if (maxBatch < 1) {
             throw new IllegalArgumentException("maxBatch must be >= 1, got " + maxBatch);
         }
@@ -223,6 +227,16 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
      */
     public static Variant variantFor(int bucket, int channels) {
         return (long) bucket * channels <= NAIVE_UP_TO ? Variant.NAIVE : Variant.SIMDGROUP;
+    }
+
+    /**
+     * {@link #variantFor(int, int)} for a device: where the SIMD-group kernels do not run (any backend but Metal,
+     * or {@link DeviceBackend#FORCE_GENERIC_PROPERTY} set) the large buckets use {@link Variant#TILED}, the
+     * generic local-memory kernel. Not measured on CUDA or OpenCL yet (docs/tornado.md, "Backends").
+     */
+    public static Variant variantFor(int bucket, int channels, TornadoDevice device) {
+        Variant v = variantFor(bucket, channels);
+        return v == Variant.SIMDGROUP && !DeviceBackend.useSimdgroup(device) ? Variant.TILED : v;
     }
 
     /**
@@ -429,7 +443,7 @@ public final class TornadoNetwork implements ForwardPass, AutoCloseable {
         int slot = slot(bucket);
         Plan p = plans[slot];
         if (p == null) {
-            p = new Plan(bucket, forcedVariant != null ? forcedVariant : variantFor(bucket, config.channels()));
+            p = new Plan(bucket, forcedVariant != null ? forcedVariant : variantFor(bucket, config.channels(), device));
             plans[slot] = p;
         }
         return p;

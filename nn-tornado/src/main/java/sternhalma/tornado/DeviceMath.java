@@ -19,6 +19,20 @@ final class DeviceMath {
      */
     static final float TANH_SATURATION = 8.5f;
 
+    /** System property that selects the activations: {@code portable} (default) or {@code native}. */
+    static final String MODE_PROPERTY = "sternhalma.tornado.devicemath";
+
+    /**
+     * Whether the kernels use the plain {@code Math.max} and {@code TornadoMath.tanh} instead of the workarounds
+     * (property {@value #MODE_PROPERTY} = {@code native}). The default, {@code portable}, is the code that was
+     * validated on Metal, and it is also correct on every other backend: the comparison form of ReLU keeps NaN
+     * everywhere, and saturating tanh at 8.5 changes no result beyond the tolerance. {@code native} exists to find
+     * out on CUDA and OpenCL whether the workarounds are needed there (docs/tornado.md, "Backends"); on Metal it is
+     * refused ({@link #requireMode}), because Metal gives wrong results with it. A {@code static final} read from
+     * a system property, so the compiled kernel contains only the chosen branch.
+     */
+    static final boolean NATIVE = "native".equals(System.getProperty(MODE_PROPERTY, "portable"));
+
     private DeviceMath() {
     }
 
@@ -28,6 +42,9 @@ final class DeviceMath {
      * docs/tornado.md). -0 stays -0, where {@code Math.max} gives +0; the two compare equal.
      */
     static float relu(float v) {
+        if (NATIVE) {
+            return Math.max(v, 0f);
+        }
         return v < 0f ? 0f : v;
     }
 
@@ -38,7 +55,30 @@ final class DeviceMath {
      * dropped NaN.
      */
     static float tanh(float x) {
+        if (NATIVE) {
+            return TornadoMath.tanh(x);
+        }
         return x > TANH_SATURATION ? 1f : (x < -TANH_SATURATION ? -1f : TornadoMath.tanh(x));
+    }
+
+    /**
+     * Whether the workarounds of this class are known to be required on the backend: true on Metal (measured,
+     * docs/tornado.md, "Pitfalls" 9 to 11), unknown on the others, where they stay on.
+     */
+    static boolean workaroundsRequired(DeviceBackend backend) {
+        return backend == DeviceBackend.METAL;
+    }
+
+    /**
+     * Fails if mode {@code native} is selected on a backend that needs the workarounds.
+     *
+     * @throws IllegalStateException on Metal with {@code native}
+     */
+    static void requireMode(DeviceBackend backend) {
+        if (NATIVE && workaroundsRequired(backend)) {
+            throw new IllegalStateException("-D" + MODE_PROPERTY + "=native is wrong on " + backend
+                    + ": its tanh and max need the workarounds of DeviceMath");
+        }
     }
 
     /**

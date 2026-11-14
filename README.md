@@ -8,7 +8,7 @@ The rules were decided on 2026-11-07 (see [rules](docs/rules.md)). The next mile
 
 - **Game:** Chinese Checkers on the 121-cell star board, two players first, three players later.
 - **AI:** first an alpha-beta search for two players. Its heuristic is the single-agent distance to the goal, which [Sturtevant2019, §2] calls a common heuristic for play. Then AlphaZero-style Monte Carlo tree search (MCTS) with PUCT and a neural network for two and three players. Alpha-beta stays as baseline opponent and test oracle (project decision).
-- **GPU:** TornadoVM kernels for batched network inference, training and, as an optional experiment, the BFS layers of a small endgame database, on Metal and OpenCL (macOS aarch64) or PTX and OpenCL (Linux amd64). A CPU reference with `jdk.incubator.vector` checks every kernel (project decision).
+- **GPU:** TornadoVM kernels for batched network inference, training and, as an optional experiment, the BFS layers of a small endgame database, on Metal and OpenCL (macOS aarch64) or CUDA and OpenCL (Linux amd64; see docs/cloud.md). A CPU reference with `jdk.incubator.vector` checks every kernel (project decision).
 - **Rules:** the win condition follows Definition 1 of [Sturtevant2019, §3.2]: the goal is full and at least one piece in it is your own. A two-player game ends after 200 plies, and a game without a winner is scored by distance (`drawHandling = SCORE_BY_DISTANCE`). Three players move clockwise, and the game ends at the first winner; ranking the other players (`FULL_RANKING`) is reserved for later. All of these are project decisions of 2026-11-07. `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`: project decision; differs from [Sturtevant2019, §3]. See [rules](docs/rules.md).
 - **Scope:** the project trains a neural network. It does not try to strongly solve any variant, because the development machine has too little RAM. [Sturtevant2019] serves only for verification and as an optional later test oracle (project decision).
 
@@ -37,7 +37,7 @@ Prerequisites: [devenv](https://devenv.sh) and an Apple Silicon Mac or a Linux a
    ```sh
    cp .env.example .env
    ```
-2. Check `TORNADO_BACKEND` in `.env`. The example sets `metal`. On Linux, set `ptx` or `opencl`, because the Linux archives have no Metal backend. Without the variable, the setup script uses `metal` on macOS and `ptx` on Linux.
+2. Check `TORNADO_BACKEND` in `.env`. The example sets `metal`. On Linux, set `cuda` (`ptx` is accepted as an alias) or `opencl`, because the Linux archives have no Metal backend. Without the variable, the setup script uses `metal` on macOS and `cuda` on Linux.
 3. Download and verify the TornadoVM SDK once. A second run skips a verified install.
    ```sh
    devenv tasks run setup:tornado
@@ -84,4 +84,4 @@ Each milestone gets one commit. Milestones 3 and 5 are additions to the implemen
 11. `book`: opening book from late self-play generations.
 12. Advisor API (move suggestions) and Opponent API (strength levels).
 13. Optional `app` with Vaadin.
-14. Self-play in the cloud on NVIDIA GPUs (PTX backend).
+14. Self-play in the cloud on NVIDIA GPUs (CUDA backend; docs/cloud.md).

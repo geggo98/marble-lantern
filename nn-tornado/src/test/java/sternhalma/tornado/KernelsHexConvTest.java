@@ -42,6 +42,10 @@ class KernelsHexConvTest {
     @AfterAll
     static void report() {
         for (Variant v : Variant.values()) {
+            if (WORST_ABSOLUTE[v.ordinal()] == 0 && WORST[v.ordinal()] == 0) {
+                System.out.printf("KernelsHexConv %s: not run on this device%n", v);
+                continue;
+            }
             System.out.printf("KernelsHexConv %s: largest error %.3g absolute, %.4f of the tolerance%n", v,
                     WORST_ABSOLUTE[v.ordinal()], WORST[v.ordinal()]);
         }
@@ -70,7 +74,7 @@ class KernelsHexConvTest {
         NetworkConfig[] presets = {NetworkConfig.tiny(2), NetworkConfig.small(2), NetworkConfig.large(2)};
         // 1, and batches whose 122-row activations fill no tile evenly (3 * 122 = 366, 67 * 122 = 8174).
         int[] batches = {1, 3, 67};
-        for (Variant variant : Variant.values()) {
+        for (Variant variant : KernelsChecks.variants()) {
             for (NetworkConfig preset : presets) {
                 for (Kind kind : Kind.values()) {
                     for (int batch : batches) {
@@ -131,7 +135,10 @@ class KernelsHexConvTest {
             float[] input = activations(random, batch, channels);
             float[] res = activations(random, batch, channels);
             float[] naive = run(Variant.NAIVE, weight, bias, channels, channels, batch, input, res, true);
-            for (Variant variant : new Variant[] {Variant.TILED, Variant.SIMDGROUP}) {
+            for (Variant variant : KernelsChecks.variants()) {
+                if (variant == Variant.NAIVE) {
+                    continue;
+                }
                 float[] fast = run(variant, weight, bias, channels, channels, batch, input, res, true);
                 double ratio = assertAgrees(variant + " against naive, C=" + channels, naive, fast);
                 System.out.printf("KernelsHexConv %s against naive, C=%d: largest difference %.3g, %.4f of the"
@@ -429,7 +436,7 @@ class KernelsHexConvTest {
 
     /** Runs the check for every kernel; a failure names the kernel. */
     private static void forEachVariant(java.util.function.Consumer<Variant> check) {
-        for (Variant variant : Variant.values()) {
+        for (Variant variant : KernelsChecks.variants()) {
             try {
                 check.accept(variant);
             } catch (AssertionError e) {

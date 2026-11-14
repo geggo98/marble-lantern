@@ -48,3 +48,18 @@ tasks.register<JavaExec>("trainerBenchmark") {
     mainClass.set("sternhalma.nn.TrainerBenchmark")
     jvmArgs("--add-modules", "jdk.incubator.vector")
 }
+
+// GFLOP/s of the Vector API forward pass for SMALL and LARGE at batch 1 and 256, one thread (a main method in the test
+// sources, not a test). Properties: -PvectorBits=64|128|256|512 forces the species (default: the preferred one),
+// -PvectorSeconds=N sets the length of a round, -PvectorJvmArgs="-XX:UseAVX=2 -XX:MaxVectorSize=32" adds JVM flags (x86).
+// Run: ./gradlew --no-build-cache :nn:vectorBenchmark. See docs/architecture.md, "Portability".
+tasks.register<JavaExec>("vectorBenchmark") {
+    group = "verification"
+    description = "Measures GFLOP/s of the Vector API forward pass (SMALL and LARGE, batch 1 and 256)."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.VectorBenchmark")
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+    providers.gradleProperty("vectorBits").orNull?.let { systemProperty("sternhalma.vector.bits", it) }
+    providers.gradleProperty("vectorJvmArgs").orNull?.let { jvmArgs(it.split(" ").filter(String::isNotBlank)) }
+    providers.gradleProperty("vectorSeconds").orNull?.let { args("--seconds", it) }
+}

@@ -225,7 +225,7 @@ class TornadoNetworkTest {
         Parameters parameters = initScale(config, 200);
         float[] input = inputs(3, 64, 201);
         Outputs expected = reference(parameters, input, 64);
-        for (Variant variant : Variant.values()) {
+        for (Variant variant : KernelsChecks.variants()) {
             Errors errors = new Errors();
             try (TornadoNetwork network = new TornadoNetwork(parameters, TornadoSupport.defaultDevice(), 1024,
                     variant, true)) {
@@ -435,7 +435,7 @@ class TornadoNetworkTest {
         }
         Position position = Playouts.sample(2, 1, 952).get(0);
         assertThrows(IllegalStateException.class, () -> new Evaluator(new Network(parameters)).evaluate(position));
-        for (Variant variant : Variant.values()) {
+        for (Variant variant : KernelsChecks.variants()) {
             try (TornadoNetwork network = new TornadoNetwork(parameters, TornadoSupport.defaultDevice(), 1024,
                     variant, true)) {
                 for (int batch : new int[] {1, 64}) {

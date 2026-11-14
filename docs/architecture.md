@@ -196,7 +196,7 @@ The project uses its `TaskGraph` API, `@Parallel` loops, and `KernelContext` whe
 | TornadoVM version | 7.3.1 |
 | Archive family | `jdk22plus` (the project runs JDK 25) |
 | macOS aarch64 backends | `metal`, `opencl` |
-| Linux amd64 backends | `ptx`, `opencl` (the PTX backend ships in the `cuda` archive) |
+| Linux amd64 backends | `cuda`, `opencl` (the `cuda` archive holds the CUDA C backend, compiled with NVRTC; TornadoVM removed PTX and SPIR-V in 6.0.0; checked 2026-11-14, [cloud](cloud.md)) |
 | Verified device | `tornado --devices` on the development Mac lists one Metal device: Apple M3 Max, 51.8 GB global memory. |
 
 TornadoVM is not in nixpkgs.
@@ -214,6 +214,20 @@ The task `setup:tornado` works as follows:
 
 You can run the script again at any time.
 If a verified installation of the selected backend exists, the script skips the download and exits with code 0.
+
+### Portability
+
+The system is meant to move later from the Mac to cloud machines: NVIDIA GPUs through TornadoVM, and Intel/AMD x86 CPUs through the Vector API (*project decision*; details in [cloud](cloud.md) and [TornadoVM](tornado.md#backends)).
+Only the Mac has run any of it so far.
+
+| Concern | How the code handles it |
+|---|---|
+| Backend and device | `TornadoSupport` selects them from `TORNADO_BACKEND` / `TORNADO_DEVICE` (or the system properties `sternhalma.tornado.backend` / `.device`), logs the choice once, and never falls back to another device. |
+| Metal-only kernels | The SIMD-group kernels run on Metal only. Every other backend gets the generic `KernelContext` kernels (`Variant.TILED`, `weightPartialTiled`); `-Dsternhalma.tornado.generic=true` forces them on Metal, which is how they are tested here. |
+| Device limits | Work groups of at most 256 items and at most 12.5 KiB of local memory; the device is queried when a network or trainer is built. |
+| Unified memory | Not assumed: every transfer is explicit. |
+| Vector API | `VectorNetwork` has no hard-coded lane count. The species is `FloatVector.SPECIES_PREFERRED` (128 bit on Apple silicon, 256 or 512 bit on x86) or is forced with `-Dsternhalma.vector.bits=64\|128\|256\|512`. Channels are padded to a multiple of two vectors, so no tail loop exists; `VectorSpeciesTest` runs all four widths against the reference. The Vector API is used by `VectorNetwork` only (the MCTS code calls it through `ForwardPass`). |
+| JVM flags | `--add-modules jdk.incubator.vector` always; on x86 `-XX:UseAVX=2\|3` and `-XX:MaxVectorSize` limit the species (see [cloud](cloud.md#vector-api-on-x86)). |
 
 ## Self-play and training loop
 
@@ -261,7 +275,7 @@ Every such job follows the same conventions (*project decision*):
 *Project decision:*
 
 1. **Local first.** Development and first training runs happen on the development Mac with the Metal backend. OpenCL is the fallback.
-2. **Cloud later.** Large runs move to NVIDIA GPUs with the PTX backend.
+2. **Cloud later.** Large runs move to NVIDIA GPUs with the CUDA backend of TornadoVM (docs/cloud.md).
    The plan packs self-play as a worker into one container image and stores checkpoints in object storage.
    Because every job is resumable, interruptible (spot) instances are acceptable.
    The provider is chosen after a price comparison just before the first cloud run.

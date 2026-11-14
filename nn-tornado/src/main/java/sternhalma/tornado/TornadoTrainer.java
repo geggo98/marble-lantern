@@ -214,6 +214,10 @@ public final class TornadoTrainer implements StepTrainer {
             double valueCoefficient, TornadoDevice device, Variant variant, boolean profiled, int stages) {
         Objects.requireNonNull(parameters, "parameters");
         Objects.requireNonNull(device, "device");
+        DeviceBackend.requireLimits(device);
+        if (variant == Variant.SIMDGROUP) {
+            DeviceBackend.requireSimdgroup(device);
+        }
         if (batch < 1) {
             throw new IllegalArgumentException("batch must be >= 1, got " + batch);
         }
@@ -303,8 +307,8 @@ public final class TornadoTrainer implements StepTrainer {
                 .transferToDevice(DataTransferMode.FIRST_EXECUTION, (Object[]) acts)
                 .transferToDevice(DataTransferMode.EVERY_EXECUTION, input, offsets, from, to, target, z, wp, wv, control);
         GridScheduler grids = new GridScheduler();
-        addForward(graph, grids, graphName, variant != null ? variant : TornadoNetwork.variantFor(batch, c), stages);
-        Variant convVariant = variant != null ? variant : TornadoNetwork.variantFor(batch, c);
+        addForward(graph, grids, graphName, variant != null ? variant : TornadoNetwork.variantFor(batch, c, device), stages);
+        Variant convVariant = variant != null ? variant : TornadoNetwork.variantFor(batch, c, device);
         if (stages >= HEADS_BACKWARD) {
             addLossAndHeadBackward(graph, graphName, grids);
         }
@@ -463,6 +467,11 @@ public final class TornadoTrainer implements StepTrainer {
                     gather, convPartial, rows, inChannels, outChannels, convSplits);
             grids.addWorkerGrid(graph.getTaskGraphName() + "." + task + "_wpartial",
                     KernelsConvBackward.weightGrid(inChannels, outChannels, convSplits));
+        } else if (variant == Variant.TILED) {
+            graph.task(task + "_wpartial", KernelsConvBackward::weightPartialTiled, new KernelContext(), dz, in,
+                    gather, convPartial, rows, inChannels, outChannels, convSplits);
+            grids.addWorkerGrid(graph.getTaskGraphName() + "." + task + "_wpartial",
+                    KernelsConvBackward.weightGridTiled(inChannels, outChannels, convSplits));
         } else {
             graph.task(task + "_wpartial", KernelsConvBackward::weightPartial, dz, in, gather, convPartial, rows,
                     inChannels, outChannels, convSplits);

@@ -108,14 +108,49 @@ plan.execute();   // first call compiles; later calls reuse the kernel
 
 | Want | How |
 |---|---|
-| Default device | `TornadoSupport.defaultDevice()` (= `TornadoExecutionPlan.DEFAULT_DEVICE`). System properties `tornado.driver` and `tornado.device` choose it; both are 0 by default. |
-| A backend | `TornadoSupport.device(TornadoVMBackendType.METAL)` or `OPENCL`. Empty if the SDK has no such backend. |
+| The device of this project | `TornadoSupport.defaultDevice()`. With a backend named (environment variable `TORNADO_BACKEND` or system property `sternhalma.tornado.backend`: `metal`, `cuda`, `ptx` (= `cuda`), `opencl`) it is device number `TORNADO_DEVICE` / `sternhalma.tornado.device` (default 0) of that backend. A backend or index that does not exist makes TornadoVM *not usable*, with the reason, and never selects another device. Without a name it is `TornadoExecutionPlan.DEFAULT_DEVICE` (system properties `tornado.driver` and `tornado.device`, both 0 by default). The chosen backend and device are logged once (`TornadoVM device: backend METAL, name Apple M3 Max, ...`). |
+| A backend | `TornadoSupport.device(TornadoVMBackendType.METAL)`, `OPENCL` or `CUDA`. Empty if the SDK has no such backend. |
+| Backend kind of a device | `DeviceBackend.of(device)`; `DeviceBackend.hasSimdgroupMatrix()` is true for Metal only. |
 | For one plan | `plan.withDevice(device)`. |
+| Through Gradle | `-Psternhalma.tornado.backend=...`, `-Psternhalma.tornado.device=N`, `-Psternhalma.tornado.generic=true`, `-Psternhalma.tornado.devicemath=native`; the environment variables are inherited by the test JVM. |
 
-One SDK archive contains one GPU backend (`etc/tornado.backend` is `metal-backend` here).
+One SDK archive contains one GPU backend (`etc/tornado.backend` is `metal-backend` here, `cuda-backend` in the Linux `cuda` archive).
 OpenCL on this Mac therefore needs the OpenCL archive: `scripts/setup-tornado.sh opencl` installs it and points `tornado-sdk/current` at it.
 That switches the backend for every process that uses `tornado-sdk/current`.
 Metal against OpenCL has **not** been compared yet.
+
+## Backends
+
+The kernels were written and measured on Metal. This section says what is Metal-specific, what each other backend gets, and what has been validated where.
+The portability work (branch `exp/P1`, docs/cloud.md) was done on the Mac, so only Metal has run any kernel.
+
+**Backends of TornadoVM 7.3.1.** The enum `TornadoVMBackendType` of the 7.3.1 API jar has `OPENCL`, `METAL`, `CUDA`, `JAVA` and `VIRTUAL`. There is no PTX and no SPIR-V backend: the CHANGELOG in the Linux archive lists "#872 Remove PTX backend in favour of the newly added CUDA backend" and "#951 Remove the SPIR-V backend" under 6.0.0. The `CUDA` backend emits CUDA C and compiles it with NVRTC at run time; it calls the driver and NVRTC through `java.lang.foreign`, so a machine needs the NVIDIA driver (`libcuda.so`) and NVRTC (`libnvrtc.so`, from the CUDA Toolkit). `scripts/setup-tornado.sh` accepts `ptx` as an old name for `cuda`.
+
+| Metal-specific part | Where | Generic replacement | Selected by |
+|---|---|---|---|
+| SIMD-group matrix weight gradient | `KernelsConvBackward.weightPartialSimdgroup` | `weightPartialTiled`: the same tiles and grid, 256 work items of 16 x 16, each with a 2 x 2 block in registers, no SIMD-group operation | `Variant.TILED` in the trainer; `TornadoNetwork.variantFor(bucket, channels, device)` returns `TILED` instead of `SIMDGROUP` where `DeviceBackend.useSimdgroup(device)` is false (not Metal, or `-Dsternhalma.tornado.generic=true`) |
+| SIMD-group matrix forward convolution | `KernelsHexConv.simdgroup` | `KernelsHexConv.tiled` (already generic, 8 x 16 work items) | same |
+| `DeviceMath.relu` and `tanh` (pitfalls 9 to 11) | `DeviceMath` | the plain `Math.max` and `TornadoMath.tanh` | `-Dsternhalma.tornado.devicemath=portable` (default, the validated code, kept on every backend: correct on all of them, and 8.5 as saturation changes nothing beyond the tolerance) or `native` (for an experiment on CUDA/OpenCL; refused on Metal with `IllegalStateException`) |
+| Metal `exp`/`log` accuracy special case (pitfall 14) | `KernelsTrain` | none needed: the special case for one legal move is exact on every backend | always on |
+
+A forced `Variant.SIMDGROUP` on a device without the matrix operations throws `IllegalStateException` (`DeviceBackend.requireSimdgroup`); a variant is never replaced silently.
+
+**Limits and memory.** The largest work group of any kernel is 256 items (`OpsKernels.VALUE_GROUP`, `weightPartialTiled`); 128 for the other tiled kernels. `DeviceBackend.requireLimits(device)` queries `getDeviceMaxWorkGroupSize()` and `getDeviceLocalMemorySize()` when a network, trainer or layer is built, and refuses a device below 256 items or 32 KiB of local memory (CUDA: 1,024 and 48 KiB or more; OpenCL: at least 256 and 32 KiB). The largest task has 16 arguments (the limit is 20, pitfall 16). Local memory per work group is at most 12.5 KiB (`tiled`). No kernel assumes unified memory: every array that a task reads is declared with `transferToDevice` (`FIRST_EXECUTION` for resident data, `EVERY_EXECUTION` for inputs), every result the host reads is declared with `transferToHost` (`EVERY_EXECUTION`, or `UNDER_DEMAND` plus `TornadoExecutionResult.transferToHost` in the trainer, pitfalls 5 and 12). That is how it already ran on Metal, whose buffers are separate from the host arrays too (pitfall 5). A discrete GPU makes each transfer a real PCIe copy; the numbers of "Measured speed" therefore do not carry over to CUDA.
+
+**Tests that never fall back.** A test skips when there is no usable TornadoVM (no SDK, or no device) and fails, not skips, when the build passed the flags but the runtime is broken, **or when a backend was named and is not usable** (`TornadoAssumptions`). On a cloud machine `TORNADO_BACKEND=cuda` with no NVRTC therefore fails every device test instead of passing by skipping. `-Dtornado.recover.bailout=False` stays set: a kernel that does not compile on CUDA fails the test and is never run as Java.
+
+**Where each part has been validated** (2026-11-14; "to validate" = written to be portable, never run there):
+
+| Part | Metal (Apple M3 Max) | CUDA (NVIDIA) | OpenCL |
+|---|---|---|---|
+| Backend and device selection, logging, limits check | validated (`GenericPathTest`, all device tests run through it); a named but missing backend fails the tests (checked with `-Psternhalma.tornado.backend=cuda`) | to validate on AWS | to validate |
+| Naive and tiled hex convolution (forward) | validated (`KernelsHexConvTest`, 117 tests) | to validate on AWS | to validate |
+| SIMD-group hex convolution | validated | not applicable (refused) | not applicable (refused) |
+| Weight gradient, SIMD-group | validated (`GenericPathTest`, `TornadoTrainerTest`) | not applicable | not applicable |
+| Weight gradient, generic `weightPartialTiled` | validated on Metal by forcing it: `GenericPathTest` (3 shapes against the CPU reference trainer, error 0.0035 to 0.0053 of the bound), and `TornadoNetworkTest` + `TornadoTrainerTest` with `-Psternhalma.tornado.generic=true` | to validate on AWS | to validate |
+| `DeviceMath` (portable mode) | validated (`DeviceMathTest`) | to validate on AWS (also `native` mode, to learn whether the workarounds are needed) | to validate |
+| Dense layers, heads, optimiser, trainer | validated (earlier work, unchanged) | to validate on AWS | to validate |
+| `TornadoNetwork` at batch 256 (gpuFeed) | validated | to validate on AWS (a speed measurement, nothing else is claimed) | to validate |
 
 ## Pitfalls
 
