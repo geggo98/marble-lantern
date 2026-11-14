@@ -2208,6 +2208,104 @@ Per unit of compute, simulations are still worth about twice what size buys, so 
 
 **Put LARGE 64x6 into the loop first, starting from this 128,000-step network** (`data/D2/e3/LARGE/candidate.safetensors`, already +138 Elo above generation 13 at equal simulations) as generation 0 of a new loop run, with the recipe of run 3: GPU evaluator and GPU trainer, 200 simulations in self-play and gate, the learning rate decayed within each generation (`--lr-final`), the promotion rule with z = 1.28, and the loop-3 samples as the initial window. First measure the self-play throughput of LARGE with the pooled GPU evaluator at equal wall time against SMALL with more simulations; if it is too low, MID (+62 Elo, 3.0 times the cost) is the fallback with the same recipe. More offline training is worth a little (0.013 to 0.018 KL per doubling of the steps), but the on-policy data of a LARGE loop is the better use of the GPU.
 
+## Loop run 4 (measured 2026-11-14)
+
+**TL;DR:** `data/loop4` ran the recommendation of [capacity diagnostics 2](#capacity-diagnostics-2-measured): the LARGE network 64x6 with GPU inference in the MCTS and the GPU trainer, 12 generations (0 to 11) of 2500 games at 200 simulations in 9 h 44 min; 5 of 11 candidates were promoted, and the best network is generation 11. Against `BEST_SPEC` generation 11 is not measurably stronger than generation 0 (+407 against +409 Elo at 102,400 nodes; paired difference about -3 +- 60 Elo), because the ladder is saturated at scores of 0.82 to 0.91. The direct match shows a real but small gain: generation 11 beats generation 0 by **+78 +- 19 Elo** (400 pairs), about half of the +140 Elo that the five gate results add up to. More search still pays for this network (**about +110 Elo per doubling** of the simulations), so the next experiment is a short loop with 800 simulations in self-play.
+
+All numbers below are measured unless marked as an estimate. The data are under `data/loop4`, `data/loop4-m` and in the logs `data/loop4.log`, `data/loop4-remeasure.log` and `data/loop4-decision.log` (all git-ignored).
+
+### What was run
+
+| Setting | Value | Source |
+|---|---|---|
+| network | LARGE 64x6, plane set `classic1` | `data/loop4/run.json` (`init_sha256`) |
+| generation 0 | the supervised LARGE network of capacity diagnostics 2 (`data/D2/e3/LARGE/candidate.safetensors`, 128,000 steps on the loop-3 window: self-play of generations 7 to 13 of the SMALL loop plus teacher samples) | `init_sha256` in `data/loop4/run.json` equals the SHA-256 of that file |
+| self-play | 2500 games per generation, 200 simulations, GPU evaluator, 256 games in flight in 2 cohorts, 4 to 10 random opening plies | `run.json` (`games`, `sims`, `opening_min`, `opening_max`), `data/loop4.log` line 41 |
+| training | GPU trainer, lr 1e-4 with a cosine to 1e-5 within each generation, reuse 20 (about 15,200 to 15,500 steps), window 2,000,000 samples, initial window of 800 files | `run.json` (`lr`, `lr_final`, `reuse`, `window`, `teacher_files`), `data/loop4.log` "gen N load" lines |
+| gate | 200 pairs at 200 simulations, 4 random opening plies, promotion if `score - 1.28 se > 0.5` | `run.json` (`gate_pairs`, `gate_opening`, `promote_z`) |
+| baseline clause | rung `ab:102400` (the alpha-beta player of `BEST_SPEC` at 102,400 nodes, see [strength record](#strength-record-eta-status)), 100 pairs, seed 4001 | `run.json` (`baseline_rung`, `baseline_pairs`, `baseline_seed`) |
+| total time | 9 h 44 min | last line of `data/loop4.log` |
+
+One generation took 29 to 36 minutes of self-play, about 9.5 minutes of training (26.8 steps/s), about 7.5 minutes of gate, and in promoted generations about 3.5 minutes per baseline match (`data/loop4.log`, generation 1: lines 220, 285, 305, 315).
+
+Generation 0 has therefore already learned the targets of 14 generations of SMALL self-play at 200 simulations, so further self-play at 200 simulations can teach it little.
+
+### Gate decisions
+
+| Generation | Against | Score +- se | z | Decision | Baseline clause (score vs 102,400 nodes) |
+|---|---|---|---|---|---|
+| 1 | 0 | 0.536 +- 0.018 | 2.00 | promoted | 0.865 (generation 0: 0.872) |
+| 2 | 1 | 0.495 +- 0.018 | -0.27 | rejected | |
+| 3 | 1 | 0.560 +- 0.018 | 3.40 | promoted | 0.867 |
+| 4 | 3 | 0.500 +- 0.019 | 0.00 | rejected | |
+| 5 | 3 | 0.508 +- 0.017 | 0.44 | rejected | |
+| 6 | 3 | 0.511 +- 0.016 | 0.69 | rejected | |
+| 7 | 3 | 0.505 +- 0.017 | 0.29 | rejected | |
+| 8 | 3 | 0.558 +- 0.019 | 3.10 | promoted | 0.865 |
+| 9 | 8 | 0.525 +- 0.015 | 1.65 | promoted | 0.875 |
+| 10 | 9 | 0.505 +- 0.018 | 0.27 | rejected | |
+| 11 | 9 | 0.521 +- 0.016 | 1.30 | promoted | 0.877 |
+
+Source: `data/loop4/gen-00NN/decision.json` and the "gen N decision" lines of `data/loop4.log`. The chain of best networks is 0, 1, 3, 8, 9, 11 (5 of 11 candidates promoted, about 45 %). The baseline clause stayed flat from 0.872 to 0.877.
+
+The held-out proxies at the end of each generation barely move: policy KL 0.356 to 0.408, top-1 71.8 to 76.3 %, winner prediction 80.7 to 86.0 % (`data/loop4.log`, "gen N proxies" lines at the last step).
+
+### Strength against `BEST_SPEC`
+
+Remeasured with 200 pairs per rung, seed 5003, the same openings for all networks, MCTS at 200 simulations (`data/loop4-remeasure.log` lines 181-182, 379-380, 566-567):
+
+| Network | vs 102,400 nodes | vs 409,600 nodes |
+|---|---|---|
+| generation 0 | +409 +- 59 (0.914, 364-3-33) | +257 +- 40 (0.815, 323-6-71) |
+| generation 3 (best network at generation 5) | +367 +- 52 (0.892, 356-2-42) | +249 +- 38 (0.807, 317-12-71) |
+| generation 11 | +407 +- 58 (0.912, 363-4-33) | +266 +- 39 (0.822, 327-4-69) |
+
+The in-loop measurements (100 pairs, seed 3001; `data/loop4.log` lines 37-39 and 2337-2339) had read generation 0 at +448, +350 and +257 and generation 9 at +552, +402 and +278 against 25,600, 102,400 and 409,600 nodes. The apparent +100 Elo at 25,600 nodes is a score of 0.930 against 0.960, that is 12 of 400 games (3 %). The seed alone moved generation 0 at 102,400 nodes from +350 to +409.
+
+A one-off script computed the paired difference per opening from the remeasurement shards (`data/loop4/gen-0000|0003|0011/strength/ab*.jsonl`, same 200 openings); the script is not saved and no project tool computes this yet: generation 11 minus generation 0 is -0.0012 +- 0.0140 in score (about -3 +- 60 Elo, 95 %) at 102,400 nodes and +0.0076 +- 0.0201 (about +9 +- 45 Elo) at 409,600 nodes. At these scores one percentage point is worth about 22 Elo (score 0.91) or 11.5 Elo (score 0.815), so the ladder resolves only differences of about 45 to 60 Elo. It rules out a gain of +140 Elo (the upper 95 % limits are about +57 and +54 Elo) and neither shows nor rules out a gain of +30 to +40 Elo.
+
+### Direct match and search scaling
+
+Measured after the run with `MctsMatch` (Gradle task `:selfplay:mctsMatch`), the subject network on the GPU and the opponent on the CPU, both players `mcts:sims=N,batch=1,cpuct=1.0,noise=0,temp=0,race=1`, 4 random opening plies, paired colours, `--threads 32 --evaluator gpu --compute-threads 8 --eval-cohorts 2` (32 pairs in flight on 8 carrier threads). Results in `data/loop4-m/m1`, `m2a`, `m2b` and in `data/loop4-decision.log`.
+
+| Measurement | Subject | Opponent | Pairs, seed | Score +- se | Elo (95 %) | W-D-L games | Wall time |
+|---|---|---|---|---|---|---|---|
+| M1 | generation 11, 200 simulations | generation 0, 200 simulations | 400, 6101 | 0.610 +- 0.013 | **+78 +- 19** | 488-0-312 | 36 min |
+| M2a | generation 11, 400 simulations | generation 11, 200 simulations | 200, 6001 | 0.639 +- 0.017 | +99 +- 24 | 254-3-143 | 19.5 min |
+| M2b | generation 11, 800 simulations | generation 11, 200 simulations | 200, 6001 | 0.780 +- 0.018 | +220 +- 35 | 311-2-87 | 29.5 min |
+
+LARGE gains about +110 Elo per doubling of the simulations (+99 for one doubling, +220 for two). The SMALL network of loop 3 gained about +120 per doubling in [E2](#e2-search-scaling-of-the-network) (+122 for 400 against 200, +274 for 4.9 times the simulations). The deeper search still finds moves that the 200-simulation targets do not contain.
+
+### Findings
+
+- **The loop learned, but less than the gates suggest.** The five promotions add up to about +140 Elo (+25, +42, +40, +18, +15 from the gate scores). The direct match gives +78 +- 19 Elo, about half. The gap is selection noise: with 11 gates and a threshold of z > 1.28 (one-sided 10 %), about one promotion is expected without any real effect. Generations 9 (z 1.65) and 11 (z 1.30) lie in that range; generations 3 (z 3.40) and 8 (z 3.10) do not.
+- **The classical ladder cannot see this gain.** At scores above 0.85 a rung does not resolve differences ([loop run 2](#loop-run-2-and-hyperparameter-sweep-1-measured)); loop 4 used rung 102,400 for the baseline clause at 0.865 to 0.877 and so broke that rule. The upper limits of the paired ladder difference (about +57 and +54 Elo) lie just below the lower limit of the direct match (+59 Elo). Part of the gain in self-play may therefore not carry over to play against alpha-beta; with these intervals that is not established.
+- **The learning rate was 1e-4, not the 3e-4 that sweep 1 favoured.** The reason for 1e-4 was not found. In sweep 1 a peak of 1e-4 was no better than 3e-4 with the same decay; for LARGE the effect is not measured.
+- **The window broke off in generation 2.** All 800 initial files left the window at once (1,935,950 samples in generation 1, 389,513 in generation 2; `data/loop4.log` lines 221 and 477), the held-out KL rose from 0.383 to 0.408, and generation 2 was rejected.
+- **The same data give a wide spread of candidates.** Four candidates from parent generation 3 scored 0.500 to 0.511; the fifth scored 0.558.
+- **Gate pairs are mostly split.** 141 to 161 of 200 gate pairs end 1:1 (counted in the gate shards `data/loop4/gen-00NN/gate`; the counting script is not saved), so the score rests on about 40 to 60 informative pairs.
+
+### Open gaps
+
+- Opening dominance: how many of the openings with 4 random plies already decide the game.
+- The raw policy strength without MCTS, for generations 0 and 11.
+- The value head against a deep alpha-beta search.
+- The seed-to-seed spread of a candidate trained from the same data.
+- The share of the game that the race module decides (8 to 15 race plies per side of about 85 plies).
+
+### Decision and next step
+
+Search scaling of about +110 Elo per doubling is above the threshold of +80 Elo per doubling that was fixed for this decision before M2a and M2b ran (below +40 Elo per doubling would have meant that search is saturated for this network). The 200-simulation targets are therefore shallow for this network, and a loop with more simulations in self-play is the next experiment (decision of the project lead):
+
+- 3 generations of 1250 games at 800 simulations, lr 3e-4 with a cosine to 1e-5, starting from generation 11.
+- Every promotion is confirmed by a second gate on fresh openings.
+- Measured by the direct match against generation 11 and against generation 0 (400 pairs each) and by the paired difference against the ladder, not by Elo intervals against a saturated rung.
+- **Estimate, not measured:** about 1 h 25 min per generation (about 58 min self-play, scaled as four times the simulations at half the games from about 29 min per 2500 games at 200 simulations; about 10 min training; about 16 min gate with confirmation), about 4 h 15 min for 3 generations, plus about 1 h 10 min of final measurements, all on the local machine.
+
+The run spends no cloud money. The owner approved an AWS test budget of up to 5 EUR in total, and only for compatibility tests.
+
+**What would change the plan:** if after two generations no confirmed candidate beats generation 11 by at least 0.55 over 400 pairs, the hypothesis of shallow targets is refuted; the next candidates are then the learning rate (3e-4 against 1e-4 on the same window) and the opening dominance and the value head (see [open gaps](#open-gaps)).
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
@@ -2223,6 +2321,7 @@ Per unit of compute, simulations are still worth about twice what size buys, so 
 11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item. E05 verified 130 and 143 on JDK 25 with a shutdown hook (`SignalExitTest`).
 12. **Distillation.** The [architecture](architecture.md#neural-network) plans to train LARGE and distil into SMALL. The trainer supports it with teacher distributions from LARGE; the schedule is open.
 13. **References.** Adam, AdamW, SGD with momentum and AlphaZero need entries in [references](references.md) before this document cites them.
+14. **Measuring a strong network.** The classical ladder saturates for the LARGE loop networks (scores 0.82 to 0.91, see [loop run 4](#loop-run-4-measured-2026-11-14)). Which measure replaces it: a direct match against fixed earlier generations, a paired difference per opening, or a weaker network side against a deep rung?
 
 ## Work plan
 
@@ -2248,3 +2347,4 @@ Each step ends with passing tests and can be reviewed alone. Part A steps go int
 18. **B8, full step:** determinism, one-step and twenty-step comparisons with Part A. Done, with gradient accumulation and the finite flag.
 19. **B9, benchmark:** samples per second and GFLOP/s for SMALL and LARGE at batch 256 to 2048; replace the estimates of [Expected speed](#expected-speed) with the measurements. Done for SMALL (LARGE is not measured).
 20. **B10, integration:** the training loop uses the GPU trainer when a device is present and Part A otherwise. Done as the option `--trainer cpu|gpu` (default cpu), with a fallback to the CPU and a message; also for Gen0.
+21. **Loop run 5:** 3 generations of 1250 games at 800 simulations from generation 11 of loop run 4, lr 3e-4 to 1e-5, every promotion confirmed by a second gate on fresh openings; measured by direct matches against generations 11 and 0. Plan and estimate in [loop run 4](#loop-run-4-measured-2026-11-14).
