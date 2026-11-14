@@ -50,3 +50,4 @@ devenv.local.yaml
 
 # Results of scripts/cloud/aws-spot.sh
 cloud-results/
+/cloud-results/
