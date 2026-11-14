@@ -92,8 +92,9 @@ if ! { [ "$CMD" = run ] && [ "$DRY_RUN" = 1 ]; }; then
   fi
   if [ -n "${AWS_PROFILE:-}" ]; then
     # reads the local AWS config only (no network call); an undefined profile would otherwise fall back to the defaults
-    if ! aws configure list-profiles 2> /dev/null | grep -Fxq -- "$AWS_PROFILE"; then
-      echo "error: the profile named by AWS_PROFILE is not defined in the AWS config (see: aws configure list-profiles); fix AWS_PROFILE in .env or the environment" >&2; exit 2
+    # "configure list --profile" works in AWS CLI v1 and v2 (v1 has no "configure list-profiles"): it fails for an unknown profile
+    if ! aws configure list --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+      echo "error: the profile named by AWS_PROFILE is not defined in the AWS config (see: aws configure list); fix AWS_PROFILE in .env or the environment" >&2; exit 2
     fi
   fi
 fi

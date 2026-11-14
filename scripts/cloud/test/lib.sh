@@ -33,7 +33,7 @@ write_stubs() {
 echo "aws $*" >> "$STUB_LOG"
 logged() { grep -q -- "$1" "$STUB_LOG"; }
 case "$1 $2" in
-  "configure list-profiles") printf '%s\n' ${STUB_PROFILES:-known-profile}; exit 0 ;;
+  "configure list") case " ${STUB_PROFILES:-known-profile} " in *" ${3#--profile} "*|*" $4 "*) echo "      Name       Value"; exit 0 ;; esac; echo "The config profile could not be found" >&2; exit 255 ;;
   "sts get-caller-identity") echo "arn:aws:iam::000000000000:user/stub"; exit 0 ;;
   "ssm get-parameter") echo ami-0123456789abcdef0; exit 0 ;;
   "ec2 run-instances")

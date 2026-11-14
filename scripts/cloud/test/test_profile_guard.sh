@@ -33,7 +33,7 @@ for args in "preflight --instance-type c7i.xlarge" "preflight --dry-run --instan
   assert_eq "$RC" 2 "refused (exit 2): $args"
   assert_contains "$OUTTXT" "AWS_PROFILE" "names the variable"
   assert_not_contains "$OUTTXT" "secret-profile-value" "does not print the value"
-  assert_eq "$(grep -c -v 'configure list-profiles' "$STUB_LOG")" 0 "only the local profile list was asked: $args"
+  assert_eq "$(grep -c -v 'configure list --profile' "$STUB_LOG")" 0 "only the local profile list was asked: $args"
 done
 
 echo "a defined profile gets through the guard:"
