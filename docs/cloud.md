@@ -206,3 +206,22 @@ pre-flight in eu-central-1 (read-only)
 ```
 
 The profile named in the owner's `.env` is not defined in the local AWS configuration; I did not try any other profile, because they may belong to other accounts. Quotas and spot prices are therefore not known yet.
+
+## Test results (2026-11-14)
+
+**CPU, AVX-512 (`c7i.xlarge`, Intel Xeon Platinum 8488C, 4 vCPUs, Frankfurt, spot at about 0.095 USD/h).** `scripts/cloud/aws-spot.sh run --instance-type c7i.xlarge --backend none` built the project, passed the Vector API tests and ran the benchmark; 292 s in total, about 0.01 USD, no resources left. Vector API forward pass, one thread (`:nn:vectorBenchmark`):
+
+| JVM setting | SMALL evaluations/s (GFLOP/s) | LARGE evaluations/s (GFLOP/s) |
+|---|---|---|
+| AVX2, 256-bit vectors | 2,993 (42.7) | 521 (43.8) |
+| AVX-512, 512-bit vectors (the JVM default on this CPU) | 9,213 (131.5) | 1,281 (107.7) |
+
+One AVX-512 core is about four times as fast as one Apple M3 Max performance core for this code (about 30 GFLOP/s measured there), without any porting. A large CPU instance can therefore compete with a GPU for the self-play inference; this needs a measurement on a many-core instance.
+
+**GPU, CUDA (`g4dn.xlarge`): not tested; the account has no GPU quota.**
+- Spot: `MaxSpotInstanceCountExceeded` in nine regions (us-east-1, us-east-2, us-west-2, eu-west-1, eu-north-1, ca-central-1, eu-west-2, ap-northeast-1, eu-central-1) and `InsufficientInstanceCapacity` in eu-central-1 (earlier attempts) and ap-south-1.
+- On-demand (`--on-demand --max-price 0.75`): `VcpuLimitExceeded` in all eight regions tried (eu-central-1, us-east-1, us-east-2, eu-west-1, us-west-2, eu-north-1, ca-central-1, ap-south-1).
+- Every failed launch cleaned up; the verification found nothing left each time.
+- To run the CUDA test: request the quotas "Running On-Demand G and VT instances" (at least 4 vCPUs, for g4dn.xlarge) and/or "All G and VT Spot Instance Requests" in Service Quotas for one region (the profile used here may not read or change quotas; the console of the account owner can). Then run, for example: `scripts/cloud/aws-spot.sh run --region <region> --instance-type g4dn.xlarge --on-demand --max-price 0.75 --max-minutes 75 --backend cuda --ami <ami> --yes` (the AMI id of the AWS Deep Learning Base OSS Nvidia Driver GPU AMI for Ubuntu 22.04 of that region, found with `aws ec2 describe-images --owners amazon`).
+
+Notes from the run: the AWS CLI installed locally is version 1 (the profile guard uses `aws configure list --profile`, which works in v1 and v2); the public SSM parameters for the AMIs were not readable with the profile used, so `--ami` was given explicitly; the verification now retries for up to a minute before it reports a spot request as left (its state settles a few seconds after the cancel).
