@@ -53,12 +53,13 @@ env_value() {
 [ $# -ge 1 ] || usage
 CMD=$1; shift
 INSTANCE_TYPES=""; MAX_PRICE=""; MAX_MIN=""; BACKEND=""; BUDGET_USD=2.50; REGION=${AWS_REGION:-}; AMI=""
-DRY_RUN=0; YES=0; RUN_ID_ARG=""; FEED_SECONDS=60
+DRY_RUN=0; YES=0; RUN_ID_ARG=""; FEED_SECONDS=60; ON_DEMAND=0
 while [ $# -gt 0 ]; do
   case $1 in
     --instance-type) INSTANCE_TYPES=${2:-}; shift 2 ;;
     --max-price) MAX_PRICE=${2:-}; shift 2 ;;
     --max-minutes) MAX_MIN=${2:-}; shift 2 ;;
+    --on-demand) ON_DEMAND=1; shift ;;   # on-demand instead of spot: --max-price is then the assumed price per hour for the budget check
     --backend) BACKEND=${2:-}; shift 2 ;;
     --budget-usd) BUDGET_USD=${2:-}; shift 2 ;;
     --region) REGION=${2:-}; shift 2 ;;
@@ -362,11 +363,18 @@ fi
 EOF
 [ "$DRY_RUN" = 1 ] && { echo "--- user data (would be passed to the instance) ---" >&2; cat "$UD" >&2; echo "---" >&2; }
 
-log "launching one spot instance (one-time request, terminate on interruption and on shutdown)"
+if [ "$ON_DEMAND" = 1 ]; then
+  log "launching one ON-DEMAND instance (terminate on shutdown; the price cap is only the assumed hourly price for the budget check)"
+  MARKET=(); TAGSPEC=("ResourceType=instance,Tags=[$TAGS]" "ResourceType=volume,Tags=[$TAGS]")
+else
+  log "launching one spot instance (one-time request, terminate on interruption and on shutdown)"
+  MARKET=(--instance-market-options "MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate,MaxPrice=$MAX_PRICE}")
+  TAGSPEC=("ResourceType=instance,Tags=[$TAGS]" "ResourceType=volume,Tags=[$TAGS]" "ResourceType=spot-instances-request,Tags=[$TAGS]")
+fi
 INSTANCE_ID=$(mut aws ec2 run-instances --image-id "$AMI_ID" --instance-type "$TYPE" --count 1 --key-name "$KEY_NAME" \
   --security-group-ids "$SG_ID" --user-data "file://$UD" --instance-initiated-shutdown-behavior terminate \
-  --instance-market-options "MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate,MaxPrice=$MAX_PRICE}" \
-  --tag-specifications "ResourceType=instance,Tags=[$TAGS]" "ResourceType=volume,Tags=[$TAGS]" "ResourceType=spot-instances-request,Tags=[$TAGS]" \
+  "${MARKET[@]}" \
+  --tag-specifications "${TAGSPEC[@]}" \
   --query 'Instances[0].InstanceId' --output text || true)
 [ "$DRY_RUN" = 1 ] && INSTANCE_ID="<instance-id>"
 [ -n "$INSTANCE_ID" ] || fail "run-instances returned no instance" 1
@@ -430,10 +438,14 @@ mut bounded 60 "${SSH[@]}" "$SSH_USER@$IP" "sudo shutdown -h now" || true
 # cost: elapsed time times the spot price of the zone (the price changes slowly; per-second billing)
 ENDED_AT=$(date +%s)
 if [ "$DRY_RUN" = 1 ]; then
+  : # (on-demand: the cost line below uses the assumed hourly price)
   echo "DRY-RUN: cost = (end - launch) seconds / 3600 * latest describe-spot-price-history price for $TYPE in the zone; worst case $WORST USD" >&2
 else
-  PRICE=$(aws ec2 describe-spot-price-history --instance-types "$TYPE" --availability-zone "$AZ" --product-descriptions "Linux/UNIX" --max-items 1 \
-    --query 'SpotPriceHistory[0].SpotPrice' --output text 2> /dev/null || echo "")
+  if [ "$ON_DEMAND" = 1 ]; then PRICE=$MAX_PRICE   # on-demand: the assumed hourly price given with --max-price
+  else
+    PRICE=$(aws ec2 describe-spot-price-history --instance-types "$TYPE" --availability-zone "$AZ" --product-descriptions "Linux/UNIX" --max-items 1 \
+      --query 'SpotPriceHistory[0].SpotPrice' --output text 2> /dev/null || echo "")
+  fi
   if [ -n "$PRICE" ] && [ "$PRICE" != None ]; then
     perl -e 'printf STDERR "cost estimate: %d s at %s USD/h = %.3f USD (about %.3f EUR at an assumed %s EUR/USD); the 8 GB to 100 GB root volume adds a few cents\n", $ARGV[0], $ARGV[1], $ARGV[0]/3600*$ARGV[1], $ARGV[0]/3600*$ARGV[1]*$ARGV[2], $ARGV[2]' \
       "$(( ENDED_AT - LAUNCHED_AT ))" "$PRICE" "$EUR_PER_USD"
