@@ -1,7 +1,11 @@
 #include "move.hpp"
 
+#include "geometry.hpp"
+
 namespace sh {
 
-const int k_move_stub = 0;
+std::string Move::to_string(int move) {
+    return geometry::cell_to_string(from(move)) + "->" + geometry::cell_to_string(to(move));
+}
 
 }  // namespace sh
