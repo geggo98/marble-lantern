@@ -127,6 +127,22 @@ assert_not_contains "$LOG" "vectorBenchmark" "the Vector API benchmarks are not 
 assert_not_contains "$LOG" "TornadoNetworkTest" "nor the device tests"
 assert_contains "$LOG" "nn_bench_l8 --golden" "nn_bench ran"
 assert_contains "$LOG" "java-cross --golden" "crossBench ran with the command of printRunCommand"
+# cold start: --cold measures one case per process, so each case needs --presets, --batches and --impls (the first run had none of
+# the last two and measured one case only); 3 rounds x 2 presets x 2 batches x 3 C++ impls, and x 2 Java impls
+cold_cpp=$(printf '%s\n' "$LOG" | grep -c 'hardened/nn_bench_l8 .*--cold')
+cold_java=$(printf '%s\n' "$LOG" | grep -c 'java-cross .*--cold')
+assert_eq "$cold_cpp" 36 "cold start C++: 36 processes (3 rounds x 2 presets x 2 batches x simd, cuda-pageable, cuda-pinned)"
+assert_eq "$cold_java" 24 "cold start Java: 24 processes (3 rounds x 2 presets x 2 batches x vector, tornado)"
+assert_eq "$(printf '%s\n' "$LOG" | grep -- '--cold' | grep -c -- '--presets [a-z]* --batches [0-9]* --impls [a-z-]* --cold')" 60 "every cold process names preset, batch and one impl"
+assert_eq "$(printf '%s\n' "$LOG" | grep -- '--cold' | grep -c -E -- '--impls [a-z-]*,|--presets [a-z]*,|--batches [0-9]*,')" 0 "no cold process takes a list (a list would measure only the first case)"
+for impl in simd cuda-pageable cuda-pinned; do for preset in small large; do for batch in 1 256; do
+  assert_eq "$(printf '%s\n' "$LOG" | grep -c -- "nn_bench_l8 --golden .* --presets $preset --batches $batch --impls $impl --cold")" 3 "cold start C++ $impl $preset batch $batch: three rounds"
+done; done; done
+for impl in vector tornado; do for preset in small large; do for batch in 1 256; do
+  assert_eq "$(printf '%s\n' "$LOG" | grep -c -- "java-cross --golden .* --presets $preset --batches $batch --impls $impl --cold")" 3 "cold start Java $impl $preset batch $batch: three rounds"
+done; done; done
+assert_contains "$(cat "$W/results/nn-bench.tsv")" "# hardened, cold start round 3: cuda-pinned large batch 256" "nn-bench.tsv labels every cold process"
+assert_contains "$(cat "$W/results/crossbench.tsv")" "# cold start round 3: tornado large batch 256" "crossbench.tsv labels every cold process"
 assert_contains "$LOG" "gpuFeed --args=--size small --batches 256 --seconds 30" "gpuFeed rows with the feed seconds"
 assert_contains "$(cat "$T/shutdown.log")" "-h +8" "the normal end: the grace time"
 
@@ -177,6 +193,16 @@ assert_contains "$SUMMARY" "cpp-sanitizer: FAIL (1)" "FAIL"
 assert_contains "$SUMMARY" "gate: passed" "the gate had passed"
 assert_contains "$SUMMARY" "gpufeed-large: OK" "later steps ran"
 assert_eq "$RC" 1 "the exit status is 1 (a step failed)"
+
+echo "--cold-rounds:"
+run_boot --suite cpp --cold-rounds 1
+assert_eq "$RC" 0 "exit 0 with one cold round"
+assert_eq "$(printf '%s\n' "$LOG" | grep -c 'hardened/nn_bench_l8 .*--cold')" 12 "one round: 12 cold processes of C++"
+assert_eq "$(printf '%s\n' "$LOG" | grep -c 'java-cross .*--cold')" 8 "one round: 8 cold processes of Java"
+run_boot --suite cpp --cold-rounds 0
+assert_eq "$RC" 2 "--cold-rounds 0 is a usage error (exit 2)"
+run_boot --suite cpp --cold-rounds x
+assert_eq "$RC" 2 "--cold-rounds x is a usage error (exit 2)"
 
 echo "real weights:"
 head -c 3000 /dev/urandom > "$T/weights.bin"

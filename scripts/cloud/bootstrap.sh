@@ -4,7 +4,8 @@
 # directory, and ALWAYS schedules the shutdown of the machine, also on failure (trap EXIT).
 #
 # usage: bootstrap.sh --backend cuda|opencl|none --hard-minutes N [--workdir DIR] [--grace-minutes N]
-#                     [--feed-seconds N] [--install-nvidia 0|1] [--suite default|cpp] [--real-weights-sha256 HEX]
+#                     [--feed-seconds N] [--cold-rounds N] [--install-nvidia 0|1] [--suite default|cpp]
+#                     [--real-weights-sha256 HEX]
 #   --backend        TornadoVM backend to test; none = CPU only (Vector API tests and benchmarks)
 #   --hard-minutes   hard timer: "shutdown -h +N" is the first thing this script does; its deadline is stored in
 #                    <workdir>/HARD_DEADLINE and the final shutdown never lies beyond it
@@ -13,6 +14,8 @@
 #                    caller can fetch results (default 8), or at the hard deadline if that is sooner: a second
 #                    "shutdown -h +N" REPLACES the first schedule, so the script computes min(remaining, N) itself
 #   --feed-seconds   length of each gpuFeed row (default 60)
+#   --cold-rounds    cpp suite: rounds of the cold-start processes (default 3): per round and per preset (small, large) and batch
+#                    (1, 256) one process each for C++ simd, cuda-pageable, cuda-pinned, vector and tornado
 #   --install-nvidia 1 = if no NVIDIA driver is present, try "ubuntu-drivers install --gpgpu" (NOT validated: use a
 #                    Deep Learning AMI instead, docs/cloud.md); default 0 = fail with a message
 #   --suite          default = the earlier runs (Vector API tests and benchmarks, device tests, gpuFeed rows; unchanged);
@@ -86,11 +89,12 @@ HARD_MIN=""
 WORKDIR=/var/tmp/sh
 GRACE_MIN=8
 FEED_SECONDS=60
+COLD_ROUNDS=3   # rounds of the cold-start processes of the cpp suite (the Mac session used 3)
 INSTALL_NVIDIA=0
 SUITE=default
 REAL_SHA=
 
-usage() { sed -n '2,25p' "$0" >&2; exit 2; }
+usage() { sed -n '2,29p' "$0" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -99,6 +103,7 @@ while [ $# -gt 0 ]; do
     --workdir) WORKDIR=${2:-}; shift 2 ;;
     --grace-minutes) GRACE_MIN=${2:-}; shift 2 ;;
     --feed-seconds) FEED_SECONDS=${2:-}; shift 2 ;;
+    --cold-rounds) COLD_ROUNDS=${2:-}; shift 2 ;;
     --install-nvidia) INSTALL_NVIDIA=${2:-}; shift 2 ;;
     --suite) SUITE=${2:-}; shift 2 ;;
     --real-weights-sha256) REAL_SHA=${2:-}; shift 2 ;;
@@ -111,7 +116,9 @@ case $REAL_SHA in '') ;; *) [ "$SUITE" = cpp ] && [ "${#REAL_SHA}" = 64 ] && [ -
 case $HARD_MIN in ''|*[!0-9]*) usage ;; esac
 case $GRACE_MIN in ''|*[!0-9]*) usage ;; esac
 case $FEED_SECONDS in ''|*[!0-9]*) usage ;; esac
-HARD_MIN=$((10#$HARD_MIN)); GRACE_MIN=$((10#$GRACE_MIN)); FEED_SECONDS=$((10#$FEED_SECONDS))
+case $COLD_ROUNDS in ''|*[!0-9]*) usage ;; esac
+HARD_MIN=$((10#$HARD_MIN)); GRACE_MIN=$((10#$GRACE_MIN)); FEED_SECONDS=$((10#$FEED_SECONDS)); COLD_ROUNDS=$((10#$COLD_ROUNDS))
+[ "$COLD_ROUNDS" -ge 1 ] || usage
 [ "$HARD_MIN" -ge 5 ] || usage
 
 # 1. The hard timer first: from here on the machine ends within HARD_MIN minutes whatever happens below.
@@ -481,8 +488,19 @@ cpp_bench() {
   done
   echo "# hardened, kernels (LARGE)" >> "$out"
   "$hard/nn_bench_l8" "${g[@]}" --presets large --batches 1,64,512 --kernels >> "$out" || status=1
-  echo "# hardened, cold start" >> "$out"
-  "$hard/nn_bench_l8" "${g[@]}" --presets small,large --cold >> "$out" || status=1
+  # cold start: --cold measures ONE case (the first preset, impl and batch) in a fresh process, so every case is its own process,
+  # in rounds (the Mac session: LARGE, batch 1 and 256, 3 rounds; here SMALL as well, and the CUDA modes)
+  local round preset batch impl
+  for round in $(seq 1 "$COLD_ROUNDS"); do
+    for preset in small large; do
+      for batch in 1 256; do
+        for impl in simd cuda-pageable cuda-pinned; do
+          echo "# hardened, cold start round $round: $impl $preset batch $batch" >> "$out"
+          "$hard/nn_bench_l8" "${g[@]}" --presets "$preset" --batches "$batch" --impls "$impl" --cold >> "$out" || status=1
+        done
+      done
+    done
+  done
   for lanes in l8 l16; do
     echo "# unchecked, $lanes: batch 256" >> "$out"
     "$unchecked/nn_bench_$lanes" "${g[@]}" --presets small,large --batches 256 \
@@ -496,8 +514,18 @@ java_crossbench() {
   smi_line java-crossbench
   echo "# vector and tornado" >> "$out"
   java_cross --golden "$SRC/$GOLDEN_DIR_REL" --presets small,large --batches 1,16,64,256,512,1024 --impls vector,tornado >> "$out" || status=1
-  echo "# cold start" >> "$out"
-  java_cross --golden "$SRC/$GOLDEN_DIR_REL" --presets small,large --cold --impls vector,tornado >> "$out" || status=1
+  # cold start: one case per process (see cpp_bench), the same cases as the C++ side: vector against C++ simd, tornado against CUDA
+  local round preset batch impl
+  for round in $(seq 1 "$COLD_ROUNDS"); do
+    for preset in small large; do
+      for batch in 1 256; do
+        for impl in vector tornado; do
+          echo "# cold start round $round: $impl $preset batch $batch" >> "$out"
+          java_cross --golden "$SRC/$GOLDEN_DIR_REL" --presets "$preset" --batches "$batch" --impls "$impl" --cold >> "$out" || status=1
+        done
+      done
+    done
+  done
   return "$status"
 }
 
