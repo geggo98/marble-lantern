@@ -524,6 +524,25 @@ python3 -I cpp/scripts/test_book_nn.py
   case, batch, metric, median, min, max, status, anchor start/mid/end, note), `results/mac-nn-2026-11-15.txt` (summary),
   `results/mac-nn-2026-11-15-raw.tsv` (raw output of every run) and `results/mac-nn-2026-11-15-summary.txt` (`merge-bench.pl`).
 
+## AWS run on the Tesla T4, booked (WP15)
+
+The run of the cpp suite (`g4dn.xlarge`, spot, Frankfurt; all 19 steps OK, 1,651 s, about 0.15 USD) is booked by `scripts/book-aws.py`
+(tests: `scripts/test_book_aws.py`) into `results/aws-t4-2026-11-15.tsv` and `.txt`. The `.txt` starts with "Status: read this first".
+
+```sh
+python3 -I cpp/scripts/book-aws.py <run dir>/results cpp/results/aws-t4-2026-11-15 --mac-tsv cpp/results/mac-nn-2026-11-15.tsv \
+  --cost <run dir>/cost.tsv --cost <other run dir>/cost.tsv --commit "<text>"
+python3 -I cpp/scripts/test_book_aws.py
+```
+
+Rules applied: a row is `valid` if all four anchor values of its program (batch 256: two runs at the start, two at the end) lie within 2 % of
+each other, else `unsettled` with the drift; a Java:C++ ratio comes only from the four adjacent anchor pairs (C, J, C, J); a division of two
+blocks is `unpaired`; no statement below 5 %; n = 1. The script fails (exit 3) on a step that is not OK, a row whose `verified` is not `ok` and a
+block whose rows plus skipped cases differ from its schedule. Result in short: the GPU programs (C++ CUDA, TornadoVM CUDA) are valid and
+within 3 % of each other at batch 256 (no statement); the CPU programs are unsettled (steps of 34 % between consecutive anchor runs); C++ CUDA is
+slower than TornadoVM at batch 1 (LARGE: 1.86 against 0.90 ms; the auto variant is the naive kernel set there). The CUDA test, the sanitizer and
+`nn_check --impl cuda` pass. Not measured: the cold process of C++ CUDA and TornadoVM (the instance's `--cold` step ran one case only).
+
 ## Race play and the games row (WP6)
 
 `src/search/solitaire.*` (the solitaire move generator, the parity lower bound and the beam search `plan`) and `src/search/race_move.*` are
