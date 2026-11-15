@@ -38,7 +38,10 @@ CPP=${SELF:h:h}
 REPO=${CPP:h}
 rounds=3
 out=
-max_load=2.0
+# 4.0, not the 2.0 of the plan: the Mac of the owner has a base load of 3.0 to 3.7 at rest (window server, audio routing, terminal; measured
+# with no benchmark running, README "Load limit of the measurement sessions"); the limit applies to that base load only, the check for
+# foreign processes stays strict.
+max_load=4.0
 keep=0
 gate=1
 while (( $# )); do

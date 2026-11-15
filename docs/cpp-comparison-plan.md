@@ -670,6 +670,32 @@ A cross-language difference counts as real only if it exceeds the resolution of 
 
 The document states these thresholds next to the tables.
 
+#### Amendment 2026-11-15 (lead)
+
+Reason: five full Mac sessions of the network measurement failed the anchor rule (start against end within 2 %), so the abort rule
+("three consecutive sessions", [Hygiene](#hygiene-both-parts)) is reached. The CPU anchors were stable, but the GPU anchors
+drift: in the GPU-heavy middle of a session the rate of both GPU programs, Java TornadoVM and C++ Metal, falls together by 20 to 30 %
+and recovers only in part (LARGE, batch 256, evals/s, start / mid / end: TornadoVM 33,487 / 23,891 / 30,798, Metal copy 33,034 /
+25,737 / 29,242). An isolated test (six consecutive 10 s runs of the Metal anchor from idle) gave 32,783 to 33,286 evals/s, within
+1.5 %, and CPU load before an anchor changed nothing. This points to the power and clock management of the SoC under sustained GPU
+load, not to a defect of one program; the cause is not proven. No thermal warning, power adapter connected. No further Mac session is
+run; the session 5 is booked as follows, and an invalid row is never reported as valid:
+
+1. **CPU rows** (C++ scalar `reference`, `simd`, `simd-nofma`, Java Vector API) are booked **valid** if the anchor of their program lies
+   within 2 % between start and end of the session. A row whose anchor lies outside (for example Java vector SMALL, end/start 1.0285)
+   is booked **unsettled**, neither dropped nor smoothed. A row without an anchor of its own is judged by the anchor of the named
+   program of the same language (stated in the row).
+2. **GPU rows** (Metal copy, shared, tiled, simdgroup; TornadoVM Metal) are booked **unsettled**, with the measured drift (anchors at
+   start, middle and end, and end/start) in the row. A Java:C++ ratio is formed only from the two processes of one pair (J_i then C_i,
+   run back to back) and is labelled "unsettled (GPU clock drift)"; no statement is made about a difference below 5 % (the rule for
+   the GPU above), and no absolute GPU value is quoted without the label.
+3. **Kernel table, TornadoVM breakdown** (kernel time, transfers, plan build and compilation, host priors, latency at batch 1,
+   throughput at batch 256 to 1,024), **cost of the checks** and **cold start** are booked from the session 5, each row with its
+   status valid or unsettled by the two rules above.
+
+The booked files are `cpp/results/mac-nn-2026-11-15.tsv` and `.txt`; the raw data of the session and the output of `merge-bench.pl`
+(with its four `CHECK FAILED` lines) are next to them.
+
 ### Classical measurement
 
 | Row | Java | C++ `release-hardened` (main) | C++ `release` (cost of the checks) |

@@ -444,3 +444,82 @@ and bucket 8 is printed as information (CUDA gives no guarantee, the Metal port 
 - New files beyond the plan's list: `tests/cuda_emu.hpp`, `tests/nn_random.hpp`, `scripts/ptx-shim/cuda_runtime.h`. `cuda_test_emu` is built by `build-cuda.sh --with-tests`, not by CMake (no new target).
 - `ptx-check.sh` checks syntax and types, it does not emit PTX (no NVPTX target); with a clang that has one (`CLANG=...`) it also counts the kernel entries.
 - `apps/nn_check.cpp`: the Metal part is guarded by `defined(__APPLE__) && defined(__clang__)` (GCC on the Mac has no Objective-C++), the CUDA part is always compiled.
+
+## Load limit of the measurement sessions
+
+The plan's load limit of 2.0 (1-minute average, Mac) could not be met on this machine: with no benchmark and no build running, the
+1-minute load average of the owner's Mac is 3.0 to 3.7 at rest (window server about 50 % of a core, audio routing about 30 %, the
+terminal about 10 %; measured on 2026-11-15 with `uptime` and `ps`, for example 3.38, 3.34, 3.49, 2.66, 3.27, 3.55). The limit of
+the measurement scripts (`scripts/bench-mac.sh`, `scripts/bench-nn-mac.py`, default of `--max-load`) is therefore **4.0**. It is a
+limit for that base load only. What stays strict: no process of the plan's list (`java`, `gradle`, `clang`, `cmake`, `ninja`, `g++`,
+`docker`) other than the session's own, checked by name before every step of `bench-nn-mac.py`; a limit of 350 % of one core for the
+CPU use of all processes except the benchmark child (sampled every 10 s with `ps`; the base load at rest is 140 to 175 %); the power
+adapter; the thermal state. The self-ratio of 0.98 to 1.02 (classical) and the anchor rows of 2 % (network) remain what decides
+whether a session is valid. The 1-minute average after a session contains the benchmark's own busy thread (about 1.0), so the
+check "load after" waits up to 5 minutes for the average to fall below the limit and records both values.
+
+OrbStack's Kubernetes system pods (5 idle containers) run at rest; they are part of the base load and are listed in every result file.
+
+## Network benchmark and Mac measurement (WP13)
+
+```sh
+cmake --preset release-hardened && cmake --build --preset release-hardened   # also: release
+cpp/build/release-hardened/nn_bench --golden cpp/golden --presets small,large --batches 1,16,64,256,512,1024 --impls simd,metal-copy
+cpp/build/release-hardened/nn_bench --golden cpp/golden --anchors            # SMALL and LARGE at batch 256
+cpp/build/release-hardened/nn_bench --golden cpp/golden --presets small,large --batches 1,64,512 --kernels
+cpp/build/release-hardened/nn_bench --golden cpp/golden --presets large --batches 64 --impls metal-copy --cold
+python3 -I cpp/scripts/bench-nn-mac.py --detach            # the whole session, see the header of the script; log path and PID are printed
+python3 -I cpp/scripts/bench-nn-mac.py --status            # running? (lock probe, then status file)
+perl cpp/scripts/merge-bench.pl <work dir>                  # the summary of a session (the script calls it itself)
+```
+
+`nn_bench` prints the shared schema of `CrossBench` (see above) plus comment lines: `# cpu:` (thread CPU time over wall time of the
+measured rounds of a case), `# gpu:` (GPU time of the Metal command buffer per call), `# <impl> <preset> <weights>: metal ...` (library
+compile and per-bucket set-up), `#instrumented` (Metal instrumented mode, the counterpart of `#profiled`), `#kernels` (the convolution
+kernels alone). Implementations: `reference`, `simd`, `simd-nofma`, `metal-copy`, `metal-shared`, `cuda-pageable`, `cuda-pinned`
+(an implementation that the build or the machine lacks gives exit 64); `--variant` forces a convolution kernel (the label of the row
+then reads `metal-copy:naive`). Every case ends with the check of its last call against `nn-ref-*` (exit 2 and no line on a violation;
+`reference` must also be bit-identical).
+
+A session (`bench-nn-mac.py`): hygiene, anchor rows (start, middle, end), N = 3 pairs of processes J, C, ... (the table of SMALL and
+LARGE u5 with all implementations, the gen11 rows, the cost of the checks as release-hardened against release at batch 256 with the
+order alternating between pairs), the kernel table (Java `KernelsBenchmark` against `nn_bench --kernels`, two rounds), the cold-start runs
+(three rounds, LARGE, batch 1 and 256), then the checks: anchors of the end against the start within 2 % for every program, no foreign
+process, no foreign CPU load above the limit, no CPU case with a thread CPU time below 0.8 of the wall time. A failed check makes the
+session invalid (exit 4): no result file, the files stay in the work directory; after three invalid sessions in a row measuring stops.
+
+### GPU anchor drift on the Mac (finding of 2026-11-15, no valid session; booked under the amendment below)
+
+Five full sessions (about 46 minutes each) had no valid GPU anchors. The CPU anchors were stable in every session (`simd`
+LARGE 709.3 / 709.5 / 705.0 evals/s at start / mid / end of the last one); the GPU anchors moved by 8 to 40 % and Java TornadoVM
+and C++ Metal moved together. In the last session (LARGE, batch 256, evals/s, start / mid / end): TornadoVM 33,487 / 23,891 /
+30,798, Metal copy 33,034 / 25,737 / 29,242. Isolated tests of the same day: six consecutive Metal anchor runs of 10 s each gave
+32,783 to 33,286 evals/s (within 1.5 %, rising slightly), and a CPU-heavy run before an anchor changed nothing (33,267 against
+33,313). The GPU therefore sits at about 33,000 after an idle period and drops to 24,000 to 26,000 after the GPU-heavy middle of
+a session, without a thermal warning (`pmset -g therm`). Cause not proven (power or clock management of the SoC under sustained
+GPU load). `bench-nn-mac.py` now stops before the first step if the gen11 weights are missing (`STERNHALMA_DATA_DIR`) and returns
+exit 4 at the first failed step instead of crashing while writing the raw file.
+
+### Amendment 2026-11-15 (lead): booking of the network measurement
+
+The abort rule of the plan is reached (five invalid Mac sessions), and the lead changed the rule for this measurement; the full text is
+in `docs/cpp-comparison-plan.md`, section "Decision rule", "Amendment 2026-11-15 (lead)". In short:
+
+- CPU rows are **valid** if the anchor of their program lies within 2 % between start and end of the session, otherwise **unsettled**
+  (not dropped, not smoothed).
+- GPU rows (Metal, TornadoVM) are **unsettled**, with the anchors at start, middle and end in the row. A Java:C++ ratio comes only from
+  the two processes of one pair, is labelled "unsettled (GPU clock drift)", and says nothing about a difference below 5 %.
+- Reason: both GPU programs fall together by 20 to 30 % in the GPU-heavy middle of a session (TornadoVM 33,487 / 23,891 / 30,798 and
+  Metal copy 33,034 / 25,737 / 29,242 evals/s, LARGE, batch 256, start / mid / end), while six isolated Metal anchor runs from idle
+  agree within 1.5 % and CPU load does not disturb the GPU anchor.
+- No further Mac session is run. Session 5 is booked by `scripts/book-nn.py` (tests: `scripts/test_book_nn.py`):
+
+```sh
+python3 -I cpp/scripts/book-nn.py <work dir of the session> cpp/results/mac-nn-2026-11-15 --date 2026-11-15 --build "<text>" --size "<text>"
+python3 -I cpp/scripts/test_book_nn.py
+```
+
+  It fails (exit 3) on any step with a non-zero exit code, any row whose `verified` column is not `ok`, and any step whose rows plus
+  skipped cases do not equal the schedule in its header. Results: `results/mac-nn-2026-11-15.tsv` (one row per figure: table, program,
+  case, batch, metric, median, min, max, status, anchor start/mid/end, note), `results/mac-nn-2026-11-15.txt` (summary),
+  `results/mac-nn-2026-11-15-raw.tsv` (raw output of every run) and `results/mac-nn-2026-11-15-summary.txt` (`merge-bench.pl`).
