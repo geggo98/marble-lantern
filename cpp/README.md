@@ -242,3 +242,82 @@ Mutation check of the new kernels (each at a time, `metal_test` red unless liste
 `metal_test` also ran once with `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1`: no finding.
 
 Deviation: `Options::variant` became `std::optional<ConvVariant>` (empty = rule) instead of a value with default `Naive`; `nn_check` default is now `--variant auto`. The per-bucket pipelines are created by the net without the process-wide cache so that `setup()` shows the creation cost of every bucket; Metal's own binary cache can still make the second one cheap.
+
+## CUDA backend (WP12)
+
+The CUDA code could not be compiled or run where it was written: there is no nvcc and no NVIDIA GPU on the Mac. What was done instead
+is listed under "What was checked, and what was not". The first real run of `cuda_net.cu` is the CUDA gate of the AWS run.
+
+### Files
+
+| File | What it is |
+|---|---|
+| `src/gpu/cuda/kernels.cuh` | the kernels `hexconv_naive`, `hexconv_tiled`, `head_policy`, `head_value`, the launch geometry (plain numbers) and `run_forward`, the template that gives the order of the launches of one pass (conv_in, per block conv1 and conv2 with the ping-pong of the three buffers, policy head, value head). One unsafe zone, the whole file in `unsafe_buffer_usage` regions. Includes only standard headers |
+| `src/gpu/cuda/cuda_net.cu` | the thin host layer, nvcc only: RAII classes `DeviceBuffer`, `PinnedBuffer`, `Stream`, `Event` (deleted copy), one plan per (bucket, variant), one stream, events around host to device, kernels and device to host, an event after every kernel in instrumented mode. Includes only `cuda_net.hpp`, `kernels.cuh`, standard and CUDA headers |
+| `src/gpu/cuda/cuda_net.hpp` | the C++20 interface `CudaNet` (abstract class, standard headers only): shape and weights as spans, `forward_raw(input, Call, logits, values, CallTimes&)` for one chunk of one bucket. Errors are strings |
+| `src/gpu/cuda/cuda_net_stub.cpp` | the Mac build: `CudaNet::create` returns "no CUDA device in this build" |
+| `src/nn/cuda_backend.{hpp,cpp}` | the C++23 adapter `CudaBackend`: packing of a `Parameters` object (`pack_weights`), bucket rule and variant rule (`naive` while bucket * C <= 128, else `tiled`; `simdgroup` is refused), chunks above `max_batch`, dirty padding row refused, host priors, phase totals. `create` takes an optional `NetFactory`, so that the tests can pass an emulated device |
+| `tests/cuda_emu.hpp` | the CPU emulation of the CUDA execution model: the real `kernels.cuh` is compiled with the keywords as macros, a block is one `std::thread` per CUDA thread, `__syncthreads()` is a `std::barrier`, device buffers are exact-size vectors (NaN-filled, so that an element that a kernel does not write shows up) |
+| `tests/cuda_adapter_test.cpp` | on the Mac: stub behaviour, argument packing against the `Parameters` layout, launch geometry, every convolution shape with both kernels against `hex_conv`, both heads against a double computation, the whole network through the adapter and the emulated device against `ReferenceNet` |
+| `tests/cuda_test.cpp` | on the instance: the real device against `ReferenceNet`, no golden file (`tests/nn_random.hpp` makes weights and inputs from `SplittableRandom`). Built a second time as `cuda_test_emu` against the emulated device by `build-gcc12-stub.sh` ("a test of the test") |
+| `scripts/build-cuda.sh` | the build on the instance (and, with `--stub`, on the Mac) |
+| `scripts/ptx-check.sh`, `scripts/ptx-shim/cuda_runtime.h` | syntax and type check of `cuda_net.cu` with clang in CUDA mode |
+| `scripts/cloud/test/test_build_cuda.sh` | `build-cuda.sh` with a fake nvcc, g++-12 and objdump |
+
+### Kernels and flags
+
+The kernels are the Metal kernels of WP11a and WP11b without `simdgroup`: the same sums in the same order (k, then ch, ascending; bias last; optional residual; ReLU `v < 0 ? 0 : v`),
+tile 64 x 32 x 32 with a 4 x 4 register tile and block 8 x 16 for `tiled`, one block of 256 per position for the value head with the partial-sum pooling, `tanhf` inside |x| <= 8.5 and exactly +-1 outside (only where `apply_tanh` is set: plane sets without host priors). Naive blocks are 32 channels x 8 rows (the Java side leaves
+the choice to the runtime, this is a choice of this port). Kernel names do not equal a CUDA math function (TornadoVM pitfall 15).
+
+`build-cuda.sh` compiles `cuda_net.cu` with `nvcc -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true -gencode arch=compute_75,code=sm_75 -gencode arch=compute_75,code=compute_75 -Xcompiler -ffp-contract=off`
+and no `--use_fast_math`. `--fmad=true` is what TornadoVM's NVRTC call does by default (WP8 step 6, read from bytecode, not confirmed by a run). Everything else is `g++-12 -std=c++23 -O3 -march=native -ffp-contract=off`
+(`-mcpu=native` on arm64), `simd_net.cpp` alone with `-ffp-contract=fast` after it. The flags and tool versions of a build go to `<out>/toolchain/`.
+
+```sh
+cpp/scripts/build-cuda.sh [--nvcc PATH] [--cxx PATH] [--out DIR] [--stub] [--werror] [--with-tests] [--jobs N]
+```
+
+Output `<out>/hardened/bin` (`-D_GLIBCXX_ASSERTIONS`, the main rows and the tests) and `<out>/unchecked/bin` (the "cost of the checks" rows), each with `nn_check_l8`, `nn_check_l16`,
+`nn_bench_l8`, `nn_bench_l16` and `cuda_test`; `l8` and `l16` are `SH_SIMD_LANES` (the application and the SIMD objects must agree, because `simd_net.hpp` is lane dependent). Exit codes: 3 no nvcc, no g++-12 or no `compute_75`
+in `nvcc --list-gpu-arch`; 4 a compile or link failed; 5 the object-code proof of `check-fma.sh` failed (run for both lane counts); 64 usage. `-Werror` only with `--werror`: the Mac stub build proves "no warning" with GCC 13.5,
+but the instance does not stop for a warning that only g++ 12.3 gives.
+
+`cuda_test [--allow-no-device] [--batches 1,3,67,256]`: presets TINY (classic1 and plain), SMALL, LARGE and a 33-channel network (a width that is no multiple of a tile), variants auto, naive, tiled, both host-memory modes
+(`pageable`, `pinned`), batches 1, 3, 67, 256, each against `ReferenceNet` within the bound; NaN stays in its position; exact saturation of the value head; timings and per-kernel events; whether a position gives the same bits in bucket 1
+and bucket 8 is printed as information (CUDA gives no guarantee, the Metal port has it). `nn_check --impl cuda [--variant auto|naive|tiled] [--memory pageable|pinned]` works like the Metal one; in the stub build it answers exit 64.
+
+### What was checked here
+
+| Check | Result (2026-11-15, Apple clang 21, GCC 13.5) |
+|---|---|
+| `ctest --preset debug-asan` | 10 of 10 tests pass; `cuda_adapter_test`: 16 tests, 2,489 checks |
+| Kernels run on the CPU by `cuda_emu.hpp` against the reference | every shape of TINY, SMALL, LARGE and odd sizes (1 -> 1, 5 -> 70, 64 -> 31, 9 -> 33), both kernels, batch 1, 3 and 67, every combination of residual and ReLU; both heads for C = 1 to 1024; the whole network through `CudaBackend` for the three kernel choices, chunks 4 + 3 and 3 + 3 + 1 |
+| Mutation check of `kernels.cuh` (one at a time, `cuda_adapter_test` red unless listed) | residual dropped (naive, tiled), tiled interleave, ReLU as `v > 0 ? v : 0`, policy logits swapped, pooling over 120 cells, tanh threshold 0.85, padding row not 0, no ping-pong swap, residual from the wrong buffer, row guard of the tiled store removed (AddressSanitizer), wrong output offset (AddressSanitizer), `apply_tanh` inverted, three `__syncthreads()` removed one at a time (the emulation runs real threads, so a missing barrier is a race that the comparison sees), the barrier before the last dense layer of the value head. **No survivor** (unlike the Metal check, where that barrier survived) |
+| `cmake --preset tidy` on `sh_cuda_stub`, `cuda_adapter_test`, `cuda_test`, `nn_check` (clang-tidy 21, warnings, no gate) | 56 warnings over the files it also parses (`metal_net.hpp`, `simd_net.*` among them). In the new CUDA files: C arrays in `kernels.cuh` (the `__shared__` tiles and the register tile, inherent to the kernels), widening of `int` products in the tests, the reserved identifiers `__global__` and the like that `cuda_emu.hpp` defines as macros on purpose, public members of `EmuNet`. The two in product code (special members of `CudaNet`, the base type of `ConvKind`) were fixed |
+| `scripts/ptx-check.sh` | host and device side of sm_75 parse and type-check with Apple clang in CUDA mode against `ptx-shim/cuda_runtime.h`; `--self-test` shows that a kernel calling a host function and a launch with a wrong argument list are found; a misspelt member in `kernels.cuh` was found too |
+| `scripts/build-gcc12-stub.sh` (GCC 13.5, `build-cuda.sh --stub --werror --with-tests`) | every Linux source builds with `-O3 -Werror` without a warning, hardened and unchecked, both lane counts; `check-fma` finds 62 (lanes 8) and 44 (lanes 16) fused instructions in `simd_net.o` and 0 in `simd_net_nofma.o`; `java_compat_test`, `nn_test`, `cuda_adapter_test`, `cuda_test_emu` pass; `nn_check` for `reference`, `simd`, `simd-nofma` on SMALL and LARGE, all 1,024 positions, within the bound (`reference` bit-identical) |
+| `scripts/cloud/test/test_build_cuda.sh` | 55 checks with a fake nvcc, g++-12 and objdump: the command lines, exit 3 (no nvcc, no g++-12, no `compute_75`), exit 5, exit 64, `--stub`, `--werror`, `--nvcc` and `--cxx`; six mutations of `build-cuda.sh` (no `-ccbin`, no PTX gencode, fast contraction everywhere, no `compute_75` check, a fast-math flag, C++17) each turn it red |
+
+### What was NOT checked, and what can still fail on the instance
+
+- **nvcc has never read `cuda_net.cu` or `kernels.cuh`.** Clang accepts what nvcc may reject (a construct that nvcc 13.0 with `-std=c++20 -ccbin g++-12` does not support, a host/device attribute detail, `constexpr` variables in device code). This is the most likely cause of a failed build; the gate stops the instance after about 6 minutes (0.02 USD).
+- **The shim is not the CUDA header.** The signatures in `ptx-shim/cuda_runtime.h` are written from memory of the runtime API; a wrong one would pass here and fail on the instance.
+- **No PTX was generated**: Apple clang has no NVPTX target. Register use, shared-memory size (9 KB per block for `head_value`, 12.25 KB for `tiled`, computed from the array sizes), occupancy and the launch bounds were not seen.
+- **The device behaves differently from the emulation** in what the emulation cannot show: warps and divergence, memory ordering across blocks, the fused multiply-add of `--fmad=true` (the emulation is unfused; the bound 1e-4 + 1e-3 |ref| is what covers it), `tanhf` of the device (not bit-equal to the host's), pinned memory, events, the stream. `cuda_test` is the first test of these.
+- **g++ 12.3 of Ubuntu** was never run (GCC 13.5 stands in for it, as in WP0). The CUDA AMI may have no `g++-12`, no `compute_75` in nvcc, no `objdump` (the proof then reports "skipped") or a different `-march=native` situation (AVX-512 lanes 16 on the host).
+- **`-march=native` objects with `-DSH_SIMD_LANES=16`** assume an AVX-512 host; on an AVX2-only host the lane-16 binaries still work (vector extensions lower to two registers) but are not meant to be compared.
+- **`compute-sanitizer`** was never run (WP14/WP15 call it on `cuda_test --batches 1,67`; `-lineinfo` is set for it).
+- `nvcc`'s linking (`nvcc -ccbin g++-12 ... objects -o binary`, which adds `cudart` statically) was only tested with the fake.
+
+### Deviations from the plan, made in WP12
+
+- `CudaNet` is an abstract class with `create` as the factory instead of a class with a hidden implementation (pimpl): the same header serves the real net, the stub and the test emulation. The adapter's `create` takes a `NetFactory` for the same reason.
+- `forward_raw` takes a `Call` (n, bucket, variant, `apply_tanh`) and returns a string; the bucket, chunk and variant rules stay in the adapter, because `cuda_net.cu` may not include a project header.
+- Both host-memory modes stage through host buffers (`std::vector` for `pageable`, `cudaHostAlloc` for `pinned`): the only difference is page-locked memory, as in the JVM's off-heap buffer against a pinned buffer.
+- `cuda_test` without a device: exit 0 in the stub build (`ctest` on the Mac stays green without a change of `CMakeLists.txt`), exit 1 in a build with device code unless `--allow-no-device` is given (the plan says: exit 0 only with the flag).
+- The slot-and-bucket bit equality is information in `cuda_test`, not a check (see above).
+- `cuda_net.cu` is about 455 NCLOC, not the 200 of the plan: the RAII classes and the launcher with its error handling and the events are in it. The kernels are 270, the adapter 120 (without headers).
+- New files beyond the plan's list: `tests/cuda_emu.hpp`, `tests/nn_random.hpp`, `scripts/ptx-shim/cuda_runtime.h`. `cuda_test_emu` is built by `build-cuda.sh --with-tests`, not by CMake (no new target).
+- `ptx-check.sh` checks syntax and types, it does not emit PTX (no NVPTX target); with a clang that has one (`CLANG=...`) it also counts the kernel entries.
+- `apps/nn_check.cpp`: the Metal part is guarded by `defined(__APPLE__) && defined(__clang__)` (GCC on the Mac has no Objective-C++), the CUDA part is always compiled.

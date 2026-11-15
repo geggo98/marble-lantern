@@ -1,12 +1,15 @@
 #!/bin/zsh
 # usage: build-gcc12-stub.sh [outdir]
-# Builds and runs the Linux-compatible part of the C++ code with GCC on the Mac: the same file list and flags as
-# build-cuda.sh, with cuda_net_stub.cpp in place of cuda_net.cu. It proves the language rule of the plan (C++23 mode, only
-# library features that libstdc++ 12 has) before the paid AWS run.
+# Builds and runs the Linux-compatible part of the C++ code with GCC on the Mac: build-cuda.sh with --stub (the same file list,
+# flags and command lines as on the instance, cuda_net_stub.cpp in place of cuda_net.cu, -Werror). It proves the language rule of
+# the plan (C++23 mode, only library features that libstdc++ 12 has) before the paid AWS run.
 # WP0 spike result: GCC 12.4 from the nixos-25.05 branch does not run on this macOS (dyld: duplicate LC_RPATH), so the
 # fallback of the plan applies: GCC 13.5 from a pinned nixpkgs revision, ad hoc and not part of devenv.nix. GCC 13 has headers
 # that libstdc++ 12 lacks (<format>); check-rules.sh rule R6 rejects them in the Linux file list.
 # The engine and search code is not in this list: it runs on the Mac only and may use all of C++23 that Apple clang has.
+# Runs afterwards (hardened binaries): java_compat_test, nn_test, cuda_adapter_test, cuda_test (stub: no device), cuda_test_emu
+# (cuda_test against the emulated device: the real kernels on the CPU), and nn_check for the reference and both SIMD variants on
+# SMALL and LARGE (needs the golden files).
 set -eu
 setopt pipefail
 
@@ -18,34 +21,27 @@ fi
 g++ --version >/dev/null || { print -u2 "g++ does not run"; exit 1; }
 
 out=${1:-build/gcc12-stub}
-mkdir -p $out
 print -u2 "compiler: $(g++ --version | head -1)"
-
-# Same flags as build-cuda.sh: -ffp-contract=off everywhere except the named exception simd_net.cpp, libstdc++ assertions on.
-flags=(-std=c++23 -O2 -ffp-contract=off -D_GLIBCXX_ASSERTIONS
-       -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion -Wnon-virtual-dtor
-       -Wold-style-cast -Wcast-align -Wnull-dereference -Wimplicit-fallthrough -Werror
-       -Isrc/core -Isrc/nn -Isrc/gpu/cuda -Iapps -DSH_GOLDEN_DIR=\"$PWD/golden\")
-
-lib=(src/core/*.cpp src/nn/*.cpp src/gpu/cuda/cuda_net_stub.cpp)
-objs=()
-for f in $lib; do
-  o=$out/${f//\//_}.o
-  extra=()
-  [[ $f == src/nn/simd_net.cpp ]] && extra=(-ffp-contract=fast)     # the one named exception
-  g++ $flags $extra -c $f -o $o
-  objs+=$o
-done
+scripts/build-cuda.sh --stub --werror --with-tests --cxx g++ --out $out || { print -u2 "FAIL: build-cuda.sh --stub exited with $?"; exit 1 }
 
 result=0
-# WP10: the object code of the two SIMD variants (fused instructions in one, none in the other)
-if scripts/check-fma.sh $out/src_nn_simd_net.cpp.o $out/src_nn_simd_net_nofma.cpp.o; then print -u2 "ok:   check-fma"; else print -u2 "FAIL: check-fma"; result=1; fi
-for t in java_compat_test cuda_adapter_test cuda_test nn_test; do
-  g++ $flags -Itests tests/$t.cpp $objs -o $out/$t
-  if $out/$t; then print -u2 "ok:   $t"; else print -u2 "FAIL: $t"; result=1; fi
+bin=$out/hardened/bin
+for t in java_compat_test nn_test cuda_adapter_test cuda_test_emu; do
+  if $bin/$t > $out/logs/run-$t.log 2>&1; then print -u2 "ok:   $t ($(tail -1 $out/logs/run-$t.log))"; else print -u2 "FAIL: $t (see $out/logs/run-$t.log)"; tail -5 $out/logs/run-$t.log >&2; result=1; fi
 done
-for a in nn_check nn_bench; do
-  g++ $flags apps/$a.cpp $objs -o $out/$a
-  print -u2 "built: $a"
-done
+if $bin/cuda_test --allow-no-device > $out/logs/run-cuda_test.log 2>&1; then print -u2 "ok:   cuda_test ($(head -1 $out/logs/run-cuda_test.log))"; else print -u2 "FAIL: cuda_test"; result=1; fi
+if $bin/nn_check_l8 --impl cuda > /dev/null 2>&1; rc=$?; (( rc == 64 )); then print -u2 "ok:   nn_check --impl cuda answers 64 in the stub build"; else print -u2 "FAIL: nn_check --impl cuda exited with $rc"; result=1; fi
+if [[ -f golden/MANIFEST.tsv ]]; then
+  for impl in reference simd simd-nofma; do
+    for preset in small large; do
+      if $bin/nn_check_l8 --impl $impl --preset $preset > $out/logs/run-nn_check-$impl-$preset.log 2>&1; then
+        print -u2 "ok:   nn_check --impl $impl --preset $preset: $(tail -1 $out/logs/run-nn_check-$impl-$preset.log | cut -c1-150)"
+      else
+        print -u2 "FAIL: nn_check --impl $impl --preset $preset"; tail -3 $out/logs/run-nn_check-$impl-$preset.log >&2; result=1
+      fi
+    done
+  done
+else
+  print -u2 "note: no golden files in golden/: nn_check not run"
+fi
 exit $result
