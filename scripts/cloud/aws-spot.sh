@@ -44,7 +44,8 @@
 # launch, so that a run that dies still counts. scripts/cloud/spot-retry.py sums these files for its cumulative cap.
 # Exit codes: 0 ok, 1 failure or something left over, 2 usage, 3 pre-flight finding (quota, credentials, AMI),
 # 4 no capacity or no quota, nothing was launched (InsufficientInstanceCapacity, MaxSpotInstanceCountExceeded,
-# VcpuLimitExceeded, SpotMaxPriceTooLow from run-instances).
+# VcpuLimitExceeded, SpotMaxPriceTooLow from run-instances), 6 the run started but wrote no DONE before the deadline (a hung
+# step; results as far as collected; not retried), and exit 1 also when bootstrap.sh wrote a DONE with a status other than 0.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -335,9 +336,9 @@ cost_price() {   # the hourly price: on-demand = the assumed price of --max-pric
   if [ "$ON_DEMAND" = 1 ]; then COST_PRICE=$MAX_PRICE
   elif [ -n "$AZ" ]; then
     COST_PRICE=$(aws ec2 describe-spot-price-history --instance-types "$TYPE" --availability-zone "$AZ" --product-descriptions "Linux/UNIX" --max-items 1 \
-      --query 'SpotPriceHistory[0].SpotPrice' --output text 2> /dev/null || echo "")
+      --query 'SpotPriceHistory[0].SpotPrice' --output text 2> /dev/null | head -n 1 || echo "")
   fi
-  [ "$COST_PRICE" != None ] || COST_PRICE=""
+  matches "$COST_PRICE" '\d+(\.\d+)?' || COST_PRICE=""   # "None" (no price) or anything that is not one number
 }
 write_cost_file() {   # provisional|final
   local phase=$1 secs=0 price=unknown est="$WORST" iso tmp
@@ -350,6 +351,7 @@ write_cost_file() {   # provisional|final
       est=$(perl -e '$e = $ARGV[0] / 3600 * $ARGV[1]; $e = $ARGV[2] if $e > $ARGV[2]; printf "%.4f", $e' "$secs" "$price" "$WORST")
     fi
     COST_FINAL=1
+    [ "$ON_DEMAND" = 0 ] || price=$price-assumed   # on demand the price is the one given with --max-price, not a measured one
   fi
   iso=$(perl -MPOSIX=strftime -e 'print strftime("%Y-%m-%dT%H:%M:%SZ", gmtime($ARGV[0]))' "$LAUNCHED_AT")
   mkdir -p "$OUT_DIR"
@@ -534,6 +536,14 @@ else
     sleep 30
   done
 fi
+DONE_STATUS=""
+if [ "$DRY_RUN" = 0 ] && [ "${INTERRUPTED:-0}" = 0 ]; then
+  for _try in 1 2 3; do   # a transient ssh failure must not look like a hung run
+    DONE_STATUS=$(bounded 60 "${SSH[@]}" "$SSH_USER@$IP" "cat $REMOTE/DONE" 2> /dev/null | tr -d '[:space:]') || DONE_STATUS=""
+    matches "$DONE_STATUS" '\d{1,3}' && break
+    DONE_STATUS=""; sleep 5
+  done
+fi
 log "collecting results into $OUT_DIR"
 mut mkdir -p "$OUT_DIR"
 mut bounded 120 "${SCP[@]}" "$SSH_USER@$IP:$REMOTE/results.tgz" "$OUT_DIR/results.tgz" || echo "no results.tgz (the run did not finish?)" >&2
@@ -566,4 +576,7 @@ if [ "$DRY_RUN" = 1 ]; then
 fi
 # an interrupted run asks for a retry (exit 4: the caller may try again; the cost of this run is in cost.tsv)
 [ "${INTERRUPTED:-0}" = 1 ] && exit 4
+# DONE holds the status of bootstrap.sh (0 = all steps ok). None before the deadline: the run hung (exit 6, not retried). Not 0: exit 1.
+if [ -z "$DONE_STATUS" ]; then echo "the instance wrote no DONE before the deadline: the run did not finish (exit 6)" >&2; exit 6; fi
+if [ "$DONE_STATUS" != 0 ]; then echo "bootstrap.sh ended with status $DONE_STATUS (exit 1)" >&2; exit 1; fi
 exit 0

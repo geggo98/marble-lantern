@@ -133,11 +133,26 @@ class Verification(unittest.TestCase):
 
     def test_summary_with_a_failed_step_fails(self):
         with self.assertRaises(ba.BookingError):
-            ba.parse_summary("exit status: 0\nbuild: FAIL\napt-packages: OK\n")
+            ba.parse_summary("exit status: 0\nbuild: FAIL (1)\napt-packages: OK\n")
 
-    def test_summary_with_a_skipped_step_fails(self):
+    def test_summary_with_a_skipped_step_other_than_the_sanitizer_fails(self):
         with self.assertRaises(ba.BookingError):
-            ba.parse_summary("exit status: 0\ncpp-sanitizer: SKIP\nbuild: OK\n")
+            ba.parse_summary("exit status: 0\nbuild: SKIP (no toolchain)\napt-packages: OK\n")
+
+    def test_summary_with_the_real_skip_format_is_read_and_names_the_reason(self):
+        steps, _ = ba.parse_summary("exit status: 0\ncpp-sanitizer: SKIP (compute-sanitizer not found on this machine)\nbuild: OK\n")
+        self.assertEqual(steps, {"cpp-sanitizer": "SKIP (compute-sanitizer not found on this machine)", "build": "OK"})
+        self.assertIn("compute-sanitizer not found", ba.steps_ok_text(steps))
+        self.assertNotIn("All", ba.steps_ok_text(steps))
+
+    def test_summary_with_the_real_fail_format_and_a_zero_exit_status_fails(self):
+        with self.assertRaises(ba.BookingError) as cm:
+            ba.parse_summary("exit status: 0\ncpp-sanitizer: SKIP (compute-sanitizer not found)\ngolden-hash: FAIL (1)\nbuild: OK\n")
+        self.assertIn("golden-hash: FAIL (1)", str(cm.exception))
+
+    def test_summary_that_is_all_ok_says_all(self):
+        steps, _ = ba.parse_summary("exit status: 0\nbuild: OK\napt-packages: OK\n")
+        self.assertEqual(ba.steps_ok_text(steps), "All 2 steps of the run ended OK")
 
     def test_summary_with_exit_status_not_zero_fails(self):
         with self.assertRaises(ba.BookingError):
@@ -146,12 +161,16 @@ class Verification(unittest.TestCase):
 
 class Cost(unittest.TestCase):
     def test_the_file_as_written_by_aws_spot_sh(self):
-        c = ba.parse_cost("cpp\t2026-11-15T17:17:06Z\t1828\t0.214400\nNone\t0.1089\t0.26\n")
+        c = ba.parse_cost("cpp\t2026-11-15T17:17:06Z\t1828\t0.214400\t0.1089\t0.26\n")
         self.assertEqual((c["seconds"], c["price"], c["estimate"], c["worst"]), (1828, 0.2144, 0.1089, 0.26))
 
-    def test_another_layout_is_refused(self):
+    def test_an_assumed_on_demand_price_is_read(self):
+        c = ba.parse_cost("cpp\t2026-11-15T17:17:06Z\t1828\t0.66-assumed\t0.3351\t0.5\n")
+        self.assertEqual(c["price"], 0.66)
+
+    def test_the_old_two_line_layout_is_refused(self):
         with self.assertRaises(ba.BookingError):
-            ba.parse_cost("cpp\t2026-11-15T17:17:06Z\t1828\t0.2144\t0.1089\t0.26\n")
+            ba.parse_cost("cpp\t2026-11-15T17:17:06Z\t1828\t0.214400\nNone\t0.1089\t0.26\n")
 
 
 class Aggregation(unittest.TestCase):

@@ -163,29 +163,40 @@ def check_blocks(name, blocks, schedule_checked=True):
 
 
 def parse_summary(text):
-    """(dict step -> status, exit status) of summary.txt; every step must be OK and the exit status 0."""
+    """(dict step -> status text, exit status) of summary.txt. bootstrap.sh writes 'name: OK', 'name: FAIL (rc)' and
+    'name: SKIP (reason)'. Every step must be OK and the exit status 0; the plan allows one exception: cpp-sanitizer may be SKIP
+    (its reason stays in the status text)."""
     steps = {}
     status = None
     for line in text.split("\n"):
         m = re.match(r"^exit status: (\d+)$", line)
         if m:
             status = int(m.group(1))
-        m = re.match(r"^([\w\-]+): (OK|SKIP|FAIL\S*|\S+)$", line)
-        if m and m.group(1) not in ("backend", "suite", "gate", "seconds"):
-            steps[m.group(1)] = m.group(2)
-    bad = [k for k, v in steps.items() if v != "OK"]
+        m = re.match(r"^(?P<name>[\w\-]+): (?P<st>(?:OK|SKIP|FAIL)\b.*)$", line)
+        if m and m.group("name") not in ("backend", "suite", "gate", "seconds"):
+            steps[m.group("name")] = m.group("st").strip()
+    bad = ["%s: %s" % (k, v) for k, v in steps.items() if v != "OK" and not (k == "cpp-sanitizer" and v.startswith("SKIP"))]
     if status != 0 or bad or not steps:
-        raise BookingError("summary.txt: exit status %s, steps not OK: %s" % (status, ", ".join(bad) or "(none read)"))
+        raise BookingError("summary.txt: exit status %s, steps not OK: %s" % (status, "; ".join(bad) or "(none read)"))
     return steps, status
 
 
+def steps_ok_text(steps):
+    """'All N steps of the run ended OK', or the same with the skipped step and its reason named."""
+    skipped = ["%s: %s" % (k, v) for k, v in steps.items() if v != "OK"]
+    if not skipped:
+        return "All %d steps of the run ended OK" % len(steps)
+    return "%d of %d steps of the run ended OK, the others were skipped as the plan allows (%s)" % (len(steps) - len(skipped), len(steps), "; ".join(skipped))
+
+
 def parse_cost(text):
-    """cost.tsv of aws-spot.sh. The price column of the file holds a trailing newline, so the single line is split in two; the
-    tokens are read in order: suite, launched, seconds, price_usd_per_h, 'None' (the estimate's label), estimate, worst case."""
-    t = text.split()
-    if len(t) != 7 or t[4] != "None":
-        raise BookingError("cost.tsv: unexpected layout (%d tokens)" % len(t))
-    return {"suite": t[0], "launched": t[1], "seconds": int(t[2]), "price": float(t[3]), "estimate": float(t[5]), "worst": float(t[6])}
+    """cost.tsv of aws-spot.sh: exactly one line with six tab separated fields: suite, launched, seconds, price_usd_per_h,
+    estimate_usd, worst_case_usd. An on-demand price carries the suffix '-assumed' (a price given by the caller, not measured)."""
+    lines = text.splitlines()
+    t = lines[0].split("\t") if len(lines) == 1 else []
+    if len(t) != 6:
+        raise BookingError("cost.tsv: not one line with six tab separated fields (%d lines)" % len(lines))
+    return {"suite": t[0], "launched": t[1], "seconds": int(t[2]), "price": float(t[3].removesuffix("-assumed")), "estimate": float(t[4]), "worst": float(t[5])}
 
 
 # ------------------------------------------------------------------------------------------------------------------ anchors
@@ -784,7 +795,7 @@ def summary_text(res, bk, feeds, steps, counts, mac_rows, opts):
     P("# AWS run on a Tesla T4 (g4dn.xlarge, spot), network measurement and CUDA check, %s" % opts["date"])
     P("")
     P("## Status: read this first")
-    P("n = 1 run on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2). All %d steps of the run ended OK" % len(steps))
+    P("n = 1 run on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2). %s" % steps_ok_text(steps))
     P("(exit status 0) and every one of the %d benchmark rows (nn_bench %d, CrossBench %d, anchors %d) has verified=ok; a case that fails its output" % (sum(counts), n_nn, n_cross, n_anch))
     P("check prints no row, so there are no rows that did not pass. Nothing was smoothed, re-measured or dropped.")
     P("  V = valid     the anchors of the row's program (batch 256, SMALL and LARGE each, two runs at the start and two at the end of the measurement,")
@@ -1090,7 +1101,7 @@ def summary_text_run2(res, prev, bk, bk1, feeds, feeds1, steps, counts, opts):
     P("")
     P("## Status: read this first")
     P("n = 1 run per instance, on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2), the same instance type and")
-    P("the same measurement method as the first run (cpp/results/aws-t4-2026-11-15.txt, called run 1 below). All %d steps of this run ended OK (exit status 0) and every" % len(steps))
+    P("the same measurement method as the first run (cpp/results/aws-t4-2026-11-15.txt, called run 1 below). %s (exit status 0) and every" % steps_ok_text(steps).replace("of the run", "of this run"))
     P("one of the %d benchmark rows (nn_bench %d, CrossBench %d, anchors %d) has verified=ok; a case that fails its output check prints no row, so there are no" % (sum(counts), n_nn, n_cross, n_anch))
     P("rows that did not pass. Nothing was smoothed, re-measured or dropped. Differences between run 1 and run 2 are between two different instances, one run each:")
     P("a repeatability statement is an observation of two samples, not an error bar.")

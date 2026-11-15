@@ -75,12 +75,33 @@ rm -f "$T"/pre-*
 
 echo "on-demand fallback after K spot attempts, same cap:"
 rm -rf "$RES"/sh-*; : > "$STUB_LOG"; rm -f "$T/counter"; printf '4\n4\n0\n' > "$CODES"
-STUB_COST=0.20 run_retry "${RETRY_COMMON[@]}" --on-demand-after 2 "${RETRY_RUN[@]}"
+STUB_COST=0.20 run_retry "${RETRY_COMMON[@]}" --on-demand-after 2 --on-demand-price us-east-1=0.53,eu-central-1=0.66 "${RETRY_RUN[@]}"
 assert_eq "$RC" 0 "ok"
 assert_not_contains "$(grep '^run ' "$STUB_LOG" | head -2)" "--on-demand" "the first two attempts are spot"
 last=$(grep '^run ' "$STUB_LOG" | tail -1)
 assert_contains "$last" "--on-demand" "the third is on-demand"
-assert_contains "$last" "--max-price 0.53" "with the on-demand price for the budget check"
+assert_contains "$last" "--max-price 0.66" "with the on-demand price of ITS region (the third attempt is eu-central-1) for the budget check"
+
+echo "on-demand without a price for every region is refused (no guessed default):"
+: > "$STUB_LOG"
+run_retry "${RETRY_COMMON[@]}" --on-demand-after 2 "${RETRY_RUN[@]}"; assert_eq "$RC" 2 "no --on-demand-price: exit 2"
+run_retry "${RETRY_COMMON[@]}" --on-demand-after 2 --on-demand-price us-east-1=0.53 "${RETRY_RUN[@]}"; assert_eq "$RC" 2 "a region without a price: exit 2"
+assert_contains "$RETOUT" "eu-central-1" "the missing region is named"
+run_retry "${RETRY_COMMON[@]}" --on-demand-after 2 --on-demand-price 0.53 "${RETRY_RUN[@]}"; assert_eq "$RC" 2 "a bare number: exit 2"
+assert_eq "$(grep -c '^run ' "$STUB_LOG")" 0 "nothing was launched"
+
+echo "exit 6 (no DONE before the deadline) is returned, not retried:"
+rm -rf "$RES"/sh-*; : > "$STUB_LOG"; rm -f "$T/counter"; printf '6\n0\n' > "$CODES"
+run_retry "${RETRY_COMMON[@]}" "${RETRY_RUN[@]}"
+assert_eq "$RC" 6 "exit 6"
+assert_eq "$(grep -c '^run ' "$STUB_LOG")" 1 "one attempt only"
+
+echo "a cost.tsv that is not one line with six fields is not read:"
+rm -rf "$RES"/sh-*; mkdir -p "$RES/sh-20251231-000000-1"; echo cpp > "$RES/sh-20251231-000000-1/suite.txt"
+printf 'cpp\t2026-01-01T00:00:00Z\t900\t0.30\nNone\t0.1000\t0.2625\n' > "$RES/sh-20251231-000000-1/cost.tsv"
+: > "$STUB_LOG"; printf '0\n' > "$CODES"; rm -f "$T/counter"
+run_retry "${RETRY_COMMON[@]}" "${RETRY_RUN[@]}"
+assert_contains "$RETOUT" "0.2625 USD over 1 run(s)" "the two-line file counts with the worst case, not with its second line"
 
 echo "validation:"
 run_retry --regions "eu-central-1;x" --attempts 1 --wait 0 --budget-usd 1 --suite cpp "${RETRY_RUN[@]}"; assert_eq "$RC" 2 "bad region refused"

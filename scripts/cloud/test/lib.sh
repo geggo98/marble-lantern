@@ -44,7 +44,8 @@ case "$1 $2" in
     echo ami-0123456789abcdef0; exit 0 ;;
   "ec2 describe-images") echo "${STUB_IMAGE_ID:-ami-$STUB_IMAGE_SUFFIX}"; exit 0 ;;
   "ec2 describe-spot-price-history")
-    [ -z "${STUB_SPOT_PRICE:-}" ] || { case "$*" in *max-items*) echo "$STUB_SPOT_PRICE" ;; *) printf 'eu-stub-1a\t%s\n' "$STUB_SPOT_PRICE" ;; esac; }
+    # --max-items 1 prints the price and then the NextToken ("None"), as the real CLI does
+    [ -z "${STUB_SPOT_PRICE:-}" ] || { case "$*" in *max-items*) printf '%s\nNone\n' "$STUB_SPOT_PRICE" ;; *) printf 'eu-stub-1a\t%s\n' "$STUB_SPOT_PRICE" ;; esac; }
     exit 0 ;;
   "ec2 run-instances")
     case "$*" in *--dry-run*) echo "An error occurred (DryRunOperation) when calling the RunInstances operation"; exit 254 ;; esac
@@ -70,7 +71,8 @@ STUB
 #!/bin/bash
 echo "ssh $*" >> "$STUB_LOG"
 case "$*" in
-  *"test -f"*DONE*) : > "$STUB_MARK"; sleep "${STUB_SSH_WAIT:-0}"; exit 1 ;;
+  *"cat "*DONE*) case "${STUB_DONE_STATUS:-0}" in none) exit 1 ;; *) echo "${STUB_DONE_STATUS:-0}"; exit 0 ;; esac ;;
+  *"test -f"*DONE*) : > "$STUB_MARK"; case "${STUB_DONE_STATUS:-none}" in none) sleep "${STUB_SSH_WAIT:-0}"; exit 1 ;; *) exit 0 ;; esac ;;
   *sha256sum*) echo "${STUB_REMOTE_SHA:-0000000000000000000000000000000000000000000000000000000000000000}  real-weights.safetensors"; exit 0 ;;
 esac
 exit 0

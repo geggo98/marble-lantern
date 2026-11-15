@@ -89,9 +89,9 @@ All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, 
   pre-flight per region (exit 3 drops the region), retries only on exit 4 and rotates the regions, cumulative cap from the `cost.tsv`
   files of the suite (a run directory of the suite without `cost.tsv` counts with the worst case), `--detach` (fork and setsid; the
   lock is inherited, so there is no race), `flock` lock with exit 75, `--status` (exit 75 while running, `not running` and 0 otherwise),
-  SIGTERM forwarded to `aws-spot.sh` (cleanup runs), summary, exit codes 0, 1, 2, 3, 4, 5, 75, 130, 143.
+  SIGTERM forwarded to `aws-spot.sh` (cleanup runs), summary, exit codes 0, 1, 2, 3, 4, 5, 6 (no DONE before the deadline, not retried), 75, 130, 143.
   Deviations from the plan text: the output goes to the log file directly (dup2 after the fork) instead of through `+errlog`;
-  `--on-demand-price` (default 0.53 USD per hour) is the price used for the budget check of on-demand attempts; `--status` exits 75
+  `--on-demand-price region=USD,...` (required for every region with `--on-demand-after`; no default, the prices differ by region) is the price used for the budget check of on-demand attempts and is booked in `cost.tsv` as `<price>-assumed`; `--status` exits 75
   while a run holds the lock (the rule of the project's long-running scripts).
   The owner allowed on-demand, so the command of the plan can take `--on-demand-after K` (for example 4): attempts after K spot attempts
   use `--on-demand`, inside the same cumulative cap of 1 USD.
@@ -99,7 +99,7 @@ All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, 
 ```sh
 export AWS_PROFILE=... AWS_REGION=...        # from the environment, never in the repository
 scripts/cloud/spot-retry.py --detach --regions us-east-1,eu-central-1 --attempts 6 --wait 300 --budget-usd 1.00 --suite cpp \
-  [--on-demand-after 4] -- --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --backend cuda --feed-seconds 30 --yes \
+  [--on-demand-after 4 --on-demand-price us-east-1=<usd/h>,eu-central-1=<usd/h>] -- --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --backend cuda --feed-seconds 30 --yes \
   [--real-weights data/loop4/gen-0011/candidate.safetensors]
 scripts/cloud/spot-retry.py --status
 ```

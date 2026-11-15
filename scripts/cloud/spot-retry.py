@@ -9,15 +9,17 @@
 """Retry runner for the AWS run of the C++ comparison (docs/cpp-comparison-plan.md, WP14 item 6).
 
 usage: spot-retry.py [--status] [--detach] --regions r1,r2 --attempts N --wait S --budget-usd B --suite cpp
-                     [--on-demand-after K] [--on-demand-price P] [--aws-spot PATH] -- <aws-spot.sh run arguments>
+                     [--on-demand-after K --on-demand-price region=P,...] [--aws-spot PATH] -- <aws-spot.sh run arguments>
 
 What it does, in this order:
   1. Pre-flight per region (aws-spot.sh preflight): a region that ends with exit 3 (no spot quota, no credentials) is dropped and
      named in the log. No region left: exit 3, nothing launched. Any other failure of a pre-flight (a usage error) stops: exit 1.
   2. Attempts: aws-spot.sh run --region <r> --budget-usd <remaining>, regions in turn, S seconds between attempts, at most N
      attempts. It retries ONLY on exit 4 (no capacity or no quota, nothing was launched). Any other exit code ends the loop and
-     is returned. After K spot attempts (--on-demand-after) the attempts are on-demand, with --on-demand-price (default 0.53 USD/h) in
-     place of --max-price. That is allowed by the owner and stays inside the cumulative cap below.
+     is returned. After K spot attempts (--on-demand-after) the attempts are on-demand, with the price of the region from
+     --on-demand-price (region=USD per hour, comma separated, required for every region; there is no default, because the prices differ
+     by region) in place of --max-price. aws-spot.sh books that price in cost.tsv as "<price>-assumed". That is allowed by the owner
+     and stays inside the cumulative cap below.
   3. Cumulative cap: before every attempt it adds up estimate_usd of every cloud-results/*/cost.tsv of the suite (a run directory of
      the suite without cost.tsv counts with the worst case of the next attempt), adds the worst case of the next attempt, and
      refuses the attempt if the sum is above --budget-usd (exit 5). Failed launches cost nothing and write no cost.tsv.
@@ -30,8 +32,10 @@ A second start prints "already running: pid=... since ..." and exits 75. --statu
 SIGINT and SIGTERM set a flag and forward SIGTERM to the running aws-spot.sh (its cleanup and verification run); between attempts the
 flag stops the loop at once; then the summary is printed and the exit code is 130 or 143.
 
-Exit codes: 0 a run succeeded; 1 a run failed (or the exit code of aws-spot.sh, if it is not 0 or 4); 2 usage; 3 no usable region;
-4 no capacity after all attempts; 5 budget reached; 75 already running; 130/143 aborted.
+Exit codes: 0 a run succeeded (aws-spot.sh read DONE with status 0); 1 a run failed (bootstrap.sh wrote a status other than 0, or any
+other exit code of aws-spot.sh that is not 0, 4 or 6); 2 usage; 3 no usable region; 4 no capacity after all attempts; 5 budget reached;
+6 the run started but wrote no DONE before its deadline (a hung step; paid, not retried); 75 already running; 130/143 aborted.
+Only exit 4 is retried.
 The AWS profile and region come from the environment (AWS_PROFILE, AWS_REGION); nothing is read from or written to anything else.
 Output of aws-spot.sh is passed through line by line.
 """
@@ -49,7 +53,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-DEFAULT_ON_DEMAND_PRICE = 0.53   # USD per hour for g4dn.xlarge on demand (an assumption for the budget check only)
 
 stop_signal = []          # signals received (the handler only records them)
 child = {"proc": None}    # the running aws-spot.sh
@@ -70,9 +73,20 @@ def results_dir() -> Path:
     return Path(os.environ.get("RESULTS_DIR") or ROOT / "cloud-results")
 
 
+def parse_prices(text: str) -> dict:
+    """'us-east-1=0.53,eu-central-1=0.66' -> {region: USD per hour}; a bare number or a price <= 0 is a ValueError."""
+    prices = {}
+    for item in text.split(","):
+        region, sep, price = item.partition("=")
+        if not sep or not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", region) or float(price) <= 0:
+            raise ValueError(item)
+        prices[region] = float(price)
+    return prices
+
+
 def parse_args(argv: list[str]) -> dict:
     o = {"status": False, "detach": False, "regions": [], "attempts": None, "wait": None, "budget": None, "suite": None,
-         "on_demand_after": None, "on_demand_price": DEFAULT_ON_DEMAND_PRICE, "aws_spot": str(HERE / "aws-spot.sh"), "run_args": []}
+         "on_demand_after": None, "on_demand_price": {}, "aws_spot": str(HERE / "aws-spot.sh"), "run_args": []}
     if "--" in argv:
         i = argv.index("--")
         argv, o["run_args"] = argv[:i], argv[i + 1:]
@@ -96,7 +110,7 @@ def parse_args(argv: list[str]) -> dict:
             elif a == "--on-demand-after":
                 o["on_demand_after"] = int(next(it))
             elif a == "--on-demand-price":
-                o["on_demand_price"] = float(next(it))
+                o["on_demand_price"] = parse_prices(next(it))
             elif a == "--aws-spot":
                 o["aws_spot"] = next(it)
             else:
@@ -116,6 +130,10 @@ def parse_args(argv: list[str]) -> dict:
         usage("--attempts >= 1, --wait >= 0 and --budget-usd > 0 are required")
     if o["suite"] != "cpp":
         usage("--suite must be cpp")
+    if o["on_demand_after"] is not None:
+        missing = [r for r in o["regions"] if r not in o["on_demand_price"]]
+        if missing:   # the price is the booked cost: no guess for a region
+            usage("--on-demand-after needs --on-demand-price region=price,... for every region; missing: " + ", ".join(missing))
     if not o["run_args"] or o["run_args"][0] != "run":
         o["run_args"] = ["run"] + o["run_args"]
     for forbidden in ("--region", "--budget-usd", "--on-demand", "--suite"):
@@ -158,10 +176,11 @@ def write_status(status_file: Path, start: str, attempt: str, region: str, run_i
 
 # --- cost -------------------------------------------------------------------------------------------------------------------
 def read_cost(path: Path):
-    """(suite, estimate_usd) of a cost.tsv, or None if it is missing or malformed."""
+    """(suite, estimate_usd) of a cost.tsv, or None if it is missing or not exactly one line with six tab separated fields."""
     try:
-        parts = path.read_text().strip().split("\t")
-        return parts[0], float(parts[4])
+        lines = path.read_text().splitlines()
+        parts = lines[0].split("\t") if len(lines) == 1 else []
+        return (parts[0], float(parts[4])) if len(parts) == 6 else None
     except (OSError, ValueError, IndexError):
         return None
 
@@ -287,7 +306,7 @@ def main_loop(o: dict, res: Path, status_file: Path, start: str) -> int:
             return summary(128 + stop_signal[0])
         region = usable[(n - 1) % len(usable)]
         on_demand = o["on_demand_after"] is not None and n > o["on_demand_after"]
-        price = o["on_demand_price"] if on_demand else max_price
+        price = o["on_demand_price"][region] if on_demand else max_price
         worst = worst_case(price, minutes)
         spent, _runs = cumulative_cost(res, o["suite"], worst)
         if spent + worst > o["budget"] + 1e-9:

@@ -22,7 +22,7 @@ IFS=$'\t' read -r suite launched seconds price est worst < "$f"
 assert_eq "$suite" cpp "field 1: suite"
 case $launched in 20??-??-??T??:??:??Z) pass "field 2: ISO time ($launched)" ;; *) fail "field 2: not an ISO time: $launched" ;; esac
 case $seconds in *[!0-9]*|'') fail "field 3: not an integer: $seconds" ;; *) pass "field 3: seconds ($seconds)" ;; esac
-assert_eq "$price" 0.30 "field 4: price per hour"
+assert_eq "$price" 0.30 "field 4: price per hour (the stub prints the real two-line output: price, then None)"
 assert_eq "$worst" 0.26 "field 6: worst case 0.35 x 45 / 60 = 0.26"
 if perl -e 'exit($ARGV[0] > 0 && $ARGV[0] <= $ARGV[1] ? 0 : 1)' "$est" "$worst"; then pass "field 5: the estimate ($est) is above 0 and not above the worst case"; else fail "estimate $est"; fi
 assert_eq "$(cat "$(dirname "$f")/suite.txt")" cpp "suite.txt next to it"
@@ -36,12 +36,12 @@ assert_eq "$suite" default "default suite named"
 assert_eq "$price" unknown "price: unknown"
 assert_eq "$est" "$worst" "estimate = worst case"
 
-echo "on demand: the assumed price of --max-price:"
+echo "on demand: the assumed price of --max-price, marked as such:"
 clear_out
 PROFILE=known-profile run_spot run --instance-type g4dn.xlarge --max-price 0.53 --max-minutes 45 --on-demand --yes
 f=$(find "$OUT" -name cost.tsv | head -1)
 IFS=$'\t' read -r suite launched seconds price est worst < "$f"
-assert_eq "$price" 0.53 "price: 0.53"
+assert_eq "$price" 0.53-assumed "price: 0.53, marked as assumed (not a measured price)"
 assert_eq "$worst" 0.40 "worst case 0.53 x 45 / 60"
 
 echo "a run that is stopped (SIGTERM) still leaves a cost.tsv:"

@@ -18,8 +18,8 @@ assert_eq "$(grep -c 'terminate-instances' "$STUB_LOG")" 1 "the cleanup terminat
 
 echo "a running instance whose DONE never appears (fast clock):"
 : > "$STUB_LOG"
-STUB_INSTANCE_STATE=running PROFILE=known-profile run_spot run --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --yes
-assert_eq "$RC" 0 "the run ends with the deadline (exit $RC)"
+STUB_DONE_STATUS=none STUB_INSTANCE_STATE=running PROFILE=known-profile run_spot run --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --yes
+assert_eq "$RC" 6 "the run ends with the deadline and no DONE: exit 6 (exit $RC)"
 latest=$(grep -c '^scp .* -r .*latest/' "$STUB_LOG")
 if [ "$latest" -ge 1 ]; then echo "  ok   partial results copied $latest time(s) while waiting"; else echo "  FAIL no periodic copy"; FAILED=$(( ${FAILED:-0} + 1 )); fi
 finish_test
