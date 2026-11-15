@@ -18,6 +18,7 @@ TornadoVM's profiler is not free: the per-call costs of [Measured cost](#measure
 - For the whole network on the device (`TornadoNetwork`): [Forward pass on the device](#forward-pass-on-the-device).
 - For evaluations per second against the CPU, and what they mean for MCTS leaf batching: [Measured speed](#measured-speed).
 - The SDK installation itself is in [architecture](architecture.md#install-tornadovm).
+- For TornadoVM against hand-written C++ Metal and CUDA kernels (throughput, latency, start-up, code size): [cpp-comparison](cpp-comparison.md).
 
 ## Build and test
 
