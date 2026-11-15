@@ -1,0 +1,35 @@
+# clang-tidy for the C++ port (docs/cpp-comparison-plan.md, "Memory-safety rules"). Every exclusion has a one-line reason.
+Checks: >
+  -*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  clang-analyzer-*,
+  performance-*,
+  modernize-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-avoid-do-while,
+  -bugprone-unused-local-non-trivial-variable,
+  -bugprone-exception-escape,
+  -modernize-use-designated-initializers,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard
+HeaderFilterRegex: 'cpp/(src|apps|tests)/.*'
+WarningsAsErrors: ''
+# Reasons for the exclusions:
+#   bugprone-easily-swappable-parameters   the engine and search APIs take many ints (cells, depths) by design, as the Java code does
+#   cppcoreguidelines-avoid-magic-numbers  table sizes, hash constants and weights are literals, as in Java
+#   cppcoreguidelines-pro-bounds-pointer-arithmetic  -Wunsafe-buffer-usage enforces this more strictly, with marked unsafe zones
+#   cppcoreguidelines-macro-usage          the test harness macros (CHECK, SH_TEST) need the source location
+#   cppcoreguidelines-pro-bounds-constant-array-index  std::array indexing in loops with constant bounds is the intended style
+#   cppcoreguidelines-avoid-non-const-global-variables  the test registry is a function-local static
+#   cppcoreguidelines-avoid-do-while       the CHECK macros are do { } while (false) blocks (the standard way to make a macro one statement)
+#   bugprone-unused-local-non-trivial-variable  false positives on std::istringstream used through std::getline (clang-tidy 21)
+#   bugprone-exception-escape              an exception escaping main ends the process, which is what a test or benchmark should do
+#   modernize-use-designated-initializers  style only
+#   modernize-use-trailing-return-type     style only
+#   modernize-use-nodiscard                style only

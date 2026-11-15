@@ -1,0 +1,301 @@
+# Second AWS run on a Tesla T4 (g4dn.xlarge, spot): SIMD fix before and after, cold start per case, 2026-11-15
+
+## Status: read this first
+n = 1 run per instance, on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2), the same instance type and
+the same measurement method as the first run (cpp/results/aws-t4-2026-11-15.txt, called run 1 below). All 19 steps of this run ended OK (exit status 0) and every
+one of the 228 benchmark rows (nn_bench 148, CrossBench 48, anchors 32) has verified=ok; a case that fails its output check prints no row, so there are no
+rows that did not pass. Nothing was smoothed, re-measured or dropped. Differences between run 1 and run 2 are between two different instances, one run each:
+a repeatability statement is an observation of two samples, not an error bar.
+  V = valid     all four anchor values of the row's program (batch 256: two runs at the start, two at the end) lie within 2 % of each other
+  u = unsettled the anchors differ by more than 2 %; the drift is stated. Unsettled rows are never quoted as valid.
+The anchors that decide (evals/s, batch 256):
+  cpp:cuda-pinned  LARGE start 19061.5 18969.5 / end 19062.5 19014.8  max/min 1.0049  valid
+  cpp:cuda-pinned  SMALL start 87559.7 87364.7 / end 87177.7 87191.6  max/min 1.0044  valid
+  cpp:simd         LARGE start 1181.4 1202.1 / end 1194.0 1199.4  max/min 1.0175  valid
+  cpp:simd         SMALL start 8181.3 8351.2 / end 8390.1 8400.4  max/min 1.0268  UNSETTLED (2.7 % drift)
+  java:tornado     LARGE start 19440.0 19389.2 / end 19404.9 19443.5  max/min 1.0028  valid
+  java:tornado     SMALL start 85136.8 84509.3 / end 84677.4 85320.4  max/min 1.0096  valid
+  java:vector      LARGE start 906.5 893.7 / end 909.8 890.1  max/min 1.0221  UNSETTLED (2.2 % drift)
+  java:vector      SMALL start 3628.4 4562.7 / end 3760.1 3794.4  max/min 1.2575  UNSETTLED (25.7 % drift)
+Result: valid: cpp:cuda-pinned LARGE, cpp:cuda-pinned SMALL, cpp:simd LARGE, java:tornado LARGE, java:tornado SMALL. Unsettled: cpp:simd SMALL, java:vector LARGE, java:vector SMALL.
+A Java:C++ ratio comes only from adjacent pairs (anchor rows C, J, C, J at the start and at the end: 4 pairs at batch 256, none at another batch). The rows of the
+benchmark proper are one C++ block and one Java block; their quotient is 'unpaired' (orientation only). No statement about a difference below 5 % (GPU); CPU rows state
+the measured spread. The source of run 2: exp/cpp at 2446bd1 (SIMD forward pass without bounds checks and stack round trips in the inner loop, commit e9af0d7: one process
+per cold case); the archive of the instance was made at 18:55 UTC from HEAD, and the reflog shows no later commit. Run 1 ran the code before the SIMD change.
+
+Files: aws-t4-run2-2026-11-15.tsv (every booked figure, one row each; columns as in run 1) and this text. Tables of the TSV: throughput, latency, anchors, ratio, ratio_blocks,
+checks_cost, breakdown, setup, kernel_table, cold_start (new: one row per program, case and metric, median / lowest / highest of 3 processes), gpufeed, not_measured,
+verification. Booked by cpp/scripts/book-aws.py --run 2; tests: cpp/scripts/test_book_aws.py.
+
+## Throughput, evals/s (median, [lowest round, highest round], status); full table in the TSV (batches 1, 16, 64, 256, 512, 1024)
+
+### SMALL u5
+program                                   batch 1                    batch 256                     batch 1024
+----------------------------------------  -------------------------  ----------------------------  ----------------------------
+Java Vector API, 16 lanes (CPU)           4835.6 [4093.6, 5740.4] u  5683.8 [5614.7, 5684.0] u     5605.9 [5592.2, 5618.9] u
+C++ simd, 16 lanes (CPU, comparison row)  8367.4 [8340.2, 8370.6] u  8387.7 [8352.2, 8388.2] u     8348.0 [8345.1, 8349.2] u
+C++ simd, 8 lanes (CPU, extra row)        5144.0 [5142.6, 5147.0] u  5139.9 [5138.9, 5140.0] u     5132.6 [5064.9, 5139.9] u
+C++ simd-nofma, 16 lanes                  5677.6 [5659.0, 5689.0] u  5658.1 [5655.8, 5673.1] u     5667.2 [5663.4, 5668.5] u
+C++ simd-nofma, 8 lanes                   3135.8 [3133.0, 3137.1] u  3133.4 [3108.4, 3135.0] u     3130.3 [3119.9, 3137.7] u
+C++ CUDA, pageable host memory            2644.7 [2643.6, 2646.4] V  82039.7 [81863.1, 82206.7] V  86883.9 [86526.1, 87506.9] V
+C++ CUDA, pinned host memory              2683.2 [2680.8, 2685.7] V  86485.9 [85835.1, 86906.0] V  89749.3 [89719.8, 90180.4] V
+Java TornadoVM on CUDA                    4667.6 [4657.0, 4680.1] V  85150.5 [85086.1, 85421.2] V  87714.3 [87633.3, 88012.2] V
+
+### LARGE u5
+program                                   batch 1                    batch 256                     batch 1024
+----------------------------------------  -------------------------  ----------------------------  ----------------------------
+Java Vector API, 16 lanes (CPU)           911.5 [904.6, 945.3] u     919.3 [914.9, 933.2] u        904.1 [901.1, 906.9] u
+C++ simd, 16 lanes (CPU, comparison row)  1197.7 [1197.1, 1198.9] V  1197.4 [1197.3, 1197.6] V     1196.7 [1192.6, 1197.1] V
+C++ simd, 8 lanes (CPU, extra row)        818.4 [807.5, 818.8] V     818.8 [818.1, 819.4] V        818.8 [818.5, 819.2] V
+C++ simd-nofma, 16 lanes                  873.5 [873.1, 874.2] V     874.1 [870.3, 874.3] V        873.9 [871.4, 874.0] V
+C++ simd-nofma, 8 lanes                   529.4 [529.2, 530.0] V     530.1 [529.7, 530.2] V        529.8 [528.7, 530.5] V
+C++ CUDA, pageable host memory            533.4 [533.2, 533.5] V     18822.8 [18763.6, 18861.5] V  19047.0 [19002.4, 19080.0] V
+C++ CUDA, pinned host memory              539.3 [538.8, 539.9] V     18906.4 [18816.8, 18939.1] V  19186.4 [19091.5, 19218.9] V
+Java TornadoVM on CUDA                    1126.7 [1126.4, 1126.9] V  19395.1 [19360.5, 19441.5] V  19752.2 [19715.9, 19771.1] V
+CUDA rows: median of the two hardened blocks (l8 and l16), range = lowest round minimum to highest round maximum of both. C++ CPU rows are judged by the anchor of
+cpp:simd (built with 16 lanes; the 8-lane rows have no anchor of their own). Not measured (the schedule skips a case if one call would take more than 3 s): none.
+
+## SIMD fix, before and after (CPU, batch 256, evals/s; run 1 = old code, run 2 = new code; status as in each run)
+preset  program                         run 1   st  run 2   st  run 2 / run 1  C++ / Java run 1  C++ / Java run 2
+------  ------------------------------  ------  --  ------  --  -------------  ----------------  ----------------
+SMALL   simd 16 lanes, hardened         1153.7  u   8387.7  u   7.27x          0.20              1.48
+SMALL   simd 8 lanes, hardened          1939.3  u   5139.9  u   2.65x          0.33              0.90
+SMALL   simd-nofma 16 lanes, hardened   1043.6  u   5658.1  u   5.42x          0.18              1.00
+SMALL   simd-nofma 8 lanes, hardened    1654.5  u   3133.4  u   1.89x          0.28              0.55
+SMALL   simd 16 lanes, unchecked        1245.4  u   8142.5  u   6.54x          0.21              1.43
+SMALL   simd 8 lanes, unchecked         4613.6  u   5152.6  u   1.12x          0.79              0.91
+SMALL   simd-nofma 16 lanes, unchecked  1034.5  u   5574.5  u   5.39x          0.18              0.98
+SMALL   simd-nofma 8 lanes, unchecked   3232.9  u   3143.6  u   0.97x          0.55              0.55
+LARGE   simd 16 lanes, hardened         203.8   u   1197.4  V   5.88x          0.23              1.30
+LARGE   simd 8 lanes, hardened          348.9   u   818.8   V   2.35x          0.39              0.89
+LARGE   simd-nofma 16 lanes, hardened   182.8   u   874.1   V   4.78x          0.20              0.95
+LARGE   simd-nofma 8 lanes, hardened    295.8   u   530.1   V   1.79x          0.33              0.58
+LARGE   simd 16 lanes, unchecked        218.2   u   1167.7  V   5.35x          0.24              1.27
+LARGE   simd 8 lanes, unchecked         812.0   u   821.0   V   1.01x          0.90              0.89
+LARGE   simd-nofma 16 lanes, unchecked  179.4   u   872.0   V   4.86x          0.20              0.95
+LARGE   simd-nofma 8 lanes, unchecked   547.8   u   533.5   V   0.97x          0.61              0.58
+The Java columns are the Java Vector blocks of the same run at batch 256 (SMALL 5866.2 then 5683.8, -3.1 %; LARGE 897.8 then 919.3, +2.4 %), so the C++ / Java columns are block quotients (unpaired,
+orientation). The paired ratios are in the next section. Java Vector is the control: the same code on a second instance of the same type moves by the amount above.
+
+### Is the diagnosis confirmed?
+The diagnosis (cpp/README.md, 'x86 code generation of the SIMD path'): bounds checks inside the inner loop of the hardened build, and at 16 lanes a stack round trip
+for every vector load, made the C++ path slow. The change removed both in one commit (the assembler loop has 18 instructions, 8 fma, no stack operand).
+  - Hardened build: simd 16 lanes SMALL 1153.7 -> 8387.7 (7.27x), LARGE 203.8 -> 1197.4 (5.88x); simd 8 lanes SMALL 1939.3 -> 5139.9 (2.65x), LARGE 348.9 -> 818.8 (2.35x).
+  - Cost of the checks (unchecked over hardened, batch 256, table checks_cost): run 1 SMALL 8 lanes 2.38x, run 2 1.002x; run 2, all four CPU programs and both presets: 0.971 to 1.006.
+    The hardened build is now as fast as the unchecked one (within 3 %; below 5 % no statement). That the checks stood in the way is therefore confirmed: with them out of the
+    loop the difference is gone.
+  - 16 lanes against 8 lanes (hardened, SMALL / LARGE): run 1 0.59 / 0.58 (16 slower), run 2 1.63 / 1.46 (16 faster). The order has turned, as the stack-round-trip reading predicts.
+  - Confirmed: the poor C++ numbers of run 1 were bad code from the bounds checks and the stack round trips, not a property of C++. Not separable from the data: how much each of
+    the two causes contributed (they changed together), and the stall of the store-to-load forwarding itself was never measured. Results are unchanged: nn_check reports the same
+    error fractions for every impl, preset and lane count as in run 1 (compared below), and the offline check of the commit found 12 equal digests of old and new code.
+
+## Java:C++ ratios from adjacent pairs (anchor rows, batch 256; above 1: C++ faster)
+C++ / Java                      preset  median [lowest, highest pair]  pairs: start 1, start 2, end 1, end 2  st  verdict
+------------------------------  ------  -----------------------------  -------------------------------------  --  --------------------------------------------------
+cpp:cuda-pinned / java:tornado  LARGE   0.979 [0.978, 0.982]           0.981, 0.978, 0.982, 0.978             V   not resolved (within 5 % or the pairs disagree)
+cpp:cuda-pinned / java:tornado  SMALL   1.029 [1.022, 1.034]           1.028, 1.034, 1.030, 1.022             V   not resolved (within 5 % or the pairs disagree)
+cpp:simd-l16 / java:vector      LARGE   1.329 [1.303, 1.347]           1.303, 1.345, 1.312, 1.347             u   indicative only (unsettled), C++ faster by 32.9 %
+cpp:simd-l16 / java:vector      SMALL   2.223 [1.830, 2.255]           2.255, 1.830, 2.231, 2.214             u   indicative only (unsettled), C++ faster by 122.3 %
+
+### Honest state: C++ SIMD against the Java Vector API on AVX-512
+  - Direction: C++ 16 lanes (gcc 12, vector extensions) is FASTER than Java's Vector API (16 lanes, same 512-bit width) on this instance. Paired: SMALL 2.22 (1.83 to 2.25),
+    LARGE 1.33 (1.30 to 1.35); block quotient (unpaired): SMALL 1.48, LARGE 1.30. All 8 pairs and both block quotients lie on the same side and above 5 %.
+  - Status: by the rule these are NOT valid ratios, only 'indicative'. The Java anchors are unsettled in both presets (SMALL 25.7 %, LARGE 2.2 % drift) and the C++ SMALL anchor is
+    unsettled (2.7 %); only the C++ LARGE anchor is valid (1.8 %). Do not quote a CPU ratio from this run without these labels.
+  - Size: LARGE is tight (pairs 1.30 to 1.35, block 1.30): about 1.3 times. SMALL depends on which Java level one takes: Java Vector SMALL sits at 5684 in its block and at 3628 / 4563 / 3760 / 3794 in the anchors
+    (the same split as in run 1), so the SMALL factor is 1.48 against the block level and 1.83 to 2.25 against the anchor levels. This is a property of the Java side's
+    variation on this instance, not something this run can resolve; n = 1 per instance.
+  - Other C++ rows against the Java block (unpaired, batch 256): 8 lanes (half the width of Java's species) 0.90 SMALL and 0.89 LARGE, i.e. about 10 % behind Java Vector; simd-nofma 16 lanes 1.00 and 0.95.
+  - Not shown by this data: whether another JDK, another JIT warm-up or hand-tuned Java would close the gap; the plan compares the existing implementations as they are.
+
+C++ CUDA is the pinned row (the anchor rows run the pinned variant). The GPU pairs are LARGE 0.979 and SMALL 1.029; below 5 % there is no statement. For orientation only, the unpaired block quotients
+(table ratio_blocks in the TSV, status 'unpaired'):
+preset  batch  CUDA pinned / TornadoVM  CUDA pageable / TornadoVM  simd l16 / Vector  simd l8 / Vector
+------  -----  -----------------------  -------------------------  -----------------  ----------------
+SMALL   1      0.575                    0.567                      1.730              1.064
+SMALL   16     1.113                    1.061                      1.463              0.902
+SMALL   64     1.025                    0.946                      1.491              0.918
+SMALL   256    1.016                    0.963                      1.476              0.904
+SMALL   512    1.023                    0.987                      1.476              0.916
+SMALL   1024   1.023                    0.991                      1.489              0.916
+LARGE   1      0.479                    0.473                      1.314              0.898
+LARGE   16     1.074                    1.058                      1.315              0.899
+LARGE   64     1.003                    0.993                      1.282              0.877
+LARGE   256    0.975                    0.970                      1.303              0.891
+LARGE   512    0.972                    0.969                      1.298              0.888
+LARGE   1024   0.971                    0.964                      1.324              0.906
+
+## Latency at batch 1, ms per call p50 / p90 (CUDA: median of the two blocks)
+program                                   SMALL            LARGE
+----------------------------------------  ---------------  ---------------
+Java Vector API, 16 lanes (CPU)           0.176 / 0.264 u  1.073 / 1.112 u
+C++ simd, 16 lanes (CPU, comparison row)  0.118 / 0.125 u  0.833 / 0.841 V
+C++ simd, 8 lanes (CPU, extra row)        0.192 / 0.200 u  1.221 / 1.235 V
+C++ simd-nofma, 16 lanes                  0.174 / 0.181 u  1.143 / 1.153 V
+C++ simd-nofma, 8 lanes                   0.315 / 0.326 u  1.886 / 1.898 V
+C++ CUDA, pageable host memory            0.378 / 0.380 V  1.874 / 1.877 V
+C++ CUDA, pinned host memory              0.372 / 0.374 V  1.853 / 1.859 V
+Java TornadoVM on CUDA                    0.213 / 0.217 V  0.887 / 0.893 V
+
+## GPU rows against run 1 (repeatability of two instances; evals/s, median)
+program                         preset  batch  run 1      run 2      run 2 vs run 1
+------------------------------  ------  -----  ---------  ---------  --------------
+C++ CUDA, pageable host memory  SMALL   1      2637.9 V   2644.7 V   +0.3 %
+C++ CUDA, pageable host memory  SMALL   256    81062.7 V  82039.7 V  +1.2 %
+C++ CUDA, pageable host memory  SMALL   1024   86913.8 V  86883.9 V  -0.0 %
+C++ CUDA, pageable host memory  LARGE   1      537.4 V    533.4 V    -0.7 %
+C++ CUDA, pageable host memory  LARGE   256    18533.8 V  18822.8 V  +1.6 %
+C++ CUDA, pageable host memory  LARGE   1024   18857.3 V  19047.0 V  +1.0 %
+C++ CUDA, pinned host memory    SMALL   1      2677.1 V   2683.2 V   +0.2 %
+C++ CUDA, pinned host memory    SMALL   256    85582.5 V  86485.9 V  +1.1 %
+C++ CUDA, pinned host memory    SMALL   1024   89410.4 V  89749.3 V  +0.4 %
+C++ CUDA, pinned host memory    LARGE   1      538.5 V    539.3 V    +0.1 %
+C++ CUDA, pinned host memory    LARGE   256    18541.2 V  18906.4 V  +2.0 %
+C++ CUDA, pinned host memory    LARGE   1024   18887.4 V  19186.4 V  +1.6 %
+Java TornadoVM on CUDA          SMALL   1      4701.0 V   4667.6 V   -0.7 %
+Java TornadoVM on CUDA          SMALL   256    85222.0 V  85150.5 V  -0.1 %
+Java TornadoVM on CUDA          SMALL   1024   86665.2 V  87714.3 V  +1.2 %
+Java TornadoVM on CUDA          LARGE   1      1115.8 V   1126.7 V   +1.0 %
+Java TornadoVM on CUDA          LARGE   256    19023.2 V  19395.1 V  +2.0 %
+Java TornadoVM on CUDA          LARGE   1024   19411.0 V  19752.2 V  +1.8 %
+Largest difference between the two runs: 2.0 %. Run 1 ran the same CUDA code; the SIMD change touches only the CPU path.
+
+## Anchors (batch 256, evals/s): two runs at the start (before nn_bench), two at the end (after CrossBench)
+program          preset  start 1  start 2  end 1    end 2    max/min  drift   st
+---------------  ------  -------  -------  -------  -------  -------  ------  --
+cpp:cuda-pinned  LARGE   19061.5  18969.5  19062.5  19014.8  1.0049   0.5 %   V
+cpp:cuda-pinned  SMALL   87559.7  87364.7  87177.7  87191.6  1.0044   0.4 %   V
+cpp:simd         LARGE   1181.4   1202.1   1194.0   1199.4   1.0175   1.8 %   V
+cpp:simd         SMALL   8181.3   8351.2   8390.1   8400.4   1.0268   2.7 %   u
+java:tornado     LARGE   19440.0  19389.2  19404.9  19443.5  1.0028   0.3 %   V
+java:tornado     SMALL   85136.8  84509.3  84677.4  85320.4  1.0096   1.0 %   V
+java:vector      LARGE   906.5    893.7    909.8    890.1    1.0221   2.2 %   u
+java:vector      SMALL   3628.4   4562.7   3760.1   3794.4   1.2575   25.7 %  u
+GPU state (nvidia-smi, SM clock): anchors-start 1590 MHz; cpp-bench 1590 MHz; java-crossbench 1575 MHz; anchors-end 1590 MHz (memory 5000 MHz, no throttling seen at the sampled moments)
+Load average (1 min), before/after each anchor block: start r1: C++ 1.13/1.09; start r1: Java 1.09/1.31; start r2: C++ 1.31/1.28; start r2: Java 1.28/1.26; end r1: C++ 2.06/1.76; end r1: Java 1.76/1.67; end r2: C++ 1.67/1.56; end r2: Java 1.68/1.63.
+Blocks of the benchmark proper: C++ l8 1.26/1.01, l16 1.01/1.02, Java 1.13/1.39.
+The plan's limit of 2.0 for the load before a block was exceeded by: anchors-end round 1: C++ (load average 2.06; it follows directly after the Java block, which leaves the 1-minute average high).
+
+### Pattern of the CPU anchors (run 1 against run 2; no cause is claimed)
+run    program      preset  start 1  start 2  end 1   end 2   start 2 / start 1  end 2 / end 1  end 1 / start 1  max/min - 1
+-----  -----------  ------  -------  -------  ------  ------  -----------------  -------------  ---------------  -----------
+run 1  cpp:simd     SMALL   1153.6   760.7    1151.9  760.0   -34.1 %            -34.0 %        -0.1 %           51.8 %
+run 1  cpp:simd     LARGE   203.7    132.2    203.0   132.1   -35.1 %            -34.9 %        -0.3 %           54.2 %
+run 1  java:vector  SMALL   5056.2   3779.1   3779.4  3733.2  -25.3 %            -1.2 %         -25.3 %          35.4 %
+run 1  java:vector  LARGE   934.3    886.6    905.3   909.2   -5.1 %             +0.4 %         -3.1 %           5.4 %
+run 2  cpp:simd     SMALL   8181.3   8351.2   8390.1  8400.4  +2.1 %             +0.1 %         +2.6 %           2.7 %
+run 2  cpp:simd     LARGE   1181.4   1202.1   1194.0  1199.4  +1.8 %             +0.5 %         +1.1 %           1.8 %
+run 2  java:vector  SMALL   3628.4   4562.7   3760.1  3794.4  +25.7 %            +0.9 %         +3.6 %           25.7 %
+run 2  java:vector  LARGE   906.5    893.7    909.8   890.1   -1.4 %             -2.2 %         +0.4 %           2.2 %
+  - Run 1: the second C++ run of each block was about 34 % slower than the first, at the start and at the end (steps within the block, none inside the blocks of the benchmark proper).
+  - Run 2, C++ SMALL: all four within 2.7 %, i.e. no 34 % step; the values rise from run to run (8181 / 8351 / 8390 / 8400, steps +2.1 %, +0.5 %, +0.1 %), the total drift is 2.7 %. C++ LARGE: 1181 / 1202 / 1194 / 1199, no step above 2 %, and it is valid.
+  - Run 2, Java Vector SMALL: the first start run is the lowest (3628), the second jumps by +25.7 % (4563), the end runs are in between (3760, 3794); the Java block of the benchmark proper at
+    batch 256 is at 5684, above every anchor value. In run 1 the first Java SMALL anchor was the highest (5056) and the three later ones about 3764.
+    So Java Vector SMALL has two levels in both runs, one about 5,000 to 5,900 and one about 3,600 to 3,800 (run 2 also 4,563), and it switches between runs of the same
+    program about a minute apart (one anchor run lasts about a minute). Java Vector LARGE stays within 2.2 %. The C++ CPU programs of run 2 do not show such a switch.
+  - Whether the switch comes from a neighbour on the shared host, from the clock behaviour under AVX-512 load, or from the JVM (JIT or the Vector API's profile) is not known. The
+    pattern (steps between adjacent runs about a minute apart, not tied to one program position, seen in run 1 on C++ and in both runs on Java) is compatible with neighbour load or
+    clock changes; it is also compatible with other causes. No cause is claimed; the rule keeps these rows unsettled.
+
+## Counter-check with the gpuFeed rows (CPU threads feed the T4, 30 s per row, batch 256; evals/s)
+preset  run 1  run 2  run 2 vs run 1  device busy (run 2)  CrossBench TornadoVM b256 (run 2)  feed against CrossBench
+------  -----  -----  --------------  -------------------  ---------------------------------  -----------------------
+SMALL   80748  82117  +1.7 %          99 %                 85150                              -3.6 %
+LARGE   18867  19106  +1.3 %          100 %                19395                              -1.5 %
+The feed rows agree with run 1 within 1.7 % (SMALL) and 1.3 % (LARGE); earlier AWS runs gave SMALL 80,736 to 81,633 and LARGE 18,402 to 19,029. The feed is not an anchor and has no status.
+
+## Cold start (one fresh process per case and round, 3 rounds; median [lowest, highest] in ms; no anchor applies, status 'unanchored')
+construct = building the network object (CUDA: context creation, module and weight upload); first call = the first forward pass of the process; process to first result =
+process uptime after that first call (C++: from main(), without the kernel's exec and the dynamic loader; JVM: since JVM start, which includes the JVM's own start). The
+C++ CPU cold process is the 8-lane build (the cold step runs nn_bench_l8); Java Vector uses 16 lanes. The first case of a TornadoVM JVM also holds the TornadoVM start.
+preset  batch  program                 construct            first call               process to first result  rounds
+------  -----  ----------------------  -------------------  -----------------------  -----------------------  ------
+SMALL   1      C++ CPU simd (8 lanes)  0.1 [0.1, 0.1]       0.2 [0.2, 0.2]           111.7 [109.9, 113.6]     3
+SMALL   1      Java Vector             6.3 [4.5, 6.4]       144.2 [142.7, 147.0]     703.0 [686.0, 708.0]     3
+SMALL   1      C++ CUDA pageable       95.1 [94.8, 96.3]    0.7 [0.7, 0.7]           209.5 [208.7, 210.7]     3
+SMALL   1      C++ CUDA pinned         97.2 [95.3, 104.7]   1.8 [1.8, 1.8]           212.7 [210.9, 220.1]     3
+SMALL   1      Java TornadoVM (CUDA)   18.9 [16.0, 21.4]    3233.1 [3213.8, 3248.9]  4404.0 [4387.0, 4429.0]  3
+SMALL   256    C++ CPU simd (8 lanes)  0.1 [0.1, 0.1]       50.3 [49.6, 50.7]        161.8 [160.5, 163.5]     3
+SMALL   256    Java Vector             4.7 [4.6, 4.7]       476.3 [475.5, 518.4]     1034.0 [1032.0, 1084.0]  3
+SMALL   256    C++ CUDA pageable       94.7 [91.7, 96.1]    4.8 [4.8, 4.9]           212.6 [211.0, 216.5]     3
+SMALL   256    C++ CUDA pinned         97.4 [92.3, 99.3]    4.3 [4.2, 4.3]           216.3 [211.2, 218.9]     3
+SMALL   256    Java TornadoVM (CUDA)   18.7 [15.1, 23.1]    2102.8 [2031.2, 2137.3]  3271.0 [3236.0, 3324.0]  3
+LARGE   1      C++ CPU simd (8 lanes)  0.4 [0.4, 0.4]       1.3 [1.2, 1.3]           119.5 [119.3, 121.3]     3
+LARGE   1      Java Vector             9.5 [8.8, 9.7]       363.8 [356.0, 396.3]     937.0 [925.0, 956.0]     3
+LARGE   1      C++ CUDA pageable       100.0 [97.2, 107.9]  2.2 [2.2, 2.3]           221.5 [220.4, 230.5]     3
+LARGE   1      C++ CUDA pinned         96.4 [93.2, 101.1]   3.3 [3.3, 3.4]           222.2 [219.7, 226.5]     3
+LARGE   1      Java TornadoVM (CUDA)   24.8 [22.9, 26.9]    1785.8 [1770.7, 1804.2]  2979.0 [2950.0, 2998.0]  3
+LARGE   256    C++ CPU simd (8 lanes)  0.4 [0.4, 0.4]       311.1 [310.9, 311.3]     430.1 [430.1, 430.2]     3
+LARGE   256    Java Vector             9.1 [8.5, 9.5]       754.8 [712.7, 764.7]     1316.0 [1289.0, 1335.0]  3
+LARGE   256    C++ CUDA pageable       93.6 [92.8, 95.8]    13.3 [13.3, 13.5]        230.1 [228.7, 230.8]     3
+LARGE   256    C++ CUDA pinned         97.0 [96.8, 101.0]   12.8 [12.8, 12.9]        231.6 [231.1, 235.5]     3
+LARGE   256    Java TornadoVM (CUDA)   23.5 [22.7, 25.0]    2370.7 [2329.4, 2398.4]  3570.0 [3523.0, 3593.0]  3
+
+For comparison, the first call of a case inside a long-running process (benchmark block, table breakdown in the TSV), batch 1 / 256: C++ CUDA pinned SMALL 1.6 / 4.3 ms, LARGE 3.4 / 14.0 ms;
+TornadoVM SMALL 4365.4 / 354.4 ms, LARGE 1372.6 / 448.5 ms; Java Vector SMALL 104.8 / 45.6 ms, LARGE 1.1 / 274.2 ms (the very first case of the JVM block also holds the start of the runtime).
+Spread of the three rounds, process to first result: at most 5.0 % for any case. The C++ CPU first call at batch 256 (SMALL / LARGE 50.3 / 311.1 ms) is the cost of the first
+full 256-position pass, not a start-up fee: it equals the steady call time of that bucket in the 8-lane build (256 / 5139.9 = 49.8 ms SMALL, 256 / 818.8 = 312.7 ms LARGE).
+
+## Correctness (the CUDA path is verified)
+  cuda_test (Tesla T4): 6 passed, 0 skipped, 0 failed, 244 checks; 120 comparisons against ReferenceNet (TINY, SMALL, LARGE, 33-channel network; variants auto, naive, tiled;
+    pageable and pinned; batches 1, 3, 67, 256); the largest error is 0.0254 of the bound (1e-4 + 1e-3 |ref|).
+  compute-sanitizer memcheck on cuda_test, batches 1 and 67: 6 passed, 0 failed, 184 checks, ERROR SUMMARY: 0 errors.
+  nn_check (all 1,024 golden positions, batch 64; error as a fraction of the bound, 1.0 = at the bound):
+impl           preset  logits max err / bound  values max err / bound  result
+-------------  ------  ----------------------  ----------------------  ------
+cuda           SMALL   0.0196                  0.0012                  ok
+cuda           LARGE   0.0499                  0.0008                  ok
+cuda           GEN11   0.0011                  0.0068                  ok
+simd l8        SMALL   0.0131                  0.0018                  ok
+simd l8        LARGE   0.0433                  0.0010                  ok
+simd l8        GEN11   0.0003                  0.0082                  ok
+simd-nofma l8  SMALL   0.0125                  0.0017                  ok
+simd-nofma l8  LARGE   0.0803                  0.0007                  ok
+simd-nofma l8  GEN11   0.0003                  0.0058                  ok
+simd l16       SMALL   0.0134                  0.0018                  ok
+simd l16       LARGE   0.0446                  0.0009                  ok
+simd l16       GEN11   0.0004                  0.0072                  ok
+  gen11 is the real LARGE weights (uploaded; SHA-256 before the upload, after the upload and after the run equal: fda54e02...). Only nn_check ran on gen11, no throughput rows.
+  golden hash: 4 'must' lines (weights, inputs, cases) are equal to the Mac hashes; 3 'info' lines: nn-ref-small-u5 DIFFERENT; nn-ref-large-u5 DIFFERENT; nn-ref-large-gen11 recorded.
+    The two DIFFERENT lines are the Java reference OUTPUTS (nn-ref-small/large-u5) as the JVM on this instance computed them. Weights, inputs and cases are bit-equal, so the
+    inputs of every check are the Mac's; the outputs of the same Java code differ in the last bits on another CPU (Math.exp and tanh may differ by one ulp between platforms,
+    other FMA and vector paths). That is what the plan's 'info' kind expects ('a difference is recorded only'), not a failure. It does mean that nn_check on the instance
+    compared against the instance's own reference files, not against the Mac's. The third info line (gen11) has no expected hash by design (real weights).
+    Not shown by this run: nn_check --impl reference (bit-identity with the Java reference) is not in cpp-check.log.
+
+  Against run 1 (before the SIMD change): the 12 nn_check lines of run 2 have IDENTICAL error fractions (logits and values) as the 12 lines of run 1 for every impl, preset and lane count.
+  The log of run 2 has a new 'digest=' field per line (a hash over the outputs of all 1,024 positions); run 1 has none, so there is no digest comparison between the two runs.
+  Bit-identity of old and new source is established offline (cpp/README.md, 'Equality': 12 equal digests of old and new code); this run supports it only through the equal
+  error fractions (a weaker statement).
+
+## Toolchain
+  C++: g++-12 (Ubuntu 12.3.0-1ubuntu1~22.04.3) 12.3.0, -O3 -march=native, -ffp-contract=off (FMA only in simd_net), 8 and 16 lanes, hardened (-D_GLIBCXX_ASSERTIONS) and unchecked builds; check-fma: 13 fused
+  multiply-adds in simd_net for both lane counts, 0 in simd_net_nofma (read from cpp-build.log).
+  CUDA: nvcc release 13.2 (V13.2.51), compute_75 present in nvcc's architecture list; flags of build-cuda.sh at the commit: -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true
+  -gencode arch=compute_75,code=sm_75 and PTX compute_75, no fast math. Driver 595.112.07, Tesla T4, 15,360 MiB; compute-sanitizer 2026.1.0.0.
+  Java 25.0.3 (Zulu), TornadoVM 7.3.1 (CUDA backend), JVM flags -Xms4g -Xmx4g, G1, 512-bit Vector API (16 float lanes), UseAVX 3. OS: Ubuntu 22.04, kernel 6.8 (aws).
+  CPU: Intel Xeon Platinum 8259CL @ 2.50 GHz, 4 vCPUs, 15.4 GiB, AVX-512 (F, BW, VL, VNNI).
+
+  Note: check-fma on the object code of simd_net, 8 / 16 lanes: run 1 8987 / 9317 instructions with 31 / 31 fused multiply-adds, run 2 7460 / 7488 instructions with 13 / 13. The object got smaller
+  and has fewer fused instructions in total; the cause was not examined (the inner loop has 8 per iteration, see the diagnosis in cpp/README.md). The check only requires more than 0 fused and none in the no-FMA object.
+
+## Cost of the cpp suite (cost.tsv of the runs; estimates, not the bill)
+launched (UTC)        counted  USD/h   estimate USD
+--------------------  -------  ------  ------------
+2026-11-15T17:17:06Z  1828 s   0.2144  0.1089
+2026-11-15T17:50:31Z  1724 s   0.3033  0.1452
+2026-11-15T18:55:09Z  1684 s   0.3033  0.1419
+  Sum of the 3 runs: 0.3960 USD (the runner's cumulative figure for the cpp suite; about 0.36 EUR at the assumed 0.90 EUR/USD); the root volume adds a few cents.
+  The first entry is the run that a spot interruption cut off about 5 minutes after the launch; cost.tsv counts the 1828 s until its cleanup, so its estimate (0.1089 USD) is an upper
+  bound, about 0.02 USD if only the 5 minutes were billed (not verified against a bill). Run 2 cost 0.1419 USD for 1684 counted seconds (1619 s of the suite, the rest boot and cleanup).
+  Budget of 5 EUR: earlier tests about 0.3 USD (the owner's figure) plus the cpp suite 0.40 USD = about 0.70 USD, i.e. about 0.63 EUR or 13 % of the budget (an estimate; the
+  upper bound of the cut-off run included). The cumulative cap of the cpp suite (1.00 USD) was not reached.
+
+## Not measured, or to be read with care
+  - n = 1 run per instance on shared virtualised hardware, two instances. Run-to-run differences are two samples.
+  - CPU rows of Java Vector are unsettled in both presets and the C++ SMALL rows are unsettled; no CPU ratio of this run is more than indicative.
+  - The two fixes (bounds checks, stack round trip) went in together; the data cannot tell their shares. The store-forwarding stall was not measured (no perf counters on the instance).
+  - Anchors in the middle of the measurement (anchor_mid) do not exist on this run. The nvidia-smi line was taken four times (before each block), not continuously.
+  - Java scalar and C++ reference throughput, and gen11 throughput: not in the AWS schedule. Kernel table: C++ only, LARGE only; the Java kernel table is a deliberate gap.
+  - The C++ cold CPU process is the 8-lane build (the cold step runs nn_bench_l8), Java Vector runs 16 lanes; there is no 16-lane C++ cold process.
+

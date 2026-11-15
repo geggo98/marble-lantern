@@ -1,0 +1,277 @@
+# AWS run on a Tesla T4 (g4dn.xlarge, spot), network measurement and CUDA check, 2026-11-15
+
+## Status: read this first
+n = 1 run on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2). All 19 steps of the run ended OK
+(exit status 0) and every one of the 167 benchmark rows (nn_bench 110, CrossBench 25, anchors 32) has verified=ok; a case that fails its output
+check prints no row, so there are no rows that did not pass. Nothing was smoothed, re-measured or dropped.
+  V = valid     the anchors of the row's program (batch 256, SMALL and LARGE each, two runs at the start and two at the end of the measurement,
+                all four values) lie within 2 % of each other
+  u = unsettled the anchors differ by more than 2 %; the drift range is in the row. Unsettled rows are never quoted as valid.
+The anchors that decide:
+  cpp:cuda-pinned  LARGE start 18869.3 18797.0 / end 18628.1 18640.8  max/min 1.0129  valid
+  cpp:cuda-pinned  SMALL start 86477.0 86116.5 / end 85846.5 85882.0  max/min 1.0073  valid
+  cpp:simd         LARGE start 203.7 132.2 / end 203.0 132.1  max/min 1.5420  UNSETTLED (54.2 % drift)
+  cpp:simd         SMALL start 1153.6 760.7 / end 1151.9 760.0  max/min 1.5179  UNSETTLED (51.8 % drift)
+  java:tornado     LARGE start 19180.1 19159.9 / end 19103.7 19099.0  max/min 1.0042  valid
+  java:tornado     SMALL start 84658.8 84512.3 / end 83748.0 84130.1  max/min 1.0109  valid
+  java:vector      LARGE start 934.3 886.6 / end 905.3 909.2  max/min 1.0538  UNSETTLED (5.4 % drift)
+  java:vector      SMALL start 5056.2 3779.1 / end 3779.4 3733.2  max/min 1.3544  UNSETTLED (35.4 % drift)
+Result: the GPU programs (C++ CUDA, Java TornadoVM) are valid, all four anchors within 1.3 % of each other; the CPU programs are unsettled (cpp:simd LARGE, cpp:simd SMALL, java:vector LARGE, java:vector SMALL).
+A Java:C++ ratio comes only from adjacent, interleaved pairs: the anchor rows run C, J, C, J at the start and at the end, so there are 4 pairs
+at batch 256 and none at any other batch. The benchmark proper ran as one C++ block and then one Java block; a division of two blocks is
+booked as 'unpaired' (orientation only). No statement is made about a difference below 5 %.
+The commit that the run used: ec0ecac (derived, not recorded in the run files: the source tarball is 'git archive HEAD' of exp/cpp, taken at 17:50:26 UTC; ec0ecac was committed at 17:49:59 UTC and the reflog shows no later commit)
+
+Files: aws-t4-2026-11-15.tsv (every booked figure, one row each: table, program, case, batch, metric, median, min, max, status, anchor_start,
+anchor_mid (not measured on this run, NA), anchor_end, note). Tables: throughput, latency, anchors, ratio, ratio_blocks, checks_cost,
+breakdown, setup, kernel_table, cold_start, gpufeed, not_measured, verification. Booked by cpp/scripts/book-aws.py; tests: cpp/scripts/test_book_aws.py.
+
+## Throughput, evals/s (median, [lowest round, highest round], status); full table in the TSV (batches 1, 16, 64, 256, 512, 1024)
+
+### SMALL u5
+program                                   batch 1                    batch 256                     batch 1024
+----------------------------------------  -------------------------  ----------------------------  ----------------------------
+Java Vector API, 16 lanes (CPU)           5049.6 [3824.2, 5898.7] u  5866.2 [5728.6, 5870.9] u     5717.1 [5676.2, 5813.2] u
+C++ simd, 16 lanes (CPU, comparison row)  1152.1 [1150.9, 1152.4] u  1153.7 [1152.8, 1153.7] u     1152.5 [1152.0, 1154.3] u
+C++ simd, 8 lanes (CPU, extra row)        1938.0 [1936.9, 1939.0] u  1939.3 [1938.4, 1939.7] u     1936.3 [1918.6, 1938.1] u
+C++ simd-nofma, 16 lanes                  1042.3 [1042.2, 1043.0] u  1043.6 [1043.3, 1044.3] u     1043.1 [1042.8, 1043.8] u
+C++ simd-nofma, 8 lanes                   1654.0 [1653.4, 1654.8] u  1654.5 [1654.0, 1656.6] u     1656.5 [1655.9, 1657.6] u
+C++ CUDA, pageable host memory            2637.9 [2623.9, 2651.1] V  81062.7 [80621.2, 81384.6] V  86913.8 [86696.5, 87064.8] V
+C++ CUDA, pinned host memory              2677.1 [2666.6, 2688.5] V  85582.5 [85446.4, 85772.1] V  89410.4 [88432.2, 89635.7] V
+Java TornadoVM on CUDA                    4701.0 [4688.5, 4711.1] V  85222.0 [85119.5, 85275.6] V  86665.2 [86652.9, 86746.6] V
+
+### LARGE u5
+program                                   batch 1                    batch 256                     batch 1024
+----------------------------------------  -------------------------  ----------------------------  ----------------------------
+Java Vector API, 16 lanes (CPU)           903.5 [888.1, 904.3] u     897.8 [893.7, 904.0] u        912.9 [907.3, 918.0] u
+C++ simd, 16 lanes (CPU, comparison row)  203.8 [203.8, 203.9] u     203.8 [203.7, 203.9] u        not measured
+C++ simd, 8 lanes (CPU, extra row)        349.2 [349.0, 349.2] u     348.9 [348.8, 349.1] u        349.1 [348.6, 349.4] u
+C++ simd-nofma, 16 lanes                  181.9 [181.8, 183.0] u     182.8 [182.6, 182.9] u        not measured
+C++ simd-nofma, 8 lanes                   295.8 [295.7, 295.9] u     295.8 [295.4, 296.0] u        not measured
+C++ CUDA, pageable host memory            537.4 [536.6, 538.2] V     18533.8 [18482.0, 18546.5] V  18857.3 [18837.1, 18893.4] V
+C++ CUDA, pinned host memory              538.5 [538.3, 538.8] V     18541.2 [18525.1, 18580.4] V  18887.4 [18725.1, 18911.6] V
+Java TornadoVM on CUDA                    1115.8 [1115.6, 1116.3] V  19023.2 [18952.3, 19034.9] V  19411.0 [19326.8, 19434.1] V
+CUDA rows: median of the two hardened blocks (l8 and l16), range = lowest round minimum to highest round maximum of both. C++ CPU rows judged by the
+anchor of cpp:simd (built with 16 lanes); the 8-lane rows have no anchor of their own. Not measured: the cases that the schedule skips because one
+call would take more than 3 s (C++ simd-nofma l8 LARGE 1024, simd and simd-nofma l16 LARGE 1024; see not_measured in the TSV).
+Java Vector SMALL is bimodal on this instance: 5,050 to 5,920 in the CrossBench block, 5,056 and then 3,779 in the anchors; its round ranges are wide (e.g. 3,744 to 5,579 in one anchor run).
+
+### The CPU rows are the uncomfortable ones
+  - The comparison row (C++ 16 lanes against Java's 16 lanes) is SLOWER than Java Vector in the hardened C++ build: adjacent pairs 0.145 to 0.305, blocks 0.197 to 0.228
+    (C++ over Java; SMALL batch 256: C++ 1153.7 against Java 5866.2 evals/s in the blocks), so C++ needs 3 to 7 times as long. The 8-lane row is faster than the
+    16-lane row (SMALL batch 256: 1939.3, hardened) but still behind Java Vector.
+  - The checks cost a lot here, unlike on the Mac: the unchecked 8-lane build reaches 4613.6 evals/s at SMALL batch 256 against 1939.3 hardened (table checks_cost, one run
+    each; 2.3 times). The 16-lane build is much less affected (7 to 8 % for simd, none for simd-nofma). The cause was not investigated. The hardened build adds _GLIBCXX_ASSERTIONS; a bounds
+    check that stops g++ 12 from vectorising or hoisting is a hypothesis, not a finding. The main rows of the plan use the hardened build, so they are booked as they are.
+  - The CPU anchors move in steps, in both languages, while the GPU anchors do not. C++ simd (16 lanes), SMALL / LARGE: start 1153.6 / 203.7 then 760.7 / 132.2, end 1151.9 / 203.0 then 760.0 / 132.1;
+    so the second C++ run of each pair block is about 34 % slower, at the start and at the end. Java Vector SMALL: 5056.2 / 3779.1 / 3779.4 / 3733.2.
+    The C++ and Java blocks of the benchmark proper show no step inside the block (batches agree within 1 %), but they sit at one level: C++ at the fast level (round 1 of the
+    anchors), Java Vector SMALL at 5,050 to 5,920 (the level of the first start anchor, not of the three later ones). The cause is not known (a noisy neighbour on the
+    shared host or the clock behaviour of the CPU under AVX-512 load are plausible; neither is proven). By the rule the CPU rows stay unsettled, and no CPU ratio is
+    more than indicative. Which level is the 'true' one cannot be told from n = 1.
+
+## Ratios C++ over Java from adjacent pairs (anchor rows, batch 256; above 1: C++ faster)
+C++ / Java                      preset  median [lowest, highest pair]  st  verdict
+------------------------------  ------  -----------------------------  --  -------------------------------------------------
+cpp:cuda-pinned / java:tornado  LARGE   0.979 [0.975, 0.984]           V   not resolved (within 5 % or the pairs disagree)
+cpp:cuda-pinned / java:tornado  SMALL   1.021 [1.019, 1.025]           V   not resolved (within 5 % or the pairs disagree)
+cpp:simd-l16 / java:vector      LARGE   0.184 [0.145, 0.224]           u   indicative only (unsettled), C++ slower by 81.6 %
+cpp:simd-l16 / java:vector      SMALL   0.216 [0.201, 0.305]           u   indicative only (unsettled), C++ slower by 78.4 %
+
+C++ CUDA is the pinned row (the anchor rows run the pinned variant). On the GPU the differences are below 5 %: no statement. This is the result for
+batch 256; for the other batches there is no adjacent pair. For orientation only, the unpaired block division (table ratio_blocks in the TSV, status 'unpaired'):
+preset  batch  CUDA pinned / TornadoVM  CUDA pageable / TornadoVM  simd l16 / Vector  simd l8 / Vector
+------  -----  -----------------------  -------------------------  -----------------  ----------------
+SMALL   1      0.569                    0.561                      0.228              0.384
+SMALL   16     1.105                    1.048                      0.195              0.328
+SMALL   64     1.021                    0.945                      0.198              0.333
+SMALL   256    1.004                    0.951                      0.197              0.331
+SMALL   512    1.031                    0.993                      0.200              0.334
+SMALL   1024   1.032                    1.003                      0.202              0.339
+LARGE   1      0.483                    0.482                      0.226              0.386
+LARGE   16     1.076                    1.063                      0.223              0.381
+LARGE   64     1.001                    0.991                      0.223              0.382
+LARGE   256    0.975                    0.974                      0.227              0.389
+LARGE   512    0.978                    0.975                      0.223              0.380
+LARGE   1024   0.973                    0.971                      not measured       0.382
+Read these as a picture, not as a result: a difference below 5 % says nothing, and the CPU columns sit on unsettled anchors. The batch-1 GPU gap (0.48 to 0.57) is looked at in the breakdown below.
+
+## Latency at batch 1, ms per call p50 / p90 (CUDA: median of the two blocks)
+program                                   SMALL            LARGE
+----------------------------------------  ---------------  ---------------
+Java Vector API, 16 lanes (CPU)           0.174 / 0.264 u  1.105 / 1.117 u
+C++ simd, 16 lanes (CPU, comparison row)  0.867 / 0.873 u  4.906 / 4.915 u
+C++ simd, 8 lanes (CPU, extra row)        0.517 / 0.522 u  2.860 / 2.878 u
+C++ simd-nofma, 16 lanes                  0.958 / 0.964 u  5.489 / 5.520 u
+C++ simd-nofma, 8 lanes                   0.605 / 0.611 u  3.379 / 3.395 u
+C++ CUDA, pageable host memory            0.379 / 0.381 V  1.861 / 1.865 V
+C++ CUDA, pinned host memory              0.373 / 0.376 V  1.857 / 1.860 V
+Java TornadoVM on CUDA                    0.211 / 0.217 V  0.895 / 0.904 V
+
+## TornadoVM breakdown on the T4, next to the C++ CUDA cudaEvent times (ms per call; GPU programs, status V)
+TornadoVM's 'execute' is host to device + kernels + device to host in one figure; C++ splits them. 'gpu path' = h2d + kernel + d2h of C++ (TornadoVM: its execute figure).
+
+### SMALL u5
+program            batch  wall p50  host copy in  h2d           kernel (C++) / execute (Tornado)  d2h           host copy out  host priors  gpu path  profiled kernel  first call
+-----------------  -----  --------  ------------  ------------  --------------------------------  ------------  -------------  -----------  --------  ---------------  ----------
+TornadoVM          1      0.211     0.000         (in execute)  0.211                             (in execute)  0.000          0.000        0.211     0.272            4683.1
+C++ cuda-pageable  1      0.379     0.000         0.005         0.353                             0.013         0.000          0.000        0.371     -                0.7
+C++ cuda-pinned    1      0.373     0.000         0.005         0.353                             0.007         0.000          0.000        0.366     -                1.7
+TornadoVM          256    3.004     0.139         (in execute)  2.743                             (in execute)  0.020          0.095        2.743     2.276            372.2
+C++ cuda-pageable  256    3.155     0.131         0.471         2.355                             0.075         0.028          0.081        2.902     -                4.7
+C++ cuda-pinned    256    2.990     0.130         0.269         2.430                             0.044         0.019          0.078        2.743     -                4.4
+TornadoVM          1024   11.822    1.033         (in execute)  10.245                            (in execute)  0.111          0.396        10.245    8.019            1327.3
+C++ cuda-pageable  1024   11.796    0.543         1.418         9.088                             0.271         0.109          0.319        10.777    -                16.8
+C++ cuda-pinned    1024   11.465    0.596         1.047         9.241                             0.159         0.072          0.325        10.447    -                14.7
+
+### LARGE u5
+program            batch  wall p50  host copy in  h2d           kernel (C++) / execute (Tornado)  d2h           host copy out  host priors  gpu path  profiled kernel  first call
+-----------------  -----  --------  ------------  ------------  --------------------------------  ------------  -------------  -----------  --------  ---------------  ----------
+TornadoVM          1      0.895     0.001         (in execute)  0.894                             (in execute)  0.000          0.001        0.894     0.977            1410.4
+C++ cuda-pageable  1      1.861     0.001         0.006         1.837                             0.010         0.000          0.000        1.854     -                2.0
+C++ cuda-pinned    1      1.857     0.001         0.005         1.837                             0.006         0.000          0.000        1.849     -                3.6
+TornadoVM          256    13.479    0.207         (in execute)  13.075                            (in execute)  0.031          0.143        13.075    10.633           297.8
+C++ cuda-pageable  256    13.836    0.132         0.472         13.008                            0.077         0.028          0.083        13.558    -                13.6
+C++ cuda-pinned    256    13.785    0.135         0.270         13.232                            0.044         0.018          0.086        13.545    -                14.4
+TornadoVM          1024   52.694    1.047         (in execute)  51.223                            (in execute)  0.107          0.404        51.223    43.471           1164.8
+C++ cuda-pageable  1024   54.373    0.585         1.418         51.540                            0.272         0.107          0.326        53.230    -                56.2
+C++ cuda-pinned    1024   54.259    0.611         1.047         51.993                            0.159         0.074          0.343        53.199    -                56.5
+'profiled kernel' is the TornadoVM profiler's kernel figure from a separate instrumented pass (it slows the call and has a floor of about 0.5 ms per task);
+it is not the C++ cudaEvent figure. First call = first call of that case in the process (TornadoVM: plan build, Graal and NVRTC compilation; the first
+case of the JVM also holds the TornadoVM start: SMALL batch 1 4683 ms). C++ CUDA: module and kernels are compiled ahead of time by nvcc; the first CUDA
+implementation of a process pays context creation and weight upload (construct): pageable LARGE 1.1 / 1.2 ms; pageable SMALL 96.8 / 101.4 ms; pinned LARGE 1.2 / 1.1 ms; pinned SMALL 0.5 / 0.5 ms.
+Per bucket the C++ buffers cost 0.05 to 5.2 ms (table setup in the TSV); first call minus steady call of a case: -0.3 to 5.0 ms (negative = noise). TornadoVM's first call of a bucket on the T4 is
+372 to 2230 ms (SMALL) and 1119 to 1410 ms (LARGE, one outlier at batch 256: 298 ms); on the Mac it was 62 to 76 ms for the LARGE buckets.
+The first-call figures of one TornadoVM case vary a lot between buckets and are measured once per bucket (n = 1); not a precise number.
+Host priors: TornadoVM 0.143 ms, C++ 0.086 ms per call at LARGE batch 256 (the same code, timed the same way).
+Latency at batch 1: TornadoVM is faster than C++ CUDA on LARGE (0.895 against 1.857 ms p50, SMALL 0.211 against 0.373 ms). The kernel table below looks at LARGE:
+
+## C++ CUDA kernel table (LARGE u5, cudaEvent per launch; all 15 launches of one pass: conv_in, 12 block convolutions, 2 heads; Java side is a deliberate gap on the T4)
+batch  block0.conv1 naive  block0.conv1 tiled  sum naive  sum tiled  naive / tiled  kernel_ms of the auto row
+-----  ------------------  ------------------  ---------  ---------  -------------  -------------------------
+1      0.154               0.099               1.88       1.21       1.56x          1.84
+64     7.208               0.300               87.22      3.77       23.12x         3.73
+512    57.327              2.080               693.32     26.00      26.67x         25.78
+The variant rule of the adapter is 'naive while bucket * C <= 128, else tiled' (kNaiveUpTo in buckets.hpp, the rule of TornadoNetwork.NAIVE_UP_TO). At LARGE batch 1 the auto
+row's kernel time (1.84 ms) equals the naive sum (1.88 ms), not the tiled sum (1.21 ms); from batch 64 on it equals the tiled sum. Even the tiled sum is above
+TornadoVM's whole 'execute' at batch 1 (0.894 ms). Naive is 23 to 27 times slower than tiled at batch 64 and 512. The C++ naive block (32 channels x 8 rows) is a choice of
+this port, TornadoVM leaves the launch geometry to its runtime; whether that explains the batch-1 gap was not tested (no second AWS run). At batch 256 the whole GPU path of
+C++ (h2d + kernel + d2h) is 13.545 ms against TornadoVM's execute 13.075 ms on LARGE (3.6 % more), and 2.743 against 2.743 ms on SMALL.
+
+## Anchors (batch 256, evals/s): two runs at the start (before nn_bench), two at the end (after CrossBench)
+program          preset  start 1  start 2  end 1    end 2    max/min  drift   st
+---------------  ------  -------  -------  -------  -------  -------  ------  --
+cpp:cuda-pinned  LARGE   18869.3  18797.0  18628.1  18640.8  1.0129   1.3 %   V
+cpp:cuda-pinned  SMALL   86477.0  86116.5  85846.5  85882.0  1.0073   0.7 %   V
+cpp:simd         LARGE   203.7    132.2    203.0    132.1    1.5420   54.2 %  u
+cpp:simd         SMALL   1153.6   760.7    1151.9   760.0    1.5179   51.8 %  u
+java:tornado     LARGE   19180.1  19159.9  19103.7  19099.0  1.0042   0.4 %   V
+java:tornado     SMALL   84658.8  84512.3  83748.0  84130.1  1.0109   1.1 %   V
+java:vector      LARGE   934.3    886.6    905.3    909.2    1.0538   5.4 %   u
+java:vector      SMALL   5056.2   3779.1   3779.4   3733.2   1.3544   35.4 %  u
+GPU state (nvidia-smi, SM clock): anchors-start 1590 MHz; cpp-bench 1590 MHz; java-crossbench 1575 MHz; anchors-end 1590 MHz (memory 5000 MHz, no throttling seen at the sampled moments)
+Load average (1 min) at the start of the C++ block 1.37, end 1.04; Java block 1.04 to 1.36 (limit 2.0 of the plan: met). Thread CPU time over wall time of every
+C++ CPU case: 1.000 (the plan requires at least 0.8).
+
+## Cost of the checks (batch 256, unchecked over hardened, one run each; above 1: the unchecked build is faster)
+program                       case      ratio   status     verdict
+----------------------------  --------  ------  ---------  -----------------------------------------------------------
+cpp:simd-l8                   SMALL u5  2.379   unsettled  the unchecked build is 137.9 % faster than the hardened one
+cpp:simd-nofma-l8             SMALL u5  1.954   unsettled  the unchecked build is 95.4 % faster than the hardened one
+cpp:cuda-pageable [l8 runs]   SMALL u5  1.005   valid      not resolved (within 5 %)
+cpp:cuda-pinned [l8 runs]     SMALL u5  1.007   valid      not resolved (within 5 %)
+cpp:simd-l8                   LARGE u5  2.327   unsettled  the unchecked build is 132.7 % faster than the hardened one
+cpp:simd-nofma-l8             LARGE u5  1.852   unsettled  the unchecked build is 85.2 % faster than the hardened one
+cpp:cuda-pageable [l8 runs]   LARGE u5  0.9977  valid      not resolved (within 5 %)
+cpp:cuda-pinned [l8 runs]     LARGE u5  1.009   valid      not resolved (within 5 %)
+cpp:simd-l16                  SMALL u5  1.079   unsettled  the unchecked build is 7.9 % faster than the hardened one
+cpp:simd-nofma-l16            SMALL u5  0.9913  unsettled  not resolved (within 5 %)
+cpp:cuda-pageable [l16 runs]  SMALL u5  1.006   valid      not resolved (within 5 %)
+cpp:cuda-pinned [l16 runs]    SMALL u5  1.005   valid      not resolved (within 5 %)
+cpp:simd-l16                  LARGE u5  1.071   unsettled  the unchecked build is 7.1 % faster than the hardened one
+cpp:simd-nofma-l16            LARGE u5  0.9814  unsettled  not resolved (within 5 %)
+cpp:cuda-pageable [l16 runs]  LARGE u5  1       valid      not resolved (within 5 %)
+cpp:cuda-pinned [l16 runs]    LARGE u5  1.007   valid      not resolved (within 5 %)
+
+## Counter-check with the gpuFeed rows (CPU threads feed the T4, 30 s per row, batch 256; evals/s)
+Earlier AWS runs (docs/cloud.md): SMALL about 80,700 to 81,600, LARGE about 18,400 to 19,000.
+preset  gpuFeed evals/s  device busy  CrossBench TornadoVM b256  feed against CrossBench
+------  ---------------  -----------  -------------------------  -----------------------
+SMALL   80748            98 %         85222                      -5.2 %
+LARGE   18867            100 %        19023                      -0.8 %
+Earlier runs, single values: SMALL 81,633 and 80,736, LARGE 19,029 and 18,402. Both rows of this run (SMALL 80748, LARGE 18867) lie inside these ranges, so the feed on this instance behaves as on the
+two earlier ones. Against the CrossBench TornadoVM block the feed is 5.2 % (SMALL) and 0.8 % (LARGE) lower; the reason was not separated (4 virtual threads feed one device and share the 4 vCPUs with
+the host priors, and the host share is larger at SMALL: plausible, not measured). The feed is not an anchor and has no status.
+
+## Placing the CUDA numbers next to the Metal numbers of the Mac (orientation only; different machines, Mac GPU rows are unsettled by clock drift)
+preset b256  Metal copy (u)  Metal shared (u)  TornadoVM Metal (u)  CUDA pinned (V)  TornadoVM CUDA (V)  CUDA / Metal copy  TornadoVM CUDA / Metal
+-----------  --------------  ----------------  -------------------  ---------------  ------------------  -----------------  ----------------------
+SMALL        144503          148517            127448               85582            85222               0.59               0.67
+LARGE        31994           32089             27469                18541            19023               0.58               0.69
+At batch 256 the T4 reaches 0.58 to 0.59 of the M3 Max GPU with C++ and 0.67 to 0.69 with TornadoVM. On the Mac TornadoVM is behind Metal copy (0.88 and 0.86; unsettled rows), on the T4 the two programs
+are within 3 % of each other (valid rows; no statement below 5 %).
+
+## Cold start and first call
+  C++ reference, SMALL batch 1, own process: construct 0.0 ms, first call 9.2 ms, process uptime at the end 194.9 ms (CPU, status u)
+  Java Vector, SMALL batch 1, own JVM: construct 3.2 ms, first call 114.8 ms, JVM uptime at the end 1291 ms (CPU, status u)
+  NOT MEASURED: a cold process for C++ CUDA and for TornadoVM. The instance script called --cold without --impls and --batches, which measures one case only;
+  the CUDA and TornadoVM cold-process figures are therefore missing (table not_measured). The in-process figures are above (first call per case, construct per
+  CUDA implementation: the first one of the process creates the context, SMALL pageable 96.8 and 101.4 ms; TornadoVM's first call in the JVM, SMALL batch 1, 4,683 ms).
+
+## Correctness (the CUDA path is verified)
+  cuda_test (Tesla T4): 6 passed, 0 skipped, 0 failed, 244 checks; 120 comparisons against ReferenceNet (TINY, SMALL, LARGE, 33-channel network; variants auto, naive, tiled;
+    pageable and pinned; batches 1, 3, 67, 256); the largest error is 0.0254 of the bound (1e-4 + 1e-3 |ref|).
+  compute-sanitizer memcheck on cuda_test, batches 1 and 67: 6 passed, 0 failed, 184 checks, ERROR SUMMARY: 0 errors.
+  nn_check (all 1,024 golden positions, batch 64; error as a fraction of the bound, 1.0 = at the bound):
+impl           preset  logits max err / bound  values max err / bound  result
+-------------  ------  ----------------------  ----------------------  ------
+cuda           SMALL   0.0196                  0.0012                  ok
+cuda           LARGE   0.0499                  0.0008                  ok
+cuda           GEN11   0.0011                  0.0068                  ok
+simd l8        SMALL   0.0131                  0.0018                  ok
+simd l8        LARGE   0.0433                  0.0010                  ok
+simd l8        GEN11   0.0003                  0.0082                  ok
+simd-nofma l8  SMALL   0.0125                  0.0017                  ok
+simd-nofma l8  LARGE   0.0803                  0.0007                  ok
+simd-nofma l8  GEN11   0.0003                  0.0058                  ok
+simd l16       SMALL   0.0134                  0.0018                  ok
+simd l16       LARGE   0.0446                  0.0009                  ok
+simd l16       GEN11   0.0004                  0.0072                  ok
+  gen11 is the real LARGE weights (uploaded; SHA-256 before the upload, after the upload and after the run equal: fda54e02...). Only nn_check ran on gen11, no throughput rows.
+  golden hash: 4 'must' lines (weights, inputs, cases) are equal to the Mac hashes; 3 'info' lines: nn-ref-small-u5 DIFFERENT; nn-ref-large-u5 DIFFERENT; nn-ref-large-gen11 recorded.
+    The two DIFFERENT lines are the Java reference OUTPUTS (nn-ref-small/large-u5) as the JVM on this instance computed them. Weights, inputs and cases are bit-equal, so the
+    inputs of every check are the Mac's; the outputs of the same Java code differ in the last bits on another CPU (Math.exp and tanh may differ by one ulp between platforms,
+    other FMA and vector paths). That is what the plan's 'info' kind expects ('a difference is recorded only'), not a failure. It does mean that nn_check on the instance
+    compared against the instance's own reference files, not against the Mac's. The third info line (gen11) has no expected hash by design (real weights).
+    Not shown by this run: nn_check --impl reference (bit-identity with the Java reference) is not in cpp-check.log.
+
+## Toolchain
+  C++: g++-12 (Ubuntu 12.3.0-1ubuntu1~22.04.3) 12.3.0, -O3 -march=native, -ffp-contract=off (FMA only in simd_net), 8 and 16 lanes, hardened (-D_GLIBCXX_ASSERTIONS) and unchecked builds; check-fma: 31 fused
+  multiply-adds in simd_net for both lane counts, 0 in simd_net_nofma (read from cpp-build.log).
+  CUDA: nvcc release 13.2 (V13.2.51), compute_75 present in nvcc's architecture list; flags of build-cuda.sh at the commit: -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true
+  -gencode arch=compute_75,code=sm_75 and PTX compute_75, no fast math. Driver 595.112.07, Tesla T4, 15,360 MiB; compute-sanitizer 2026.1.0.0.
+  Java 25.0.3 (Zulu), TornadoVM 7.3.1 (CUDA backend), JVM flags -Xms4g -Xmx4g, G1, 512-bit Vector API (16 float lanes), UseAVX 3. OS: Ubuntu 22.04, kernel 6.8 (aws).
+  CPU: Intel Xeon Platinum 8259CL @ 2.50 GHz, 4 vCPUs, 15.4 GiB, AVX-512 (F, BW, VL, VNNI).
+
+## Cost of the cpp suite (cost.tsv of the two runs; estimates, not the bill)
+launched (UTC)        counted  USD/h   estimate USD
+--------------------  -------  ------  ------------
+2026-11-15T17:17:06Z  1828 s   0.2144  0.1089
+2026-11-15T17:50:31Z  1724 s   0.3033  0.1452
+  Sum of the two runs: 0.2541 USD (about 0.23 EUR at the assumed 0.90 EUR/USD); the root volume adds a few cents.
+  The first run was cut off by a spot interruption about 5 minutes after the launch (the lead's figure; the log of its retry runner has no step after the Gradle build, 
+  and notices the loss only at its cleanup after 27 minutes); cost.tsv counts the 1828 s until that cleanup, so the first estimate (0.1089 USD) is an upper bound, about 0.02 USD
+  if only the 5 minutes were billed (not verified against a bill). The late notice was fixed in commit ec0ecac, which came after the first run and was in place for the second.
+  Budget of 5 EUR: earlier tests about 0.3 USD (the owner's figure) plus this suite 0.25 USD = about 0.55 USD, i.e. about 0.50 EUR or 10 % of the budget (an estimate;
+  the first run's upper bound included). The cumulative cap of the cpp suite (1.00 USD) was not reached.
+
+## Not measured, or to be read with care
+  - Cold-process start of C++ CUDA and TornadoVM (see above). Anchors in the middle of the measurement (anchor_mid) do not exist on this run.
+  - Java scalar and C++ reference throughput, and gen11 throughput: not in the AWS schedule. Kernel table: C++ only, LARGE only; the Java kernel table is a deliberate gap.
+  - Cases skipped by the schedule (one call above 3 s): C++ LARGE batch 1024 for simd l16, simd-nofma l16 and simd-nofma l8 (table not_measured in the TSV).
+  - 8-lane C++ rows have no anchor of their own (the anchors are the 16-lane build).
+  - The nvidia-smi line was taken four times (before each block), not continuously; it shows 1590 MHz SM clock (1575 MHz during the Java block), no sign of throttling at those moments.
+  - Java:C++ ratios exist only at batch 256 (4 adjacent pairs); every other batch has no adjacent pair. n = 1 run on one shared virtualised instance; GPU differences below 5 % are not resolved.
+  - The CPU rows (both languages) are unsettled; the 2.3 times cost of the checks at 8 lanes and the 34 % steps of the CPU anchors are unexplained.
+  - The commit of the run is not recorded in the run files; see the line 'The commit that the run used' at the top.
+

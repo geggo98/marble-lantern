@@ -397,6 +397,11 @@ public final class Bench {
             for (int[] moves : positions) {
                 searchPosition(side, moves);
             }
+            if (warmGames) {
+                for (int[] opening : openings) {
+                    playGame(side, opening);
+                }
+            }
         }
 
         Totals[] posTotals = {Totals.ZERO, Totals.ZERO};
@@ -505,6 +510,9 @@ public final class Bench {
         return spec;
     }
 
+    /** Whether the untimed warm-up also plays the full games (option --warm-games; the session script sets it with --games). */
+    private static boolean warmGames;
+
     public static void main(String[] args) {
         List<String> specs = new ArrayList<>();
         Long nodes = null;
@@ -521,6 +529,7 @@ public final class Bench {
                 case "--games" -> gameCount = Integer.parseInt(value(args, ++i));
                 case "--ignore-load" -> ignoreLoad = true;
                 case "--copy" -> copy = true;
+                case "--warm-games" -> warmGames = true;
                 default -> {
                     if (args[i].startsWith("--")) {
                         throw new IllegalArgumentException("unknown option " + args[i]);
@@ -534,7 +543,7 @@ public final class Bench {
                 || gameCount > ReferencePositions.FULL_GAMES || positionCount + gameCount == 0) {
             throw new IllegalArgumentException("usage: Bench <specA> [<specB> | --copy] [--nodes N] [--reps R] "
                     + "[--positions 0.." + ReferencePositions.COUNT + "] [--games 0.." + ReferencePositions.FULL_GAMES
-                    + "] [--ignore-load]");
+                    + "] [--ignore-load] [--warm-games]");
         }
         if (nodes != null) {
             long n = nodes;

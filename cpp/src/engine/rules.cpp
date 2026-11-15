@@ -1,0 +1,59 @@
+#include "rules.hpp"
+
+namespace sh {
+
+std::expected<RuleSet, std::string> RuleSet::create(const Spec& spec) {
+    if (spec.players != 2) {
+        return std::unexpected("players must be 2 (three players are not supported by the C++ port), got " + std::to_string(spec.players));
+    }
+    if (spec.move_limit <= 0) {
+        return std::unexpected("moveLimit must be positive, got " + std::to_string(spec.move_limit));
+    }
+    if (spec.leave_goal != LeaveGoal::Forbidden) {
+        return std::unexpected(std::string("leaveGoal=ALLOWED is not supported by the C++ port"));
+    }
+    if (spec.blocking_states == BlockingStates::Illegal) {
+        return std::unexpected(std::string("blockingStates=ILLEGAL needs an exact definition of 'unreachable' for 10 pieces (docs/rules.md)"));
+    }
+    if (spec.ranking == Ranking::FullRanking) {
+        return std::unexpected(std::string("ranking=FULL_RANKING is reserved and not implemented"));
+    }
+    return RuleSet(spec);
+}
+
+RuleSet RuleSet::defaults() {
+    // The default spec is valid by construction.
+    return RuleSet(Spec{});
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_move_limit(int value) const {
+    Spec s = spec_;
+    s.move_limit = value;
+    return create(s);
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_repetition(Repetition value) const {
+    Spec s = spec_;
+    s.repetition = value;
+    return create(s);
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_blockade_rule(BlockadeRule value) const {
+    Spec s = spec_;
+    s.blockade_rule = value;
+    return create(s);
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_suicide_moves(SuicideMoves value) const {
+    Spec s = spec_;
+    s.suicide_moves = value;
+    return create(s);
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_draw_handling(DrawHandling value) const {
+    Spec s = spec_;
+    s.draw_handling = value;
+    return create(s);
+}
+
+}  // namespace sh

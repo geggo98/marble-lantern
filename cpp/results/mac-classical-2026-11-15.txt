@@ -1,0 +1,85 @@
+# Classical search measurement on the Mac (docs/cpp-comparison-plan.md, WP7)
+date: 2026-11-15 13:38 local time
+machine: Apple M3 Max, 16 cores, macOS 26.6.2 (build 25G83)
+git commit: 975e351
+C++ compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+C++ release-hardened: CMAKE_CXX_FLAGS=-ffp-contract=off CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG SH_HARDENING=FAST SH_NATIVE=ON  -std=c++23, no LTO, no PGO, -mcpu=native (SH_NATIVE), virtual Evaluator calls
+C++ release: CMAKE_CXX_FLAGS=-ffp-contract=off CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG SH_HARDENING=NONE SH_NATIVE=ON  -std=c++23, no LTO, no PGO, -mcpu=native (SH_NATIVE), virtual Evaluator calls
+Java: openjdk version "25.0.3" 2026-04-21 LTS, JVM flags: -Xms4g -Xmx4g --add-modules jdk.incubator.vector (default GC G1), main class sternhalma.search.Bench
+method: self-check runs (spec against itself, --games 0), 3 repetitions after one untimed warm-up pass, single thread, thread CPU time;
+        processes alternate J, C-hardened, C-release in 3 rounds; the figure of a program is side A of its own run; the cross-language
+        ratio is the median of the adjacent pairs; a ratio outside 0.98 to 1.02 counts as real, otherwise it is not resolved
+positions: the 64 reference positions (node-limited searches, nodes=20000); games rows: not measured (race play, WP6, is not ported)
+spec BEST: ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000
+spec R2: ab:eval=linear-r1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,nodes=20000
+equality: every C++ position search was compared with the golden fingerprint line (move, score, depth, nodes) of its spec in every run;
+          both sides of every self-check run searched identical trees
+
+hygiene:
+  load before: 2.98 (1-minute average), after: 3.84; limit 4.0
+  foreign processes (pgrep -l gradle|java|clang|ninja|cmake, by process name) before: none; after: none
+  thermal before:
+    No thermal warning level has been recorded
+    No performance warning level has been recorded
+  thermal after:
+    No thermal warning level has been recorded
+    No performance warning level has been recorded
+  power: 'AC Power'
+
+Nodes per CPU-second (median of 3 runs, range in parentheses):
+  row                                      Java                       C++ release-hardened (main)  C++ release (no checks)   
+  BEST_SPEC (racelin1-r3), 64 positions    1643900 (1629834 to 1662755) 2613882 (2611105 to 2624549) 2938248 (2933537 to 2939488)
+  R2 (linear-r1), 64 positions             2972178 (2962624 to 2977750) 4405314 (4399932 to 4424510) 5057276 (5051999 to 5061624)
+
+Ratios (median of the adjacent pairs of the same round):
+  BEST_SPEC (racelin1-r3), 64 positions    hardened/Java 1.5965 (C++ faster, real); release/Java 1.7845 (C++ faster, real); release/hardened 1.1241 (cost of the checks 11.0 %)
+  R2 (linear-r1), 64 positions             hardened/Java 1.4822 (C++ faster, real); release/Java 1.7030 (C++ faster, real); release/hardened 1.1482 (cost of the checks 12.9 %)
+
+CPU ms per move (median, on the position searches):
+  BEST_SPEC (racelin1-r3), 64 positions    Java 11.837, hardened 7.444, release 6.623
+  R2 (linear-r1), 64 positions             Java 6.544, hardened 4.415, release 3.846
+
+Self-ratios of the self-check runs (all within 0.98 to 1.02, else the session was stopped):
+  best  java  0.9990 0.9990 0.9992
+  best  hard  1.0002 1.0012 0.9992
+  best  rel   1.0004 1.0018 1.0001
+  r2    java  0.9966 1.0015 0.9983
+  r2    hard  1.0029 0.9965 1.0012
+  r2    rel   0.9941 0.9976 0.9960
+
+Per-repetition nodes per CPU-second of side A (JIT trend check: no monotonic rise above 1 %):
+  best  java  run 1: 1622969 1628316 1638292
+  best  java  run 2: 1660833 1664118 1663318
+  best  java  run 3: 1651039 1638458 1642252
+  best  hard  run 1: 2611532 2607104 2614691
+  best  hard  run 2: 2616063 2610009 2615583
+  best  hard  run 3: 2628994 2621692 2622972
+  best  rel   run 1: 2932754 2943426 2942308
+  best  rel   run 2: 2937429 2939004 2938312
+  best  rel   run 3: 2934421 2940564 2925664
+  r2    java  run 1: 2978812 2986825 2967677
+  r2    java  run 2: 2982938 2961985 2971687
+  r2    java  run 3: 2956715 2966283 2964892
+  r2    hard  run 1: 4383379 4410965 4405551
+  r2    hard  run 2: 4379113 4422493 4414580
+  r2    hard  run 3: 4437616 4418673 4417300
+  r2    rel   run 1: 5048813 5052586 5054602
+  r2    rel   run 2: 5049977 5073934 5061019
+  r2    rel   run 3: 5050623 5076459 5044859
+
+Start-up (process start to the end of a one-position run with its warm-up search, BEST_SPEC, race table load included), seconds, median (range):
+  Java 0.847 (0.844 to 0.856); C++ release-hardened 0.260 (0.260 to 0.260); C++/Java 0.307
+
+Games rows (--games 2) and CPU ms per move over games: not measured, race play (WP6) is not ported.
+
+Base load and heaviest programs (ps, by CPU), taken by the launcher right before and after the session:
+  before (13:37:42, load 2.98 3.64 4.05): WindowServer 47.3 %, SoundSource 28.5 %, OrbStack Helper 14.1 %
+  after  (13:38:55, load 3.84 3.72 4.04): WindowServer 50.2 %, SoundSource 22.4 %, systemstats 11.1 %
+  The load limit is 4.0 instead of the plan's 2.0 (idle base load of this desktop Mac 3.0 to 3.7, see cpp/README.md). The load after the session
+  includes the session's own single-threaded process. OrbStack's idle Kubernetes system containers (coredns and a volume provisioner) were
+  running throughout; no other container and no build.
+An earlier session the same day, on the same binaries but with the working tree one commit behind (uncommitted load-limit change), also passed
+every check (self-ratios 0.9941 to 1.0018, load 3.00 before and 3.45 after): BEST_SPEC Java 1,564,435, hardened 2,614,835, release 2,915,631;
+R2 Java 2,964,077, hardened 4,401,378, release 5,035,782 nodes per CPU-second (medians); hardened/Java 1.67 and 1.49. Java's BEST_SPEC figure
+differs between its processes by up to 5 % (1.56 to 1.65 million), which is why the median of three processes is reported with its range.
+Not measured: games rows (WP6 not ported). Start-up compares Java with the hardened build only.

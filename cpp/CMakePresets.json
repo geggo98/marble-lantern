@@ -1,0 +1,78 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-ffp-contract=off",
+        "CMAKE_OBJCXX_FLAGS": "-ffp-contract=off"
+      }
+    },
+    {
+      "name": "debug-asan",
+      "inherits": "base",
+      "displayName": "Every test run: -O1, ASan and UBSan, libc++ hardening DEBUG",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g",
+        "CMAKE_OBJCXX_FLAGS_DEBUG": "-O1 -g",
+        "SH_SANITIZE": "ON",
+        "SH_HARDENING": "DEBUG"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "displayName": "Timing: -O3, no hardening (cost of the checks column)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+        "CMAKE_OBJCXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+        "SH_NATIVE": "ON",
+        "SH_HARDENING": "NONE"
+      }
+    },
+    {
+      "name": "release-hardened",
+      "inherits": "release",
+      "displayName": "Timing: release plus libc++ hardening FAST (the main C++ row)",
+      "cacheVariables": { "SH_HARDENING": "FAST" }
+    },
+    {
+      "name": "tidy",
+      "inherits": "release",
+      "displayName": "Static analysis: release plus clang-tidy",
+      "cacheVariables": { "CMAKE_CXX_CLANG_TIDY": "clang-tidy-unwrapped" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug-asan", "configurePreset": "debug-asan" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "release-hardened", "configurePreset": "release-hardened" },
+    { "name": "tidy", "configurePreset": "tidy" }
+  ],
+  "testPresets": [
+    {
+      "name": "debug-asan",
+      "configurePreset": "debug-asan",
+      "output": { "outputOnFailure": true },
+      "environment": { "UBSAN_OPTIONS": "print_stacktrace=1", "STERNHALMA_GOLDEN_REQUIRED": "1" }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": { "outputOnFailure": true },
+      "environment": { "STERNHALMA_GOLDEN_REQUIRED": "1" }
+    },
+    {
+      "name": "release-hardened",
+      "configurePreset": "release-hardened",
+      "output": { "outputOnFailure": true },
+      "environment": { "STERNHALMA_GOLDEN_REQUIRED": "1" }
+    }
+  ]
+}

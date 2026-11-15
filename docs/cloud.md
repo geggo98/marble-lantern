@@ -270,6 +270,8 @@ Against the Apple M3 Max (Metal), same benchmark, batch 256:
 
 The M3 Max numbers are from [training](training.md#as-implemented-block-g1), table "GPU feed". They were measured while another job used the same GPU. Without that load, in a single process without the feed, the M3 Max reached 111,409 SMALL and 21,073 LARGE evaluations per second at batch 256 ([tornado](tornado.md#measured-speed)); the T4 feed rates are 0.73 and 0.90 of those. The T4 is therefore in the same class as the M3 Max GPU, not a multiple of it. The T4 is a small data-centre GPU. No larger NVIDIA GPU (for example A10G, L4 or an RTX 4090-class card) has been measured, so how much faster one would be is open.
 
+Two later runs on the same instance type compared TornadoVM on the T4 with a hand-written C++ CUDA backend; the results are in [cpp-comparison](cpp-comparison.md#results-network-on-the-gpu).
+
 ### CPU on the same instance
 
 Vector API forward pass, one thread, median at batch 256 (`:nn:vectorBenchmark`):

@@ -6,6 +6,9 @@
   stdenv = pkgs.stdenvNoCC;
   apple.sdk = null;
 
+  # C++ port (cpp/): CMake, Ninja and clang-tidy from nixpkgs; the compiler stays Apple clang (stdenvNoCC, so c++ is /usr/bin/c++).
+  packages = [ pkgs.cmake pkgs.ninja pkgs.llvmPackages.clang-tools ];
+
   languages.java = {
     enable = true;
     jdk.package = pkgs.jdk25;
