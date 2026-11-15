@@ -2,7 +2,7 @@
 // --games, full self-play games), single thread, thread CPU time. The C++ counterpart of the timing part of the Java
 // sternhalma.search.Bench; the output lines use the same wording, so one parser reads both.
 //
-//   search_bench <specA> [<specB>] [--nodes N] [--reps R] [--positions K] [--games G] [--golden DIR] [--max-load L] [--ignore-load]
+//   search_bench <specA> [<specB>] [--nodes N] [--reps R] [--positions K] [--games G] [--golden DIR] [--max-load L] [--ignore-load] [--warm-games]
 //
 // Sides: with one spec only A is measured (Java would compare against a frozen build, which C++ does not have); with two specs A and B run
 // in this process, interleaved (the self-check of the tool: a spec against itself must give a ratio of 1.00).
@@ -29,6 +29,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -223,6 +224,7 @@ struct Options {
     std::string golden_dir;
     std::optional<double> max_load;
     bool ignore_load = false;
+    bool warm_games = false;  // the untimed warm-up also plays the full games (as Bench --warm-games)
 };
 
 std::expected<Options, std::string> parse_args(const std::vector<std::string_view>& args) {
@@ -240,20 +242,29 @@ std::expected<Options, std::string> parse_args(const std::vector<std::string_vie
     };
     for (std::size_t i = 1; i < args.size(); ++i) {
         const std::string_view a = args[i];
-        if (a == "--nodes" || a == "--reps" || a == "--positions" || a == "--games" || a == "--max-load") {
+        if (a == "--nodes" || a == "--reps" || a == "--positions" || a == "--games") {
             const auto n = integer(i);
             if (!n) return std::unexpected(n.error());
             if (a == "--nodes") o.nodes = *n;
             if (a == "--reps") o.reps = static_cast<int>(*n);
             if (a == "--positions") o.positions = static_cast<int>(*n);
             if (a == "--games") o.games = static_cast<int>(*n);
-            if (a == "--max-load") o.max_load = static_cast<double>(*n);
+        } else if (a == "--max-load") {
+            const auto v = value(i);
+            if (!v) return std::unexpected(v.error());
+            double load = 0;   // a decimal such as 4.0 (the load limit is a real number)
+            std::istringstream in{std::string(*v)};
+            in >> load;
+            if (in.fail() || !in.eof() || !(load > 0)) return std::unexpected("not a positive number: " + std::string(*v));
+            o.max_load = load;
         } else if (a == "--golden") {
             const auto v = value(i);
             if (!v) return std::unexpected(v.error());
             o.golden_dir = std::string(*v);
         } else if (a == "--ignore-load") {
             o.ignore_load = true;
+        } else if (a == "--warm-games") {
+            o.warm_games = true;
         } else if (a.starts_with("--")) {
             return std::unexpected("unknown option " + std::string(a));
         } else {
@@ -264,7 +275,7 @@ std::expected<Options, std::string> parse_args(const std::vector<std::string_vie
         o.positions + o.games == 0) {
         return std::unexpected(
             "usage: search_bench <specA> [<specB>] [--nodes N] [--reps R] [--positions 0..64] [--games 0..2] [--golden DIR] [--max-load L] "
-            "[--ignore-load]");
+            "[--ignore-load] [--warm-games]");
     }
     return o;
 }
@@ -292,10 +303,6 @@ int main(int argc, char** argv) {
         auto parsed = sh::PlayerSpec::parse(opt.specs[i]);
         if (!parsed) {
             std::cerr << "search_bench: " << parsed.error() << '\n';
-            return 2;
-        }
-        if (opt.games > 0 && parsed->race != 0) {
-            std::cerr << "search_bench: race play is not ported; use --games 0 for spec " << opt.specs[i] << '\n';
             return 2;
         }
         Side side{.name = i == 0 ? "A" : "B", .spec = opt.specs[i], .parsed = std::move(*parsed)};
@@ -335,6 +342,9 @@ int main(int argc, char** argv) {
     // Warm-up: untimed, every side over the positions.
     for (const Side& side : sides) {
         for (int k = 0; k < positions; ++k) bench.search_position(side, k);
+        if (opt.warm_games) {
+            for (int g = 0; g < games; ++g) bench.play_game(side, g);
+        }
         if (failed()) return 2;
     }
 

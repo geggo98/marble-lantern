@@ -41,7 +41,7 @@ struct PlayerSpec {
     // A new search with this spec's evaluator, table size and options (no player, no race play): what the positions part of the
     // fingerprint uses.
     std::expected<std::unique_ptr<AlphaBeta>, std::string> make_searcher() const;
-    // A new player; call once per game, because a player keeps its transposition table. Fails for race != 0 (WP6).
+    // A new player; call once per game, because a player keeps its transposition table.
     std::expected<std::unique_ptr<AlphaBetaPlayer>, std::string> create() const;
 };
 

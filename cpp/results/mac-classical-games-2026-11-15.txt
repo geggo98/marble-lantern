@@ -1,0 +1,83 @@
+# Classical search measurement on the Mac (docs/cpp-comparison-plan.md, WP7)
+date: 2026-11-15 13:56 local time
+machine: Apple M3 Max, 16 cores, macOS 26.6.2 (build 25G83)
+git commit: c09ba5c (working tree has uncommitted changes)
+C++ compiler: Apple clang version 21.0.0 (clang-2100.3.34.2)
+C++ release-hardened: CMAKE_CXX_FLAGS=-ffp-contract=off CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG SH_HARDENING=FAST SH_NATIVE=ON  -std=c++23, no LTO, no PGO, -mcpu=native (SH_NATIVE), virtual Evaluator calls
+C++ release: CMAKE_CXX_FLAGS=-ffp-contract=off CMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG SH_HARDENING=NONE SH_NATIVE=ON  -std=c++23, no LTO, no PGO, -mcpu=native (SH_NATIVE), virtual Evaluator calls
+Java: openjdk version "25.0.3" 2026-04-21 LTS, JVM flags: -Xms4g -Xmx4g --add-modules jdk.incubator.vector (default GC G1), main class sternhalma.search.Bench
+method: self-check runs (spec against itself, --games 2), 3 repetitions after one untimed warm-up pass (positions and games), single thread, thread CPU time;
+        processes alternate J, C-hardened, C-release in 3 rounds; the figure of a program is side A of its own run; the cross-language
+        ratio is the median of the adjacent pairs; a ratio outside 0.98 to 1.02 counts as real, otherwise it is not resolved
+items: the 64 reference positions (node-limited searches, nodes=20000) and 2 full games from the full-game openings of ReferencePositions (race play in BEST_SPEC)
+spec BEST: ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000
+equality: every C++ position search was compared with the golden fingerprint line (move, score, depth, nodes) of its spec in every run;
+          both sides of every self-check run searched identical trees
+
+hygiene:
+  load before: 3.35 (1-minute average), after: 3.70; limit 4.0
+  foreign processes (pgrep -l gradle|java|clang|ninja|cmake, by process name) before: none; after: none
+  thermal before:
+    No thermal warning level has been recorded
+    No performance warning level has been recorded
+  thermal after:
+    No thermal warning level has been recorded
+    No performance warning level has been recorded
+  power: 'AC Power'
+
+Nodes per CPU-second (median of 3 runs, range in parentheses):
+  row                                      Java                       C++ release-hardened (main)  C++ release (no checks)   
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games 1520511 (1510659 to 1544933) 2341781 (2338231 to 2346378) 2683622 (2682384 to 2684017)
+
+Ratios (median of the adjacent pairs of the same round):
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games hardened/Java 1.5378 (C++ faster, real); release/Java 1.7652 (C++ faster, real); release/hardened 1.1460 (cost of the checks 12.7 %)
+
+CPU ms per move (median, over the positions and the games of the run):
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games Java 11.443, hardened 7.430, release 6.483
+
+Self-ratios of the self-check runs (all within 0.98 to 1.02, else the session was stopped):
+  best  java  1.0005 1.0004 1.0012
+  best  hard  0.9986 0.9994 1.0024
+  best  rel   0.9996 0.9996 0.9992
+
+Per-repetition nodes per CPU-second of side A (JIT trend check: no monotonic rise above 1 %):
+  best  java  run 1: 1544886 1546610 1543307
+  best  java  run 2: 1519792 1524701 1517058
+  best  java  run 3: 1511953 1515003 1505055
+  best  hard  run 1: 2340041 2339543 2345770
+  best  hard  run 2: 2326553 2342675 2345557
+  best  hard  run 3: 2346182 2344418 2348537
+  best  rel   run 1: 2690467 2693619 2666938
+  best  rel   run 2: 2688944 2691447 2671747
+  best  rel   run 3: 2689159 2690452 2667663
+
+Games rows (the 2 full games alone, totals of 3 timed repetitions per run; median of 3 runs, range in parentheses):
+  row                                      Java                       C++ release-hardened (main)  C++ release (no checks)   
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games: nodes per CPU-s, games 1470129 (1461171 to 1494653) 2256910 (2252094 to 2262129) 2586917 (2585150 to 2587523)
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games: CPU ms per move, games 11.337 (11.151 to 11.406)  7.385 (7.368 to 7.401)       6.443 (6.441 to 6.447)    
+
+Game ratios (median of the adjacent pairs, nodes per CPU-second over the games alone):
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games hardened/Java 1.5319 (C++ faster, real); release/Java 1.7601 (C++ faster, real); release/hardened 1.1462
+
+Equality of the games between the languages (nodes and moves summed over all repetitions of side A of every run; must be equal):
+  BEST_SPEC (racelin1-r3), 64 positions + 2 games all 9 runs: 9000000 nodes, 540 moves
+  equal
+
+Base load and heaviest programs (ps, by CPU), taken by the launcher right before and after the session:
+  before (13:54:05, load 3.35 3.67 3.79): WindowServer, SoundSource, OrbStack Helper
+  after  (13:56:38, load 3.70 3.62 3.74): WindowServer, SoundSource, OrbStack Helper
+  The load limit is 4.0 instead of the plan's 2.0 (idle base load of this desktop Mac 3.0 to 3.8, see cpp/README.md). OrbStack's idle Kubernetes
+  system containers (coredns and a volume provisioner) were running throughout; no other container, no build, no Gradle daemon.
+
+Sessions of this measurement (the plan's rule: a failed session is repeated, nothing from it is reported):
+  1. stopped by the JIT trend check: the Java runs of the first session rose monotonically by 1.2 % over the three repetitions (1506847 1515392
+     1525331); the untimed warm-up covered only the positions, not the games. Not reported. Following the rule "one more warm-up pass", both
+     tools got the option --warm-games (Java Bench and C++ search_bench: the untimed warm-up also plays the full games) and the script passes it
+     whenever --games is set. This is the only change to Java code; it affects no run without the option.
+  2. invalid: the load after the third C++ run was 4.44 (limit 4.0) because OrbStack Helper used 78 % CPU for a while; search_bench refused the run
+     and wrote no result. Not reported.
+  3. this file. Every check passed: self-ratios 0.9986 to 1.0024, trees identical on 64/64 positions and 2/2 games in every run, no JIT trend,
+     the games of Java, release-hardened and release identical in nodes and moves (9,000,000 nodes and 540 moves per run summed over 3 repetitions).
+  The working tree at the time of the session had the uncommitted changes of the script (options --games, --specs, --warm-games), search_bench.cpp
+  and Bench.java (--warm-games); they are in the commit that adds this file. Two labels of the generated text were corrected by hand afterwards
+  (the CPU-ms-per-move heading and the unused R2 spec line); the script now prints them like this.

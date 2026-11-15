@@ -1,7 +1,5 @@
 // Prints the lines of Java Fingerprint.main for the player specs given (default: R2, R3 and BEST). Compare with the golden files:
 //   diff cpp/golden/fingerprint-r2.txt <(build/release-hardened/fingerprint "<R2 spec>")
-// Race play (WP6) is not ported: for a spec with race != 0 the output stops after the positions checksum with the line
-// "  race play not ported" and the exit code is 3.
 #include <iostream>
 #include <string>
 #include <vector>
@@ -23,7 +21,6 @@ int main(int argc, char** argv) {
         std::cerr << "fingerprint: " << reference.error() << '\n';
         return 2;
     }
-    int status = 0;
     for (const std::string& spec : specs) {
         std::cout << "spec " << spec << '\n';
         const auto parsed = sh::PlayerSpec::parse(spec);
@@ -38,11 +35,6 @@ int main(int argc, char** argv) {
         }
         for (const std::string& line : positions->lines) std::cout << "  " << line << '\n';
         std::cout << "  positions checksum " << positions->checksum_text() << '\n';
-        if (parsed->race != 0) {
-            std::cout << "  race play not ported\n";
-            status = 3;
-            continue;
-        }
         for (const std::int64_t nodes : sh::fingerprint::kGameNodes) {
             const auto game = sh::fingerprint::game(*reference, spec, nodes);
             if (!game) {
@@ -53,5 +45,5 @@ int main(int argc, char** argv) {
             std::cout << "  game@" << nodes << " checksum " << game->checksum_text() << '\n';
         }
     }
-    return status;
+    return 0;
 }
