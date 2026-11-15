@@ -45,7 +45,7 @@ of the version that builds with g++ 12.3 (the container script proves it).
 |---|---|---|
 | 1 | `exp/cpp-nn` (WP8 to WP12, branch tip `c0eeea9`), merge commit `48646af` | done in WP14 |
 | 2 | `exp/cpp-classical` (WP1 to WP5 and the `search_bench` code of WP7, branch tip `5bc9dda`), merge commit `3551a0d` | done in WP14 |
-| 3 | `exp/cpp-classical` again, after WP7 (measurement) and WP6 (race play) | to do by the lead; WP13 on `exp/cpp-nn` is merged the same way before WP15 |
+| 3 | `exp/cpp-classical` again, after WP7 (measurement) and WP6 (race play, games row; done, see "Race play and the games row") | to do by the lead; WP13 on `exp/cpp-nn` is merged the same way before WP15 |
 
 Repeat a merge (nothing is lost by a merge commit; `--no-ff` keeps one commit per track and merge):
 
@@ -453,3 +453,21 @@ to 3.7 with no measurement and no build running (`uptime` on 2026-11-15: 3.16, 3
 never be met. The raised limit counts only for this base load: `bench-mac.sh` still refuses to start while `pgrep -l 'gradle|java|clang|ninja|cmake'`
 shows any process, and the other gates (self-ratio 0.98 to 1.02, interleaving, thread CPU time, JIT trend test, thermal and power checks) are
 unchanged. The load limit is not a measure of validity by itself; the self-ratio is.
+
+## Race play and the games row (WP6)
+
+`src/search/solitaire.*` (the solitaire move generator, the parity lower bound and the beam search `plan`) and `src/search/race_move.*` are
+faithful ports of `Solitaire.java` and `RaceMove.java`; `AlphaBetaPlayer` takes an optional `RaceMove` and `PlayerSpec::create` builds it for
+`race=1|2` (`racerows` 1 or 2; the shared tables are loaded once per process). Deviations: the Java option `racetable=0` (beam only, no table) is
+not ported; the two `IllegalStateException`s of `Solitaire.plan` (a move the generator cannot reproduce, equal states in a plan) return "no plan"
+instead; `RaceMove::choose` copies the position once to generate the legal moves (`Position::generate` is not const).
+
+Equality (all with `STERNHALMA_GOLDEN_REQUIRED=1`): every line of `race-moves.tsv` (332 rows: 261 table moves, 71 plan moves, move and origin equal),
+and all nine constants of `BestSpecFingerprintTest` for R2, R3 and BEST, from the `debug-asan`, `release` and `release-hardened` binaries of
+`fingerprint` (the output of each equals the golden file `fingerprint-{r2,r3,best}.txt` byte for byte).
+
+Games row: `scripts/bench-mac.sh --games 2 --specs best --out cpp/results/mac-classical-games-<date>.txt`. New options: `--games N` (passes `--games N` and
+`--warm-games` to every run), `--specs` (a session with BEST_SPEC only; R2 has no race play), and in the result file the games alone, their ratios and the
+check that Java and C++ played the games with equal node totals and move counts. `--warm-games` (Java `Bench` and `search_bench`): the untimed warm-up
+also plays the full games. It was added because the first session stopped at the JIT trend check (the Java runs rose by 1.2 % over the three
+repetitions while the games were not warmed up), which is the plan's "add one warm-up pass".

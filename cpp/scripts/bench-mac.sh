@@ -1,7 +1,7 @@
 #!/bin/zsh
 # bench-mac.sh: the classical measurement session on the Mac (docs/cpp-comparison-plan.md, WP7 and "Classical measurement").
 #
-# usage: bench-mac.sh [--rounds N] [--out FILE] [--max-load L] [--keep-logs] [--no-gate]
+# usage: bench-mac.sh [--rounds N] [--out FILE] [--max-load L] [--keep-logs] [--no-gate] [--games N] [--specs best|r2|best,r2]
 #
 # --no-gate: test the script itself on a busy machine. The hygiene refusals are skipped and the result file starts with the line
 # "INVALID SESSION"; such a file is never a measurement and is not committed.
@@ -12,7 +12,10 @@
 # identical trees, RESULT line, no JIT trend, golden check line for C++); the first runs of round 1 are the gate of the session. A failed
 # check stops the session with exit 4 and writes no result file. Then the start-up row (one-position runs, J and C interleaved) is timed.
 # The result file is cpp/results/mac-classical-<date>.txt.
-# The games rows need race play (WP6, not ported); they are written as "not measured".
+# --games 2 (WP6) adds the two full games to every run (64 positions + 2 games, as Bench); the result file then has the games row (nodes per
+# CPU-second and CPU ms per move over the games alone, and the check that Java and C++ played the games with equal node totals and move
+# counts). Without --games the games rows are written as "not measured". --specs best restricts a session to BEST_SPEC (R2 has no race play).
+# The start-up row is only measured in a session without games.
 #
 # Inputs: cpp/build/release-hardened/search_bench and cpp/build/release/search_bench (build both first), cpp/golden/ (Java golden
 # files), cpp/build/java-search.cmd (the Java command line that the printRunCommand task wrote; its class path is the only absolute path
@@ -45,21 +48,27 @@ out=
 max_load=4.0
 keep=0
 gate=1
+games=0
+specs_arg=best,r2
 while (( $# )); do
   case $1 in
     --rounds) rounds=$2; shift 2 ;;
     --out) out=$2; shift 2 ;;
     --max-load) max_load=$2; shift 2 ;;
+    --games) games=$2; shift 2 ;;
+    --specs) specs_arg=$2; shift 2 ;;
     --keep-logs) keep=1; shift ;;
     --no-gate) gate=0; shift ;;
-    *) print -u2 "usage: bench-mac.sh [--rounds N] [--out FILE] [--max-load L] [--keep-logs] [--no-gate]"; exit 1 ;;
+    *) print -u2 "usage: bench-mac.sh [--rounds N] [--out FILE] [--max-load L] [--keep-logs] [--no-gate] [--games N] [--specs best|r2|best,r2]"; exit 1 ;;
   esac
 done
 
 R2='ab:eval=linear-r1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,nodes=20000'
 BEST='ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000'
 typeset -A SPEC=(best $BEST r2 $R2)
-SPECS=(best r2)
+SPECS=(${(s:,:)specs_arg})
+WARM=()
+(( games )) && WARM=(--warm-games)   # the untimed warm-up also plays the games (JIT trend rule of the plan: one more warm-up pass)
 HARD=$CPP/build/release-hardened/search_bench
 REL=$CPP/build/release/search_bench
 JCMD_FILE=$CPP/build/java-search.cmd
@@ -77,7 +86,7 @@ abort() { [[ -n $CHILD ]] && kill $CHILD 2>/dev/null; print -u2 "bench-mac.sh: a
 trap 'abort 130' INT
 trap 'abort 143' TERM
 
-progress_total=$(( rounds * 6 + rounds * 2 ))
+progress_total=$(( rounds * 3 * ${#SPECS} + (games == 0 ? rounds * 2 : 0) ))
 progress_n=0
 t_start=$EPOCHREALTIME
 progress() {   # one line per step on stderr: n/N, elapsed
@@ -145,19 +154,19 @@ print -u2 "load before $load_before, foreign processes: ${procs_before:-none}, $
 for (( r = 1; r <= rounds; r++ )); do
   for s in $SPECS; do
     progress "round $r $s java"
-    run $WORK/$s-java-$r.log $JAVA ${SPEC[$s]} ${SPEC[$s]} --games 0 || { print -u2 "java run failed: $WORK/$s-java-$r.log"; exit 1 }
+    run $WORK/$s-java-$r.log $JAVA ${SPEC[$s]} ${SPEC[$s]} --games $games ${WARM[@]} || { print -u2 "java run failed: $WORK/$s-java-$r.log"; exit 1 }
     check $WORK/$s-java-$r.log java
     progress "round $r $s C++ release-hardened"
-    run $WORK/$s-hard-$r.log $HARD ${SPEC[$s]} ${SPEC[$s]} --games 0 $LOADARG || { print -u2 "C++ run failed: $WORK/$s-hard-$r.log"; exit 1 }
+    run $WORK/$s-hard-$r.log $HARD ${SPEC[$s]} ${SPEC[$s]} --games $games ${WARM[@]} $LOADARG || { print -u2 "C++ run failed: $WORK/$s-hard-$r.log"; exit 1 }
     check $WORK/$s-hard-$r.log cpp
     progress "round $r $s C++ release"
-    run $WORK/$s-rel-$r.log $REL ${SPEC[$s]} ${SPEC[$s]} --games 0 $LOADARG || { print -u2 "C++ run failed: $WORK/$s-rel-$r.log"; exit 1 }
+    run $WORK/$s-rel-$r.log $REL ${SPEC[$s]} ${SPEC[$s]} --games $games ${WARM[@]} $LOADARG || { print -u2 "C++ run failed: $WORK/$s-rel-$r.log"; exit 1 }
     check $WORK/$s-rel-$r.log cpp
   done
 done
 
 # ---- start-up: process start to the end of a one-position run (warm-up search included), BEST_SPEC ----
-for (( r = 1; r <= rounds; r++ )); do
+(( games == 0 )) && for (( r = 1; r <= rounds; r++ )); do
   for p in java hard; do
     progress "start-up $r $p"
     if [[ $p == java ]]; then cmd=($JAVA ${SPEC[best]} --positions 1 --games 0 --reps 1); else cmd=($HARD ${SPEC[best]} --positions 1 --games 0 --reps 1 $LOADARG); fi
@@ -192,12 +201,16 @@ JVM_FLAGS=$(print -r -- "$JAVA" | perl -ne 'print join " ", grep { /^-X|^--add-m
     print "C++ $p: $(grep -E '^(CMAKE_CXX_FLAGS|CMAKE_CXX_FLAGS_RELEASE|SH_HARDENING|SH_NATIVE):' $CPP/build/$p/CMakeCache.txt | perl -pe 's/:\w+=/=/; s/\n/ /') -std=c++23, no LTO, no PGO, -mcpu=native (SH_NATIVE), virtual Evaluator calls"
   done
   print "Java: $(java -version 2>&1 | head -1), JVM flags: $JVM_FLAGS (default GC G1), main class sternhalma.search.Bench"
-  print "method: self-check runs (spec against itself, --games 0), 3 repetitions after one untimed warm-up pass, single thread, thread CPU time;"
+  print "method: self-check runs (spec against itself, --games $games), 3 repetitions after one untimed warm-up pass (positions$( (( games )) && print -n " and games")), single thread, thread CPU time;"
   print "        processes alternate J, C-hardened, C-release in $rounds rounds; the figure of a program is side A of its own run; the cross-language"
   print "        ratio is the median of the adjacent pairs; a ratio outside 0.98 to 1.02 counts as real, otherwise it is not resolved"
-  print "positions: the 64 reference positions (node-limited searches, nodes=20000); games rows: not measured (race play, WP6, is not ported)"
+  if (( games )); then
+    print "items: the 64 reference positions (node-limited searches, nodes=20000) and $games full games from the full-game openings of ReferencePositions (race play in BEST_SPEC)"
+  else
+    print "positions: the 64 reference positions (node-limited searches, nodes=20000); games rows: not measured (run with --games 2)"
+  fi
   print "spec BEST: $BEST"
-  print "spec R2: $R2"
+  [[ $specs_arg == *r2* ]] && print "spec R2: $R2"
   print "equality: every C++ position search was compared with the golden fingerprint line (move, score, depth, nodes) of its spec in every run;"
   print "          both sides of every self-check run searched identical trees"
   print ""
@@ -207,13 +220,13 @@ JVM_FLAGS=$(print -r -- "$JAVA" | perl -ne 'print join " ", grep { /^-X|^--add-m
   print "  thermal before:"; print -r -- "$therm_before"; print "  thermal after:"; print -r -- "$therm_after"
   print "  power: $(pmset -g batt | head -1 | perl -pe 's/^Now drawing from //; s/\s*$//')"
   print ""
-  perl -CSDA -Mutf8 - $WORK $rounds <<'EOF'
+  perl -CSDA -Mutf8 - $WORK $rounds $games ${SPECS} <<'EOF'
 use strict; use warnings; use List::Util qw(min max);
-my ($dir, $rounds) = @ARGV;
+my ($dir, $rounds, $games, @specs) = @ARGV;
 sub slurp { open my $f, "<", $_[0] or die "$_[0]: $!"; local $/; <$f> }
 sub median { my @s = sort { $a <=> $b } @_; my $n = @s; $n % 2 ? $s[$n/2] : ($s[$n/2-1] + $s[$n/2]) / 2 }
 my (%nps, %ms, %self);
-for my $s (qw(best r2)) { for my $p (qw(java hard rel)) { for my $r (1 .. $rounds) {
+for my $s (@specs) { for my $p (qw(java hard rel)) { for my $r (1 .. $rounds) {
   my $t = slurp("$dir/$s-$p-$r.log");
   $t =~ /^RESULT nps_a=(\d+) cpu_ms_a=([\d.]+) nps_b=\d+ cpu_ms_b=[\d.]+ ratio=([\d.]+)/m or die "no RESULT in $s-$p-$r";
   push @{$nps{$s}{$p}}, $1; push @{$ms{$s}{$p}}, $2; push @{$self{$s}{$p}}, $3;
@@ -222,33 +235,67 @@ sub cell { my @v = @_; sprintf "%.0f (%.0f to %.0f)", median(@v), min(@v), max(@
 sub verdict { my $q = shift; $q > 1.02 ? "C++ faster, real" : $q < 0.98 ? "C++ slower, real" : "not resolved" }
 sub pair_ratio { my ($s, $p, $q) = @_; median(map { $nps{$s}{$p}[$_] / $nps{$s}{$q}[$_] } 0 .. $rounds - 1) }
 my %name = (best => "BEST_SPEC (racelin1-r3), 64 positions", r2 => "R2 (linear-r1), 64 positions");
+if ($games) { $name{$_} =~ s/, 64 positions/, 64 positions + $games games/ for keys %name }
 print "Nodes per CPU-second (median of $rounds runs, range in parentheses):\n";
 printf "  %-40s %-26s %-28s %-26s\n", "row", "Java", "C++ release-hardened (main)", "C++ release (no checks)";
-for my $s (qw(best r2)) {
+for my $s (@specs) {
   printf "  %-40s %-26s %-28s %-26s\n", $name{$s}, cell(@{$nps{$s}{java}}), cell(@{$nps{$s}{hard}}), cell(@{$nps{$s}{rel}});
 }
 print "\nRatios (median of the adjacent pairs of the same round):\n";
-for my $s (qw(best r2)) {
+for my $s (@specs) {
   my ($h, $r, $c) = (pair_ratio($s, "hard", "java"), pair_ratio($s, "rel", "java"), pair_ratio($s, "rel", "hard"));
   printf "  %-40s hardened/Java %.4f (%s); release/Java %.4f (%s); release/hardened %.4f (cost of the checks %.1f %%)\n",
     $name{$s}, $h, verdict($h), $r, verdict($r), $c, 100 * (1 - 1 / $c);
 }
-print "\nCPU ms per move (median, on the position searches):\n";
-for my $s (qw(best r2)) {
+print $games ? "\nCPU ms per move (median, over the positions and the games of the run):\n" : "\nCPU ms per move (median, on the position searches):\n";
+for my $s (@specs) {
   printf "  %-40s Java %.3f, hardened %.3f, release %.3f\n", $name{$s}, median(@{$ms{$s}{java}}), median(@{$ms{$s}{hard}}), median(@{$ms{$s}{rel}});
 }
 print "\nSelf-ratios of the self-check runs (all within 0.98 to 1.02, else the session was stopped):\n";
-for my $s (qw(best r2)) { for my $p (qw(java hard rel)) { printf "  %-5s %-5s %s\n", $s, $p, join " ", @{$self{$s}{$p}} } }
+for my $s (@specs) { for my $p (qw(java hard rel)) { printf "  %-5s %-5s %s\n", $s, $p, join " ", @{$self{$s}{$p}} } }
 print "\nPer-repetition nodes per CPU-second of side A (JIT trend check: no monotonic rise above 1 %):\n";
-for my $s (qw(best r2)) { for my $p (qw(java hard rel)) { for my $r (1 .. $rounds) {
+for my $s (@specs) { for my $p (qw(java hard rel)) { for my $r (1 .. $rounds) {
   my @a = slurp("$dir/$s-$p-$r.log") =~ /^rep \d+: A (\d+) nodes\/CPU-s/mg;
   printf "  %-5s %-5s run %d: %s\n", $s, $p, $r, join " ", @a;
 } } }
-my (@j, @c);
-for my $r (1 .. $rounds) { push @j, slurp("$dir/startup-java-$r.sec") + 0; push @c, slurp("$dir/startup-hard-$r.sec") + 0 }
-print "\nStart-up (process start to the end of a one-position run with its warm-up search, BEST_SPEC, race table load included), seconds, median (range):\n";
-printf "  Java %.3f (%.3f to %.3f); C++ release-hardened %.3f (%.3f to %.3f); C++/Java %.3f\n", median(@j), min(@j), max(@j), median(@c), min(@c), max(@c), median(@c) / median(@j);
-print "\nGames rows (--games 2) and CPU ms per move over games: not measured, race play (WP6) is not ported.\n";
+if ($games == 0) {
+  my (@j, @c);
+  for my $r (1 .. $rounds) { push @j, slurp("$dir/startup-java-$r.sec") + 0; push @c, slurp("$dir/startup-hard-$r.sec") + 0 }
+  print "\nStart-up (process start to the end of a one-position run with its warm-up search, BEST_SPEC, race table load included), seconds, median (range):\n";
+  printf "  Java %.3f (%.3f to %.3f); C++ release-hardened %.3f (%.3f to %.3f); C++/Java %.3f\n", median(@j), min(@j), max(@j), median(@c), min(@c), max(@c), median(@c) / median(@j);
+  print "\nGames rows (--games 2) and CPU ms per move over games: not measured in this session (see the games session file).\n";
+} else {
+  # the games alone: parsed from the "A games:" line of every run (totals over all timed repetitions)
+  my %g;
+  for my $s (@specs) { for my $p (qw(java hard rel)) { for my $r (1 .. $rounds) {
+    slurp("$dir/$s-$p-$r.log") =~ /^A games:\s+(\d+) nodes, (\d+) moves, (\d+) CPU-ms, \d+ wall-ms: (\d+) nodes\/CPU-s, ([\d.]+) CPU-ms\/move/m or die "no games line in $s-$p-$r";
+    push @{$g{$s}{$p}}, { nodes => $1, moves => $2, nps => $4, ms => $5 };
+  } } }
+  print "\nGames rows (the $games full games alone, totals of 3 timed repetitions per run; median of $rounds runs, range in parentheses):\n";
+  printf "  %-40s %-26s %-28s %-26s\n", "row", "Java", "C++ release-hardened (main)", "C++ release (no checks)";
+  for my $s (@specs) {
+    printf "  %-40s %-26s %-28s %-26s\n", "$name{$s}: nodes per CPU-s, games", (map { cell(map { $_->{nps} } @{$g{$s}{$_}}) } qw(java hard rel));
+    printf "  %-40s %-26s %-28s %-26s\n", "$name{$s}: CPU ms per move, games", (map { my @v = map { $_->{ms} } @{$g{$s}{$_}}; sprintf "%.3f (%.3f to %.3f)", median(@v), min(@v), max(@v) } qw(java hard rel));
+  }
+  print "\nGame ratios (median of the adjacent pairs, nodes per CPU-second over the games alone):\n";
+  for my $s (@specs) {
+    my @h = map { $g{$s}{hard}[$_]{nps} / $g{$s}{java}[$_]{nps} } 0 .. $rounds - 1;
+    my @l = map { $g{$s}{rel}[$_]{nps} / $g{$s}{java}[$_]{nps} } 0 .. $rounds - 1;
+    my @c = map { $g{$s}{rel}[$_]{nps} / $g{$s}{hard}[$_]{nps} } 0 .. $rounds - 1;
+    printf "  %-40s hardened/Java %.4f (%s); release/Java %.4f (%s); release/hardened %.4f\n", $name{$s}, median(@h), verdict(median(@h)), median(@l), verdict(median(@l)), median(@c);
+  }
+  print "\nEquality of the games between the languages (nodes and moves summed over all repetitions of side A of every run; must be equal):\n";
+  my $allequal = 1;
+  for my $s (@specs) {
+    my %seen;
+    for my $p (qw(java hard rel)) { $seen{"$_->{nodes} nodes, $_->{moves} moves"}++ for @{$g{$s}{$p}} }
+    my @kinds = sort keys %seen;
+    $allequal = 0 if @kinds != 1;
+    printf "  %-40s %s\n", $name{$s}, @kinds == 1 ? "all ${\ scalar(3 * $rounds)} runs: $kinds[0]" : "DIFFERENT: " . join(" | ", @kinds);
+  }
+  print $allequal ? "  equal\n" : "  NOT EQUAL\n";
+  exit 5 unless $allequal;
+}
 EOF
 } >$out
 print -u2 "result written: ${out#$REPO/}"
