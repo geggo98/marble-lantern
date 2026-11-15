@@ -300,6 +300,10 @@ def main():
         log("bench-nn-mac.py: the power adapter is not connected; not started")
         return 3
 
+    gen11 = Path(env.get("STERNHALMA_DATA_DIR", "data")) / "loop4/gen-0011/candidate.safetensors"
+    if not gen11.is_file():
+        log("bench-nn-mac.py: gen11 weights not found at %s (set STERNHALMA_DATA_DIR); not started" % gen11)
+        return 3
     steps = plan(a.pairs)
     total_est = sum(s.est for s in steps)
     done_est = 0.0
@@ -327,6 +331,9 @@ def main():
             err_tail = (work / (step.name + ".err")).read_text(errors="replace").strip().splitlines()[-3:]
             invalid.append("step %s ended with exit code %s: %s" % (step.name, step.rc, " | ".join(err_tail)))
             break
+    if invalid and any(s.rc is None for s in steps):
+        log("bench-nn-mac.py: INVALID SESSION (a step failed; files in %s):\n  %s" % (work, "\n  ".join(invalid)))
+        return 4
     if stop_signal:
         log("bench-nn-mac.py: aborted (files in %s)" % work)
         return 128 + stop_signal[0]

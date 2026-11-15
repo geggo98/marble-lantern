@@ -487,3 +487,15 @@ order alternating between pairs), the kernel table (Java `KernelsBenchmark` agai
 (three rounds, LARGE, batch 1 and 256), then the checks: anchors of the end against the start within 2 % for every program, no foreign
 process, no foreign CPU load above the limit, no CPU case with a thread CPU time below 0.8 of the wall time. A failed check makes the
 session invalid (exit 4): no result file, the files stay in the work directory; after three invalid sessions in a row measuring stops.
+
+### GPU anchor drift on the Mac (finding of 2026-11-15, no valid session yet)
+
+Five full sessions (about 46 minutes each) had no valid GPU anchors. The CPU anchors were stable in every session (`simd`
+LARGE 709.3 / 709.5 / 705.0 evals/s at start / mid / end of the last one); the GPU anchors moved by 8 to 40 % and Java TornadoVM
+and C++ Metal moved together. In the last session (LARGE, batch 256, evals/s, start / mid / end): TornadoVM 33,487 / 23,891 /
+30,798, Metal copy 33,034 / 25,737 / 29,242. Isolated tests of the same day: six consecutive Metal anchor runs of 10 s each gave
+32,783 to 33,286 evals/s (within 1.5 %, rising slightly), and a CPU-heavy run before an anchor changed nothing (33,267 against
+33,313). The GPU therefore sits at about 33,000 after an idle period and drops to 24,000 to 26,000 after the GPU-heavy middle of
+a session, without a thermal warning (`pmset -g therm`). Cause not proven (power or clock management of the SoC under sustained
+GPU load). `bench-nn-mac.py` now stops before the first step if the gen11 weights are missing (`STERNHALMA_DATA_DIR`) and returns
+exit 4 at the first failed step instead of crashing while writing the raw file.
