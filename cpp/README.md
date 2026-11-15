@@ -82,3 +82,242 @@ Consequences, applied in this package:
 - clang-tidy: the wrapper `clang-tidy` of nixpkgs `clang-tools` adds the Nix libc++ and fails on the Apple SDK (`mbstate_t` error);
   with `-isysroot` alone it still fails. The `tidy` preset therefore uses `clang-tidy-unwrapped` (same package) with
   `--extra-arg=-isysroot<sdk>`, which parses everything. Checks and exclusions are in `.clang-tidy`.
+
+## Network track: golden files, Java benchmark, tolerance (WP8)
+
+### Golden files of the network
+
+`./gradlew --no-build-cache :nn:goldenExport` (add `-Psternhalma.golden.real=true` for the real LARGE weights, read from
+`$STERNHALMA_DATA_DIR/loop4/gen-0011/candidate.safetensors`) writes `cpp/golden/` (git-ignored). All files are safetensors with
+F32 tensors:
+
+| File | Tensors |
+|---|---|
+| `nn-weights-small-u5`, `nn-weights-large-u5` | the u5 weights of SMALL and LARGE `classic1`, two players (`Parameters.uniform(config, 5, sqrt(6 / 7C))`) |
+| `nn-inputs` | `inputs` [1024][122][13]: 1,024 evenly spaced positions of `Playouts.positions(2, 60, 160, 1)`, encoded with `classic1` |
+| `nn-ref-small-u5`, `nn-ref-large-u5`, `nn-ref-large-gen11` (only with `real`) | `logits` [1024][242], `values` [1024][2] of the scalar `Network`; `vlogits`, `vvalues` of `VectorNetwork` (4 lanes, after three warm-up passes) |
+| `nn-cases` | TINY `classic1` u5 network as `base.*`; `input` and `dirty_input` [1][122][13]; `base.logits`, `base.values`; NaN case: `nan.conv_in.weight` replaces `conv_in.weight`, expected `nan.logits`, `nan.values` (the values are NaN); saturation cases: `sat_a.head_value.dense2.bias` = {44.3, 100} and `sat_b.head_value.dense2.bias` = {-1000, +inf} replace `head_value.dense2.bias`, expected `sat_a.values` = {1, 1} and `sat_b.values` = {-1, 1} exactly; `dirty_input` has 0.5 in the padding row (plane PROGRESS) and every forward pass must refuse it |
+
+`MANIFEST.tsv` has the columns `file`, `lines`, `sha256`, `commit` of `golden.hpp`. Binary files have the line count 0 (a C++ reader
+for them checks the SHA-256 only). Lines that do not start with `nn-` are kept by the exporter, so that it can share the file with
+the classical exporter. Comment lines `#<key><TAB><value>` hold measured figures:
+`#max_err_frac.<impl>.<preset>` (`impl` is `vector` or `tornado`, `preset` is `small-u5`, `large-u5` or `large-gen11`) is the
+largest error of the implementation against the scalar reference as a fraction of the bound 1e-4 + 1e-3 |ref|; if a figure
+exceeds 1, `#extra_rel_of_max_logit.<impl>.<preset>` is the extra term (times the largest |logit| of the position, policy only)
+that `nn_check` and `CrossBench` add to the bound. The `vector` figures come from `goldenExport`; run
+`./gradlew --no-build-cache :nn-tornado:goldenTolerance` afterwards for the `tornado` figures (it rewrites only those lines).
+
+Measured on 2026-11-15 (M3 Max, Metal), all far below 1.0, so no extra term:
+
+| Preset | `VectorNetwork` | `TornadoNetwork` (Metal) |
+|---|---|---|
+| SMALL u5 | 0.0131 | 0.0196 |
+| LARGE u5 | 0.0459 | 0.0499 |
+| LARGE gen11 | 0.0078 | 0.0069 |
+
+Two runs of `goldenExport` gave files with equal SHA-256 (also the references of `VectorNetwork`, which repeated bit for bit in
+the process).
+
+### The Java benchmark and its schedule
+
+`./gradlew --no-build-cache :nn-tornado:printRunCommand` writes the full `java` command of `CrossBench` and of `GpuFeedBenchmark`
+(`gpuFeed`) to `cpp/build/java-nn.cmd` and `cpp/build/java-gpufeed.cmd`: JVM flags `-Xms4g -Xmx4g`, the default GC (G1), the Vector
+API module and the TornadoVM flags of the SDK; the program arguments are appended by the caller (run it from the repository root,
+for example `eval "$(cat cpp/build/java-nn.cmd) --golden cpp/golden --presets small,large"`). `CrossBench` (task
+`:nn-tornado:crossBench`) prints comment lines (`# ...`: JVM flags with paths masked, GC, Vector API lanes, `UseAVX` and
+`MaxVectorSize` (`n/a` on arm), device, load before and after, GC collections per case), then a header line and one line per case
+in the shared schema:
+
+```text
+lang impl device preset weights batch bucket lanes evals_per_s ms_per_call_median ms_p90 round_min round_max
+copy_in_ms h2d_ms kernel_ms d2h_ms copy_out_ms priors_ms first_call_ms load_1min verified
+```
+
+The columns are tab-separated; `NA` means "not measured separately". `nn_bench` prints the same header line and columns.
+Schedule of every case (the same in `nn_bench`):
+
+- Warm-up: at least 2 s and 10 calls. A CPU case ends the warm-up at 2 s even with fewer calls (a call is then longer than 0.2 s).
+- Then 3 rounds of at least 1 s and at least one call. `evals_per_s` is the median round of calls x batch / round time;
+  `round_min` and `round_max` are the other two. `ms_per_call_median` and `ms_p90` are over the calls of all rounds.
+- The input of call c is the golden positions `c*n .. c*n+n-1` modulo 1,024 (for batches that divide 1,024: slice `c mod (1024/n)`),
+  prepared before the warm-up.
+- A CPU case whose one call would take more than 3 s at the rate of the smaller batches is skipped (comment line `# skipped`).
+- The last call of each case is checked against `nn-ref-*` (`logits`/`values`) with the bound above (plus the manifest's extra
+  term); on a violation the program ends with exit code 2 and prints no line for that case.
+- `first_call_ms` is the first call of the case: for TornadoVM it contains the plan build and the kernel compilation of the bucket.
+- TornadoVM reports one "execute" figure (host to device, kernels, device to host). It goes into `kernel_ms`; `h2d_ms` and
+  `d2h_ms` are `NA`. `copy_in_ms`, `copy_out_ms` and `priors_ms` are the per-execution deltas of `TornadoNetwork.timings()` over
+  the measured rounds. The CPU paths report `NA` for all phases.
+- `--anchors` runs only SMALL and LARGE at batch 256; `--cold` runs one forward pass and prints `# cold: construct .. ms, first
+  call .. ms, JVM uptime .. ms`; after the main table a profiled pass (`TornadoNetwork.profiled`, 20 calls per batch) prints
+  `#profiled` lines with the median wall time, kernel time, device write time and device read time of the TornadoVM profiler
+  (reported separately, because the profiler slows the call; `NA` where the backend reports 0).
+
+One full run on 2026-11-15 (SMALL and LARGE, all impls, six batches) printed 32 lines, all `verified = ok`; the scalar cases at
+batch 256 and above (LARGE) and 1024 (SMALL) were skipped by the 3 s rule. This was a functional run on a machine with other work
+running (load average above 3), not a measurement.
+
+### TornadoVM math flags (WP8 step 6)
+
+Determined by reading the bytecode of the 7.3.1 backend jars (`javap`), not by a run. The CUDA archive for Linux
+(`tornadovm-7.3.1-jdk22plus-cuda-linux-amd64.tar.gz`, SHA-256 equal to the pinned value in `scripts/setup-tornado.sh`) was
+unpacked in a scratch directory only for this reading; the Metal jar is the installed one.
+
+| Backend | What the code does | Consequence |
+|---|---|---|
+| CUDA (NVRTC) | `CUDACompiler` passes `--gpu-architecture=sm_NN` (falls back to `compute_NN` if the device architecture is newer than the NVRTC knows), `--include-path=<dir>` for `cuda_fp16.h` if needed, and `-rdc=true` only for kernels that launch kernels. The compiler flags of a task come from `TornadoOptions.DEFAULT_CUDA_COMPILER_FLAGS` = profile flags + `-Dtornado.cuda.compiler.flags` (default empty) + the FMA flag. The profile (`-Dtornado.cuda.compile.profile`) is `default` (no flags), `fast` (`--use_fast_math --extra-device-vectorization`), `debug` (`-lineinfo`) or `repro` (`--fmad=false`); the FMA flag is `--fmad=false` only if `-Dtornado.enable.fma=False` (default `True`) and no `-fmad` option is given | with the defaults the NVRTC options are the architecture only: **no `--use_fast_math`, and `--fmad` is not passed, so NVRTC's own default (`--fmad=true`: contraction of a*b+c into FMA) applies**. No string `fmad` or `use_fast_math` appears anywhere else in the CUDA driver or the driver-common jar |
+| Metal | `MetalContext.createProgramWithSource` passes `fastMathEnabled = TornadoOptions.METAL_FAST_MATH` (`-Dtornado.metal.fastmath`, default `False`) to the Metal compiler; `tornado.metal.compiler.flags` defaults to empty. The code does not set the Metal contraction mode | fast math is off by default (as `docs/tornado.md`, pitfall 8, measured); FMA contraction is left to the Metal compiler's default |
+
+Not confirmed by a run: the printed NVRTC option string. The CUDA part of the AWS run can confirm it with
+`-Dtornado.printKernel=True` if the backend logs its options; the document states "read from bytecode" until then.
+
+## CPU SIMD forward pass (WP10)
+
+`src/nn/simd_net.*` ports `VectorNetwork`: vector-extension types (`float __attribute__((vector_size(4 * L)))`), L = `SH_SIMD_LANES`
+(NEON 4, AVX2 8, AVX-512 16, overridable with `-DSH_SIMD_LANES=N`), weights repacked into tiles of 2L output channels, 4 cells and 8
+accumulators per step, channels padded with zero weights, no allocation in `forward`. The file needs no unsafe region: loads and stores
+go through `std::span`, `std::copy_n` and `std::bit_cast`.
+
+- `SimdVariant::Fma` is `simd_net.cpp`, the only file built with `-ffp-contract=fast`; `SimdVariant::NoFma` is `simd_net_nofma.cpp`, which
+  includes the same source with the default `-ffp-contract=off` into the namespace `simd_nofma`.
+- `scripts/check-fma.sh <simd_net.o> <simd_net_nofma.o>` proves it in the object code (ctest `simd_object_code`, also run by
+  `build-gcc12-stub.sh`). Measured with Apple clang 21 and GCC 13.5 on arm64: fused instructions in the first object (11 at `-O1`, 26 at
+  `-O3`), none in the second.
+- `nn_check --impl simd|simd-nofma [--batch N]` compares with the Java scalar reference under the bound; `nn_test` also compares with the
+  Java `VectorNetwork` outputs. The no-allocation test replaces the global `operator new` in `nn_test` only (`tests/alloc_counter.hpp`, the
+  one exception of rule R1 in `check-rules.sh`).
+
+## Metal backend, first half (WP11a)
+
+`src/gpu/metal/` ports `TornadoNetwork` on Metal. `metal_net.hpp` is plain C++ (pimpl, no Objective-C type); `metal_net.mm` is built with
+`-fobjc-arc`; `kernels.metal` is embedded as a raw string and compiled at run time (`newLibraryWithSource`, `MTLMathModeSafe`, once per process).
+
+| Part | What it does |
+|---|---|
+| `conv_naive` | one thread per (row of the batch, output channel); sum over k, then ch, ascending; bias; optional residual; ReLU `v < 0 ? 0 : v`; padding row 0 |
+| `policy_head`, `value_head` | one thread per (position, logit); one thread group of 256 per position with the partial-sum pooling, dense, dense; `apply_tanh = 0` for `classic1` |
+| tanh | `x > 8.5 ? 1 : x < -8.5 ? -1 : tanh(x)` (`DeviceMath.tanh`), only where `apply_tanh = 1` |
+| buckets | powers of two up to `max_batch` (1,024), buffers built on first use (`plans_built()`), chunks above `max_batch`; host priors with `apply_host_priors` |
+| memory | `copy` mode: private device buffers, a blit of the input to the device and of the head buffer back, one command buffer per call |
+
+`MetalNet::create` refuses `Tiled`, `Simdgroup` and `MemoryMode::Shared` for now (WP11b). `nn_check --impl metal [--variant naive] [--memory copy]`
+checks it against `nn-ref-*` with the `tornado` extra term of the manifest (none is needed).
+
+Measured on 2026-11-15 (Apple M3 Max, debug-asan and release-hardened binaries, all 1,024 positions, batch 64), largest error as a fraction of the bound:
+
+| Preset | `nn_check --impl metal` | `TornadoNetwork` (Java, WP8) |
+|---|---|---|
+| SMALL u5 | 0.0196 | 0.0196 |
+| LARGE u5 | 0.0499 | 0.0499 |
+| LARGE gen11 | 0.0068 (logits 0.0011) | 0.0069 |
+
+`metal_test` also ran once with `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1` ("Metal API Validation Enabled", "Metal GPU Validation Enabled"): no finding.
+
+Mutation check of the kernels (each one at a time, `metal_test` red unless listed): pooling over 120 cells, bias dropped, ReLU as `v > 0 ? v : 0`, residual dropped,
+policy logits swapped, padding row not zeroed, device tanh saturating to 0.5. **Survivors:** the threadgroup barrier before the last dense layer of `value_head`
+(removed: 12 of 12 tests green in three runs, also with `C = 8, H = 1024` at batch 1,024); the Java test found its barrier mutants only under load, and on an idle GPU the
+SIMD groups of a thread group stay in step. The barrier is in the kernel; the test cannot prove it.
+
+Deviations from the plan: `sh_metal` links `sh_nn` (the header uses `Parameters`, `NetworkConfig` and the bucket rule), one word in `CMakeLists.txt`; the same line is needed on `exp/cpp`.
+
+## Metal backend, second half (WP11b)
+
+`kernels.metal` gains `conv_tiled` and `conv_simdgroup`; `MetalNet` gains the variant rule, the `shared` memory mode, the phase timing and the instrumented mode.
+
+| Part | What it does |
+|---|---|
+| `conv_tiled` | thread group 8 x 16, tile 64 rows x 32 channels x 32 columns, 4 x 4 register tile interleaved (row `ty + 16 i`, channel `tx + 8 j`), local tiles padded by one column; every thread reaches every barrier |
+| `conv_simdgroup` | 128 threads = 4 SIMD groups, 32 x 32 x 32 tile, 2 x 2 blocks of 8 x 8 per SIMD group with `simdgroup_multiply_accumulate`, W loaded transposed, result through a threadgroup tile, then bias, residual, ReLU |
+| variant rule | `Options::variant` empty (the default) = `nn::variant_for`: `naive` while bucket * C <= 128, else `simdgroup`; a value forces one kernel (`nn_check --variant auto\|naive\|tiled\|simdgroup`, default `auto`) |
+| `shared` mode | `--memory shared`: the input buffer and the head output buffer are `MTLStorageModeShared`, the CPU writes and reads them, no blit; activations stay private |
+| phase timing | `timings()`: CPU clock for copy in, commit-and-wait, copy out, host priors, plus GPU time (`GPUEndTime - GPUStartTime`), totals since `reset_timings()`; `setup()` per bucket: pipeline creation and buffer allocation; `library_compile_ms()` once per process |
+| instrumented mode | `Options::instrumented`: one command buffer per kernel and per blit, each timed by the GPU clock, `kernel_times()` lists them (`blit_in`, `conv_in`, `blockN.conv1`, `blockN.conv2`, `policy_head`, `value_head`, `blit_out`); its wall time is not a result |
+
+`metal_test` additions: every conv shape of TINY, SMALL and LARGE with each of the three kernels at batch 1, 3 and 67; sizes that are not multiples of a tile (1->1, 5->70, 64->31, 9->33 ...); the hand-computed case for all three; NaN kept through ReLU in all three; the whole network in the two memory modes times auto and three forced variants, at `max_batch` 1,024 and 16, against `nn-ref-*`; a position gives the same bits in slot 0, 1, 2 of a bucket of 8, in a bucket of 4 and in a bucket of 1 (every mode); timing, set-up record and variant rule; instrumented mode gives the same bits as plain mode.
+
+Measured on 2026-11-15 (Apple M3 Max), mechanics only, no timing figures (the machine was not quiet): `nn_check --impl metal` for `auto`, `naive`, `tiled`, `simdgroup`, each in `copy` and `shared`, with the `debug-asan` and `release-hardened` binaries: 16 runs, all within the bound, with the same largest errors as the naive kernel (SMALL 0.0196, LARGE 0.0499, gen11 0.0068, fractions of the bound). On SMALL at 64 positions the logits of `tiled` and `simdgroup` equal those of `naive` bit for bit (0 of 15,488 differ), as the Java test found on this device; nothing guarantees it.
+
+Mutation check of the new kernels (each at a time, `metal_test` red unless listed): `simdgroup` W not transposed, `simdgroup` padding row not zeroed, `tiled` interleave changed, `tiled` barrier after the tile loads removed, `simdgroup` bias replaced, `tiled` ReLU as `v > 0 ? v : 0` (found only by the NaN test added for it), `simdgroup` k loop one step short. Equivalent mutant: clamping the weight index of `tiled` beyond the shape (the A tile is zero there).
+
+`metal_test` also ran once with `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1`: no finding.
+
+Deviation: `Options::variant` became `std::optional<ConvVariant>` (empty = rule) instead of a value with default `Naive`; `nn_check` default is now `--variant auto`. The per-bucket pipelines are created by the net without the process-wide cache so that `setup()` shows the creation cost of every bucket; Metal's own binary cache can still make the second one cheap.
+
+## CUDA backend (WP12)
+
+The CUDA code could not be compiled or run where it was written: there is no nvcc and no NVIDIA GPU on the Mac. What was done instead
+is listed under "What was checked, and what was not". The first real run of `cuda_net.cu` is the CUDA gate of the AWS run.
+
+### Files
+
+| File | What it is |
+|---|---|
+| `src/gpu/cuda/kernels.cuh` | the kernels `hexconv_naive`, `hexconv_tiled`, `head_policy`, `head_value`, the launch geometry (plain numbers) and `run_forward`, the template that gives the order of the launches of one pass (conv_in, per block conv1 and conv2 with the ping-pong of the three buffers, policy head, value head). One unsafe zone, the whole file in `unsafe_buffer_usage` regions. Includes only standard headers |
+| `src/gpu/cuda/cuda_net.cu` | the thin host layer, nvcc only: RAII classes `DeviceBuffer`, `PinnedBuffer`, `Stream`, `Event` (deleted copy), one plan per (bucket, variant), one stream, events around host to device, kernels and device to host, an event after every kernel in instrumented mode. Includes only `cuda_net.hpp`, `kernels.cuh`, standard and CUDA headers |
+| `src/gpu/cuda/cuda_net.hpp` | the C++20 interface `CudaNet` (abstract class, standard headers only): shape and weights as spans, `forward_raw(input, Call, logits, values, CallTimes&)` for one chunk of one bucket. Errors are strings |
+| `src/gpu/cuda/cuda_net_stub.cpp` | the Mac build: `CudaNet::create` returns "no CUDA device in this build" |
+| `src/nn/cuda_backend.{hpp,cpp}` | the C++23 adapter `CudaBackend`: packing of a `Parameters` object (`pack_weights`), bucket rule and variant rule (`naive` while bucket * C <= 128, else `tiled`; `simdgroup` is refused), chunks above `max_batch`, dirty padding row refused, host priors, phase totals. `create` takes an optional `NetFactory`, so that the tests can pass an emulated device |
+| `tests/cuda_emu.hpp` | the CPU emulation of the CUDA execution model: the real `kernels.cuh` is compiled with the keywords as macros, a block is one `std::thread` per CUDA thread, `__syncthreads()` is a `std::barrier`, device buffers are exact-size vectors (NaN-filled, so that an element that a kernel does not write shows up) |
+| `tests/cuda_adapter_test.cpp` | on the Mac: stub behaviour, argument packing against the `Parameters` layout, launch geometry, every convolution shape with both kernels against `hex_conv`, both heads against a double computation, the whole network through the adapter and the emulated device against `ReferenceNet` |
+| `tests/cuda_test.cpp` | on the instance: the real device against `ReferenceNet`, no golden file (`tests/nn_random.hpp` makes weights and inputs from `SplittableRandom`). Built a second time as `cuda_test_emu` against the emulated device by `build-gcc12-stub.sh` ("a test of the test") |
+| `scripts/build-cuda.sh` | the build on the instance (and, with `--stub`, on the Mac) |
+| `scripts/ptx-check.sh`, `scripts/ptx-shim/cuda_runtime.h` | syntax and type check of `cuda_net.cu` with clang in CUDA mode |
+| `scripts/cloud/test/test_build_cuda.sh` | `build-cuda.sh` with a fake nvcc, g++-12 and objdump |
+
+### Kernels and flags
+
+The kernels are the Metal kernels of WP11a and WP11b without `simdgroup`: the same sums in the same order (k, then ch, ascending; bias last; optional residual; ReLU `v < 0 ? 0 : v`),
+tile 64 x 32 x 32 with a 4 x 4 register tile and block 8 x 16 for `tiled`, one block of 256 per position for the value head with the partial-sum pooling, `tanhf` inside |x| <= 8.5 and exactly +-1 outside (only where `apply_tanh` is set: plane sets without host priors). Naive blocks are 32 channels x 8 rows (the Java side leaves
+the choice to the runtime, this is a choice of this port). Kernel names do not equal a CUDA math function (TornadoVM pitfall 15).
+
+`build-cuda.sh` compiles `cuda_net.cu` with `nvcc -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true -gencode arch=compute_75,code=sm_75 -gencode arch=compute_75,code=compute_75 -Xcompiler -ffp-contract=off`
+and no `--use_fast_math`. `--fmad=true` is what TornadoVM's NVRTC call does by default (WP8 step 6, read from bytecode, not confirmed by a run). Everything else is `g++-12 -std=c++23 -O3 -march=native -ffp-contract=off`
+(`-mcpu=native` on arm64), `simd_net.cpp` alone with `-ffp-contract=fast` after it. The flags and tool versions of a build go to `<out>/toolchain/`.
+
+```sh
+cpp/scripts/build-cuda.sh [--nvcc PATH] [--cxx PATH] [--out DIR] [--stub] [--werror] [--with-tests] [--jobs N]
+```
+
+Output `<out>/hardened/bin` (`-D_GLIBCXX_ASSERTIONS`, the main rows and the tests) and `<out>/unchecked/bin` (the "cost of the checks" rows), each with `nn_check_l8`, `nn_check_l16`,
+`nn_bench_l8`, `nn_bench_l16` and `cuda_test`; `l8` and `l16` are `SH_SIMD_LANES` (the application and the SIMD objects must agree, because `simd_net.hpp` is lane dependent). Exit codes: 3 no nvcc, no g++-12 or no `compute_75`
+in `nvcc --list-gpu-arch`; 4 a compile or link failed; 5 the object-code proof of `check-fma.sh` failed (run for both lane counts); 64 usage. `-Werror` only with `--werror`: the Mac stub build proves "no warning" with GCC 13.5,
+but the instance does not stop for a warning that only g++ 12.3 gives.
+
+`cuda_test [--allow-no-device] [--batches 1,3,67,256]`: presets TINY (classic1 and plain), SMALL, LARGE and a 33-channel network (a width that is no multiple of a tile), variants auto, naive, tiled, both host-memory modes
+(`pageable`, `pinned`), batches 1, 3, 67, 256, each against `ReferenceNet` within the bound; NaN stays in its position; exact saturation of the value head; timings and per-kernel events; whether a position gives the same bits in bucket 1
+and bucket 8 is printed as information (CUDA gives no guarantee, the Metal port has it). `nn_check --impl cuda [--variant auto|naive|tiled] [--memory pageable|pinned]` works like the Metal one; in the stub build it answers exit 64.
+
+### What was checked here
+
+| Check | Result (2026-11-15, Apple clang 21, GCC 13.5) |
+|---|---|
+| `ctest --preset debug-asan` | 10 of 10 tests pass; `cuda_adapter_test`: 16 tests, 2,489 checks |
+| Kernels run on the CPU by `cuda_emu.hpp` against the reference | every shape of TINY, SMALL, LARGE and odd sizes (1 -> 1, 5 -> 70, 64 -> 31, 9 -> 33), both kernels, batch 1, 3 and 67, every combination of residual and ReLU; both heads for C = 1 to 1024; the whole network through `CudaBackend` for the three kernel choices, chunks 4 + 3 and 3 + 3 + 1 |
+| Mutation check of `kernels.cuh` (one at a time, `cuda_adapter_test` red unless listed) | residual dropped (naive, tiled), tiled interleave, ReLU as `v > 0 ? v : 0`, policy logits swapped, pooling over 120 cells, tanh threshold 0.85, padding row not 0, no ping-pong swap, residual from the wrong buffer, row guard of the tiled store removed (AddressSanitizer), wrong output offset (AddressSanitizer), `apply_tanh` inverted, three `__syncthreads()` removed one at a time (the emulation runs real threads, so a missing barrier is a race that the comparison sees), the barrier before the last dense layer of the value head. **No survivor** (unlike the Metal check, where that barrier survived) |
+| `cmake --preset tidy` on `sh_cuda_stub`, `cuda_adapter_test`, `cuda_test`, `nn_check` (clang-tidy 21, warnings, no gate) | 56 warnings over the files it also parses (`metal_net.hpp`, `simd_net.*` among them). In the new CUDA files: C arrays in `kernels.cuh` (the `__shared__` tiles and the register tile, inherent to the kernels), widening of `int` products in the tests, the reserved identifiers `__global__` and the like that `cuda_emu.hpp` defines as macros on purpose, public members of `EmuNet`. The two in product code (special members of `CudaNet`, the base type of `ConvKind`) were fixed |
+| `scripts/ptx-check.sh` | host and device side of sm_75 parse and type-check with Apple clang in CUDA mode against `ptx-shim/cuda_runtime.h`; `--self-test` shows that a kernel calling a host function and a launch with a wrong argument list are found; a misspelt member in `kernels.cuh` was found too |
+| `scripts/build-gcc12-stub.sh` (GCC 13.5, `build-cuda.sh --stub --werror --with-tests`) | every Linux source builds with `-O3 -Werror` without a warning, hardened and unchecked, both lane counts; `check-fma` finds 62 (lanes 8) and 44 (lanes 16) fused instructions in `simd_net.o` and 0 in `simd_net_nofma.o`; `java_compat_test`, `nn_test`, `cuda_adapter_test`, `cuda_test_emu` pass; `nn_check` for `reference`, `simd`, `simd-nofma` on SMALL and LARGE, all 1,024 positions, within the bound (`reference` bit-identical) |
+| `scripts/cloud/test/test_build_cuda.sh` | 55 checks with a fake nvcc, g++-12 and objdump: the command lines, exit 3 (no nvcc, no g++-12, no `compute_75`), exit 5, exit 64, `--stub`, `--werror`, `--nvcc` and `--cxx`; six mutations of `build-cuda.sh` (no `-ccbin`, no PTX gencode, fast contraction everywhere, no `compute_75` check, a fast-math flag, C++17) each turn it red |
+
+### What was NOT checked, and what can still fail on the instance
+
+- **nvcc has never read `cuda_net.cu` or `kernels.cuh`.** Clang accepts what nvcc may reject (a construct that nvcc 13.0 with `-std=c++20 -ccbin g++-12` does not support, a host/device attribute detail, `constexpr` variables in device code). This is the most likely cause of a failed build; the gate stops the instance after about 6 minutes (0.02 USD).
+- **The shim is not the CUDA header.** The signatures in `ptx-shim/cuda_runtime.h` are written from memory of the runtime API; a wrong one would pass here and fail on the instance.
+- **No PTX was generated**: Apple clang has no NVPTX target. Register use, shared-memory size (9 KB per block for `head_value`, 12.25 KB for `tiled`, computed from the array sizes), occupancy and the launch bounds were not seen.
+- **The device behaves differently from the emulation** in what the emulation cannot show: warps and divergence, memory ordering across blocks, the fused multiply-add of `--fmad=true` (the emulation is unfused; the bound 1e-4 + 1e-3 |ref| is what covers it), `tanhf` of the device (not bit-equal to the host's), pinned memory, events, the stream. `cuda_test` is the first test of these.
+- **g++ 12.3 of Ubuntu** was never run (GCC 13.5 stands in for it, as in WP0). The CUDA AMI may have no `g++-12`, no `compute_75` in nvcc, no `objdump` (the proof then reports "skipped") or a different `-march=native` situation (AVX-512 lanes 16 on the host).
+- **`-march=native` objects with `-DSH_SIMD_LANES=16`** assume an AVX-512 host; on an AVX2-only host the lane-16 binaries still work (vector extensions lower to two registers) but are not meant to be compared.
+- **`compute-sanitizer`** was never run (WP14/WP15 call it on `cuda_test --batches 1,67`; `-lineinfo` is set for it).
+- `nvcc`'s linking (`nvcc -ccbin g++-12 ... objects -o binary`, which adds `cudart` statically) was only tested with the fake.
+
+### Deviations from the plan, made in WP12
+
+- `CudaNet` is an abstract class with `create` as the factory instead of a class with a hidden implementation (pimpl): the same header serves the real net, the stub and the test emulation. The adapter's `create` takes a `NetFactory` for the same reason.
+- `forward_raw` takes a `Call` (n, bucket, variant, `apply_tanh`) and returns a string; the bucket, chunk and variant rules stay in the adapter, because `cuda_net.cu` may not include a project header.
+- Both host-memory modes stage through host buffers (`std::vector` for `pageable`, `cudaHostAlloc` for `pinned`): the only difference is page-locked memory, as in the JVM's off-heap buffer against a pinned buffer.
+- `cuda_test` without a device: exit 0 in the stub build (`ctest` on the Mac stays green without a change of `CMakeLists.txt`), exit 1 in a build with device code unless `--allow-no-device` is given (the plan says: exit 0 only with the flag).
+- The slot-and-bucket bit equality is information in `cuda_test`, not a check (see above).
+- `cuda_net.cu` is about 455 NCLOC, not the 200 of the plan: the RAII classes and the launcher with its error handling and the events are in it. The kernels are 270, the adapter 120 (without headers).
+- New files beyond the plan's list: `tests/cuda_emu.hpp`, `tests/nn_random.hpp`, `scripts/ptx-shim/cuda_runtime.h`. `cuda_test_emu` is built by `build-cuda.sh --with-tests`, not by CMake (no new target).
+- `ptx-check.sh` checks syntax and types, it does not emit PTX (no NVPTX target); with a clang that has one (`CLANG=...`) it also counts the kernel entries.
+- `apps/nn_check.cpp`: the Metal part is guarded by `defined(__APPLE__) && defined(__clang__)` (GCC on the Mac has no Objective-C++), the CUDA part is always compiled.

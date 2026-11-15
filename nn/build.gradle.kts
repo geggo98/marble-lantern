@@ -63,3 +63,22 @@ tasks.register<JavaExec>("vectorBenchmark") {
     providers.gradleProperty("vectorJvmArgs").orNull?.let { jvmArgs(it.split(" ").filter(String::isNotBlank)) }
     providers.gradleProperty("vectorSeconds").orNull?.let { args("--seconds", it) }
 }
+
+// Golden files of the C++ network port (docs/cpp-comparison-plan.md, WP8): weights, 1,024 encoded inputs, reference outputs of
+// the scalar and the Vector API network, hand-checkable cases and MANIFEST.tsv in cpp/golden. With -Psternhalma.golden.real=true
+// it also writes the reference for the real LARGE weights ($STERNHALMA_DATA_DIR/loop4/gen-0011). -Psternhalma.golden.out=DIR
+// changes the output directory (default cpp/golden).
+// Run: ./gradlew --no-build-cache :nn:goldenExport
+tasks.register<JavaExec>("goldenExport") {
+    group = "verification"
+    description = "Writes the golden network files for the C++ port into cpp/golden (git-ignored)."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.GoldenNnExport")
+    workingDir = rootDir
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+    val out = providers.gradleProperty("sternhalma.golden.out").orElse("cpp/golden")
+    val real = providers.gradleProperty("sternhalma.golden.real").map { it == "true" }.orElse(false)
+    argumentProviders.add(CommandLineArgumentProvider {
+        listOf("--out", out.get()) + (if (real.get()) listOf("--real") else emptyList())
+    })
+}

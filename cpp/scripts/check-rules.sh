@@ -21,6 +21,8 @@ check() {   # $1 = root directory of the cpp tree
 use strict; use warnings;
 my $root = shift @ARGV;
 my %zone = map { $_ => 1 } qw(args.hpp simd_net.cpp metal_net.mm kernels.metal cuda_net.cu kernels.cuh);
+# The one file that may replace the global operator new and delete: the counting allocator of nn_test (WP10).
+my %allocator = map { $_ => 1 } qw(alloc_counter.hpp);
 my $findings = 0;
 
 sub slurp { my ($f) = @_; open my $h, "<", $f or die "$f: $!"; local $/; my $t = <$h>; return $t }
@@ -41,8 +43,8 @@ my @build = ((grep { -f } map { "$root/$_" } qw(CMakeLists.txt CMakePresets.json
 # R1 and R2
 my ($r1, $r1lines, $r2, $r2lines) = (0, 0, 0, 0);
 for my $f (@code) {
-  my $inGpu = rel($f) =~ m{^src/gpu/};
   my ($base) = $f =~ m{([^/]+)$};
+  my $inGpu = rel($f) =~ m{^src/gpu/} || $allocator{$base};
   my @lines = split /\n/, strip(slurp($f)), -1;
   $r1++ unless $inGpu; $r2++ unless $zone{$base};
   for my $i (0 .. $#lines) {

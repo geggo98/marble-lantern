@@ -98,7 +98,7 @@ target_link_libraries(sh_search PUBLIC sh_engine sh_tablebase)
 
 sh_library(sh_nn
   src/nn/config.cpp src/nn/safetensors.cpp src/nn/parameters.cpp src/nn/gather.cpp
-  src/nn/reference_net.cpp src/nn/simd_net.cpp src/nn/priors.cpp src/nn/golden_io.cpp src/nn/buckets.cpp)
+  src/nn/reference_net.cpp src/nn/simd_net.cpp src/nn/simd_net_nofma.cpp src/nn/priors.cpp src/nn/golden_io.cpp src/nn/buckets.cpp)
 target_include_directories(sh_nn PUBLIC src/nn)
 target_link_libraries(sh_nn PUBLIC sh_core)
 # The one named exception to -ffp-contract=off: the FMA variant of the SIMD forward pass (WP10).
@@ -115,7 +115,7 @@ if(APPLE)
   target_include_directories(sh_metal PUBLIC src/gpu/metal)
   target_include_directories(sh_metal PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/metal")
   target_compile_options(sh_metal PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(sh_metal PUBLIC sh_core "-framework Metal" "-framework Foundation")
+  target_link_libraries(sh_metal PUBLIC sh_core sh_nn "-framework Metal" "-framework Foundation")
   add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/metal/kernels_msl.inc"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/metal"
@@ -146,6 +146,13 @@ sh_test(tablebase_test sh_tablebase)
 sh_test(eval_test sh_search)
 sh_test(search_test sh_search)
 sh_test(nn_test sh_nn)
+target_include_directories(nn_test PRIVATE tests)
+# WP10: the object code proves the two variants of the SIMD forward pass (fused instructions in one, none in the other).
+add_test(NAME simd_object_code
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-fma.sh
+          ${CMAKE_BINARY_DIR}/CMakeFiles/sh_nn.dir/src/nn/simd_net.cpp.o
+          ${CMAKE_BINARY_DIR}/CMakeFiles/sh_nn.dir/src/nn/simd_net_nofma.cpp.o)
+set_tests_properties(simd_object_code PROPERTIES SKIP_RETURN_CODE 77)
 sh_test(cuda_adapter_test sh_cuda_stub)
 sh_test(cuda_test sh_cuda_stub)
 if(APPLE)

@@ -209,3 +209,95 @@ tasks.register<JavaExec>("gpuFeed") {
         reason == null
     }
 }
+
+// Java side of the cross-language network benchmark (docs/cpp-comparison-plan.md, WP8): the schedule of nn_bench on the golden
+// files of :nn:goldenExport, one TSV line per case. The fixed JVM flags of every Java measurement are -Xms4g -Xmx4g, the default
+// GC and the Vector API module; printRunCommand writes the same command line for a start with java directly.
+// Run: ./gradlew --no-build-cache :nn-tornado:crossBench --args="--presets small --batches 1,16 --impls vector,tornado"
+val measurementJvmArgs = listOf("-Xms4g", "-Xmx4g")
+
+tasks.register<JavaExec>("crossBench") {
+    group = "verification"
+    description = "Measures scalar, Vector API and TornadoVM forward passes on the golden files (shared TSV schema)."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.tornado.CrossBench")
+    workingDir = rootDir
+    tornadoJvm()
+    jvmArgs(measurementJvmArgs)
+    systemProperty("tornado.recover.bailout", "False")
+    val reason = sdkMissingReason
+    onlyIf("the TornadoVM SDK is installed") {
+        if (reason != null) {
+            Logging.getLogger("nn-tornado").warn("nn-tornado: skipping crossBench: {}", reason)
+        }
+        reason == null
+    }
+}
+
+// Tolerance of TornadoNetwork on the u5 weights against the scalar reference (WP8 step 2); writes #max_err_frac.tornado.*
+// into cpp/golden/MANIFEST.tsv. Run after :nn:goldenExport: ./gradlew --no-build-cache :nn-tornado:goldenTolerance
+tasks.register<JavaExec>("goldenTolerance") {
+    group = "verification"
+    description = "Measures the largest error of TornadoNetwork against the golden reference and records it in MANIFEST.tsv."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.tornado.GoldenTolerance")
+    workingDir = rootDir
+    tornadoJvm()
+    systemProperty("tornado.recover.bailout", "False")
+    val reason = sdkMissingReason
+    onlyIf("the TornadoVM SDK is installed") {
+        if (reason != null) {
+            Logging.getLogger("nn-tornado").warn("nn-tornado: skipping goldenTolerance: {}", reason)
+        }
+        reason == null
+    }
+}
+
+/** Writes the java command lines of crossBench and gpuFeed (without program arguments) for a start without Gradle. */
+abstract class PrintRunCommand : DefaultTask() {
+    @get:Input abstract val javaExecutable: Property<String>
+    @get:Input abstract val jvmArguments: ListProperty<String>
+    @get:Input abstract val crossBenchClass: Property<String>
+    @get:Input abstract val gpuFeedClass: Property<String>
+    @get:Classpath abstract val runtimeClasspath: ConfigurableFileCollection
+    @get:OutputFile abstract val crossBenchFile: RegularFileProperty
+    @get:OutputFile abstract val gpuFeedFile: RegularFileProperty
+
+    @TaskAction
+    fun write() {
+        val cp = runtimeClasspath.files.joinToString(File.pathSeparator) { it.absolutePath }
+        fun line(mainClass: String): String =
+            (listOf(javaExecutable.get()) + jvmArguments.get() + listOf("-cp", cp, mainClass)).joinToString(" ") { quote(it) }
+        crossBenchFile.get().asFile.apply { parentFile.mkdirs(); writeText(line(crossBenchClass.get()) + "\n") }
+        gpuFeedFile.get().asFile.apply { parentFile.mkdirs(); writeText(line(gpuFeedClass.get()) + "\n") }
+        logger.lifecycle("wrote {} and {}", crossBenchFile.get().asFile, gpuFeedFile.get().asFile)
+    }
+
+    private fun quote(s: String): String =
+        if (s.matches(Regex("[A-Za-z0-9_@%+=:,./-]+"))) s else "'" + s.replace("'", "'\\''") + "'"
+}
+
+// Run: ./gradlew --no-build-cache :nn-tornado:printRunCommand; then, from the repository root,
+//   $(cat cpp/build/java-nn.cmd) --golden cpp/golden --presets small,large ...
+tasks.register<PrintRunCommand>("printRunCommand") {
+    group = "verification"
+    description = "Writes the full java command lines of crossBench and gpuFeed to cpp/build/java-nn.cmd and java-gpufeed.cmd."
+    val flags = objects.newInstance<TornadoJvmArgs>()
+    val template = sdkArgfileTemplate
+    val home = tornadoHome
+    val tornadoArgs: List<String> = if (template != null && home != null) {
+        flags.template.set(template)
+        flags.home.set(home)
+        flags.asArguments().toList() + listOf("--sun-misc-unsafe-memory-access=allow", "-Dsternhalma.tornado.flags=true")
+    } else {
+        emptyList()
+    }
+    javaExecutable.set(File(System.getProperty("java.home"), "bin/java").absolutePath)
+    jvmArguments.set(measurementJvmArgs + tornadoArgs + listOf("--add-modules", "jdk.incubator.vector",
+        "-Dtornado.recover.bailout=False"))
+    crossBenchClass.set("sternhalma.tornado.CrossBench")
+    gpuFeedClass.set("sternhalma.tornado.GpuFeedBenchmark")
+    runtimeClasspath.from(sourceSets["test"].runtimeClasspath)
+    crossBenchFile.set(rootProject.layout.projectDirectory.file("cpp/build/java-nn.cmd"))
+    gpuFeedFile.set(rootProject.layout.projectDirectory.file("cpp/build/java-gpufeed.cmd"))
+}
