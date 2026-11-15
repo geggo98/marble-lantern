@@ -422,7 +422,10 @@ void check_network_against_java(const std::string& name) {
     auto figures = load_figures(golden::directory());
     CHECK(figures.has_value());
     if (!figures) return;
-    const double extra = extra_rel(*figures, "tornado", preset);
+    const auto extra_figure = extra_rel(*figures, "tornado", preset);
+    CHECK(extra_figure.has_value());
+    if (!extra_figure) return;
+    const double extra = *extra_figure;
     const auto in_size = static_cast<std::size_t>(cfg.input_size());
     const auto players = static_cast<std::size_t>(cfg.players);
     constexpr int kPositions = 67;

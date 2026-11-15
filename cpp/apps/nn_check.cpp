@@ -242,7 +242,12 @@ int main(int argc, char** argv) {
             }
         }
         const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        const double extra = extra_rel(*figures, opt.impl == "metal" || opt.impl == "cuda" ? "tornado" : "vector", *preset);
+        const auto extra_figure = extra_rel(*figures, opt.impl == "metal" || opt.impl == "cuda" ? "tornado" : "vector", *preset);
+        if (!extra_figure) {
+            std::cerr << "nn_check: " << name << ": " << extra_figure.error().message << '\n';
+            return 1;
+        }
+        const double extra = *extra_figure;
         const Comparison c = compare_outputs(logits, values, data->logits, data->values, 0, n, cfg.players, extra);
         const bool bound_ok = c.fraction() <= 1.0;
         const bool exact_ok = !exact || (c.logits_bit_identical && c.values_max_ulps <= 1.0);

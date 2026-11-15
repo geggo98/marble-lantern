@@ -36,7 +36,9 @@ std::expected<std::map<std::string, std::string>, golden::Error> load_figures(co
 // The extra term of the bound, as a fraction of the largest |logit| of the position: figure
 // "extra_rel_of_max_logit.<impl>.<preset key>" or 0. impl is "vector" or "tornado" in the manifest; the C++ implementations
 // use their own key and fall back to "vector" (the Java implementation with the same kind of arithmetic) if they have none.
-double extra_rel(const std::map<std::string, std::string>& figures, std::string_view impl, const Preset& preset);
+// A figure that is not one finite number in [0, kMaxExtraRel] is Corrupt (the figures are not covered by a hash).
+inline constexpr double kMaxExtraRel = 1.0;
+std::expected<double, golden::Error> extra_rel(const std::map<std::string, std::string>& figures, std::string_view impl, const Preset& preset);
 
 struct GoldenData {
     int positions = 0;

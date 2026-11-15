@@ -299,6 +299,21 @@ SH_TEST(config_parameter_counts) {
     CHECK_EQ(parameter_shapes(NetworkConfig{1024, 64, 2, 1024, PlaneSet::Classic1}).size(), std::size_t{2 + 4 * 64 + 6 + 2});
 }
 
+SH_TEST(from_tensors_rejects_a_config_out_of_range_even_with_matching_tensors) {
+    const NetworkConfig bad[] = {
+        {kMaxChannels + 1, 0, 2, kValueHidden, PlaneSet::Plain},
+        {8, kMaxBlocks + 1, 2, kValueHidden, PlaneSet::Plain},
+        {8, 1, 4, kValueHidden, PlaneSet::Plain},
+        {8, 1, 2, kMaxValueHidden + 1, PlaneSet::Plain},
+        {0, 1, 2, kValueHidden, PlaneSet::Plain},
+    };
+    for (const NetworkConfig& cfg : bad) {
+        const auto p = Parameters::from_tensors(cfg, random_tensors(cfg, 1));
+        CHECK(!p.has_value());
+    }
+    CHECK(Parameters::from_tensors(kTiny, random_tensors(kTiny, 1)).has_value());
+}
+
 SH_TEST(config_limits) {
     CHECK(make_config(64, 6, 2, 32, PlaneSet::Classic1).has_value());
     CHECK(!make_config(0, 6, 2, 32, PlaneSet::Plain));
@@ -813,9 +828,17 @@ SH_TEST(golden_io_error_kinds) {
     CHECK(!preset_by_name("huge").has_value());
     CHECK(preset_by_name("gen11")->key == "large-gen11");
     std::map<std::string, std::string> figures = {{"extra_rel_of_max_logit.vector.small-u5", "0.25"}};
-    CHECK_EQ(extra_rel(figures, "vector", *preset_by_name("small")), 0.25);
-    CHECK_EQ(extra_rel(figures, "simd", *preset_by_name("small")), 0.25);   // falls back to the Java vector figure
-    CHECK_EQ(extra_rel(figures, "vector", *preset_by_name("large")), 0.0);
+    CHECK_EQ(extra_rel(figures, "vector", *preset_by_name("small")).value(), 0.25);
+    CHECK_EQ(extra_rel(figures, "simd", *preset_by_name("small")).value(), 0.25);   // falls back to the Java vector figure
+    CHECK_EQ(extra_rel(figures, "vector", *preset_by_name("large")).value(), 0.0);
+    // a figure that is not one finite number in [0, kMaxExtraRel] is a corrupt manifest, never a wider bound
+    for (const char* bad : {"0.25x", "-1", "nan", "inf", "1e9", "", " 0.5", "abc", "1.5"}) {
+        figures["extra_rel_of_max_logit.vector.small-u5"] = bad;
+        const auto r = extra_rel(figures, "vector", *preset_by_name("small"));
+        CHECK(!r.has_value() && r.error().kind == golden::ErrorKind::Corrupt);
+    }
+    figures["extra_rel_of_max_logit.vector.small-u5"] = "1.000e-02";
+    CHECK_EQ(extra_rel(figures, "vector", *preset_by_name("small")).value(), 0.01);
     // a golden file that does not match its manifest entry is corrupt, not missing
     auto real = load_golden_contents(golden::directory(), "nn-inputs.safetensors");
     if (!real && real.error().kind == golden::ErrorKind::Missing) {
@@ -1038,7 +1061,10 @@ void check_simd_against_java(const std::string& name, int positions) {
     const NetworkConfig& cfg = weights->config();
     auto figures = load_figures(dir);
     CHECK(figures.has_value());
-    const double extra = figures ? extra_rel(*figures, "vector", *preset) : 0.0;
+    const auto extra_figure = figures ? extra_rel(*figures, "vector", *preset) : std::expected<double, golden::Error>(0.0);
+    CHECK(extra_figure.has_value());
+    if (!extra_figure) return;
+    const double extra = *extra_figure;
     const auto size = static_cast<std::size_t>(cfg.input_size());
     const int n = std::min(positions, data->positions);
     for (const SimdVariant variant : kVariants) {

@@ -47,6 +47,10 @@ std::vector<std::pair<std::string, std::vector<int>>> parameter_shapes(const Net
 }
 
 std::expected<Parameters, Error> Parameters::from_tensors(const NetworkConfig& config, std::vector<Tensor> tensors) {
+    // the ranges of make_config hold for every Parameters, not only the shapes (NetworkConfig is a plain aggregate)
+    if (const auto checked = make_config(config.channels, config.blocks, config.players, config.value_hidden, config.planes); !checked) {
+        return fail(checked.error().message);
+    }
     const auto expected = parameter_shapes(config);
     std::map<std::string, Tensor*> by_name;
     for (Tensor& t : tensors) by_name[t.name] = &t;

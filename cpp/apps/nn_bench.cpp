@@ -736,8 +736,14 @@ int main(int argc, char** argv) {
             std::cerr << "nn_bench: " << name << ": " << e.message << '\n';
             return 2;
         }
+        const auto extra_vector = extra_rel(*figures, "vector", *preset);
+        const auto extra_tornado = extra_rel(*figures, "tornado", *preset);
+        if (!extra_vector || !extra_tornado) {
+            std::cerr << "nn_bench: " << name << ": " << (!extra_vector ? extra_vector.error() : extra_tornado.error()).message << '\n';
+            return 2;
+        }
         presets.push_back(PresetData{name, name == "small" ? "small" : "large", name == "gen11" ? "gen11" : "u5", std::move(*weights), std::move(*data),
-                                     extra_rel(*figures, "vector", *preset), extra_rel(*figures, "tornado", *preset)});
+                                     *extra_vector, *extra_tornado});
     }
 
     if (opt.kernels) {

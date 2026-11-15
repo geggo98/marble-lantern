@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <sstream>
+#include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -100,18 +101,22 @@ std::expected<std::map<std::string, std::string>, golden::Error> load_figures(co
     return figures;
 }
 
-double extra_rel(const std::map<std::string, std::string>& figures, std::string_view impl, const Preset& preset) {
+std::expected<double, golden::Error> extra_rel(const std::map<std::string, std::string>& figures, std::string_view impl, const Preset& preset) {
     const std::array<std::string, 2> keys = {"extra_rel_of_max_logit." + std::string(impl) + "." + preset.key, "extra_rel_of_max_logit.vector." + preset.key};
     for (const std::string& key : keys) {
         const auto it = figures.find(key);
-        if (it != figures.end()) {
-            double v = 0;
-            const std::string& text = it->second;
-            std::istringstream(text) >> v;
-            return v;
+        if (it == figures.end()) continue;
+        const std::string& text = it->second;
+        // the whole text is one finite number in [0, kMaxExtraRel]; "0.25x", "", "nan", "-1" and "1e9" are a corrupt manifest
+        double v = 0;
+        std::istringstream in(text);
+        in >> std::noskipws >> v;
+        if (text.empty() || !in || in.peek() != std::char_traits<char>::eof() || !std::isfinite(v) || v < 0 || v > kMaxExtraRel) {
+            return corrupt("figure " + key + " in MANIFEST.tsv is not a number in [0, " + std::to_string(kMaxExtraRel) + "]: '" + text + "'");
         }
+        return v;
     }
-    return 0;
+    return 0.0;
 }
 
 std::expected<GoldenData, golden::Error> load_golden_data(const std::filesystem::path& dir, const Preset& preset) {
