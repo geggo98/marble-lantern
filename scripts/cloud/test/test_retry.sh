@@ -18,6 +18,14 @@ assert_contains "$(grep '^run ' "$STUB_LOG" | tail -1)" "--budget-usd 1.00" "fai
 assert_contains "$RETOUT" "cumulative cost of the cpp suite: 0.1000 USD" "summary: cumulative cost from cost.tsv"
 assert_contains "$RETOUT" "sh-20260101-000003-3" "summary names the run id"
 
+echo "interrupted runs (exit 4 with cost.tsv) reduce the budget of the next attempt:"
+rm -rf "$RES"/sh-*; : > "$STUB_LOG"; rm -f "$T/counter"
+printf '4\n4\n0\n' > "$CODES"; STUB_COST_ON_4=1 STUB_COST=0.30 run_retry "${RETRY_COMMON[@]}" "${RETRY_RUN[@]}"
+assert_eq "$RC" 0 "exit 0 after the third attempt"
+assert_contains "$(grep '^run ' "$STUB_LOG" | sed -n 2p)" "--budget-usd 0.70" "second attempt: 1.00 - 0.30"
+assert_contains "$(grep '^run ' "$STUB_LOG" | sed -n 3p)" "--budget-usd 0.40" "third attempt: 1.00 - 2 x 0.30"
+assert_contains "$RETOUT" "cumulative cost of the cpp suite: 0.9000 USD" "summary: the sum of all three runs"
+
 echo "the remaining cap is passed (rounded down):"
 rm -rf "$RES"/sh-*; : > "$STUB_LOG"; rm -f "$T/counter"; mkdir -p "$RES/sh-20251231-000000-1"
 printf 'cpp\t2026-01-01T00:00:00Z\t900\t0.30\t0.2049\t0.2625\n' > "$RES/sh-20251231-000000-1/cost.tsv"

@@ -211,6 +211,7 @@ def read_anchors(blocks):
     """{(program, preset): {'start': [v...], 'end': [v...]}} in the order of the blocks (round 1 C++, round 1 Java, round 2 ...)."""
     out = {}
     order = []
+    rounds = {}
     for b in blocks:
         m = re.match(r"^anchors-(start|end) round (\d): (C\+\+|Java)$", b["label"])
         if not m:
@@ -220,7 +221,12 @@ def read_anchors(blocks):
                 continue
             key = (program_of(r), r["preset"])
             out.setdefault(key, {"start": [], "end": []})[m.group(1)].append(r["eps"])
+            rounds.setdefault(key, {"start": [], "end": []})[m.group(1)].append(int(m.group(2)))
         order.append((m.group(1), int(m.group(2)), m.group(3)))
+    # the values of a program stand in the order of the round numbers, whatever the order of the blocks in the file
+    for key, d in out.items():
+        for when in ("start", "end"):
+            d[when] = [v for _, v in sorted(zip(rounds[key][when], d[when]), key=lambda t: t[0])]
     return out, order
 
 
@@ -401,6 +407,7 @@ class Booking:
         """C++ over Java from the adjacent pairs of the anchors (batch 256); the only valid source of a cross-language ratio"""
         combos = [("cpp:cuda-pinned", "java:tornado", True), ("cpp:simd", "java:vector", False)]
         self.pair_result = {}
+        self.pairs()   # every round must be there for C++ and Java
         for cprog, jprog, gpu in combos:
             for preset in ("small", "large"):
                 c = self.anch[(cprog, preset)]
@@ -619,7 +626,19 @@ def parse_goldenhash(text):
         c = line.split("\t")
         if len(c) == 4:
             rows.append(c)
+        elif line.strip():
+            raise BookingError("golden-hash.log: a line without four tab separated fields: %r" % line)
     return rows
+
+
+def golden_hash_lines(text):
+    """(must lines, info lines) of golden-hash.log; a must line that is not equal (DIFFERENT or MISSING) is refused"""
+    gh = parse_goldenhash(text)
+    must = [r for r in gh if r[3] == "must"]
+    info = [r for r in gh if r[3] == "info"]
+    if any(r[2] != "equal" for r in must):
+        raise BookingError("golden-hash.log: a must line that is not equal")
+    return must, info
 
 
 def read(path):
@@ -748,11 +767,7 @@ def correctness_section(res, P):
     if len(hashes) != 3 or len(set(hashes)) != 1:
         raise BookingError("real-weights.txt: the SHA-256 before the upload, after the upload and after the run are not three equal values")
     P("  gen11 is the real LARGE weights (uploaded; SHA-256 before the upload, after the upload and after the run equal: %s...). Only nn_check ran on gen11, no throughput rows." % hashes[0][:8])
-    gh = parse_goldenhash(read(os.path.join(res, "golden-hash.log")))
-    must = [r for r in gh if r[3] == "must"]
-    info = [r for r in gh if r[3] == "info"]
-    if any(r[2] != "equal" for r in must):
-        raise BookingError("golden-hash.log: a must line that is not equal")
+    must, info = golden_hash_lines(read(os.path.join(res, "golden-hash.log")))
     P("  golden hash: %d 'must' lines (weights, inputs, cases) are equal to the Mac hashes; %d 'info' lines: %s." % (
         len(must), len(info), "; ".join("%s %s" % (r[0].replace(".safetensors", ""), r[2]) for r in info)))
     P("    The two DIFFERENT lines are the Java reference OUTPUTS (nn-ref-small/large-u5) as the JVM on this instance computed them. Weights, inputs and cases are bit-equal, so the")

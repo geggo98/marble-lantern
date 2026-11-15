@@ -38,6 +38,10 @@ case "$*" in
     mkdir -p "$out"
     for f in nn-weights-small-u5 nn-weights-large-u5 nn-inputs nn-cases; do echo "$f" > "$out/$f.safetensors"; done
     for f in nn-ref-small-u5 nn-ref-large-u5; do echo "ref $RANDOM" > "$out/$f.safetensors"; done
+    case "${STUB_GOLDEN:-}" in
+      weights) echo "changed" > "$out/nn-weights-small-u5.safetensors" ;;
+      noinputs) rm -f "$out/nn-inputs.safetensors" ;;
+    esac
     case "$*" in *golden.real=true*) echo "gen11 ref" > "$out/nn-ref-large-gen11.safetensors"; echo "data dir: $STERNHALMA_DATA_DIR" >> "$STUB_LOG" ;; esac ;;
   *gpuFeed*) echo "feed row" ;;
 esac
@@ -113,6 +117,7 @@ assert_contains "$(cat "$W/results/nvcc-version.txt")" "release 13.0" "nvcc-vers
 assert_contains "$(cat "$W/results/toolchain.txt")" "compute-sanitizer: $BIN/compute-sanitizer" "toolchain.txt names the sanitizer"
 assert_contains "$(cat "$W/results/toolchain.txt")" "compute_75" "toolchain.txt lists the GPU architectures"
 assert_contains "$(cat "$W/results/golden-sha256.txt")" "equal" "golden hashes compared"
+assert_contains "$(cat "$W/results/golden-sha256.txt")" "$(printf 'DIFFERENT\tinfo')" "an info file that differs is recorded as DIFFERENT"
 # the anchors: C++, Java, C++, Java
 order=$(grep -E '^#' "$W/results/anchors.tsv" | perl -ne 'print "$1 " if /anchors-start round \d: (\w+\+*)/' | tr -d '\n')
 assert_eq "$order" "C++ Java C++ Java " "anchors-start: C++, Java, C++, Java"
@@ -227,6 +232,16 @@ assert_eq "$(printf '%s\n' "$rw" | grep -c "$SHA")" 3 "real-weights.txt: the has
 assert_not_contains "$rw" "weights.bin" "and no file name"
 assert_not_contains "$(ls -R "$W/results")" "candidate" "the weights are not in the results directory"
 assert_contains "$(cat "$W/results/golden-sha256.txt")" "nn-ref-large-gen11" "the gen11 reference hash is recorded"
+
+echo "golden hash: a must file that differs fails the step (the run goes on):"
+STUB_GOLDEN=weights run_boot --suite cpp
+assert_contains "$SUMMARY" "golden-hash: FAIL" "the golden-hash step failed"
+assert_contains "$(cat "$W/results/golden-sha256.txt")" "$(printf 'DIFFERENT\tmust')" "the file records DIFFERENT for the must line"
+assert_contains "$SUMMARY" "gpufeed-large: OK" "the run went on"
+echo "golden hash: a missing must file fails the step with four columns:"
+STUB_GOLDEN=noinputs run_boot --suite cpp
+assert_contains "$SUMMARY" "golden-hash: FAIL" "the golden-hash step failed"
+assert_contains "$(cat "$W/results/golden-sha256.txt")" "$(printf 'nn-inputs.safetensors\t-\tMISSING\tmust')" "MISSING is a four-column line (book-aws reads four columns)"
 
 echo "real weights with a wrong hash: not used, the run goes on:"
 run_boot_w "$T/weights.bin" --suite cpp --real-weights-sha256 "$(printf '%064d' 7)"

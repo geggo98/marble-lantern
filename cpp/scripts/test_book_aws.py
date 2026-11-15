@@ -198,13 +198,66 @@ class Aggregation(unittest.TestCase):
         with self.assertRaises(ba.BookingError):
             ba.Booking(blocks, [], ablocks)
 
+    @staticmethod
+    def booking_with_anchors(c_pinned, j_tornado, drop=(), swap_cpp_round_one_and_two=False):
+        """a Booking whose anchors hold small and large rows of the four programs; values per run in the order start 1, start 2, end 1, end 2"""
+        order = [("start", 1), ("start", 2), ("end", 1), ("end", 2)]
+        vals = {}
+        for i, (w, r) in enumerate(order):
+            vals[(w, r, "C++")] = {(impl, pre): v for pre in ("small", "large")
+                                   for impl, v in (("cuda-pinned", c_pinned[i]), ("simd", 1000.0))}
+            vals[(w, r, "Java")] = {(impl, pre): v for pre in ("small", "large")
+                                    for impl, v in (("tornado", j_tornado[i]), ("vector", 1000.0))}
+        keys = [k for k in vals if k not in drop]
+        if swap_cpp_round_one_and_two:
+            keys.sort(key=lambda k: (k[0] != "start", -k[1], k[2] != "C++"))
+        text = anchor_text({k: vals[k] for k in keys})
+        main = ba.parse_blocks("# hardened, l8: S\n# golden manifest checked; presets small, batches 256, impls cuda-pinned, variant auto\n" + row("cpp", "cuda-pinned", "small", 256, 100.0) +
+                               "\n# hardened, l16: S\n# golden manifest checked; presets small, batches 256, impls cuda-pinned, variant auto\n" + row("cpp", "cuda-pinned", "small", 256, 100.0) + "\n",
+                               r"^# (hardened|unchecked), ")
+        java = ba.parse_blocks("# vector and tornado\n# golden cpu [small], batches [256], impls [tornado]\n" + row("java", "tornado", "small", 256, 100.0) + "\n",
+                               r"^# (vector and tornado|cold start)$")
+        return ba.Booking(main, java, ba.parse_blocks(text, r"^# anchors-(start|end) round \d: "))
+
     def test_the_four_pairs_are_the_adjacent_runs_of_a_round(self):
         # C++ values per run 100, 100, 100, 100; Java 50, 50, 100, 200: the ratio per pair is 2, 2, 1, 0.5 in the order of the runs
-        anch, order = anchors_from([100, 100, 100, 100], [50, 50, 100, 200])
-        c = anch[("cpp:cuda-pinned", "small")]
-        j = anch[("java:tornado", "small")]
-        ratios = [a / b for a, b in zip(c["start"] + c["end"], j["start"] + j["end"])]
+        bk = self.booking_with_anchors([100, 100, 100, 100], [50, 50, 100, 200])
+        bk.pair_ratios()
+        med, lo, hi, st, verdict, ratios = bk.pair_result[("cpp:cuda-pinned / java:tornado", "small")]
         self.assertEqual(ratios, [2.0, 2.0, 1.0, 0.5])
+        self.assertEqual((med, lo, hi), (1.5, 0.5, 2.0))
+        self.assertEqual(bk.pair_result[("cpp:simd-l16 / java:vector", "large")][5], [1.0] * 4)
+        rows = [r for r in bk.rows if r[0] == "ratio" and r[1] == "cpp:cuda-pinned / java:tornado" and r[2] == "SMALL u5"]
+        self.assertEqual([(r[4], r[5], r[6], r[7]) for r in rows], [("cpp_over_java", "1.5", "0.5", "2")])
+
+    def test_the_pairs_follow_the_round_numbers_not_the_order_of_the_blocks(self):
+        # negative twin: the blocks of round 2 stand before those of round 1 in anchors.tsv; the pairing must still be by round
+        bk = self.booking_with_anchors([100, 200, 100, 200], [50, 50, 100, 100], swap_cpp_round_one_and_two=True)
+        bk.pair_ratios()
+        self.assertEqual(bk.pair_result[("cpp:cuda-pinned / java:tornado", "small")][5], [2.0, 4.0, 1.0, 2.0])
+
+    def test_a_round_missing_on_one_side_is_refused(self):
+        with self.assertRaises(ba.BookingError):
+            bk = self.booking_with_anchors([100] * 4, [100] * 4, drop=[("end", 2, "Java")])
+            bk.pair_ratios()
+
+
+class GoldenHash(unittest.TestCase):
+    def test_all_must_lines_equal_passes(self):
+        must, info = ba.golden_hash_lines("a.safetensors\t" + "0" * 64 + "\tequal\tmust\nr.safetensors\t" + "1" * 64 + "\tDIFFERENT\tinfo\n")
+        self.assertEqual((len(must), len(info)), (1, 1))
+
+    def test_a_must_line_that_differs_is_refused(self):
+        with self.assertRaises(ba.BookingError):
+            ba.golden_hash_lines("a.safetensors\t" + "0" * 64 + "\tDIFFERENT\tmust\n")
+
+    def test_a_missing_must_file_is_refused(self):
+        with self.assertRaises(ba.BookingError):
+            ba.golden_hash_lines("a.safetensors\t-\tMISSING\tmust\n")
+
+    def test_the_old_three_column_missing_line_is_refused_not_dropped(self):
+        with self.assertRaises(ba.BookingError):
+            ba.golden_hash_lines("a.safetensors\tMISSING\tmust\n")
 
 
 CROSS_RE = r"^# (vector and tornado|cold start( round \d+: .*)?)$"

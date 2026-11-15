@@ -126,6 +126,7 @@ run_spot() {
 # "run" call, taken from the top; empty = 0). Stub behaviour through files and variables:
 #   $T/pre-<region>   exit code of the pre-flight of that region (default 0)
 #   STUB_COST=<usd>   a run that did not end with 4 writes cloud-results/<run id>/cost.tsv with that estimate
+#   STUB_COST_ON_4=1  a run that ended with 4 (interrupted after the launch) writes cost.tsv as well
 #   STUB_HANG=1       "run" waits for $T/release; on SIGTERM it writes $T/cleanup-ran and exits 143
 make_retry_sandbox() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/retrytest.XXXXXX")
@@ -152,7 +153,7 @@ if [ -n "${STUB_HANG:-}" ]; then
 fi
 rc=$(head -1 "$CODES" 2>/dev/null); rc=${rc:-0}
 [ -s "$CODES" ] && tail -n +2 "$CODES" > "$CODES.n" && mv "$CODES.n" "$CODES"
-if [ "$rc" != 4 ] && [ -n "${STUB_COST:-}" ]; then
+if { [ "$rc" != 4 ] || [ -n "${STUB_COST_ON_4:-}" ]; } && [ -n "${STUB_COST:-}" ]; then
   mkdir -p "$RESULTS_DIR/$id"
   printf 'cpp\t2026-01-01T00:00:00Z\t100\t0.30\t%s\t0.2625\n' "$STUB_COST" > "$RESULTS_DIR/$id/cost.tsv"
 fi

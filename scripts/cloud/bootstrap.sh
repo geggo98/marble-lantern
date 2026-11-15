@@ -392,7 +392,7 @@ cpp_golden_hash() {
   while IFS=$'\t' read -r name sha kind; do
     case $name in ''|'#'*) continue ;; esac
     if [ ! -f "$SRC/$GOLDEN_DIR_REL/$name" ]; then
-      printf '%s\tMISSING\t%s\n' "$name" "$kind" >> "$out"; [ "$kind" = must ] && status=1; continue
+      printf '%s\t-\tMISSING\t%s\n' "$name" "$kind" >> "$out"; [ "$kind" = must ] && status=1; continue
     fi
     actual=$(sha256_of "$SRC/$GOLDEN_DIR_REL/$name")
     if [ "$actual" = "$sha" ]; then printf '%s\t%s\tequal\t%s\n' "$name" "$actual" "$kind" >> "$out"
