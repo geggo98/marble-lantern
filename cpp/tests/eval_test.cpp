@@ -6,9 +6,13 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,11 +21,16 @@
 #include "geometry.hpp"
 #include "golden.hpp"
 #include "golden_test_support.hpp"
+#include "incremental_linear.hpp"
+#include "jump_graph.hpp"
 #include "layout.hpp"
 #include "linear_eval.hpp"
 #include "linear_weights.hpp"
 #include "position.hpp"
+#include "race_adjudication.hpp"
+#include "race_eval.hpp"
 #include "rules.hpp"
+#include "verifying_eval_state.hpp"
 
 using namespace sh;
 
@@ -56,6 +65,9 @@ struct GoldenPosition {
     bool final_position = false;  // the golden file has "-" instead of the values
     int r1 = 0;
     int r3 = 0;
+    int race = 0;          // racelin1-r3
+    bool fut1 = false;     // futilitySafe(racelin1-r3, depth 1)
+    bool fut2 = false;     // futilitySafe(racelin1-r3, depth 2)
 };
 
 std::vector<GoldenPosition> golden_positions(const std::vector<std::string>& lines) {
@@ -65,7 +77,8 @@ std::vector<GoldenPosition> golden_positions(const std::vector<std::string>& lin
         const auto row = split(l, '\t');
         const bool final_position = row[7] == "-";
         out.push_back({static_cast<int>(to_i64(row[0])), int_list(row[4]), final_position, final_position ? 0 : static_cast<int>(to_i64(row[7])),
-                       final_position ? 0 : static_cast<int>(to_i64(row[8]))});
+                       final_position ? 0 : static_cast<int>(to_i64(row[8])),
+                       final_position ? 0 : static_cast<int>(to_i64(row[9])), !final_position && row[10] == "1", !final_position && row[11] == "1"});
     }
     return out;
 }
@@ -349,6 +362,262 @@ SH_TEST(score_rounds_like_java) {
     CHECK_EQ(e.score(f, 0.0), 0);
     f[0] = 4294967296.0 + 5.0;  // (int) of the long 2^32 + 5 keeps the low 32 bits in Java
     CHECK_EQ(e.score(f, 0.0), 5);
+}
+
+// ---- WP4b: jump graph, incremental state, race evaluator ----
+
+std::shared_ptr<const RaceTable> rows1_or_skip() {
+    const auto& table = RaceEvaluator::rows1_table();
+    if (table) return *table;
+    const std::string message = "rows1 table: " + table.error().message;
+    if (!golden::required()) {
+        ::sh::test::skip(message);
+    } else {
+        ::sh::test::count_check();
+        ::sh::test::fail("race table", 0, message);
+    }
+    return nullptr;
+}
+
+// The pieces of player p as packed keys, falling, as the incremental state keeps them.
+std::vector<int> falling_keys(const Position& pos, int p) {
+    const Layout& layout = Layout::two_players();
+    std::vector<int> keys;
+    for (const int c : pos.pieces(p)) keys.push_back(layout.distance(p, c) << 8 | c);
+    std::sort(keys.begin(), keys.end(), std::greater<>());
+    return keys;
+}
+
+// Walks every move list of positions.tsv with a VerifyingEvalState (incremental against full evaluation at every make and every
+// unmake, the sums, the piece order, the jump graph and the owner array against the position), then takes the whole list back.
+// Along the way every seventh position tries one child and takes it back. Returns the number of evaluations compared.
+long long walk_move_lists(const std::vector<GoldenPosition>& rows, Evaluator& evaluator, int stride) {
+    long long compared = 0;
+    std::array<int, kMaxMoves> buffer{};
+    for (std::size_t r = 0; r < rows.size(); r += static_cast<std::size_t>(stride)) {
+        const GoldenPosition& row = rows[r];
+        Position pos = Position::initial(RuleSet::defaults());
+        std::unique_ptr<EvalState> inner = evaluator.incremental();
+        CHECK(inner != nullptr);
+        if (!inner) return compared;
+        VerifyingEvalState state(evaluator, std::move(inner));
+        try {
+            CHECK(state.reset(pos));
+            state.evaluate(pos);
+            int step = 0;
+            for (const int m : row.moves) {
+                if (step % 7 == 3 && !pos.outcome()) {
+                    const int n = pos.generate(buffer);
+                    const int child = buffer[static_cast<std::size_t>((step / 7) % n)];
+                    pos.make(child);
+                    state.make(pos, child);
+                    state.evaluate(pos);
+                    pos.unmake();
+                    state.unmake(pos);
+                    state.evaluate(pos);
+                }
+                pos.make(m);
+                state.make(pos, m);
+                state.evaluate(pos);
+                ++step;
+            }
+            for (int i = 0; i < step; ++i) {
+                pos.unmake();
+                state.unmake(pos);
+                state.evaluate(pos);
+            }
+            compared += state.evaluations();
+        } catch (const std::exception& e) {
+            ::sh::test::fail(__FILE__, __LINE__, "position " + std::to_string(row.index) + ": " + e.what());
+            return compared;
+        }
+    }
+    return compared;
+}
+
+// An incremental state that adds one to every value: the verifying wrapper must notice.
+class OffByOneState final : public EvalState {
+public:
+    explicit OffByOneState(std::unique_ptr<EvalState> inner) : inner_(std::move(inner)) {}
+    bool reset(const Position& root) override { return inner_->reset(root); }
+    void make(const Position& position, int move) override { inner_->make(position, move); }
+    void unmake(const Position& position) override { inner_->unmake(position); }
+    int evaluate(const Position& position) override { return inner_->evaluate(position) + 1; }
+
+private:
+    std::unique_ptr<EvalState> inner_;
+};
+
+SH_TEST(jump_graph_gain_matches_the_reference_search) {
+    const auto lines = golden::lines_or_skip("positions.tsv");
+    if (!lines) return;
+    int positions = 0;
+    int bad = 0;
+    JumpGraph graph;
+    for_each_position(golden_positions(*lines), [&](const Position& pos, const GoldenPosition*) {
+        graph.clear();
+        for (int c = 0; c < kCells; ++c) {
+            if (pos.owner(c) >= 0) graph.toggle(c);
+        }
+        CHECK(graph.matches(pos));
+        graph.begin();
+        for (int p = 0; p < 2; ++p) {
+            const int got = graph.best_gain(p, falling_keys(pos, p));
+            const int want = ref_best_gain(pos, p);
+            if (got != want && bad++ < 5) ::sh::test::fail(__FILE__, __LINE__, "gain of player " + std::to_string(p) + ": " + std::to_string(got) + " instead of " + std::to_string(want));
+        }
+        // flipping a cell twice restores the graph
+        const int c = pos.piece_cell(0, 0);
+        graph.toggle(c);
+        CHECK(!graph.matches(pos));
+        graph.toggle(c);
+        CHECK(graph.matches(pos));
+        ++positions;
+    });
+    CHECK(positions > 10000);
+    CHECK_EQ(bad, 0);
+}
+
+SH_TEST(passed_by_piece_lists_equals_the_board_scan) {
+    const auto lines = golden::lines_or_skip("positions.tsv");
+    if (!lines) return;
+    int positions = 0;
+    int passed = 0;
+    int bad = 0;
+    for_each_position(golden_positions(*lines), [&](const Position& pos, const GoldenPosition*) {
+        const bool scan = RaceAdjudication::passed(pos);
+        if (scan != RaceEvaluator::passed(pos) && bad++ < 5) ::sh::test::fail(__FILE__, __LINE__, "passed differs");
+        passed += scan;
+        ++positions;
+    });
+    std::cout << passed << " of " << positions << " positions are passed\n";
+    CHECK(passed > 100);  // both outcomes are exercised
+    CHECK(passed < positions);
+    CHECK_EQ(bad, 0);
+    CHECK(RaceAdjudication::applicable(RuleSet::defaults()));
+    CHECK(!RaceAdjudication::passed(Position::initial(RuleSet::defaults())));
+}
+
+SH_TEST(race_score_follows_the_conversion_rule) {
+    CHECK_EQ(RaceEvaluator::race_score(3, 5, 100), 5000 + 200 * 2);   // the side to move is ahead
+    CHECK_EQ(RaceEvaluator::race_score(4, 4, 100), 5000);              // equal counts: the side to move wins
+    CHECK_EQ(RaceEvaluator::race_score(5, 3, 100), -(5000 + 200 * 1)); // the opponent is ahead by two
+    CHECK_EQ(RaceEvaluator::race_score(4, 3, 100), -5000);             // the opponent wins by the tempo
+    CHECK_EQ(RaceEvaluator::race_score(3, 5, 5), 5000 + 200 * 2);      // 2a - 1 == plies left: still in time
+    CHECK_EQ(RaceEvaluator::race_score(3, 5, 4), RaceEvaluator::kUndecided);
+    CHECK_EQ(RaceEvaluator::race_score(5, 3, 6), -(5000 + 200 * 1));   // 2b == plies left
+    CHECK_EQ(RaceEvaluator::race_score(5, 3, 5), RaceEvaluator::kUndecided);
+}
+
+SH_TEST(race_values_and_futility_match_golden_bit_for_bit) {
+    const auto lines = golden::lines_or_skip("positions.tsv");
+    if (!lines) return;
+    const std::shared_ptr<const RaceTable> table = rows1_or_skip();
+    if (!table) return;
+    const auto rows = golden_positions(*lines);
+    CHECK_EQ(static_cast<int>(rows.size()), 2000);
+    const std::unique_ptr<RaceEvaluator> race = RaceEvaluator::racelin1_r3(table);
+    int differences = 0;
+    int compared = 0;
+    int finals = 0;
+    int race_values = 0;
+    int unsafe = 0;
+    for (const GoldenPosition& row : rows) {
+        Position pos = Position::initial(RuleSet::defaults());
+        CHECK(replay(pos, row.moves));
+        if (row.final_position) {
+            ++finals;
+            continue;
+        }
+        const int value = race->evaluate(pos);
+        const bool f1 = race->futility_safe(pos, 1);
+        const bool f2 = race->futility_safe(pos, 2);
+        compared += 3;
+        race_values += std::abs(value) >= RaceEvaluator::kRaceBase;
+        unsafe += !f1;
+        if (value != row.race || f1 != row.fut1 || f2 != row.fut2) {
+            if (differences++ < 5) {
+                ::sh::test::fail(__FILE__, __LINE__, "position " + std::to_string(row.index) + ": racelin1-r3 " + std::to_string(value) + " (golden " + std::to_string(row.race) +
+                                                         "), futility " + std::to_string(f1) + std::to_string(f2) + " (golden " + std::to_string(row.fut1) + std::to_string(row.fut2) + ")");
+            }
+        }
+    }
+    CHECK_EQ(compared + 3 * finals, 6000);
+    std::cout << "compared " << compared << " values bit for bit (" << finals << " final positions without a value), " << race_values
+              << " race values, " << unsafe << " positions unsafe at depth 1\n";
+    CHECK(race_values > 100);  // the race band is exercised
+    CHECK(unsafe > 100 && unsafe < compared / 3);
+    CHECK_EQ(differences, 0);
+}
+
+SH_TEST(race_evaluator_without_a_table_is_its_base) {
+    RaceEvaluator plain(std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r3()), nullptr);
+    LinearEvaluator base = LinearEvaluator::linear_r3();
+    Position pos = Position::initial(RuleSet::defaults());
+    CHECK_EQ(plain.evaluate(pos), base.evaluate(pos));
+    CHECK(plain.futility_safe(pos, 3));
+    CHECK(plain.table() == nullptr);
+    CHECK(plain.incremental() != nullptr);
+}
+
+SH_TEST(incremental_state_equals_full_evaluation_along_every_move_list) {
+    const auto lines = golden::lines_or_skip("positions.tsv");
+    if (!lines) return;
+    const auto rows = golden_positions(*lines);
+    LinearEvaluator r1 = LinearEvaluator::linear_r1();
+    LinearEvaluator r3 = LinearEvaluator::linear_r3();
+    const long long n1 = walk_move_lists(rows, r1, 1);
+    const long long n3 = walk_move_lists(rows, r3, 1);
+    std::cout << "incremental walk: " << n1 << " (linear-r1) and " << n3 << " (linear-r3) evaluations compared\n";
+    CHECK(n1 > 100000);
+    CHECK(n3 > 100000);
+}
+
+SH_TEST(incremental_state_of_the_race_evaluator_equals_full_evaluation_along_every_move_list) {
+    const auto lines = golden::lines_or_skip("positions.tsv");
+    if (!lines) return;
+    const std::shared_ptr<const RaceTable> table = rows1_or_skip();
+    if (!table) return;
+    const std::unique_ptr<RaceEvaluator> race = RaceEvaluator::racelin1_r3(table);
+    const long long n = walk_move_lists(golden_positions(*lines), *race, 1);
+    std::cout << "incremental walk: " << n << " (racelin1-r3) evaluations compared\n";
+    CHECK(n > 100000);
+}
+
+SH_TEST(verifying_state_notices_a_wrong_value_and_a_wrong_sum) {
+    LinearEvaluator r3 = LinearEvaluator::linear_r3();
+    Position pos = Position::initial(RuleSet::defaults());
+    // a state whose values are off by one: the first evaluate throws
+    VerifyingEvalState broken(r3, std::make_unique<OffByOneState>(r3.incremental()));
+    CHECK(broken.reset(pos));
+    bool thrown = false;
+    try {
+        broken.evaluate(pos);
+    } catch (const std::logic_error&) {
+        thrown = true;
+    }
+    CHECK(thrown);
+    // a state that was not told about a move: verify finds the sums and the owner array stale
+    std::unique_ptr<EvalState> state = r3.incremental();
+    CHECK(state->reset(pos));
+    std::array<int, kMaxMoves> buffer{};
+    const int n = pos.generate(buffer);
+    CHECK(n > 0);
+    state->verify(pos);  // consistent so far
+    pos.make(buffer[0]);
+    thrown = false;
+    try {
+        state->verify(pos);
+    } catch (const std::logic_error&) {
+        thrown = true;
+    }
+    CHECK(thrown);
+    // the state refuses nothing for a legal two-player position, and a counted unmake restores it
+    state->make(pos, buffer[0]);
+    state->verify(pos);
+    pos.unmake();
+    state->unmake(pos);
+    state->verify(pos);
 }
 
 int main() { return sh::test::run_all(); }
