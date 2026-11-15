@@ -68,8 +68,11 @@ sub env_patterns {
 sub scan_line {
     my ($line, $pats) = @_;
     my @hits;
+    # A 12-digit run inside a long hexadecimal token (a SHA-256 or SHA-1 digest) is not an account id.
+    (my $no_digest = $line) =~ s/(?<![0-9A-Za-z])[0-9a-f]{32,}(?![0-9A-Za-z])/DIGEST/g;
     for my $p (@$pats) {
-        push @hits, $p->[0] if $line =~ $p->[1];
+        my $text = $p->[0] eq 'account id' ? $no_digest : $line;
+        push @hits, $p->[0] if $text =~ $p->[1];
     }
     return @hits;
 }
@@ -99,7 +102,8 @@ if (@ARGV == 1 and $ARGV[0] eq '--self-test') {
         }
     }
     # Negative controls: ordinary content must stay clean (a scanner that flags everything is no scanner either).
-    for my $clean ('nodes 4852147404152522458 checksum', 'version 1.2.3 of the tool', 'int x = a[3] + 42;') {
+    for my $clean ('nodes 4852147404152522458 checksum', 'version 1.2.3 of the tool', 'int x = a[3] + 42;',
+                    'sha ' . 'ed67747106' . '17eb70b2b8325d78f4d32afcf93e72eaedaf5076' . '08257238' . 'c69dae' . ' must') {
         my @hits = scan_line($clean, \@patterns);
         if (@hits) { print "self-test FAIL: clean line flagged as @hits: $clean\n"; $failed++ }
         else { print "self-test ok:   clean line stays clean\n" }

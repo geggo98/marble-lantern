@@ -32,6 +32,129 @@ export STERNHALMA_GOLDEN_REQUIRED=1                                  # a missing
 `git lfs pull` in each worktree, then check `shasum -a 256 tablebase/tables/rows1.bin tablebase/tables/rows2.bin` against the
 constants of WP3 (`85850d6f...` and `d62edf38...`).
 
+## Merging the tracks into `exp/cpp` (WP14)
+
+The worktree of branch `exp/cpp`. The tracks touch disjoint files (checked: no file in the change list of both
+branches since the common base), so the merges give no conflict unless `exp/cpp` itself changed a file that a track also changes.
+`exp/cpp` changed these shared files in WP14: `cpp/src/core/golden.cpp`, `cpp/src/nn/golden_io.cpp`, `cpp/src/nn/simd_net.cpp`,
+`cpp/tests/nn_test.cpp`, `cpp/scripts/build-cuda.sh` (GCC 12.3 warnings and the `SH_EXTRA_CXXFLAGS` hook, see "Ubuntu 22.04
+container build") and `cpp/expected-golden-sha256.tsv` (new). If WP13 on `exp/cpp-nn` touches the same lines, resolve in favour
+of the version that builds with g++ 12.3 (the container script proves it).
+
+| Order | Merge | State |
+|---|---|---|
+| 1 | `exp/cpp-nn` (WP8 to WP12, branch tip `c0eeea9`), merge commit `48646af` | done in WP14 |
+| 2 | `exp/cpp-classical` (WP1 to WP5 and the `search_bench` code of WP7, branch tip `5bc9dda`), merge commit `3551a0d` | done in WP14 |
+| 3 | `exp/cpp-classical` again, after WP7 (measurement) and WP6 (race play) | to do by the lead; WP13 on `exp/cpp-nn` is merged the same way before WP15 |
+
+Repeat a merge (nothing is lost by a merge commit; `--no-ff` keeps one commit per track and merge):
+
+```sh
+cd <worktree of exp/cpp>                               # clean
+git merge --no-ff exp/cpp-classical -m "Merge branch 'exp/cpp-classical' into exp/cpp"
+git merge --no-ff exp/cpp-nn        -m "Merge branch 'exp/cpp-nn' into exp/cpp"        # when WP13 is committed there
+cd cpp && export STERNHALMA_GOLDEN_DIR=<a golden directory with every export> STERNHALMA_DATA_DIR=<data dir> STERNHALMA_TABLE_DIR=<table dir>
+cmake --preset debug-asan && cmake --build --preset debug-asan && ctest --preset debug-asan       # gate: all tests pass
+scripts/check-rules.sh && scripts/build-ubuntu-container.sh --platform linux/amd64                 # rules and g++ 12.3
+../scripts/cloud/test/run-all.sh                                                                   # stub tests of the AWS scripts
+```
+
+Check before the merge that the golden files exist for both tracks: the nn track exports `nn-*` files and `MANIFEST.tsv`, the
+classical track exports the engine and search files; the exporters keep each other's `MANIFEST.tsv` lines. The merged
+`ctest` of 2026-11-15 (10 of 10 tests, `debug-asan`) used the golden directory of the nn worktree, which holds every file.
+
+## AWS scripts of WP14 (`scripts/cloud/`)
+
+All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, no account, no network). Nothing here ran against AWS.
+
+- **`bootstrap.sh --suite default|cpp`.** `cpp` needs `--backend cuda`. Order: apt, source, GPU driver check, `cpp-toolchain` (g++-12, nvcc
+  through `find_nvcc`, compute-sanitizer, nvidia-smi; writes `nvcc-version.txt`, `toolchain.txt`), `cpp-build` (`build-cuda.sh`),
+  `cpp-cuda-test`, **gate**, `cpp-sanitizer` (SKIP if the tool is missing, FAIL if it reports errors, the run goes on), JDK,
+  TornadoVM, `build`, `print-run-command`, `golden`, `golden-hash`, `cpp-check`, `anchors-start`, `cpp-bench`, `java-crossbench`,
+  `anchors-end`, `gpufeed-small`, `gpufeed-large`. The gate stops the run after a failed toolchain, build or CUDA test: `summary.txt`
+  gets `gate: STOP after the failure of <step>`, the machine shuts down after 2 minutes (the caller fetches at once), exit 1.
+- **`golden-hash`** compares weights, inputs and cases (`must`) of the instance's export with `cpp/expected-golden-sha256.tsv`
+  (generated from the Mac manifest) and records the reference outputs (`info`) in `golden-sha256.txt`. WP13 may replace the file
+  (same columns: file, sha256, `must|info`).
+- **WP13 dependency.** `nn_bench` is still the skeleton of WP0 (exit 64), so the steps `anchors-*` and `cpp-bench` end `FAIL` until
+  WP13 lands. The arguments are the ones of the plan (`--golden --presets --batches --impls --anchors --kernels --cold`); they are
+  in `cpp_anchors` and `cpp_bench` of `bootstrap.sh` and are the only place to adjust if WP13 names an option differently. The Java
+  rows run through the command line that `printRunCommand` wrote (`cpp/build/java-nn.cmd`).
+- **`aws-spot.sh`:** `--suite` (validated, in the user data), `cost.tsv` (provisional line at the launch, final line at the end and
+  in the exit trap; fields: suite, launched, seconds, price_usd_per_h, estimate_usd, worst_case_usd; `suite.txt` next to it),
+  exit 4 for no capacity or no quota (`InsufficientInstanceCapacity`, `MaxSpotInstanceCountExceeded`, `VcpuLimitExceeded`,
+  `SpotMaxPriceTooLow`; the cleanup still runs), AMI by name when the SSM parameter cannot be read (the id is printed, not stored),
+  `--real-weights FILE`.
+- **`spot-retry.py`** (uv header, `exclude-newer` set, `spot-retry.py.lock`; the tests run it with `python3 -I`, stdlib only):
+  pre-flight per region (exit 3 drops the region), retries only on exit 4 and rotates the regions, cumulative cap from the `cost.tsv`
+  files of the suite (a run directory of the suite without `cost.tsv` counts with the worst case), `--detach` (fork and setsid; the
+  lock is inherited, so there is no race), `flock` lock with exit 75, `--status` (exit 75 while running, `not running` and 0 otherwise),
+  SIGTERM forwarded to `aws-spot.sh` (cleanup runs), summary, exit codes 0, 1, 2, 3, 4, 5, 75, 130, 143.
+  Deviations from the plan text: the output goes to the log file directly (dup2 after the fork) instead of through `+errlog`;
+  `--on-demand-price` (default 0.53 USD per hour) is the price used for the budget check of on-demand attempts; `--status` exits 75
+  while a run holds the lock (the rule of the project's long-running scripts).
+  The owner allowed on-demand, so the command of the plan can take `--on-demand-after K` (for example 4): attempts after K spot attempts
+  use `--on-demand`, inside the same cumulative cap of 1 USD.
+
+```sh
+export AWS_PROFILE=... AWS_REGION=...        # from the environment, never in the repository
+scripts/cloud/spot-retry.py --detach --regions us-east-1,eu-central-1 --attempts 6 --wait 300 --budget-usd 1.00 --suite cpp \
+  [--on-demand-after 4] -- --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --backend cuda --feed-seconds 30 --yes \
+  [--real-weights data/loop4/gen-0011/candidate.safetensors]
+scripts/cloud/spot-retry.py --status
+```
+
+### Real LARGE weights on the instance (`--real-weights`)
+
+The owner allowed the upload of `data/loop4/gen-0011/candidate.safetensors` (1.3 MB) to the short-lived instance. Without the switch
+only the generated u5 weights are used. With it:
+
+1. `aws-spot.sh` checks the file (a regular file, name ends in `.safetensors`, 1 byte to 16 MiB), computes its SHA-256 and puts it
+   in the user data (`--real-weights-sha256`). The file name and path are not written anywhere.
+2. It uploads the file next to the tarball, runs `sha256sum` on the instance and stops the run (cleanup as usual) if the hash
+   differs. `cloud-results/<run id>/real-weights.sha256` holds both hashes.
+3. `bootstrap.sh` checks it again (`real-weights` step), copies it to `<workdir>/real-data/loop4/gen-0011/`, runs
+   `:nn:goldenExport -Psternhalma.golden.real=true` with `STERNHALMA_DATA_DIR` set to that directory (the Java reference outputs for the
+   real weights come from the Java code on the instance), and `cpp-check` runs `nn_check` for `--preset gen11` with `cuda`, `simd` and
+   `simd-nofma`. `results/real-weights.txt` records the hash before the upload, after the upload and after the run.
+4. The weights stay on the instance (it is terminated at the end); the results directory has the hashes and the reference output
+   file's hash, never the weights. The file never goes into the repository.
+
+## Ubuntu 22.04 container build
+
+`scripts/build-ubuntu-container.sh [--platform linux/arm64|linux/amd64]` builds and tests the Linux part in an `ubuntu:22.04`
+container (OrbStack) with the same `g++-12` as the instance. The worktree, the golden files and the data directory (real weights, local
+only) are mounted read-only; the build is in the container (`container-inner.sh` is the script that runs there). It is free and **does
+not replace the AWS run**: there is no nvcc and no CUDA device, so `cuda_net.cu` and the real device kernels are not compiled or run.
+It closes the gap "does the code build with g++ 12.3 under `-Werror`?".
+
+Run on 2026-11-15 on the Apple M3 Max (OrbStack, Docker 29.8.2): the compiler is `g++-12 (Ubuntu 12.3.0-1ubuntu1~22.04.3) 12.3.0`, the
+build is `build-cuda.sh --stub --werror --with-tests` (`-std=c++23 -O3 -ffp-contract=off`, warning set of the plan, `-Werror`,
+`-D_GLIBCXX_ASSERTIONS` in the hardened build, two lane counts, hardened and unchecked).
+
+| Check | arm64 (native) | amd64 (Rosetta) |
+|---|---|---|
+| every Linux source builds, hardened and unchecked, lanes 8 and 16 | ok | ok |
+| `check-fma` on the object code | lanes 8: 62 fused / 0, lanes 16: 44 / 0 | lanes 8: 31 / 0, lanes 16: 22 / 0 |
+| `java_compat_test`, `nn_test`, `cuda_adapter_test`, `cuda_test_emu`, `cuda_test` (stub) | 8, 31, 16, 4 (2 skipped) passed; stub says "no device" | the same counts |
+| `nn_check` `reference` (bit-identical logits), `simd`, `simd-nofma` on SMALL and LARGE, 1,024 positions | within the bound (largest error as a fraction of the bound: SMALL 0.0131, LARGE 0.0433 for `simd`) | the same figures |
+| `nn_check` on the unchecked build, `nn_check_l16`, `nn_bench_l8` starts | ok | ok |
+| AVX-512 objects (`SH_SIMD_LANES=16`, `-mavx512f -mfma`), compile only | not applicable | accepted: 309 zmm instructions, 31 fused in `simd_net`, 0 in `simd_net_nofma` |
+| CMake and Ninja | not used: apt has CMake 3.22 and `CMakeLists.txt` needs 3.28; the instance builds with `build-cuda.sh` | same |
+
+Not run: the AVX-512 binaries (Rosetta has no AVX-512), everything with a device, `compute-sanitizer`, nvcc, the Java side, the
+engine and search code (Mac only by design, they need `<print>`).
+
+**What it found, and the changes made.** The first run failed with `-Werror` on four constructs that g++ 12.3 flags and the
+g++ 13.5 of the Mac stub build and Apple clang do not (all false positives of GCC 12):
+`std::string(std::istreambuf_iterator...)` in `src/core/golden.cpp` and `src/nn/golden_io.cpp` (`-Wnull-dereference`, now
+`std::ostringstream << rdbuf()`); `std::copy_n` in `pad_rows` of `src/nn/simd_net.cpp` (`-Wstringop-overflow` with the bound
+`(size_t)-4`, now an element loop over bounds-checked spans); `(i > 0 ? "," : "") + std::to_string(...)` in `tests/nn_test.cpp`
+(`-Wrestrict`). The 16-lane objects on an x86-64 CPU without AVX-512 stop with `-Wpsabi` under `-Werror`; the container build sets
+`SH_EXTRA_CXXFLAGS=-Wno-psabi` (new hook of `build-cuda.sh`). On the instance the build has no `-Werror` and an AVX-512 CPU, so none of
+these would have stopped it, but they would have filled the build logs. After the changes the Mac `ctest --preset debug-asan` (10 of
+10) and `check-rules.sh` are green again.
+
 ## Spike 1: `-Wunsafe-buffer-usage` (2026-11-15, Apple clang 21.0.0)
 
 Flags: `-std=c++23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion -Wold-style-cast -Wunsafe-buffer-usage

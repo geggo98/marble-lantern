@@ -32,7 +32,9 @@ std::vector<std::string_view> split(std::string_view text, char sep) {
 std::expected<std::string, Error> read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return std::unexpected(Error{ErrorKind::Missing, "cannot open " + path.filename().string()});
-    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
 }
 
 }  // namespace

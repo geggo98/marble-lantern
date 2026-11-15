@@ -14,6 +14,7 @@
 #   --werror      -Werror (the stub build on the Mac proves "no warning"; the instance does not stop for a warning of another gcc)
 #   --with-tests  also build java_compat_test, nn_test, cuda_adapter_test and cuda_test_emu (the stub build runs them)
 #   --jobs N      parallel compiler runs (default: the number of CPUs)
+#   environment SH_EXTRA_CXXFLAGS: extra g++ options for every .cpp, blank separated (the Ubuntu container build uses -Wno-psabi)
 #
 # Flags that the plan fixes: -ffp-contract=off everywhere except simd_net.cpp (-ffp-contract=fast, the FMA variant), and no
 # fast-math option for g++ or nvcc. nvcc gets --fmad=true: what TornadoVM's NVRTC call does by default (README, "TornadoVM math
@@ -76,6 +77,8 @@ cxxflags=(-std=c++23 -O3 $arch -ffp-contract=off
           -Wold-style-cast -Wcast-align -Wnull-dereference -Wimplicit-fallthrough
           -Isrc/core -Isrc/nn -Isrc/gpu/cuda -Iapps -DSH_GOLDEN_DIR=\"$cpp_dir/golden\")
 (( werror )) && cxxflags+=(-Werror)
+# SH_EXTRA_CXXFLAGS: extra g++ options (blank separated), for example -Wno-psabi on an x86-64 CPU without AVX-512 (container builds)
+[[ -n ${SH_EXTRA_CXXFLAGS:-} ]] && cxxflags+=(${=SH_EXTRA_CXXFLAGS})
 # --fmad=true as NVRTC does by default; -lineinfo for compute-sanitizer; no --use_fast_math
 nvccflags=(-std=c++20 -ccbin $cxx -O3 -lineinfo --fmad=true
            -gencode arch=compute_75,code=sm_75 -gencode arch=compute_75,code=compute_75

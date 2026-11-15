@@ -113,7 +113,10 @@ std::vector<std::byte> to_file(const std::vector<Tensor>& tensors, const std::ma
     for (const Tensor& t : tensors) {
         if (header.size() > 1) header += ",";
         std::string shape = "[";
-        for (std::size_t i = 0; i < t.shape.size(); ++i) shape += (i > 0 ? "," : "") + std::to_string(t.shape[i]);
+        for (std::size_t i = 0; i < t.shape.size(); ++i) {
+            if (i > 0) shape += ",";   // not (i > 0 ? "," : "") + std::to_string(..): GCC 12 reports -Wrestrict there (false positive)
+            shape += std::to_string(t.shape[i]);
+        }
         shape += "]";
         const std::uint64_t end = offset + t.data.size() * 4;
         header += tensor_json(t.name, shape, offset, end);

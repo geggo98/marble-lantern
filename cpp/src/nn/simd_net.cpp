@@ -94,7 +94,13 @@ std::vector<float> pack_conv(std::span<const float> weight, std::size_t in_chann
 // One row of `length` floats copied into a zero-padded row of `stride` floats.
 std::vector<float> pad_rows(std::span<const float> src, std::size_t rows, std::size_t length, std::size_t stride) {
     std::vector<float> out(rows * stride, 0.0f);
-    for (std::size_t r = 0; r < rows; ++r) std::copy_n(src.subspan(r * length, length).begin(), length, out.begin() + static_cast<std::ptrdiff_t>(r * stride));
+    const std::span<float> dst(out);
+    for (std::size_t r = 0; r < rows; ++r) {
+        // an element loop, not std::copy_n: GCC 12 reports a bound of (size_t)-4 for the memcpy of copy_n here (-Wstringop-overflow, false positive)
+        const std::span<const float> from = src.subspan(r * length, length);
+        const std::span<float> to = dst.subspan(r * stride, length);
+        for (std::size_t i = 0; i < length; ++i) to[i] = from[i];
+    }
     return out;
 }
 

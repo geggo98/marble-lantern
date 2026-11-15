@@ -21,7 +21,9 @@ std::unexpected<golden::Error> corrupt(std::string message) { return std::unexpe
 std::expected<std::string, golden::Error> read_text(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return missing("cannot open " + path.filename().string());
-    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
 }
 
 std::vector<std::string_view> split(std::string_view text, char sep) {
