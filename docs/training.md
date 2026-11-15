@@ -1255,6 +1255,8 @@ There is no pointer file. The best network is the candidate of the highest gener
 
 The candidate starts from the best network's parameters with a fresh `Optimizer` (AdamW), a warm-up of 100 steps and then a constant rate (3e-4 by default; the 1e-3 of generation 0 is for training from scratch). Its step count is at once Adam's t, the index of the learning-rate schedule and the step of the batch sampler, all counted from 0 within a generation, as the review of [block 2b](#as-implemented-block-2b) demanded; `TrainingRun` and the checkpoints carry the generation. Steps = ceil(R x new training samples / batch) with R = 4 and batch 256. The batches come from a `ReplayBuffer` of the samples of the last generations (window W = 500,000, whole generations dropped when the total exceeds W, mirror augmentation); `--teacher DIR` puts teacher shards in as generation 0, which the window drops as soon as it is full (a share that decays by generations, not by weight). Every tenth game (`--holdout 0.1`: every round(1/0.1)-th game id with an offset from the shard's seed) is held out of the training buffer. A generation with fewer games than the period holds out the one game that the seed picks, so **a generation of two or more games always holds out at least one game and keeps at least one to train on** (a generation of 4 games at `--holdout 0.1` holds out 1 game, 25 %, not 10 %; the first version let the offset run past the 4 ids and held out nothing for 5 of 6 seeds, which ended the run with exit 1). With 10 or more games it is one game in ten, plus one more when the count is not a multiple of the period; the cheap proxies run on the held-out games of the newest generation at the last checkpoint of the generation and else at least 120 s apart (the first version also ran them at the first checkpoint and spent 2.9 % of the training loop against a budget of 2 %, see [Loop demo run 1](#loop-demo-run-1-measured)). Checkpoints are written every 50 steps or 60 s (the last two are kept).
 
+**Lesson of loop run 5:** the initial window of `--teacher` is one generation and leaves as a whole. If it and the first new generation together exceed W, the first training sees only the new samples: loop run 5 trained on 99,820 samples alone and lost its gate with 0.361 ([loop runs 5 to 7](#loop-runs-5-to-7-and-the-end-of-training-measured-2026-11-15)). Choose W larger than the initial window plus several generations.
+
 ### Gate
 
 Candidate against best network: 100 pairs by default (50 in the demo), MCTS against MCTS with the same simulations, no noise, the most visited move, each pair from the same random 4-ply opening with the colours swapped. **Promotion needs a score significantly above 0.5 and no regression against the fixed rung:** `score - Z * se > 0.5` with `--promote-z Z` (default 1.28: one-sided 90 %, so `z = (score - 0.5) / se` must exceed 1.28; `--promote-z 0` is the old rule `score > 0.5`). Reason: [loop run 1](#loop-run-1-measured-2026-11-10) promoted four generations at 0.528, 0.543, 0.515 and 0.532 over 150 pairs (standard error about 0.024, so z about 1.2, 1.8, 0.6 and 1.5: all four intervals contain 0.5, and the old rule promotes half of all equal candidates). At Z = 1.28 an equal candidate is promoted in 10 % of the gates; of those four, 0.528 and 0.515 would have been rejected and 0.532 (z 1.46, standard error 0.022) would pass with a small margin. A candidate of 0.55 (z 2.1) promotes, one of 0.53 (z 1.25) does not. The baseline clause is unchanged. The standard error is that of the pair scores; with a standard error of 0 (all pairs equal) the rule is `score > 0.5`. `decision.json` and the log line `gen N decision: ...` carry `promote_z` and `z`. `promote_z` is part of `run.json` and the hash, but written only for a value other than 0: a run made before the option resumes as `--promote-z 0`, and a new run without the option has another hash than that of an old run. The clause: the candidate's pair scores against `BEST_SPEC` at 1600 nodes (50 pairs, the same openings for every network) must not be lower than the best network's by more than two standard errors of the paired differences (`Gate.decide`; the clause is inclusive, a standard error of 0 allows no drop). The best network's matches against the rung are played once, in its own generation directory, and reused. When the gate is not passed the candidate is rejected whatever the rung says, and the baseline matches are not played (`baseline_skipped` in `decision.json`). The decision file holds the score, its standard error and 95 % interval, the wins, draws and losses, both baseline scores and their paired difference.
@@ -2306,6 +2308,104 @@ The run spends no cloud money. The owner approved an AWS test budget of up to 5 
 
 **What would change the plan:** if after two generations no confirmed candidate beats generation 11 by at least 0.55 over 400 pairs, the hypothesis of shallow targets is refuted; the next candidates are then the learning rate (3e-4 against 1e-4 on the same window) and the opening dominance and the value head (see [open gaps](#open-gaps)).
 
+## Loop runs 5 to 7 and the end of training (measured 2026-11-15)
+
+**TL;DR:** Three short loops tested the plan of [loop run 4](#decision-and-next-step): self-play and gate at 800 simulations instead of 200, starting from the loop 4 generation 11 network. None of the four candidates was promoted; the three candidates with a correct replay window scored 0.504, 0.504 and 0.501 against the start network, pooled about +2 Elo (95 % about -12 to +16 Elo). Two final checks found no hidden gain: the learning rate 3e-4 makes the network clearly worse (gate 0.370), and at 200 simulations the three candidates are not better either (pooled about -10 Elo). Training therefore ends, and the loop 4 generation 11 network is the final network.
+
+All numbers below are measured unless marked as an estimate or as analysis. "Analysis" means a second evaluation of the logs and shards on 2026-11-15 by an AI agent that the project lead (who plans and runs the experiments) asked to re-read the data; its report is not saved in the repository, but every figure it used comes from the files named here. The data are under `data/loop5`, `data/loop6`, `data/loop7`, `data/sweep-loop7` and `data/final-m`, with the logs `data/loop5.log`, `data/loop6.log`, `data/loop7.log` and `data/final-checks.log` (all git-ignored).
+
+### What was run
+
+The three runs share these settings:
+
+| Setting | Value | Source |
+|---|---|---|
+| start network (generation 0) | loop 4 generation 11 (`data/loop4/gen-0011/candidate.safetensors`, LARGE 64x6, plane set `classic1`), SHA-256 `fda54e02...` | `init_sha256` in `data/loop5/run.json`, `data/loop6/run.json`, `data/loop7/run.json` |
+| self-play | 1250 games per generation at 800 simulations (loop 4: 2500 games at 200 simulations), 99,057 to 99,941 new training samples per generation | `run.json` (`games`, `sims`); `data/loop5.log:279`, `data/loop6.log:268`, `data/loop7.log:241` and `:560` |
+| gate | 200 pairs at 800 simulations against the start network, promotion if `score - 1.28 se > 0.5` | `data/loop7.log:271` ("200 pairs of mcts:sims=800,..."), `run.json` (`gate_pairs`, `promote_z`) |
+| time per generation | self-play 58 min 38 s to 1 h 06 min, training 2 min 35 s to 9 min 21 s, gate 29 min 21 s to 33 min 08 s | `data/loop5.log:278`, `:298`, `:333`; `data/loop6.log:245`, `:330`, `:368`; `data/loop7.log:240`, `:270`, `:314`, `:559`, `:598`, `:643` |
+
+The runs differ in the training recipe and in the initial window (generation 0 of the replay window, given with `--teacher`):
+
+| Run | Learning rate (cosine within each generation) | Reuse | Window | Initial window | Source |
+|---|---|---|---|---|---|
+| loop 5 | 3e-4 to 1e-5 | 10 | 400,000 | 300 shards: loop 4 generations 9 to 11 (200 simulations) | `data/loop5/run.json` (`lr`, `lr_final`, `reuse`, `window`, `teacher_files`) |
+| loop 6 | 1e-4 to 1e-5 | 40 | 2,000,000 (raised by hand from 400,000, see below) | 350 shards: those of loop 5 plus loop 5 generation 1 | `data/loop6/run.json` |
+| loop 7 | 1e-4 to 1e-5 | 20 | 2,000,000 | 100 shards: the 2500 games of loop 5 generation 1 and loop 6 generation 1 (800 simulations, all played by the start network) | `data/loop7/run.json` |
+
+### Gate decisions
+
+| Run, generation | Training window (share of new samples) | Steps | Score +- se | z | Decision | Source |
+|---|---|---|---|---|---|---|
+| loop 5, 1 | 99,820 samples, generation 1 only (100 %) | 3,900 | 0.361 +- 0.018 | -7.84 | rejected | `data/loop5.log:279`, `:335` |
+| loop 6, 1 | 868,488 samples, generations 0 and 1 (about 11 %) | 15,478 | 0.504 +- 0.017 | 0.23 | rejected | `data/loop6.log:268`, `:370` |
+| loop 7, 1 | 320,736 samples, generations 0 and 1 (about 31 %) | 7,808 | 0.504 +- 0.019 | 0.19 | rejected | `data/loop7.log:241`, `:316` |
+| loop 7, 2 | 420,288 samples, generations 0 to 2 (about 24 %) | 7,778 | 0.501 +- 0.017 | 0.07 | rejected | `data/loop7.log:560`, `:645` |
+
+The decisions are also in `data/loop5|6|7/gen-000N/decision.json`. Loop 5 and loop 6 were stopped by hand at the start of the generation 2 self-play (`data/loop5.log:341-342`, `data/loop6.log:376-377`). Loop 7 ended after 3 h 29 min with "best = generation 0", the start network (`data/loop7.log:651`).
+
+**Analysis:** pooled over the three candidates with a correct window (loop 6 generation 1, loop 7 generations 1 and 2) the score is 0.5029 +- 0.0103 over 600 pairs, about +2 Elo, 95 % interval about -12 to +16 Elo.
+
+Because nothing was promoted, the confirmation gate and the 400-pair direct matches planned in loop run 4 were never played.
+
+### Loop 5: the window dropped the initial data
+
+The replay window drops whole generations, and the initial window counts as generation 0 (`Loop.load()` in `selfplay/src/main/java/sternhalma/selfplay/Loop.java`; the rule is in [block 2c](#as-implemented-block-2c) under "Window"). Generation 0 of loop 5 held 658,551 samples: the 868,488 samples of the loop 6 window minus its 99,057 new samples (`data/loop6.log:268`) minus the 110,880 samples of loop 5 generation 1 (99,820 training plus 11,060 held out, `data/loop5.log:279`), more than the window of 400,000. At the first training it left the window as a whole, and the candidate trained 10 passes over the 99,820 new samples only.
+
+The candidate overfitted this small window: at the end its training loss was 0.21 for the value and 0.38 for the policy KL (`data/loop5.log:296`), against 0.457 and 0.474 on the held-out samples (`data/loop5.log:295`). The gate result of 0.361 is therefore our configuration error. It is no evidence against the learning rate 3e-4 or against 800 simulations.
+
+The first start of loop 6 had the same fault (window of 99,057 samples, `data/loop6.log:246`) and was stopped at step 990 (`data/loop6.log:253`). The window in `data/loop6/run.json` was then raised by hand to 2,000,000.
+
+### Final checks
+
+A one-off script (not saved in the repository) ran two checks after loop 7.
+
+**Learning rate 3e-4 for LARGE.** A variant named L3 of the `Sweep` tool ([sweep 1](#loop-run-2-and-hyperparameter-sweep-1-measured)) trained the start network on the loop 7 window (generations 1 and 2, 199,493 samples) with lr 3e-4 and a cosine to 1e-5 over 10,000 steps, and played the gate on fresh openings (seed of generation 50) (`data/final-checks.log:4`, `:6`, `:199`; `data/sweep-loop7/results.jsonl`):
+
+| Network | Gate against the start network | Policy KL | Top-1 | Value loss | Winner | Source |
+|---|---|---|---|---|---|---|
+| start network | | 0.4535 | 67.81 % | 0.4150 | 85.76 % | `data/final-checks.log:5` |
+| L3 | 0.3699 +- 0.0177 over 200 pairs (145-6-249 games), z -7.34 | 0.4727 | 65.52 % | 0.4707 | 84.76 % | `data/final-checks.log:38`, `:199` |
+
+The proxies use the same 2500 held-out samples for both networks. The learning rate 3e-4 makes the LARGE network clearly worse on the 800-simulation data. This closes the last lever that loop run 4 had named in advance.
+
+**The candidates at 200 simulations.** The three candidates with a correct window played the start network at 200 simulations, the strength of the loop 4 evaluation player and of the direct match M1 in [loop run 4](#direct-match-and-search-scaling). 200 pairs each, both players `mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=1`, the candidate on the GPU, seed 7001 (taken from the script; neither the log nor the shards in `data/final-m` record the seed, but all three shard files carry the same match hash, `pairs-5afdefb78e40.jsonl`, so the three matches used the same openings). Results in `data/final-m`:
+
+| Candidate | Elo (95 %) | Score +- se | W-D-L games | Source |
+|---|---|---|---|---|
+| loop 6, generation 1 | +13 +- 20 | 0.519 +- 0.015 | 207-1-192 | `data/final-checks.log:267` |
+| loop 7, generation 1 | -37 +- 23 | 0.446 +- 0.017 | 177-3-220 | `data/final-checks.log:329` |
+| loop 7, generation 2 | -5 +- 21 | 0.493 +- 0.016 | 194-6-200 | `data/final-checks.log:396` |
+
+**Calculated for this section** as the plain mean of the three scores (se = square root of the sum of the squared standard errors, divided by 3): about 0.486 +- 0.009, about -10 Elo. The 800-simulation gate did not hide a gain: at 200 simulations the candidates are not better either.
+
+### Further findings (analysis, not measured)
+
+- **The strength records of loops 5 to 7 are not comparable with those of loop 4.** The start network scored +531 +- 127 and +392 +- 82 Elo against `BEST_SPEC` at 102,400 and 409,600 nodes (100 pairs, seed 3001; `data/loop5.log:46-47`). The loop's evaluation player takes the simulation count of the self-play (`LoopConfig.evalPlayer()` in `selfplay/src/main/java/sternhalma/selfplay/LoopConfig.java`), so these lines were played at 800 simulations; the shard headers say `player=mcts:sims=800` (`data/loop5/gen-0000/strength/ab102400-000.jsonl`). Loop 4 measured at 200 simulations: there the same network read +407 at 102,400 nodes (seed 5003, [strength against `BEST_SPEC`](#strength-against-best_spec)) and its near-equal predecessor generation 9 read +402 (seed 3001). The gap of about +125 Elo between the two series comes from the simulation count, not from the seed or the opening set: at equal simulations the seed effect is 0.031 +- 0.025 in score (1.2 standard errors). No option gives the gate or the strength record a simulation count of its own.
+- **The gate cannot resolve small gains.** Promotion needs an observed score of about 0.522 (z > 1.28 at se 0.0175). A true gain of +16 Elo is promoted in about 50 % of the gates, +26 Elo in about 80 %.
+- **More data would yield little (estimate).** Loop 4 gained +78 Elo from about 2.15 million samples, about +3.6 Elo per 100,000 samples. One hour of 800-simulation self-play gives about 100,000 samples, so an expected +25 Elo would cost about 7 hours of self-play plus gates.
+- **Strength comes from search time, not training.** The same network at 800 instead of 200 simulations scores 0.955 and 0.905 instead of about 0.91 and 0.82 against `BEST_SPEC`, and it beats itself at 200 simulations by +220 Elo (M2b in [loop run 4](#direct-match-and-search-scaling)).
+- **The held-out proxies show no gain.** The candidates end at a held-out policy KL of 0.424 to 0.450 (`data/loop6.log:327`, `data/loop7.log:267`, `:595`), the start network has 0.4535 on its own set (`data/final-checks.log:5`). The held-out set differs per generation, so this signal is weak.
+
+### Decision
+
+**Training ends** (recommendation of the project lead; the owner of the project confirms it). The final network is loop 4 generation 11, `data/loop4/gen-0011/candidate.safetensors`, SHA-256 `fda54e02897133026a27dd94df91edc41606ecb8b925e7ddf49b45ea788f7b8c` (`init_sha256` in `data/loop5/run.json`).
+
+Reasons:
+
+- The stop criterion set before the runs is met: after two generations no confirmed candidate beats generation 11 by at least 0.55 over 400 pairs (see "What would change the plan" in [loop run 4](#decision-and-next-step)).
+- The candidates are equal to the start network at 800 simulations (pooled about +2 Elo) and at 200 simulations (about -10 Elo).
+- The one recipe lever named in advance, lr 3e-4, makes the network worse (gate 0.370).
+- More self-play is expensive for a small expected gain (estimate above: about 7 hours for +25 Elo).
+
+For the app, the number of simulations per move becomes the strength control.
+
+### To build later, not now
+
+- Separate simulation counts for the gate and for the strength record (`LoopConfig.evalPlayer()`), so that a loop with deep self-play can still be measured on the scale of earlier runs.
+- A held-out proxy at step 0 of each generation, so that the start network and the candidate are compared on the same samples.
+- A replay window that drops generation 0 by samples instead of as a whole generation.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
@@ -2321,7 +2421,7 @@ The run spends no cloud money. The owner approved an AWS test budget of up to 5 
 11. **Shutdown in Java.** Confirm that the shutdown-hook design gives exit status 130 and 143 on the target JDK, and that 30 s suffice for the longest item. E05 verified 130 and 143 on JDK 25 with a shutdown hook (`SignalExitTest`).
 12. **Distillation.** The [architecture](architecture.md#neural-network) plans to train LARGE and distil into SMALL. The trainer supports it with teacher distributions from LARGE; the schedule is open.
 13. **References.** Adam, AdamW, SGD with momentum and AlphaZero need entries in [references](references.md) before this document cites them.
-14. **Measuring a strong network.** The classical ladder saturates for the LARGE loop networks (scores 0.82 to 0.91, see [loop run 4](#loop-run-4-measured-2026-11-14)). Which measure replaces it: a direct match against fixed earlier generations, a paired difference per opening, or a weaker network side against a deep rung?
+14. **Measuring a strong network.** The classical ladder saturates for the LARGE loop networks (scores 0.82 to 0.91, see [loop run 4](#loop-run-4-measured-2026-11-14)). Which measure replaces it: a direct match against fixed earlier generations, a paired difference per opening, or a weaker network side against a deep rung? [Loop runs 5 to 7](#loop-runs-5-to-7-and-the-end-of-training-measured-2026-11-15) used direct matches against the start network at 200 simulations; for the final network the question remains open.
 
 ## Work plan
 
@@ -2347,4 +2447,4 @@ Each step ends with passing tests and can be reviewed alone. Part A steps go int
 18. **B8, full step:** determinism, one-step and twenty-step comparisons with Part A. Done, with gradient accumulation and the finite flag.
 19. **B9, benchmark:** samples per second and GFLOP/s for SMALL and LARGE at batch 256 to 2048; replace the estimates of [Expected speed](#expected-speed) with the measurements. Done for SMALL (LARGE is not measured).
 20. **B10, integration:** the training loop uses the GPU trainer when a device is present and Part A otherwise. Done as the option `--trainer cpu|gpu` (default cpu), with a fallback to the CPU and a message; also for Gen0.
-21. **Loop run 5:** 3 generations of 1250 games at 800 simulations from generation 11 of loop run 4, lr 3e-4 to 1e-5, every promotion confirmed by a second gate on fresh openings; measured by direct matches against generations 11 and 0. Plan and estimate in [loop run 4](#loop-run-4-measured-2026-11-14).
+21. **Loop run 5:** 3 generations of 1250 games at 800 simulations from generation 11 of loop run 4, lr 3e-4 to 1e-5, every promotion confirmed by a second gate on fresh openings; measured by direct matches against generations 11 and 0. Plan and estimate in [loop run 4](#loop-run-4-measured-2026-11-14). Done as loop runs 5 to 7, result negative: no candidate was promoted, and training ends with the loop 4 generation 11 network ([loop runs 5 to 7](#loop-runs-5-to-7-and-the-end-of-training-measured-2026-11-15)).
