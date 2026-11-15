@@ -38,8 +38,10 @@ for f in $lib; do
 done
 
 result=0
+# WP10: the object code of the two SIMD variants (fused instructions in one, none in the other)
+if scripts/check-fma.sh $out/src_nn_simd_net.cpp.o $out/src_nn_simd_net_nofma.cpp.o; then print -u2 "ok:   check-fma"; else print -u2 "FAIL: check-fma"; result=1; fi
 for t in java_compat_test cuda_adapter_test cuda_test nn_test; do
-  g++ $flags tests/$t.cpp $objs -o $out/$t
+  g++ $flags -Itests tests/$t.cpp $objs -o $out/$t
   if $out/$t; then print -u2 "ok:   $t"; else print -u2 "FAIL: $t"; result=1; fi
 done
 for a in nn_check nn_bench; do

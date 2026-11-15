@@ -170,3 +170,19 @@ unpacked in a scratch directory only for this reading; the Metal jar is the inst
 
 Not confirmed by a run: the printed NVRTC option string. The CUDA part of the AWS run can confirm it with
 `-Dtornado.printKernel=True` if the backend logs its options; the document states "read from bytecode" until then.
+
+## CPU SIMD forward pass (WP10)
+
+`src/nn/simd_net.*` ports `VectorNetwork`: vector-extension types (`float __attribute__((vector_size(4 * L)))`), L = `SH_SIMD_LANES`
+(NEON 4, AVX2 8, AVX-512 16, overridable with `-DSH_SIMD_LANES=N`), weights repacked into tiles of 2L output channels, 4 cells and 8
+accumulators per step, channels padded with zero weights, no allocation in `forward`. The file needs no unsafe region: loads and stores
+go through `std::span`, `std::copy_n` and `std::bit_cast`.
+
+- `SimdVariant::Fma` is `simd_net.cpp`, the only file built with `-ffp-contract=fast`; `SimdVariant::NoFma` is `simd_net_nofma.cpp`, which
+  includes the same source with the default `-ffp-contract=off` into the namespace `simd_nofma`.
+- `scripts/check-fma.sh <simd_net.o> <simd_net_nofma.o>` proves it in the object code (ctest `simd_object_code`, also run by
+  `build-gcc12-stub.sh`). Measured with Apple clang 21 and GCC 13.5 on arm64: fused instructions in the first object (11 at `-O1`, 26 at
+  `-O3`), none in the second.
+- `nn_check --impl simd|simd-nofma [--batch N]` compares with the Java scalar reference under the bound; `nn_test` also compares with the
+  Java `VectorNetwork` outputs. The no-allocation test replaces the global `operator new` in `nn_test` only (`tests/alloc_counter.hpp`, the
+  one exception of rule R1 in `check-rules.sh`).

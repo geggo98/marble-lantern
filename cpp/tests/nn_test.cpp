@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "alloc_counter.hpp"
 #include "buckets.hpp"
 #include "check.hpp"
 #include "config.hpp"
@@ -24,6 +25,7 @@
 #include "priors.hpp"
 #include "reference_net.hpp"
 #include "safetensors.hpp"
+#include "simd_net.hpp"
 #include "splittable_random.hpp"
 
 using namespace sh;
@@ -828,5 +830,205 @@ SH_TEST(buckets_and_variant_rule) {
     CHECK_EQ(chunks_of(1, 1024)[0].bucket, 1);
     CHECK(chunks_of(0, 1024).empty());
 }
+
+// ---------------------------------------------------------------- SIMD forward pass (WP10)
+
+namespace {
+
+constexpr SimdVariant kVariants[] = {SimdVariant::Fma, SimdVariant::NoFma};
+
+const char* variant_name(SimdVariant v) { return v == SimdVariant::Fma ? "simd" : "simd-nofma"; }
+
+// Runs a SimdNet over `n` positions in calls of `batch` positions; false if a call failed.
+bool run_simd(SimdNet& net, std::span<const float> input, int n, int batch, std::span<float> logits, std::span<float> values) {
+    const NetworkConfig& cfg = net.config();
+    const auto size = static_cast<std::size_t>(cfg.input_size());
+    const auto players = static_cast<std::size_t>(cfg.players);
+    for (int first = 0; first < n; first += batch) {
+        const int m = std::min(batch, n - first);
+        const auto f = static_cast<std::size_t>(first);
+        const auto c = static_cast<std::size_t>(m);
+        if (!net.forward(input.subspan(f * size, c * size), m, logits.subspan(f * static_cast<std::size_t>(kPolicySize), c * static_cast<std::size_t>(kPolicySize)),
+                         values.subspan(f * players, c * players)))
+            return false;
+    }
+    return true;
+}
+
+// Synthetic networks, also with channel counts that are no multiple of the tile width (tail lanes) and without priors:
+// SimdNet against ReferenceNet within the bound, both variants, batches 1, 3 and 7.
+void check_simd_on_synthetic(const NetworkConfig& cfg, std::uint64_t seed) {
+    auto p = Parameters::from_tensors(cfg, random_tensors(cfg, seed));
+    CHECK(p.has_value());
+    if (!p) return;
+    const ReferenceNet ref(*p);
+    const int n = 7;
+    std::vector<float> input;
+    for (int b = 0; b < n; ++b) {
+        const auto one = random_input(cfg, 500 + static_cast<std::uint64_t>(b));
+        input.insert(input.end(), one.begin(), one.end());
+    }
+    const auto players = static_cast<std::size_t>(cfg.players);
+    std::vector<float> ref_logits(static_cast<std::size_t>(n) * kPolicySize);
+    std::vector<float> ref_values(static_cast<std::size_t>(n) * players);
+    CHECK(ref.forward(input, n, ref_logits, ref_values).has_value());
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(*p, variant);
+        for (const int batch : {1, 3, 7}) {
+            std::vector<float> logits(ref_logits.size(), std::numeric_limits<float>::quiet_NaN());
+            std::vector<float> values(ref_values.size(), std::numeric_limits<float>::quiet_NaN());
+            CHECK(run_simd(net, input, n, batch, logits, values));
+            const Comparison c = compare_outputs(logits, values, ref_logits, ref_values, 0, n, cfg.players, 0.0);
+            std::cout << "  channels=" << cfg.channels << " blocks=" << cfg.blocks << " " << variant_name(variant) << " batch=" << batch
+                      << " logits_err_frac=" << c.logits_fraction << " values_err_frac=" << c.values_fraction << '\n';
+            CHECK(c.fraction() <= 1.0);
+            for (const float v : logits) CHECK(!std::isnan(v));  // every element was written
+        }
+    }
+}
+
+}  // namespace
+
+SH_TEST(simd_on_synthetic_networks) {
+    check_simd_on_synthetic(kTiny, 11);                                           // 8 channels, classic1
+    check_simd_on_synthetic(*make_config(5, 2, 2, 32, PlaneSet::Classic1), 12);   // tail lanes, two blocks
+    check_simd_on_synthetic(*make_config(13, 1, 3, 32, PlaneSet::Classic1), 13);  // tail lanes, three players
+    check_simd_on_synthetic(*make_config(21, 2, 2, 32, PlaneSet::Plain), 14);     // no residual priors, 7 planes
+    check_simd_on_synthetic(*make_config(40, 1, 2, 17, PlaneSet::Classic1), 15);  // value_hidden that is no multiple of the lanes
+}
+
+SH_TEST(simd_batch_equals_single_bit_for_bit) {
+    auto p = Parameters::from_tensors(kTiny, random_tensors(kTiny, 21));
+    CHECK(p.has_value());
+    if (!p) return;
+    const int n = 6;
+    std::vector<float> input;
+    for (int b = 0; b < n; ++b) {
+        const auto one = random_input(kTiny, 900 + static_cast<std::uint64_t>(b));
+        input.insert(input.end(), one.begin(), one.end());
+    }
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(*p, variant);
+        std::vector<float> all_l(static_cast<std::size_t>(n) * kPolicySize);
+        std::vector<float> all_v(static_cast<std::size_t>(n) * 2);
+        std::vector<float> one_l(all_l.size());
+        std::vector<float> one_v(all_v.size());
+        CHECK(run_simd(net, input, n, n, all_l, all_v));
+        CHECK(run_simd(net, input, n, 1, one_l, one_v));
+        for (std::size_t i = 0; i < all_l.size(); ++i) CHECK_EQ(std::bit_cast<std::uint32_t>(all_l[i]), std::bit_cast<std::uint32_t>(one_l[i]));
+        for (std::size_t i = 0; i < all_v.size(); ++i) CHECK_EQ(std::bit_cast<std::uint32_t>(all_v[i]), std::bit_cast<std::uint32_t>(one_v[i]));
+        // the same input twice in one call gives the same output twice (scratch buffers carry nothing over)
+        std::vector<float> twice = random_input(kTiny, 77);
+        const std::vector<float> first = twice;
+        twice.insert(twice.end(), first.begin(), first.end());
+        std::vector<float> tl(2 * kPolicySize);
+        std::vector<float> tv(4);
+        CHECK(net.forward(twice, 2, tl, tv).has_value());
+        for (int i = 0; i < kPolicySize; ++i) CHECK_EQ(std::bit_cast<std::uint32_t>(tl[static_cast<std::size_t>(i)]), std::bit_cast<std::uint32_t>(tl[static_cast<std::size_t>(kPolicySize + i)]));
+    }
+}
+
+SH_TEST(simd_errors_and_dirty_padding) {
+    auto p = Parameters::from_tensors(kTiny, random_tensors(kTiny, 31));
+    CHECK(p.has_value());
+    if (!p) return;
+    const auto one = random_input(kTiny, 5);
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(*p, variant);
+        std::vector<float> l(kPolicySize, -7.0f);
+        std::vector<float> v(2, -7.0f);
+        CHECK(!net.forward(one, 0, l, v).has_value());
+        CHECK(!net.forward(std::span<const float>(one).first(100), 1, l, v).has_value());
+        CHECK(!net.forward(one, 1, std::span<float>(l).first(10), v).has_value());
+        CHECK(!net.forward(one, 1, l, std::span<float>(v).first(1)).has_value());
+        // a dirty padding row in the SECOND position: refused, and nothing is written, not even for the first position
+        std::vector<float> two;
+        for (int copy = 0; copy < 2; ++copy) two.insert(two.end(), one.begin(), one.end());
+        two[static_cast<std::size_t>(kTiny.input_size() + kPadding * kClassicPlanes + kProgress)] = 0.5f;
+        std::vector<float> l2(2 * kPolicySize, -7.0f);
+        std::vector<float> v2(4, -7.0f);
+        CHECK(!net.forward(two, 2, l2, v2).has_value());
+        for (const float x : l2) CHECK_EQ(x, -7.0f);
+        for (const float x : v2) CHECK_EQ(x, -7.0f);
+        two[static_cast<std::size_t>(kTiny.input_size() + kPadding * kClassicPlanes + kProgress)] = std::numeric_limits<float>::quiet_NaN();
+        CHECK(!net.forward(two, 2, l2, v2).has_value());  // a NaN is not zero
+        // and the net still works afterwards
+        CHECK(net.forward(one, 1, l, v).has_value());
+    }
+}
+
+SH_TEST(simd_forward_allocates_nothing) {
+    auto p = Parameters::from_tensors(kTiny, random_tensors(kTiny, 41));
+    CHECK(p.has_value());
+    if (!p) return;
+    std::vector<float> input;
+    for (int b = 0; b < 3; ++b) {
+        const auto one = random_input(kTiny, 60 + static_cast<std::uint64_t>(b));
+        input.insert(input.end(), one.begin(), one.end());
+    }
+    std::vector<float> l(3 * kPolicySize);
+    std::vector<float> v(6);
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(*p, variant);
+        CHECK(net.forward(input, 3, l, v).has_value());  // warm-up
+        const std::size_t before = test::allocations();
+        const bool ok = net.forward(input, 3, l, v).has_value();
+        const bool ok1 = net.forward(std::span<const float>(input).first(static_cast<std::size_t>(kTiny.input_size())), 1, l, v).has_value();
+        const std::size_t after = test::allocations();
+        CHECK(ok);
+        CHECK(ok1);
+        CHECK_EQ(after - before, std::size_t{0});
+    }
+    // the counter does count: constructing a net allocates
+    const std::size_t b0 = test::allocations();
+    { SimdNet net(*p); }
+    CHECK(test::allocations() > b0);
+}
+
+namespace {
+
+// Golden: both variants against the Java scalar reference, within the bound, for the batches 1, 3, 64 and 67.
+void check_simd_against_java(const std::string& name, int positions) {
+    const auto preset = preset_by_name(name);
+    const auto dir = golden::directory();
+    auto data = load_golden_data(dir, *preset);
+    auto weights = load_golden_weights(dir, *preset);
+    if (!data || !weights) {
+        const golden::Error& e = !data ? data.error() : weights.error();
+        if (e.kind == golden::ErrorKind::Missing && (name == "gen11" || !golden::required())) {
+            test::skip(name + ": " + e.message);
+        } else {
+            test::count_check();
+            test::fail("golden", 0, name + ": " + e.message);
+        }
+        return;
+    }
+    const NetworkConfig& cfg = weights->config();
+    auto figures = load_figures(dir);
+    CHECK(figures.has_value());
+    const double extra = figures ? extra_rel(*figures, "vector", *preset) : 0.0;
+    const auto size = static_cast<std::size_t>(cfg.input_size());
+    const int n = std::min(positions, data->positions);
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(*weights, variant);
+        for (const int batch : {1, 3, 64, 67}) {
+            std::vector<float> logits(static_cast<std::size_t>(n) * kPolicySize);
+            std::vector<float> values(static_cast<std::size_t>(n) * static_cast<std::size_t>(cfg.players));
+            CHECK(run_simd(net, std::span<const float>(data->inputs).first(static_cast<std::size_t>(n) * size), n, batch, logits, values));
+            const Comparison c = compare_outputs(logits, values, data->logits, data->values, 0, n, cfg.players, extra);
+            const Comparison java = compare_outputs(logits, values, data->vlogits, data->vvalues, 0, n, cfg.players, extra);
+            std::cout << "  " << name << " " << variant_name(variant) << " lanes=" << SimdNet::lanes() << " batch=" << batch << " positions=" << n
+                      << ": err_frac vs scalar reference " << c.fraction() << ", vs Java VectorNetwork " << java.fraction() << '\n';
+            CHECK(c.fraction() <= 1.0);
+            CHECK(java.fraction() <= 1.0);
+        }
+    }
+}
+
+}  // namespace
+
+SH_TEST(simd_matches_java_small) { check_simd_against_java("small", 134); }
+SH_TEST(simd_matches_java_large) { check_simd_against_java("large", 70); }
+SH_TEST(simd_matches_java_gen11) { check_simd_against_java("gen11", 70); }
 
 int main() { return sh::test::run_all(); }
