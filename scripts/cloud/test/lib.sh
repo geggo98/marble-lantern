@@ -36,6 +36,7 @@ write_stubs() {
 #!/bin/bash
 echo "aws $*" >> "$STUB_LOG"
 logged() { grep -q -- "$1" "$STUB_LOG"; }
+[ -z "${STUB_DESCRIBE_FAIL:-}" ] || case "$2" in describe-*) echo "An error occurred (ExpiredToken) when calling the $2 operation" >&2; exit 255 ;; esac
 case "$1 $2" in
   "configure list") case " ${STUB_PROFILES:-known-profile} " in *" ${3#--profile} "*|*" $4 "*) echo "      Name       Value"; exit 0 ;; esac; echo "The config profile could not be found" >&2; exit 255 ;;
   "sts get-caller-identity") echo "arn:aws:iam::000000000000:user/stub"; exit 0 ;;

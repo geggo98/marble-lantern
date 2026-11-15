@@ -243,12 +243,12 @@ preflight() {
 # --- cleanup ----------------------------------------------------------------------------------------------------------------
 RUN_ID=""; KEY_DIR=""; INSTANCE_ID=""; SG_ID=""; KEY_NAME=""; LAUNCHED_AT=""; AZ=""
 cleanup_run() {  # RUN_ID -> deletes everything tagged with it; idempotent
-  local id=$1 ids sir
+  local id=$1 ids sir lookup_failed=0
   log "cleanup of $id"
   ids=$(aws ec2 describe-instances --filters "Name=tag:RunId,Values=$id" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" \
-    --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null || true)
+    --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || { lookup_failed=1; echo "  cleanup: a describe call failed; nothing found by it can be deleted" >&2; }
   sir=$(aws ec2 describe-spot-instance-requests --filters "Name=tag:RunId,Values=$id" "Name=state,Values=open,active,disabled" \
-    --query 'SpotInstanceRequests[].SpotInstanceRequestId' --output text 2>/dev/null || true)
+    --query 'SpotInstanceRequests[].SpotInstanceRequestId' --output text 2>/dev/null) || { lookup_failed=1; echo "  cleanup: a describe call failed; nothing found by it can be deleted" >&2; }
   # shellcheck disable=SC2086  # the lists are space-separated IDs
   [ -z "$sir" ] || mut aws ec2 cancel-spot-instance-requests --spot-instance-request-ids $sir > /dev/null
   # shellcheck disable=SC2086
@@ -256,29 +256,30 @@ cleanup_run() {  # RUN_ID -> deletes everything tagged with it; idempotent
     mut aws ec2 terminate-instances --instance-ids $ids > /dev/null
     mut aws ec2 wait instance-terminated --instance-ids $ids || true
   fi
-  SG_ID=$(aws ec2 describe-security-groups --filters "Name=tag:RunId,Values=$id" --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || true)
+  SG_ID=$(aws ec2 describe-security-groups --filters "Name=tag:RunId,Values=$id" --query 'SecurityGroups[].GroupId' --output text 2>/dev/null) || { lookup_failed=1; echo "  cleanup: a describe call failed; nothing found by it can be deleted" >&2; }
   for sg in $SG_ID; do
     for _ in 1 2 3 4 5 6 7 8; do
       mut aws ec2 delete-security-group --group-id "$sg" 2> /dev/null && break
       sleep 10
     done
   done
-  KEY_NAME=$(aws ec2 describe-key-pairs --filters "Name=tag:RunId,Values=$id" --query 'KeyPairs[].KeyName' --output text 2>/dev/null || true)
+  KEY_NAME=$(aws ec2 describe-key-pairs --filters "Name=tag:RunId,Values=$id" --query 'KeyPairs[].KeyName' --output text 2>/dev/null) || { lookup_failed=1; echo "  cleanup: a describe call failed; nothing found by it can be deleted" >&2; }
   for k in $KEY_NAME; do mut aws ec2 delete-key-pair --key-name "$k" > /dev/null; done
   [ -z "$KEY_DIR" ] || rm -rf "$KEY_DIR"
+  [ "$lookup_failed" = 0 ]
 }
 verify_once() {  # RUN_ID -> lists leftovers, returns 1 if there are any
   local id=$1 left=0 out
   log "verification: nothing may be left of $id"
-  out=$(aws ec2 describe-instances --filters "Name=tag:RunId,Values=$id" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output text)
+  out=$(aws ec2 describe-instances --filters "Name=tag:RunId,Values=$id" "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output text) || { echo "  verification FAILED: an aws describe call failed, the state of $id is unknown" >&2; return 2; }
   [ -z "$out" ] || { echo "  LEFT: instance $out" >&2; left=1; }
-  out=$(aws ec2 describe-volumes --filters "Name=tag:RunId,Values=$id" --query 'Volumes[].[VolumeId,State]' --output text)
+  out=$(aws ec2 describe-volumes --filters "Name=tag:RunId,Values=$id" --query 'Volumes[].[VolumeId,State]' --output text) || { echo "  verification FAILED: an aws describe call failed, the state of $id is unknown" >&2; return 2; }
   [ -z "$out" ] || { echo "  LEFT: volume $out" >&2; left=1; }
-  out=$(aws ec2 describe-security-groups --filters "Name=tag:RunId,Values=$id" --query 'SecurityGroups[].GroupId' --output text)
+  out=$(aws ec2 describe-security-groups --filters "Name=tag:RunId,Values=$id" --query 'SecurityGroups[].GroupId' --output text) || { echo "  verification FAILED: an aws describe call failed, the state of $id is unknown" >&2; return 2; }
   [ -z "$out" ] || { echo "  LEFT: security group $out" >&2; left=1; }
-  out=$(aws ec2 describe-key-pairs --filters "Name=tag:RunId,Values=$id" --query 'KeyPairs[].KeyName' --output text)
+  out=$(aws ec2 describe-key-pairs --filters "Name=tag:RunId,Values=$id" --query 'KeyPairs[].KeyName' --output text) || { echo "  verification FAILED: an aws describe call failed, the state of $id is unknown" >&2; return 2; }
   [ -z "$out" ] || { echo "  LEFT: key pair $out" >&2; left=1; }
-  out=$(aws ec2 describe-spot-instance-requests --filters "Name=tag:RunId,Values=$id" "Name=state,Values=open,active,disabled" --query 'SpotInstanceRequests[].SpotInstanceRequestId' --output text)
+  out=$(aws ec2 describe-spot-instance-requests --filters "Name=tag:RunId,Values=$id" "Name=state,Values=open,active,disabled" --query 'SpotInstanceRequests[].SpotInstanceRequestId' --output text) || { echo "  verification FAILED: an aws describe call failed, the state of $id is unknown" >&2; return 2; }
   [ -z "$out" ] || { echo "  LEFT: spot request $out" >&2; left=1; }
   [ "$left" = 0 ] && echo "  nothing left: no instance, volume, security group, key pair or open spot request with RunId=$id" >&2
   return $left
@@ -298,7 +299,7 @@ if [ "$CMD" = preflight ]; then
 fi
 if [ "$CMD" = cleanup ]; then
   [ -n "$RUN_ID_ARG" ] || fail "--run-id is required"
-  cleanup_run "$RUN_ID_ARG"; verify_clean "$RUN_ID_ARG"; exit $?
+  rc=0; cleanup_run "$RUN_ID_ARG" || rc=1; verify_clean "$RUN_ID_ARG" || rc=1; exit $rc
 fi
 
 # --- run ----------------------------------------------------------------------------------------------------------------------
