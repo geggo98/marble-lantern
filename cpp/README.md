@@ -144,7 +144,7 @@ build is `build-cuda.sh --stub --werror --with-tests` (`-std=c++23 -O3 -ffp-cont
 | CMake and Ninja | not used: apt has CMake 3.22 and `CMakeLists.txt` needs 3.28; the instance builds with `build-cuda.sh` | same |
 
 Not run: the AVX-512 binaries (Rosetta has no AVX-512), everything with a device, `compute-sanitizer`, nvcc, the Java side, the
-engine and search code (Mac only by design, they need `<print>`).
+engine and search code (not part of the Linux build by design; the plan keeps them Mac-only, and `fingerprint.cpp` and `search_bench.cpp` use `<format>`, which libstdc++ 12 lacks; no source includes `<print>`).
 
 **What it found, and the changes made.** The first run failed with `-Werror` on four constructs that g++ 12.3 flags and the
 g++ 13.5 of the Mac stub build and Apple clang do not (all false positives of GCC 12):
