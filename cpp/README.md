@@ -444,3 +444,12 @@ and bucket 8 is printed as information (CUDA gives no guarantee, the Metal port 
 - New files beyond the plan's list: `tests/cuda_emu.hpp`, `tests/nn_random.hpp`, `scripts/ptx-shim/cuda_runtime.h`. `cuda_test_emu` is built by `build-cuda.sh --with-tests`, not by CMake (no new target).
 - `ptx-check.sh` checks syntax and types, it does not emit PTX (no NVPTX target); with a clang that has one (`CLANG=...`) it also counts the kernel entries.
 - `apps/nn_check.cpp`: the Metal part is guarded by `defined(__APPLE__) && defined(__clang__)` (GCC on the Mac has no Objective-C++), the CUDA part is always compiled.
+
+## Load limit of the measurement scripts (changed on 2026-11-15)
+
+`scripts/bench-mac.sh` refuses to start, and rejects a session, when the 1-minute load average exceeds **4.0** (default of `--max-load`;
+the plan says 2.0). Reason: the base load of this development Mac (a desktop session with WindowServer, SoundSource and iTerm) is 3.2
+to 3.7 with no measurement and no build running (`uptime` on 2026-11-15: 3.16, 3.32; 15-minute averages 3.5 to 4.1). A limit of 2.0 could
+never be met. The raised limit counts only for this base load: `bench-mac.sh` still refuses to start while `pgrep -l 'gradle|java|clang|ninja|cmake'`
+shows any process, and the other gates (self-ratio 0.98 to 1.02, interleaving, thread CPU time, JIT trend test, thermal and power checks) are
+unchanged. The load limit is not a measure of validity by itself; the self-ratio is.

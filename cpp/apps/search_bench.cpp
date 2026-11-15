@@ -29,6 +29,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -240,14 +241,21 @@ std::expected<Options, std::string> parse_args(const std::vector<std::string_vie
     };
     for (std::size_t i = 1; i < args.size(); ++i) {
         const std::string_view a = args[i];
-        if (a == "--nodes" || a == "--reps" || a == "--positions" || a == "--games" || a == "--max-load") {
+        if (a == "--nodes" || a == "--reps" || a == "--positions" || a == "--games") {
             const auto n = integer(i);
             if (!n) return std::unexpected(n.error());
             if (a == "--nodes") o.nodes = *n;
             if (a == "--reps") o.reps = static_cast<int>(*n);
             if (a == "--positions") o.positions = static_cast<int>(*n);
             if (a == "--games") o.games = static_cast<int>(*n);
-            if (a == "--max-load") o.max_load = static_cast<double>(*n);
+        } else if (a == "--max-load") {
+            const auto v = value(i);
+            if (!v) return std::unexpected(v.error());
+            double load = 0;   // a decimal such as 4.0 (the load limit is a real number)
+            std::istringstream in{std::string(*v)};
+            in >> load;
+            if (in.fail() || !in.eof() || !(load > 0)) return std::unexpected("not a positive number: " + std::string(*v));
+            o.max_load = load;
         } else if (a == "--golden") {
             const auto v = value(i);
             if (!v) return std::unexpected(v.error());

@@ -38,7 +38,11 @@ CPP=${SELF:h:h}
 REPO=${CPP:h}
 rounds=3
 out=
-max_load=2.0
+# Load limit (1-minute average, before and after a session and in every search_bench run): 4.0, raised from the 2.0 of the plan on 2026-11-15
+# for the idle base load of this development Mac (WindowServer, SoundSource, iTerm), measured at 3.2 to 3.7 with no measurement running
+# (see cpp/README.md). It is valid only if no other compute-heavy process runs (the pgrep gate below); the validity of a session still
+# rests on the self-ratio, the interleaving, the thread CPU time and the trend test.
+max_load=4.0
 keep=0
 gate=1
 while (( $# )); do
