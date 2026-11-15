@@ -488,7 +488,7 @@ order alternating between pairs), the kernel table (Java `KernelsBenchmark` agai
 process, no foreign CPU load above the limit, no CPU case with a thread CPU time below 0.8 of the wall time. A failed check makes the
 session invalid (exit 4): no result file, the files stay in the work directory; after three invalid sessions in a row measuring stops.
 
-### GPU anchor drift on the Mac (finding of 2026-11-15, no valid session yet)
+### GPU anchor drift on the Mac (finding of 2026-11-15, no valid session; booked under the amendment below)
 
 Five full sessions (about 46 minutes each) had no valid GPU anchors. The CPU anchors were stable in every session (`simd`
 LARGE 709.3 / 709.5 / 705.0 evals/s at start / mid / end of the last one); the GPU anchors moved by 8 to 40 % and Java TornadoVM
@@ -499,3 +499,27 @@ and C++ Metal moved together. In the last session (LARGE, batch 256, evals/s, st
 a session, without a thermal warning (`pmset -g therm`). Cause not proven (power or clock management of the SoC under sustained
 GPU load). `bench-nn-mac.py` now stops before the first step if the gen11 weights are missing (`STERNHALMA_DATA_DIR`) and returns
 exit 4 at the first failed step instead of crashing while writing the raw file.
+
+### Amendment 2026-11-15 (lead): booking of the network measurement
+
+The abort rule of the plan is reached (five invalid Mac sessions), and the lead changed the rule for this measurement; the full text is
+in `docs/cpp-comparison-plan.md`, section "Decision rule", "Amendment 2026-11-15 (lead)". In short:
+
+- CPU rows are **valid** if the anchor of their program lies within 2 % between start and end of the session, otherwise **unsettled**
+  (not dropped, not smoothed).
+- GPU rows (Metal, TornadoVM) are **unsettled**, with the anchors at start, middle and end in the row. A Java:C++ ratio comes only from
+  the two processes of one pair, is labelled "unsettled (GPU clock drift)", and says nothing about a difference below 5 %.
+- Reason: both GPU programs fall together by 20 to 30 % in the GPU-heavy middle of a session (TornadoVM 33,487 / 23,891 / 30,798 and
+  Metal copy 33,034 / 25,737 / 29,242 evals/s, LARGE, batch 256, start / mid / end), while six isolated Metal anchor runs from idle
+  agree within 1.5 % and CPU load does not disturb the GPU anchor.
+- No further Mac session is run. Session 5 is booked by `scripts/book-nn.py` (tests: `scripts/test_book_nn.py`):
+
+```sh
+python3 -I cpp/scripts/book-nn.py <work dir of the session> cpp/results/mac-nn-2026-11-15 --date 2026-11-15 --build "<text>" --size "<text>"
+python3 -I cpp/scripts/test_book_nn.py
+```
+
+  It fails (exit 3) on any step with a non-zero exit code, any row whose `verified` column is not `ok`, and any step whose rows plus
+  skipped cases do not equal the schedule in its header. Results: `results/mac-nn-2026-11-15.tsv` (one row per figure: table, program,
+  case, batch, metric, median, min, max, status, anchor start/mid/end, note), `results/mac-nn-2026-11-15.txt` (summary),
+  `results/mac-nn-2026-11-15-raw.tsv` (raw output of every run) and `results/mac-nn-2026-11-15-summary.txt` (`merge-bench.pl`).
