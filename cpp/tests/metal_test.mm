@@ -1,5 +1,6 @@
-// Tests of the Metal backend (WP11a): the naive convolution and the heads against the scalar reference, a hand-computed case,
-// the whole network against the Java golden outputs and the cases of nn-cases.safetensors, buckets and errors.
+// Tests of the Metal backend (WP11a, WP11b): the three convolution kernels and the heads against the scalar reference, a hand-computed
+// case, the whole network (every variant, both memory modes, the automatic variant rule) against the Java golden outputs and the cases
+// of nn-cases.safetensors, buckets, slots, timing and errors.
 // Every output buffer starts NaN-filled, so an element that a kernel skips stays NaN and fails.
 #include <algorithm>
 #include <array>
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,7 +59,12 @@ void set_padding_rows(std::vector<float>& a, int batch, int channels, float pad)
 
 // ---- convolution ----
 
-void check_conv_shape(int cin, int cout, int batch, bool with_residual_and_relu, std::uint64_t seed, const std::string& label) {
+const std::array<ConvVariant, 3> kVariants = {ConvVariant::Naive, ConvVariant::Tiled, ConvVariant::Simdgroup};
+
+const char* name_of(ConvVariant v) { return v == ConvVariant::Naive ? "naive" : v == ConvVariant::Tiled ? "tiled" : "simdgroup"; }
+
+void check_conv_shape(ConvVariant variant, int cin, int cout, int batch, bool with_residual_and_relu, std::uint64_t seed, std::string label) {
+    label = std::string(name_of(variant)) + " " + label;
     Rng rng(seed);
     const auto cin_n = static_cast<std::size_t>(cin);
     const auto cout_n = static_cast<std::size_t>(cout);
@@ -69,7 +76,7 @@ void check_conv_shape(int cin, int cout, int batch, bool with_residual_and_relu,
     std::vector<float> res = random_vector(rng, static_cast<std::size_t>(batch) * kRows * cout_n, -1.0f, 1.0f);
     set_padding_rows(res, batch, cout, 7.0f);  // garbage in the padding row: the kernel must write 0 there
     std::vector<float> out(static_cast<std::size_t>(batch) * kRows * cout_n, kNaN);
-    auto r = metal::run_conv_naive(in, weight, bias, res, out, batch, cin, cout, with_residual_and_relu, with_residual_and_relu);
+    auto r = metal::run_conv(variant, in, weight, bias, res, out, batch, cin, cout, with_residual_and_relu, with_residual_and_relu);
     CHECK(r.has_value());
     if (!r) {
         std::cerr << "  " << r.error().message << '\n';
@@ -97,34 +104,51 @@ void check_conv_shape(int cin, int cout, int batch, bool with_residual_and_relu,
     CHECK_EQ(bad, 0);
 }
 
-SH_TEST(conv_naive_every_layer_shape_of_tiny_small_large) {
+SH_TEST(conv_every_variant_every_layer_shape_of_tiny_small_large) {
     if (!have_device()) return;
     std::uint64_t seed = 100;
-    for (const NetworkConfig& cfg : {tiny_config(2, PlaneSet::Classic1), small_config(2, PlaneSet::Classic1), large_config(2, PlaneSet::Classic1)}) {
-        // conv_in: planes -> C; every block convolution: C -> C
-        for (const int cin : {cfg.input_planes(), cfg.channels}) {
-            for (const int batch : {1, 3, 67}) {
-                for (const bool fused : {false, true}) {
-                    check_conv_shape(cin, cfg.channels, batch, fused, ++seed,
-                                     "C=" + std::to_string(cfg.channels) + " cin=" + std::to_string(cin) + " batch=" + std::to_string(batch) + (fused ? " residual+relu" : " plain"));
+    for (const ConvVariant variant : kVariants) {
+        for (const NetworkConfig& cfg : {tiny_config(2, PlaneSet::Classic1), small_config(2, PlaneSet::Classic1), large_config(2, PlaneSet::Classic1)}) {
+            // conv_in: planes -> C; every block convolution: C -> C
+            for (const int cin : {cfg.input_planes(), cfg.channels}) {
+                for (const int batch : {1, 3, 67}) {
+                    for (const bool fused : {false, true}) {
+                        check_conv_shape(variant, cin, cfg.channels, batch, fused, ++seed,
+                                         "C=" + std::to_string(cfg.channels) + " cin=" + std::to_string(cin) + " batch=" + std::to_string(batch) + (fused ? " residual+relu" : " plain"));
+                    }
                 }
             }
         }
     }
 }
 
-SH_TEST(conv_naive_odd_channel_counts) {
+SH_TEST(conv_every_variant_odd_channel_counts) {
     if (!have_device()) return;
-    // channel counts that are not multiples of anything: a thread of the grid edge must not write or read outside
-    check_conv_shape(1, 1, 2, false, 7, "1->1");
-    check_conv_shape(3, 5, 3, true, 8, "3->5");
-    check_conv_shape(33, 17, 2, true, 9, "33->17");
+    // sizes that are not multiples of a tile (32 channels, 32 columns, 64 rows) or of a thread group: edge threads and masked tile
+    // elements must not write or read outside
+    std::uint64_t seed = 7;
+    for (const ConvVariant variant : kVariants) {
+        check_conv_shape(variant, 1, 1, 2, false, ++seed, "1->1");
+        check_conv_shape(variant, 3, 5, 3, true, ++seed, "3->5");
+        check_conv_shape(variant, 33, 17, 2, true, ++seed, "33->17");
+        check_conv_shape(variant, 5, 70, 1, true, ++seed, "5->70");
+        check_conv_shape(variant, 64, 31, 5, false, ++seed, "64->31");
+        check_conv_shape(variant, 9, 33, 4, true, ++seed, "9->33");
+    }
 }
+
+void check_hand_computed(ConvVariant variant);
 
 // KernelsHexConvTest, hand-computed case: one channel, weight k + 1 for stencil entry k, bias 0.5, input c + 1 (+ 1000 per position).
 // Integers, so every float sum is exact and the results must be equal, not just close.
-SH_TEST(conv_naive_hand_computed) {
+SH_TEST(conv_every_variant_hand_computed) {
     if (!have_device()) return;
+    for (const ConvVariant variant : kVariants) check_hand_computed(variant);
+    // a corner cell with the neighbours written out by hand: cell 0 has the neighbours 1 (direction 0, +q) and the padding row elsewhere
+    CHECK_EQ(*gather(0, 0), 0);
+}
+
+void check_hand_computed(ConvVariant variant) {
     constexpr int kBatch = 3;
     std::vector<float> in(static_cast<std::size_t>(kBatch) * kRows, 0.0f);
     for (int b = 0; b < kBatch; ++b) {
@@ -137,7 +161,7 @@ SH_TEST(conv_naive_hand_computed) {
         const bool fused = bias_value < 0;  // the negative bias makes some sums negative, so ReLU matters
         std::vector<float> out(static_cast<std::size_t>(kBatch) * kRows, kNaN);
         const std::vector<float> bias = {bias_value};
-        CHECK(metal::run_conv_naive(in, weight, bias, res, out, kBatch, 1, 1, fused, fused).has_value());
+        CHECK(metal::run_conv(variant, in, weight, bias, res, out, kBatch, 1, 1, fused, fused).has_value());
         int negative = 0;
         for (int b = 0; b < kBatch; ++b) {
             for (int c = 0; c < kCells; ++c) {
@@ -158,8 +182,41 @@ SH_TEST(conv_naive_hand_computed) {
         }
         if (fused) CHECK(negative > 0);
     }
-    // a corner cell with the neighbours written out by hand: cell 0 has the neighbours 1 (direction 0, +q) and the padding row elsewhere
-    CHECK_EQ(*gather(0, 0), 0);
+}
+
+// DeviceMath.relu keeps NaN: a NaN in one cell of the input gives NaN exactly where the scalar reference has NaN, in every kernel,
+// with ReLU and residual switched on (a ReLU written as v > 0 ? v : 0 would turn NaN into 0).
+SH_TEST(conv_every_variant_keeps_nan) {
+    if (!have_device()) return;
+    constexpr int kCin = 5, kCout = 6, kBatch = 2;
+    for (const ConvVariant variant : kVariants) {
+        Rng rng(4242);
+        std::vector<float> in = random_vector(rng, static_cast<std::size_t>(kBatch) * kRows * kCin, -1.0f, 1.0f);
+        set_padding_rows(in, kBatch, kCin, 0.0f);
+        in[(0 * static_cast<std::size_t>(kRows) + 5) * kCin + 2] = kNaN;
+        const std::vector<float> weight = random_vector(rng, static_cast<std::size_t>(kCout) * kStencil * kCin, 0.1f, 1.0f);  // no zero weight: NaN never hides
+        const std::vector<float> bias = random_vector(rng, kCout, -0.5f, 0.5f);
+        const std::vector<float> res(static_cast<std::size_t>(kBatch) * kRows * kCout, 0.25f);
+        std::vector<float> out(static_cast<std::size_t>(kBatch) * kRows * kCout, kNaN);
+        CHECK(metal::run_conv(variant, in, weight, bias, res, out, kBatch, kCin, kCout, true, true).has_value());
+        int nan_cells = 0;
+        for (int b = 0; b < kBatch; ++b) {
+            std::vector<float> ref(static_cast<std::size_t>(kRows) * kCout);
+            CHECK(hex_conv(std::span<const float>(in).subspan(static_cast<std::size_t>(b) * kRows * kCin, static_cast<std::size_t>(kRows) * kCin), kCin, weight, bias, kCout, ref).has_value());
+            for (std::size_t row = 0; row < static_cast<std::size_t>(kRows); ++row) {
+                for (std::size_t o = 0; o < static_cast<std::size_t>(kCout); ++o) {
+                    const float got = out[(static_cast<std::size_t>(b) * kRows + row) * kCout + o];
+                    if (row == static_cast<std::size_t>(kPadding)) {
+                        CHECK_EQ(got, 0.0f);
+                    } else {
+                        CHECK_EQ(std::isnan(got), std::isnan(ref[row * kCout + o]));
+                        if (std::isnan(got)) ++nan_cells;
+                    }
+                }
+            }
+        }
+        CHECK(nan_cells >= kCout);  // at least the cell itself
+    }
 }
 
 // ---- heads ----
@@ -323,6 +380,31 @@ std::optional<std::pair<GoldenData, Parameters>> load_preset(const std::string& 
     return std::pair{std::move(*data), std::move(*weights)};
 }
 
+struct Mode {
+    std::optional<ConvVariant> variant;  // empty = the bucket rule
+    metal::MemoryMode memory;
+    std::string label() const {
+        return std::string(variant ? name_of(*variant) : "auto") + (memory == metal::MemoryMode::Copy ? "/copy" : "/shared");
+    }
+};
+
+std::vector<Mode> all_modes() {
+    std::vector<Mode> modes;
+    for (const metal::MemoryMode memory : {metal::MemoryMode::Copy, metal::MemoryMode::Shared}) {
+        modes.push_back(Mode{std::nullopt, memory});
+        for (const ConvVariant v : kVariants) modes.push_back(Mode{v, memory});
+    }
+    return modes;
+}
+
+bool same_bits(std::span<const float> a, std::span<const float> b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (std::bit_cast<std::uint32_t>(a[i]) != std::bit_cast<std::uint32_t>(b[i])) return false;
+    }
+    return true;
+}
+
 void check_network_against_java(const std::string& name) {
     if (!have_device()) return;
     Preset preset;
@@ -339,47 +421,61 @@ void check_network_against_java(const std::string& name) {
     const auto players = static_cast<std::size_t>(cfg.players);
     constexpr int kPositions = 67;
     const std::span<const float> input = std::span<const float>(data.inputs).first(kPositions * in_size);
-    double worst = 0;
-    // one call of 67 positions (bucket 128), then chunks of 16 (bucket 16 and a last chunk of 3)
-    for (const int max_batch : {1024, 16}) {
+    for (const Mode& mode : all_modes()) {
+        // one call of 67 positions (bucket 128), then chunks of 16 (bucket 16 and a last chunk of 3)
+        for (const int max_batch : {1024, 16}) {
+            metal::Options options;
+            options.max_batch = max_batch;
+            options.variant = mode.variant;
+            options.memory = mode.memory;
+            auto net = metal::MetalNet::create(weights, options);
+            CHECK(net.has_value());
+            if (!net) {
+                std::cerr << "  " << net.error().message << '\n';
+                return;
+            }
+            std::vector<float> logits(kPositions * static_cast<std::size_t>(kPolicySize), kNaN);
+            std::vector<float> values(kPositions * players, kNaN);
+            auto r = net->forward(input, kPositions, logits, values);
+            CHECK(r.has_value());
+            if (!r) {
+                std::cerr << "  " << r.error().message << '\n';
+                return;
+            }
+            const Comparison c = compare_outputs(logits, values, data.logits, data.values, 0, kPositions, cfg.players, extra);
+            std::cout << "  " << name << " " << mode.label() << " max_batch=" << max_batch << ": largest error " << c.fraction() << " of the bound (logits " << c.logits_fraction << ", values " << c.values_fraction << ")\n";
+            CHECK(c.fraction() <= 1.0);
+        }
+        // the slots of a bucket do not interact: three positions in one call (bucket 4) give the bits of three single calls (bucket 1)
+        // and of the same positions in different slots of a bucket of 8
         metal::Options options;
-        options.max_batch = max_batch;
+        options.variant = mode.variant;
+        options.memory = mode.memory;
         auto net = metal::MetalNet::create(weights, options);
         CHECK(net.has_value());
-        if (!net) {
-            std::cerr << "  " << net.error().message << '\n';
-            return;
+        if (!net) return;
+        std::vector<float> l3(3 * static_cast<std::size_t>(kPolicySize), kNaN);
+        std::vector<float> v3(3 * players, kNaN);
+        CHECK(net->forward(input.first(3 * in_size), 3, l3, v3).has_value());
+        std::vector<float> l5(5 * static_cast<std::size_t>(kPolicySize), kNaN);
+        std::vector<float> v5(5 * players, kNaN);
+        // positions 2, 0, 1 and two others, so that position 0 sits in slot 1, position 1 in slot 2, position 2 in slot 0
+        std::vector<float> shuffled;
+        for (const std::size_t pos : {2, 0, 1, 3, 4}) shuffled.insert(shuffled.end(), input.begin() + static_cast<std::ptrdiff_t>(pos * in_size), input.begin() + static_cast<std::ptrdiff_t>((pos + 1) * in_size));
+        CHECK(net->forward(shuffled, 5, l5, v5).has_value());
+        for (std::size_t pos = 0; pos < 3; ++pos) {
+            std::vector<float> l1(static_cast<std::size_t>(kPolicySize), kNaN);
+            std::vector<float> v1(players, kNaN);
+            CHECK(net->forward(input.subspan(pos * in_size, in_size), 1, l1, v1).has_value());
+            const auto at = [&](const std::vector<float>& all, std::size_t slot, std::size_t width) { return std::span<const float>(all).subspan(slot * width, width); };
+            const std::size_t slot5 = pos == 2 ? 0 : pos + 1;
+            const bool same = same_bits(l1, at(l3, pos, kPolicySize)) && same_bits(v1, at(v3, pos, players)) && same_bits(at(l5, slot5, kPolicySize), at(l3, pos, kPolicySize)) &&
+                              same_bits(at(v5, slot5, players), at(v3, pos, players));
+            if (!same) std::cerr << "  " << name << " " << mode.label() << ": position " << pos << " differs between slots or buckets\n";
+            CHECK(same);
         }
-        std::vector<float> logits(kPositions * static_cast<std::size_t>(kPolicySize), kNaN);
-        std::vector<float> values(kPositions * players, kNaN);
-        auto r = net->forward(input, kPositions, logits, values);
-        CHECK(r.has_value());
-        if (!r) {
-            std::cerr << "  " << r.error().message << '\n';
-            return;
-        }
-        const Comparison c = compare_outputs(logits, values, data.logits, data.values, 0, kPositions, cfg.players, extra);
-        std::cout << "  " << name << " max_batch=" << max_batch << ": largest error " << c.fraction() << " of the bound (logits " << c.logits_fraction << ", values " << c.values_fraction << ")\n";
-        CHECK(c.fraction() <= 1.0);
-        worst = std::max(worst, c.fraction());
+        CHECK_EQ(net->plans_built(), 3);  // buckets 4, 1 and 8
     }
-    // the slots of a bucket do not interact: three positions in one call give the bits of three single calls
-    auto net = metal::MetalNet::create(weights);
-    CHECK(net.has_value());
-    if (!net) return;
-    std::vector<float> l3(3 * static_cast<std::size_t>(kPolicySize), kNaN);
-    std::vector<float> v3(3 * players, kNaN);
-    CHECK(net->forward(input.first(3 * in_size), 3, l3, v3).has_value());
-    for (std::size_t pos = 0; pos < 3; ++pos) {
-        std::vector<float> l1(static_cast<std::size_t>(kPolicySize), kNaN);
-        std::vector<float> v1(players, kNaN);
-        CHECK(net->forward(input.subspan(pos * in_size, in_size), 1, l1, v1).has_value());
-        bool same = true;
-        for (std::size_t j = 0; j < l1.size(); ++j) same = same && std::bit_cast<std::uint32_t>(l1[j]) == std::bit_cast<std::uint32_t>(l3[pos * kPolicySize + j]);
-        for (std::size_t j = 0; j < v1.size(); ++j) same = same && std::bit_cast<std::uint32_t>(v1[j]) == std::bit_cast<std::uint32_t>(v3[pos * players + j]);
-        CHECK(same);
-    }
-    CHECK_EQ(net->plans_built(), 2);  // buckets 4 and 1
 }
 
 SH_TEST(network_small_against_java) { check_network_against_java("small"); }
@@ -495,16 +591,124 @@ SH_TEST(buckets_plans_and_errors) {
     CHECK(!net->forward(dirty, 1, logits, values).has_value());
     dirty[static_cast<std::size_t>(kPadding * weights.config().input_planes())] = kNaN;
     CHECK(!net->forward(dirty, 1, logits, values).has_value());
-    // options that WP11b adds are refused for now, not silently ignored
-    metal::Options tiled;
-    tiled.variant = ConvVariant::Tiled;
-    CHECK(!metal::MetalNet::create(weights, tiled).has_value());
-    metal::Options shared;
-    shared.memory = metal::MemoryMode::Shared;
-    CHECK(!metal::MetalNet::create(weights, shared).has_value());
     metal::Options zero;
     zero.max_batch = 0;
     CHECK(!metal::MetalNet::create(weights, zero).has_value());
+}
+
+// ---- timing, instrumented mode, set-up record, variant rule ----
+
+SH_TEST(timing_setup_and_variant_rule) {
+    if (!have_device()) return;
+    Preset preset;
+    auto loaded = load_preset("small", preset);
+    if (!loaded) return;
+    const Parameters& weights = loaded->second;
+    const NetworkConfig& cfg = weights.config();
+    const auto in_size = static_cast<std::size_t>(cfg.input_size());
+    const auto players = static_cast<std::size_t>(cfg.players);
+    const std::span<const float> input = std::span<const float>(loaded->first.inputs).first(40 * in_size);
+    CHECK(metal::library_compile_ms() > 0.0);
+
+    // the rule: naive while bucket * C <= 128, else simdgroup; a forced variant wins
+    {
+        auto net = metal::MetalNet::create(weights);
+        CHECK(net.has_value());
+        if (!net) return;
+        std::vector<float> logits(40 * static_cast<std::size_t>(kPolicySize));
+        std::vector<float> values(40 * players);
+        for (const int n : {1, 2, 4, 8, 16, 40}) CHECK(net->forward(input.first(static_cast<std::size_t>(n) * in_size), n, logits, values).has_value());
+        CHECK_EQ(net->setup().size(), static_cast<std::size_t>(6));
+        for (const metal::BucketSetup& b : net->setup()) {
+            CHECK(b.variant == variant_for(b.bucket, cfg.channels, true));
+            CHECK((b.variant == ConvVariant::Naive) == (static_cast<long long>(b.bucket) * cfg.channels <= 128));
+            CHECK(b.pipeline_ms > 0.0);
+            CHECK(b.buffer_ms >= 0.0);
+        }
+        CHECK(net->setup().front().variant == ConvVariant::Naive || cfg.channels > 128);
+        CHECK(net->setup().back().variant == ConvVariant::Simdgroup);  // bucket 64
+        const metal::PhaseTimes t = net->timings();
+        CHECK_EQ(t.calls, 6);
+        CHECK(t.copy_in_ms > 0.0 && t.commit_wait_ms > 0.0 && t.gpu_ms > 0.0 && t.copy_out_ms > 0.0 && t.priors_ms > 0.0);
+        CHECK(t.gpu_ms <= t.commit_wait_ms * 1.5);  // the GPU time cannot much exceed the CPU time that waited for it
+        CHECK(net->kernel_times().empty());         // plain mode keeps no per-kernel record
+        net->reset_timings();
+        CHECK_EQ(net->timings().calls, 0);
+        CHECK_EQ(net->timings().commit_wait_ms, 0.0);
+    }
+    for (const ConvVariant forced : kVariants) {
+        metal::Options options;
+        options.variant = forced;
+        auto net = metal::MetalNet::create(weights, options);
+        CHECK(net.has_value());
+        if (!net) return;
+        std::vector<float> logits(2 * static_cast<std::size_t>(kPolicySize));
+        std::vector<float> values(2 * players);
+        CHECK(net->forward(input.first(2 * in_size), 2, logits, values).has_value());
+        CHECK(net->setup().front().variant == forced);
+    }
+
+    // instrumented mode: one command buffer per kernel, the same bits, a record of every kernel
+    for (const metal::MemoryMode memory : {metal::MemoryMode::Copy, metal::MemoryMode::Shared}) {
+        metal::Options plain;
+        plain.memory = memory;
+        metal::Options instrumented = plain;
+        instrumented.instrumented = true;
+        auto a = metal::MetalNet::create(weights, plain);
+        auto b = metal::MetalNet::create(weights, instrumented);
+        CHECK(a.has_value() && b.has_value());
+        if (!a || !b) return;
+        std::vector<float> la(40 * static_cast<std::size_t>(kPolicySize), kNaN), lb = la;
+        std::vector<float> va(40 * players, kNaN), vb = va;
+        CHECK(a->forward(input, 40, la, va).has_value());
+        CHECK(b->forward(input, 40, lb, vb).has_value());
+        CHECK(same_bits(la, lb) && same_bits(va, vb));
+        const std::vector<metal::KernelTime>& k = b->kernel_times();
+        const std::size_t expected = static_cast<std::size_t>(1 + 2 * cfg.blocks + 2) + (memory == metal::MemoryMode::Copy ? 2 : 0);
+        CHECK_EQ(k.size(), expected);
+        double sum = 0;
+        for (const metal::KernelTime& t : k) {
+            CHECK(t.gpu_ms >= 0.0);
+            sum += t.gpu_ms;
+        }
+        CHECK(sum > 0.0);
+        const auto has = [&](const std::string& n) { return std::ranges::any_of(k, [&](const metal::KernelTime& t) { return t.name == n; }); };
+        CHECK(has("conv_in") && has("block0.conv1") && has("block" + std::to_string(cfg.blocks - 1) + ".conv2") && has("policy_head") && has("value_head"));
+        CHECK_EQ(has("blit_in"), memory == metal::MemoryMode::Copy);
+        CHECK_EQ(has("blit_out"), memory == metal::MemoryMode::Copy);
+        CHECK(a->kernel_times().empty());
+    }
+}
+
+// How far the three kernels differ from each other on a whole network: reported, not required (the order of the sums inside the
+// SIMD-group matrix unit is not documented); each of them is within the bound of the Java reference in the network tests.
+SH_TEST(variants_on_the_whole_network_report) {
+    if (!have_device()) return;
+    Preset preset;
+    auto loaded = load_preset("small", preset);
+    if (!loaded) return;
+    const Parameters& weights = loaded->second;
+    const auto in_size = static_cast<std::size_t>(weights.config().input_size());
+    const auto players = static_cast<std::size_t>(weights.config().players);
+    constexpr std::size_t kN = 64;
+    const std::span<const float> input = std::span<const float>(loaded->first.inputs).first(kN * in_size);
+    std::vector<std::vector<float>> logits;
+    for (const ConvVariant v : kVariants) {
+        metal::Options options;
+        options.variant = v;
+        auto net = metal::MetalNet::create(weights, options);
+        CHECK(net.has_value());
+        if (!net) return;
+        std::vector<float> l(kN * static_cast<std::size_t>(kPolicySize), kNaN);
+        std::vector<float> va(kN * players, kNaN);
+        CHECK(net->forward(input, static_cast<int>(kN), l, va).has_value());
+        logits.push_back(std::move(l));
+    }
+    for (std::size_t other = 1; other < logits.size(); ++other) {
+        std::size_t differing = 0;
+        for (std::size_t i = 0; i < logits[0].size(); ++i) differing += std::bit_cast<std::uint32_t>(logits[0][i]) != std::bit_cast<std::uint32_t>(logits[other][i]) ? 1 : 0;
+        std::cout << "  logits that differ in bits, naive vs " << name_of(kVariants[other]) << ": " << differing << " of " << logits[0].size() << '\n';
+    }
 }
 
 SH_TEST(skeleton_links) {

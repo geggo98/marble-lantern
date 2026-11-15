@@ -219,3 +219,26 @@ policy logits swapped, padding row not zeroed, device tanh saturating to 0.5. **
 SIMD groups of a thread group stay in step. The barrier is in the kernel; the test cannot prove it.
 
 Deviations from the plan: `sh_metal` links `sh_nn` (the header uses `Parameters`, `NetworkConfig` and the bucket rule), one word in `CMakeLists.txt`; the same line is needed on `exp/cpp`.
+
+## Metal backend, second half (WP11b)
+
+`kernels.metal` gains `conv_tiled` and `conv_simdgroup`; `MetalNet` gains the variant rule, the `shared` memory mode, the phase timing and the instrumented mode.
+
+| Part | What it does |
+|---|---|
+| `conv_tiled` | thread group 8 x 16, tile 64 rows x 32 channels x 32 columns, 4 x 4 register tile interleaved (row `ty + 16 i`, channel `tx + 8 j`), local tiles padded by one column; every thread reaches every barrier |
+| `conv_simdgroup` | 128 threads = 4 SIMD groups, 32 x 32 x 32 tile, 2 x 2 blocks of 8 x 8 per SIMD group with `simdgroup_multiply_accumulate`, W loaded transposed, result through a threadgroup tile, then bias, residual, ReLU |
+| variant rule | `Options::variant` empty (the default) = `nn::variant_for`: `naive` while bucket * C <= 128, else `simdgroup`; a value forces one kernel (`nn_check --variant auto\|naive\|tiled\|simdgroup`, default `auto`) |
+| `shared` mode | `--memory shared`: the input buffer and the head output buffer are `MTLStorageModeShared`, the CPU writes and reads them, no blit; activations stay private |
+| phase timing | `timings()`: CPU clock for copy in, commit-and-wait, copy out, host priors, plus GPU time (`GPUEndTime - GPUStartTime`), totals since `reset_timings()`; `setup()` per bucket: pipeline creation and buffer allocation; `library_compile_ms()` once per process |
+| instrumented mode | `Options::instrumented`: one command buffer per kernel and per blit, each timed by the GPU clock, `kernel_times()` lists them (`blit_in`, `conv_in`, `blockN.conv1`, `blockN.conv2`, `policy_head`, `value_head`, `blit_out`); its wall time is not a result |
+
+`metal_test` additions: every conv shape of TINY, SMALL and LARGE with each of the three kernels at batch 1, 3 and 67; sizes that are not multiples of a tile (1->1, 5->70, 64->31, 9->33 ...); the hand-computed case for all three; NaN kept through ReLU in all three; the whole network in the two memory modes times auto and three forced variants, at `max_batch` 1,024 and 16, against `nn-ref-*`; a position gives the same bits in slot 0, 1, 2 of a bucket of 8, in a bucket of 4 and in a bucket of 1 (every mode); timing, set-up record and variant rule; instrumented mode gives the same bits as plain mode.
+
+Measured on 2026-11-15 (Apple M3 Max), mechanics only, no timing figures (the machine was not quiet): `nn_check --impl metal` for `auto`, `naive`, `tiled`, `simdgroup`, each in `copy` and `shared`, with the `debug-asan` and `release-hardened` binaries: 16 runs, all within the bound, with the same largest errors as the naive kernel (SMALL 0.0196, LARGE 0.0499, gen11 0.0068, fractions of the bound). On SMALL at 64 positions the logits of `tiled` and `simdgroup` equal those of `naive` bit for bit (0 of 15,488 differ), as the Java test found on this device; nothing guarantees it.
+
+Mutation check of the new kernels (each at a time, `metal_test` red unless listed): `simdgroup` W not transposed, `simdgroup` padding row not zeroed, `tiled` interleave changed, `tiled` barrier after the tile loads removed, `simdgroup` bias replaced, `tiled` ReLU as `v > 0 ? v : 0` (found only by the NaN test added for it), `simdgroup` k loop one step short. Equivalent mutant: clamping the weight index of `tiled` beyond the shape (the A tile is zero there).
+
+`metal_test` also ran once with `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1`: no finding.
+
+Deviation: `Options::variant` became `std::optional<ConvVariant>` (empty = rule) instead of a value with default `Naive`; `nn_check` default is now `--variant auto`. The per-bucket pipelines are created by the net without the process-wide cache so that `setup()` shows the creation cost of every bucket; Metal's own binary cache can still make the second one cheap.

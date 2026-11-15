@@ -1,6 +1,7 @@
 // Checks a network implementation against the Java reference outputs of the golden files (WP9).
-//   nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant naive] [--memory copy]
-// --impl metal runs the Metal backend (macOS); --variant and --memory choose its convolution kernel and memory mode (WP11a: naive, copy).
+//   nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant auto|naive|tiled|simdgroup] [--memory copy|shared]
+// --impl metal runs the Metal backend (macOS); --variant and --memory choose its convolution kernel (auto = the bucket rule, the
+// default) and memory mode (copy, the default, or shared).
 // Compares with nn-ref-<preset> (the scalar Java `Network`) under the bound 1e-4 + 1e-3 |ref| (plus the extra term of
 // MANIFEST.tsv, if any) and prints, per preset, the largest error as a fraction of the bound for logits and values.
 // For --impl reference the C++ code must also reproduce the Java reference exactly: logits bit-identical, values within
@@ -33,7 +34,7 @@ struct Options {
     std::string preset = "all";
     int positions = 0;  // 0 = all
     int batch = 64;     // positions per forward call
-    std::string variant = "naive";
+    std::string variant = "auto";
     std::string memory = "copy";
 };
 
@@ -73,7 +74,7 @@ Options parse(const std::vector<std::string_view>& args) {
         }
     }
     if (o.impl.empty()) {
-        std::cerr << "usage: nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant naive] [--memory copy]\n";
+        std::cerr << "usage: nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant auto|naive|tiled|simdgroup] [--memory copy|shared]\n";
         std::exit(2);
     }
     return o;
@@ -145,14 +146,20 @@ int main(int argc, char** argv) {
             sh::metal::Options options;
             if (opt.variant == "naive") {
                 options.variant = ConvVariant::Naive;
-            } else {
-                std::cerr << "nn_check: unknown or unavailable variant '" << opt.variant << "' (naive)\n";
+            } else if (opt.variant == "tiled") {
+                options.variant = ConvVariant::Tiled;
+            } else if (opt.variant == "simdgroup") {
+                options.variant = ConvVariant::Simdgroup;
+            } else if (opt.variant != "auto") {
+                std::cerr << "nn_check: unknown variant '" << opt.variant << "' (auto, naive, tiled or simdgroup)\n";
                 return 2;
             }
             if (opt.memory == "copy") {
                 options.memory = sh::metal::MemoryMode::Copy;
+            } else if (opt.memory == "shared") {
+                options.memory = sh::metal::MemoryMode::Shared;
             } else {
-                std::cerr << "nn_check: unknown or unavailable memory mode '" << opt.memory << "' (copy)\n";
+                std::cerr << "nn_check: unknown memory mode '" << opt.memory << "' (copy or shared)\n";
                 return 2;
             }
             auto created = sh::metal::MetalNet::create(*weights, options);
