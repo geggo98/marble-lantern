@@ -616,6 +616,22 @@ void check_reference_against_java(const std::string& name, int count) {
 
 }  // namespace
 
+namespace {
+// The error of whichever load failed; calling error() on the one that holds a value is undefined behaviour.
+template <class A, class B>
+const golden::Error& first_error(const A& a, const B& b) {
+    return !a ? a.error() : b.error();
+}
+}  // namespace
+
+SH_TEST(first_error_comes_from_the_loader_that_failed) {
+    const std::expected<int, golden::Error> ok = 1;
+    const std::expected<int, golden::Error> bad = std::unexpected(golden::Error{golden::ErrorKind::Corrupt, "weights bad"});
+    CHECK_EQ(first_error(ok, bad).message, std::string("weights bad"));
+    CHECK(first_error(ok, bad).kind == golden::ErrorKind::Corrupt);
+    CHECK_EQ(first_error(bad, ok).message, std::string("weights bad"));
+}
+
 SH_TEST(reference_matches_java_small) { check_reference_against_java("small", 48); }
 SH_TEST(reference_matches_java_large) { check_reference_against_java("large", 8); }
 SH_TEST(reference_matches_java_gen11) { check_reference_against_java("gen11", 4); }
@@ -626,10 +642,11 @@ SH_TEST(reference_batch_equals_single_on_golden_inputs) {
     auto weights = load_golden_weights(golden::directory(), *preset);
     if (!data || !weights) {
         test::count_check();
-        if (data.error().kind == golden::ErrorKind::Missing && !golden::required()) {
-            test::skip("small golden files missing");
+        const golden::Error& e = first_error(data, weights);
+        if (e.kind == golden::ErrorKind::Missing && !golden::required()) {
+            test::skip("small golden files missing: " + e.message);
         } else {
-            test::fail("golden", 0, "small golden files unreadable");
+            test::fail("golden", 0, "small golden files unreadable: " + e.message);
         }
         return;
     }

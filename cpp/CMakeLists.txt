@@ -155,6 +155,8 @@ add_test(NAME simd_object_code
 set_tests_properties(simd_object_code PROPERTIES SKIP_RETURN_CODE 77)
 sh_test(cuda_adapter_test sh_cuda_stub)
 sh_test(cuda_test sh_cuda_stub)
+add_test(NAME nn_bench_kernels_exit COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-nn-bench-kernels.sh $<TARGET_FILE:nn_bench>)
+set_tests_properties(nn_bench_kernels_exit PROPERTIES SKIP_RETURN_CODE 77)
 sh_test(bench_series_test sh_nn)
 target_include_directories(bench_series_test PRIVATE apps)
 if(APPLE)

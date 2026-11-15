@@ -523,7 +523,7 @@ void instrumented_pass(const PresetData& pd, const std::vector<int>& batches) {
     auto created = sh::metal::MetalNet::create(pd.params, o);
     if (!created) {
         std::cerr << "nn_bench: instrumented pass: " << created.error().message << '\n';
-        return;
+        std::exit(2);
     }
     sh::metal::MetalNet net = std::move(*created);
     const NetworkConfig& cfg = pd.params.config();
@@ -741,6 +741,10 @@ int main(int argc, char** argv) {
     }
 
     if (opt.kernels) {
+    if (!have_metal() && !have_cuda()) {
+        std::cerr << "nn_bench: --kernels needs a Metal or a CUDA device; this host has neither (no table was measured)\n";
+        return 2;
+    }
 #if SH_HAVE_METAL
         if (have_metal()) kernel_table_metal(presets, opt.batches);
 #endif
