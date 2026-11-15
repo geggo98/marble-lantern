@@ -186,3 +186,36 @@ go through `std::span`, `std::copy_n` and `std::bit_cast`.
 - `nn_check --impl simd|simd-nofma [--batch N]` compares with the Java scalar reference under the bound; `nn_test` also compares with the
   Java `VectorNetwork` outputs. The no-allocation test replaces the global `operator new` in `nn_test` only (`tests/alloc_counter.hpp`, the
   one exception of rule R1 in `check-rules.sh`).
+
+## Metal backend, first half (WP11a)
+
+`src/gpu/metal/` ports `TornadoNetwork` on Metal. `metal_net.hpp` is plain C++ (pimpl, no Objective-C type); `metal_net.mm` is built with
+`-fobjc-arc`; `kernels.metal` is embedded as a raw string and compiled at run time (`newLibraryWithSource`, `MTLMathModeSafe`, once per process).
+
+| Part | What it does |
+|---|---|
+| `conv_naive` | one thread per (row of the batch, output channel); sum over k, then ch, ascending; bias; optional residual; ReLU `v < 0 ? 0 : v`; padding row 0 |
+| `policy_head`, `value_head` | one thread per (position, logit); one thread group of 256 per position with the partial-sum pooling, dense, dense; `apply_tanh = 0` for `classic1` |
+| tanh | `x > 8.5 ? 1 : x < -8.5 ? -1 : tanh(x)` (`DeviceMath.tanh`), only where `apply_tanh = 1` |
+| buckets | powers of two up to `max_batch` (1,024), buffers built on first use (`plans_built()`), chunks above `max_batch`; host priors with `apply_host_priors` |
+| memory | `copy` mode: private device buffers, a blit of the input to the device and of the head buffer back, one command buffer per call |
+
+`MetalNet::create` refuses `Tiled`, `Simdgroup` and `MemoryMode::Shared` for now (WP11b). `nn_check --impl metal [--variant naive] [--memory copy]`
+checks it against `nn-ref-*` with the `tornado` extra term of the manifest (none is needed).
+
+Measured on 2026-11-15 (Apple M3 Max, debug-asan and release-hardened binaries, all 1,024 positions, batch 64), largest error as a fraction of the bound:
+
+| Preset | `nn_check --impl metal` | `TornadoNetwork` (Java, WP8) |
+|---|---|---|
+| SMALL u5 | 0.0196 | 0.0196 |
+| LARGE u5 | 0.0499 | 0.0499 |
+| LARGE gen11 | 0.0068 (logits 0.0011) | 0.0069 |
+
+`metal_test` also ran once with `MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1` ("Metal API Validation Enabled", "Metal GPU Validation Enabled"): no finding.
+
+Mutation check of the kernels (each one at a time, `metal_test` red unless listed): pooling over 120 cells, bias dropped, ReLU as `v > 0 ? v : 0`, residual dropped,
+policy logits swapped, padding row not zeroed, device tanh saturating to 0.5. **Survivors:** the threadgroup barrier before the last dense layer of `value_head`
+(removed: 12 of 12 tests green in three runs, also with `C = 8, H = 1024` at batch 1,024); the Java test found its barrier mutants only under load, and on an idle GPU the
+SIMD groups of a thread group stay in step. The barrier is in the kernel; the test cannot prove it.
+
+Deviations from the plan: `sh_metal` links `sh_nn` (the header uses `Parameters`, `NetworkConfig` and the bucket rule), one word in `CMakeLists.txt`; the same line is needed on `exp/cpp`.

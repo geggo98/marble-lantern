@@ -1,5 +1,6 @@
 // Checks a network implementation against the Java reference outputs of the golden files (WP9).
-//   nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N]
+//   nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant naive] [--memory copy]
+// --impl metal runs the Metal backend (macOS); --variant and --memory choose its convolution kernel and memory mode (WP11a: naive, copy).
 // Compares with nn-ref-<preset> (the scalar Java `Network`) under the bound 1e-4 + 1e-3 |ref| (plus the extra term of
 // MANIFEST.tsv, if any) and prints, per preset, the largest error as a fraction of the bound for logits and values.
 // For --impl reference the C++ code must also reproduce the Java reference exactly: logits bit-identical, values within
@@ -18,6 +19,9 @@
 #include "golden_io.hpp"
 #include "reference_net.hpp"
 #include "simd_net.hpp"
+#if defined(__APPLE__)
+#include "metal_net.hpp"
+#endif
 
 namespace {
 
@@ -29,6 +33,8 @@ struct Options {
     std::string preset = "all";
     int positions = 0;  // 0 = all
     int batch = 64;     // positions per forward call
+    std::string variant = "naive";
+    std::string memory = "copy";
 };
 
 std::string_view value_of(const std::vector<std::string_view>& args, std::size_t& i) {
@@ -51,6 +57,10 @@ Options parse(const std::vector<std::string_view>& args) {
             o.preset = std::string(value_of(args, i));
         } else if (a == "--positions") {
             o.positions = std::atoi(std::string(value_of(args, i)).c_str());
+        } else if (a == "--variant") {
+            o.variant = std::string(value_of(args, i));
+        } else if (a == "--memory") {
+            o.memory = std::string(value_of(args, i));
         } else if (a == "--batch") {
             o.batch = std::atoi(std::string(value_of(args, i)).c_str());
             if (o.batch < 1) {
@@ -63,7 +73,7 @@ Options parse(const std::vector<std::string_view>& args) {
         }
     }
     if (o.impl.empty()) {
-        std::cerr << "usage: nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N]\n";
+        std::cerr << "usage: nn_check [--golden DIR] --impl reference|simd|simd-nofma|metal|cuda [--preset small|large|gen11|all] [--positions N] [--batch N] [--variant naive] [--memory copy]\n";
         std::exit(2);
     }
     return o;
@@ -74,7 +84,11 @@ Options parse(const std::vector<std::string_view>& args) {
 int main(int argc, char** argv) {
     const auto args = sh::args_from_main(argc, argv);
     const Options opt = parse(args);
-    if (opt.impl != "reference" && opt.impl != "simd" && opt.impl != "simd-nofma") {
+    bool have_metal = false;
+#if defined(__APPLE__)
+    have_metal = true;
+#endif
+    if (opt.impl != "reference" && opt.impl != "simd" && opt.impl != "simd-nofma" && !(opt.impl == "metal" && have_metal)) {
         std::cerr << "nn_check: implementation '" << opt.impl << "' is not available in this build\n";
         return 64;
     }
@@ -124,7 +138,31 @@ int main(int argc, char** argv) {
         const ReferenceNet net(*weights);
         const bool exact = opt.impl == "reference";
         std::optional<SimdNet> simd;
-        if (!exact) simd.emplace(*weights, opt.impl == "simd-nofma" ? SimdVariant::NoFma : SimdVariant::Fma);
+        if (opt.impl == "simd" || opt.impl == "simd-nofma") simd.emplace(*weights, opt.impl == "simd-nofma" ? SimdVariant::NoFma : SimdVariant::Fma);
+#if defined(__APPLE__)
+        std::optional<sh::metal::MetalNet> gpu;
+        if (opt.impl == "metal") {
+            sh::metal::Options options;
+            if (opt.variant == "naive") {
+                options.variant = ConvVariant::Naive;
+            } else {
+                std::cerr << "nn_check: unknown or unavailable variant '" << opt.variant << "' (naive)\n";
+                return 2;
+            }
+            if (opt.memory == "copy") {
+                options.memory = sh::metal::MemoryMode::Copy;
+            } else {
+                std::cerr << "nn_check: unknown or unavailable memory mode '" << opt.memory << "' (copy)\n";
+                return 2;
+            }
+            auto created = sh::metal::MetalNet::create(*weights, options);
+            if (!created) {
+                std::cerr << "nn_check: " << name << ": " << created.error().message << '\n';
+                return 2;
+            }
+            gpu.emplace(std::move(*created));
+        }
+#endif
         for (int first = 0; first < n; first += opt.batch) {
             const int m = std::min(opt.batch, n - first);
             const auto in = std::span<const float>(data->inputs).subspan(static_cast<std::size_t>(first) * static_cast<std::size_t>(cfg.input_size()),
@@ -132,17 +170,23 @@ int main(int argc, char** argv) {
             const auto lo = std::span<float>(logits).subspan(static_cast<std::size_t>(first) * kPolicySize, static_cast<std::size_t>(m) * kPolicySize);
             const auto va = std::span<float>(values).subspan(static_cast<std::size_t>(first) * static_cast<std::size_t>(cfg.players),
                                                              static_cast<std::size_t>(m) * static_cast<std::size_t>(cfg.players));
-            if (auto r = exact ? net.forward(in, m, lo, va) : simd->forward(in, m, lo, va); !r) {
+            const auto forward = [&]() {
+#if defined(__APPLE__)
+                if (gpu) return gpu->forward(in, m, lo, va);
+#endif
+                return exact ? net.forward(in, m, lo, va) : simd->forward(in, m, lo, va);
+            };
+            if (auto r = forward(); !r) {
                 std::cerr << "nn_check: " << name << ": forward failed: " << r.error().message << '\n';
                 return 1;
             }
         }
         const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        const double extra = extra_rel(*figures, "vector", *preset);
+        const double extra = extra_rel(*figures, opt.impl == "metal" ? "tornado" : "vector", *preset);
         const Comparison c = compare_outputs(logits, values, data->logits, data->values, 0, n, cfg.players, extra);
         const bool bound_ok = c.fraction() <= 1.0;
         const bool exact_ok = !exact || (c.logits_bit_identical && c.values_max_ulps <= 1.0);
-        std::cout << std::fixed << std::setprecision(4) << "preset=" << name << " impl=" << opt.impl << (exact ? "" : " lanes=" + std::to_string(SimdNet::lanes())) << " batch=" << opt.batch << " positions=" << n
+        std::cout << std::fixed << std::setprecision(4) << "preset=" << name << " impl=" << opt.impl << (simd ? " lanes=" + std::to_string(SimdNet::lanes()) : "") << (opt.impl == "metal" ? " variant=" + opt.variant + " memory=" + opt.memory : "") << " batch=" << opt.batch << " positions=" << n
                   << " logits_max_err_frac=" << c.logits_fraction << " values_max_err_frac=" << c.values_fraction
                   << " logits_bit_identical=" << (c.logits_bit_identical ? "yes" : "NO") << std::setprecision(0)
                   << " values_max_ulps=" << c.values_max_ulps << std::setprecision(4) << " extra_rel=" << extra

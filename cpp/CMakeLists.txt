@@ -115,7 +115,7 @@ if(APPLE)
   target_include_directories(sh_metal PUBLIC src/gpu/metal)
   target_include_directories(sh_metal PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/metal")
   target_compile_options(sh_metal PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(sh_metal PUBLIC sh_core "-framework Metal" "-framework Foundation")
+  target_link_libraries(sh_metal PUBLIC sh_core sh_nn "-framework Metal" "-framework Foundation")
   add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/metal/kernels_msl.inc"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/metal"
