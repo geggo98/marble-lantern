@@ -50,6 +50,7 @@
 #include "buckets.hpp"
 #include "cuda_backend.hpp"
 #include "golden_io.hpp"
+#include "measured_calls.hpp"
 #include "reference_net.hpp"
 #include "simd_net.hpp"
 #include "splittable_random.hpp"
@@ -502,6 +503,16 @@ CaseResult run_case(Runner& net, const std::string& label, const std::string& im
                       sorted_rates[1]};
 }
 
+// The last call of a pass after the main table is checked against nn-ref like the main table is (the inputs are the first
+// positions of the golden data, so the reference starts at position 0).
+void verify_pass_outputs(const char* what, const PresetData& pd, int batch, const std::vector<float>& logits, const std::vector<float>& values) {
+    const Comparison c = compare_outputs(logits, values, pd.data.logits, pd.data.values, 0, batch, pd.params.config().players, pd.extra_tornado);
+    if (c.fraction() > 1.0) {
+        std::cerr << "verification failed: " << what << " " << pd.preset << " " << pd.weights << " batch " << batch << ": error " << num(c.fraction(), 3) << " of the bound\n";
+        std::exit(2);
+    }
+}
+
 // ---- passes after the main table ----
 
 #if SH_HAVE_METAL
@@ -521,26 +532,36 @@ void instrumented_pass(const PresetData& pd, const std::vector<int>& batches) {
         std::vector<float> in(pd.data.inputs.begin(), pd.data.inputs.begin() + static_cast<std::ptrdiff_t>(static_cast<std::size_t>(batch) * size));
         std::vector<float> logits(static_cast<std::size_t>(batch) * kPolicySize);
         std::vector<float> values(static_cast<std::size_t>(batch) * static_cast<std::size_t>(cfg.players));
-        for (int i = 0; i < kWarmupCalls; ++i) (void)net.forward(in, batch, logits, values);
         std::vector<double> wall, kernel, write, read;
-        for (int i = 0; i < kInstrumentedCalls; ++i) {
-            const auto t0 = Clock::now();
-            (void)net.forward(in, batch, logits, values);
-            wall.push_back(ms_since(t0));
-            double k = 0, w = 0, r = 0;
-            for (const sh::metal::KernelTime& t : net.kernel_times()) {
-                if (t.name == "blit_in") {
-                    w += t.gpu_ms;
-                } else if (t.name == "blit_out") {
-                    r += t.gpu_ms;
-                } else {
-                    k += t.gpu_ms;
+        auto t0 = Clock::now();
+        const std::string error = sh::bench::run_measured(
+            kWarmupCalls, kInstrumentedCalls,
+            [&] {
+                t0 = Clock::now();
+                return net.forward(in, batch, logits, values);
+            },
+            [&]() -> std::string {
+                wall.push_back(ms_since(t0));
+                double k = 0, w = 0, r = 0;
+                for (const sh::metal::KernelTime& t : net.kernel_times()) {
+                    if (t.name == "blit_in") {
+                        w += t.gpu_ms;
+                    } else if (t.name == "blit_out") {
+                        r += t.gpu_ms;
+                    } else {
+                        k += t.gpu_ms;
+                    }
                 }
-            }
-            kernel.push_back(k);
-            write.push_back(w);
-            read.push_back(r);
+                kernel.push_back(k);
+                write.push_back(w);
+                read.push_back(r);
+                return {};
+            });
+        if (!error.empty()) {
+            std::cerr << "nn_bench: instrumented pass " << pd.preset << " " << pd.weights << " batch " << batch << ": " << error << '\n';
+            std::exit(2);
         }
+        verify_pass_outputs("instrumented pass", pd, batch, logits, values);
         std::cout << "#instrumented\t" << pd.preset << "\t" << pd.weights << "\t" << batch << "\t" << num(median_of(wall), 3) << "\t" << num(median_of(kernel), 3) << "\t"
                   << num(median_of(write), 3) << "\t" << num(median_of(read), 3) << '\n';
     }
@@ -615,18 +636,15 @@ void kernel_table_cuda(const std::vector<PresetData>& presets, const std::vector
                 std::vector<float> in(pd.data.inputs.begin(), pd.data.inputs.begin() + static_cast<std::ptrdiff_t>(static_cast<std::size_t>(batch) * size));
                 std::vector<float> logits(static_cast<std::size_t>(batch) * kPolicySize);
                 std::vector<float> values(static_cast<std::size_t>(batch) * static_cast<std::size_t>(cfg.players));
-                for (int i = 0; i < 30; ++i) (void)net->forward(in, batch, logits, values);
-                std::vector<std::string> names;
-                std::vector<std::vector<double>> series;
-                for (int i = 0; i < kInstrumentedCalls; ++i) {
-                    (void)net->forward(in, batch, logits, values);
-                    const auto& kt = net->kernel_times();
-                    if (series.empty()) {
-                        for (const auto& k : kt) names.push_back(k.name);
-                        series.resize(names.size());
-                    }
-                    for (std::size_t k = 0; k < kt.size() && k < series.size(); ++k) series[k].push_back(kt[k].ms);
+                const sh::bench::KernelSeries ks = sh::bench::collect_kernel_series(
+                    30, kInstrumentedCalls, [&] { return net->forward(in, batch, logits, values); }, [&]() -> const auto& { return net->kernel_times(); });
+                if (!ks.error.empty()) {
+                    std::cerr << "nn_bench: kernels " << pd.preset << " " << pd.weights << " batch " << batch << " " << variant << ": " << ks.error << '\n';
+                    std::exit(2);
                 }
+                verify_pass_outputs("kernels", pd, batch, logits, values);
+                const std::vector<std::string>& names = ks.names;
+                const std::vector<std::vector<double>>& series = ks.series;
                 for (std::size_t k = 0; k < names.size(); ++k) {
                     std::cout << "#kernels-cuda\tcpp\tcuda\t" << pd.preset << "\t" << pd.weights << "\t" << batch << "\t" << variant << "\t" << names[k] << "\t"
                               << num(median_of(series[k]), 3) << '\n';

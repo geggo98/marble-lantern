@@ -10,7 +10,9 @@
 #include <array>
 #include <chrono>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -25,6 +27,12 @@ constexpr std::string_view kKernelSource =
 }  // namespace
 
 namespace sh::metal {
+
+namespace {
+std::size_t g_buffer_limit = std::numeric_limits<std::size_t>::max();
+}
+void set_buffer_limit_for_test(std::size_t bytes) { g_buffer_limit = bytes; }
+
 namespace {
 
 using nn::Error;
@@ -144,14 +152,34 @@ std::expected<id<MTLComputePipelineState>, Error> pipeline(Ctx& ctx, const std::
 
 // ---- buffers ----
 
-id<MTLBuffer> shared_buffer(Ctx& ctx, std::size_t floats) {
-    return [ctx.device newBufferWithLength:std::max<std::size_t>(floats, 1) * sizeof(float) options:MTLResourceStorageModeShared];
+// A refused allocation (newBuffer... returns nil: memory pressure, a length above maxBufferLength) is recorded here, first one
+// wins. Callers check ok() before they touch a buffer, so a nil buffer never reaches as_floats, a blit or a kernel.
+struct Alloc {
+    std::string error;
+    bool ok() const { return error.empty(); }
+};
+
+id<MTLBuffer> checked(Alloc& a, id<MTLBuffer> buffer, std::size_t bytes) {
+    if (buffer == nil && a.ok()) a.error = "Metal buffer allocation of " + std::to_string(bytes) + " bytes failed";
+    return buffer;
 }
-id<MTLBuffer> shared_copy(Ctx& ctx, std::span<const float> data) {
-    return [ctx.device newBufferWithBytes:data.data() length:std::max<std::size_t>(data.size_bytes(), sizeof(float)) options:MTLResourceStorageModeShared];
+bool refused(std::size_t bytes) { return bytes > g_buffer_limit; }  // test seam, see set_buffer_limit_for_test
+
+id<MTLBuffer> shared_buffer(Ctx& ctx, Alloc& a, std::size_t floats) {
+    const std::size_t bytes = std::max<std::size_t>(floats, 1) * sizeof(float);
+    if (refused(bytes)) return checked(a, nil, bytes);
+    return checked(a, [ctx.device newBufferWithLength:bytes options:MTLResourceStorageModeShared], bytes);
 }
-id<MTLBuffer> private_buffer(Ctx& ctx, std::size_t bytes) {
-    return [ctx.device newBufferWithLength:std::max<std::size_t>(bytes, sizeof(float)) options:MTLResourceStorageModePrivate];
+id<MTLBuffer> shared_bytes(Ctx& ctx, Alloc& a, const void* data, std::size_t size) {
+    const std::size_t bytes = std::max<std::size_t>(size, sizeof(float));
+    if (refused(bytes)) return checked(a, nil, bytes);
+    return checked(a, [ctx.device newBufferWithBytes:data length:bytes options:MTLResourceStorageModeShared], bytes);
+}
+id<MTLBuffer> shared_copy(Ctx& ctx, Alloc& a, std::span<const float> data) { return shared_bytes(ctx, a, data.data(), data.size_bytes()); }
+id<MTLBuffer> private_buffer(Ctx& ctx, Alloc& a, std::size_t bytes_wanted) {
+    const std::size_t bytes = std::max<std::size_t>(bytes_wanted, sizeof(float));
+    if (refused(bytes)) return checked(a, nil, bytes);
+    return checked(a, [ctx.device newBufferWithLength:bytes options:MTLResourceStorageModePrivate], bytes);
 }
 
 // ---- encoding ----
@@ -293,14 +321,18 @@ std::expected<void, Error> need(const char* name, std::size_t have, std::size_t 
     return {};
 }
 
-void read_back(id<MTLBuffer> buffer, std::span<float> out) {
+std::expected<void, Error> read_back(id<MTLBuffer> buffer, std::span<float> out) {
     const std::span<float> data = as_floats(buffer);
+    if (out.size() > data.size()) return fail("Metal buffer holds " + std::to_string(data.size()) + " floats, " + std::to_string(out.size()) + " are read");
     std::copy_n(data.begin(), out.size(), out.begin());
+    return {};
 }
 
-void write_to(id<MTLBuffer> buffer, std::span<const float> in) {
+std::expected<void, Error> write_to(id<MTLBuffer> buffer, std::span<const float> in) {
     const std::span<float> data = as_floats(buffer);
+    if (in.size() > data.size()) return fail("Metal buffer holds " + std::to_string(data.size()) + " floats, " + std::to_string(in.size()) + " are written");
     std::copy_n(in.begin(), in.size(), data.begin());
+    return {};
 }
 
 struct Plan {
@@ -366,21 +398,24 @@ struct MetalNet::Impl {
         const std::size_t input_floats = b * static_cast<std::size_t>(config.input_size());
         const std::size_t activation = b * static_cast<std::size_t>(nn::kRows) * static_cast<std::size_t>(config.channels);
         const std::size_t out_floats = b * static_cast<std::size_t>(nn::kPolicySize + config.players);
-        p->x = private_buffer(*ctx, activation * sizeof(float));
-        p->t = private_buffer(*ctx, activation * sizeof(float));
-        p->u = private_buffer(*ctx, activation * sizeof(float));
+        Alloc alloc;
+        p->x = private_buffer(*ctx, alloc, activation * sizeof(float));
+        p->t = private_buffer(*ctx, alloc, activation * sizeof(float));
+        p->u = private_buffer(*ctx, alloc, activation * sizeof(float));
         if (shared) {
             // The two buffers of the host-visible mode: no staging, no blits. Slots of a bucket that a call does not fill keep
             // what was there before (zeros at first); their outputs are not read.
-            p->input = shared_buffer(*ctx, input_floats);
-            p->out = shared_buffer(*ctx, out_floats);
+            p->input = shared_buffer(*ctx, alloc, input_floats);
+            p->out = shared_buffer(*ctx, alloc, out_floats);
+            if (!alloc.ok()) return fail(alloc.error);
             std::ranges::fill(as_floats(p->input), 0.0f);
             std::ranges::fill(as_floats(p->out), 0.0f);
         } else {
-            p->in_stage = shared_buffer(*ctx, input_floats);
-            p->out_stage = shared_buffer(*ctx, out_floats);
-            p->input = private_buffer(*ctx, input_floats * sizeof(float));
-            p->out = private_buffer(*ctx, out_floats * sizeof(float));
+            p->in_stage = shared_buffer(*ctx, alloc, input_floats);
+            p->out_stage = shared_buffer(*ctx, alloc, out_floats);
+            p->input = private_buffer(*ctx, alloc, input_floats * sizeof(float));
+            p->out = private_buffer(*ctx, alloc, out_floats * sizeof(float));
+            if (!alloc.ok()) return fail(alloc.error);
             // The slots of a bucket that a call does not fill keep zeros (their outputs are not read).
             id<MTLCommandBuffer> cb = [ctx->queue commandBuffer];
             id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
@@ -399,7 +434,7 @@ struct MetalNet::Impl {
         const bool shared = options.memory == MemoryMode::Shared;
         const std::size_t in_floats = static_cast<std::size_t>(n) * static_cast<std::size_t>(config.input_size());
         auto t = Clock::now();
-        write_to(shared ? p.input : p.in_stage, input.first(in_floats));
+        if (auto r = write_to(shared ? p.input : p.in_stage, input.first(in_floats)); !r) return r;
         times.copy_in_ms += ms_since(t);
 
         t = Clock::now();
@@ -509,20 +544,25 @@ std::expected<MetalNet, Error> MetalNet::create(const nn::Parameters& parameters
         std::vector<id<MTLBuffer>> staging;
         id<MTLCommandBuffer> cb = [(*ctx)->queue commandBuffer];
         id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        Alloc alloc;
         const auto upload = [&](std::span<const float> data) {
-            id<MTLBuffer> stage = shared_copy(**ctx, data);
-            id<MTLBuffer> device = private_buffer(**ctx, data.size_bytes());
-            [blit copyFromBuffer:stage sourceOffset:0 toBuffer:device destinationOffset:0 size:data.size_bytes()];
-            staging.push_back(stage);
+            id<MTLBuffer> stage = shared_copy(**ctx, alloc, data);
+            id<MTLBuffer> device = private_buffer(**ctx, alloc, data.size_bytes());
+            if (alloc.ok()) {
+                [blit copyFromBuffer:stage sourceOffset:0 toBuffer:device destinationOffset:0 size:data.size_bytes()];
+                staging.push_back(stage);
+            }
             return device;
         };
         const auto conv_weights = [&](const std::string& prefix) { return ConvWeights{upload(parameters.data(prefix + ".weight")), upload(parameters.data(prefix + ".bias"))}; };
         {
             const nn::GatherTable& table = nn::gather_table();
-            id<MTLBuffer> stage = [(*ctx)->device newBufferWithBytes:table.data() length:sizeof(table) options:MTLResourceStorageModeShared];
-            impl->gather = private_buffer(**ctx, sizeof(table));
-            [blit copyFromBuffer:stage sourceOffset:0 toBuffer:impl->gather destinationOffset:0 size:sizeof(table)];
-            staging.push_back(stage);
+            id<MTLBuffer> stage = shared_bytes(**ctx, alloc, table.data(), sizeof(table));
+            impl->gather = private_buffer(**ctx, alloc, sizeof(table));
+            if (alloc.ok()) {
+                [blit copyFromBuffer:stage sourceOffset:0 toBuffer:impl->gather destinationOffset:0 size:sizeof(table)];
+                staging.push_back(stage);
+            }
         }
         const std::array<float, 1> zero{0.0f};
         impl->no_residual = upload(zero);
@@ -538,6 +578,7 @@ std::expected<MetalNet, Error> MetalNet::create(const nn::Parameters& parameters
         impl->dense2_w = upload(parameters.data("head_value.dense2.weight"));
         impl->dense2_b = upload(parameters.data("head_value.dense2.bias"));
         [blit endEncoding];
+        if (!alloc.ok()) return fail(alloc.error);
         if (auto r = finish(cb); !r) return std::unexpected(r.error());
         impl->plans.resize(static_cast<std::size_t>(nn::bucket_slot(options.max_batch)) + 1);
         return MetalNet(std::move(impl));
@@ -591,16 +632,21 @@ std::expected<double, Error> run_conv(nn::ConvVariant variant, std::span<const f
         auto state = pipeline(**ctx, conv_kernel_name(variant));
         if (!state) return std::unexpected(state.error());
         const nn::GatherTable& table = nn::gather_table();
-        id<MTLBuffer> gather = [(*ctx)->device newBufferWithBytes:table.data() length:sizeof(table) options:MTLResourceStorageModeShared];
-        id<MTLBuffer> out_buffer = shared_copy(**ctx, out.first(rows * cout));
+        Alloc alloc;
+        id<MTLBuffer> gather = shared_bytes(**ctx, alloc, table.data(), sizeof(table));
+        id<MTLBuffer> out_buffer = shared_copy(**ctx, alloc, out.first(rows * cout));
+        id<MTLBuffer> in_buffer = shared_copy(**ctx, alloc, in.first(rows * cin));
+        id<MTLBuffer> weight_buffer = shared_copy(**ctx, alloc, weight.first(cout * nn::kStencil * cin));
+        id<MTLBuffer> bias_buffer = shared_copy(**ctx, alloc, bias.first(cout));
+        id<MTLBuffer> residual_buffer = use_residual ? shared_copy(**ctx, alloc, residual.first(rows * cout)) : shared_buffer(**ctx, alloc, 1);
+        if (!alloc.ok()) return fail(alloc.error);
         id<MTLCommandBuffer> cb = [(*ctx)->queue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-        encode_conv(variant, enc, *state, shared_copy(**ctx, in.first(rows * cin)), gather, shared_copy(**ctx, weight.first(cout * nn::kStencil * cin)),
-                    shared_copy(**ctx, bias.first(cout)), use_residual ? shared_copy(**ctx, residual.first(rows * cout)) : shared_buffer(**ctx, 1), out_buffer,
+        encode_conv(variant, enc, *state, in_buffer, gather, weight_buffer, bias_buffer, residual_buffer, out_buffer,
                     {batch, in_channels, out_channels, use_residual ? 1 : 0, relu ? 1 : 0});
         [enc endEncoding];
         if (auto r = finish(cb); !r) return std::unexpected(r.error());
-        read_back(out_buffer, out.first(rows * cout));
+        if (auto r = read_back(out_buffer, out.first(rows * cout)); !r) return std::unexpected(r.error());
         return gpu_ms_of(cb);
     }
 }
@@ -631,17 +677,24 @@ std::expected<void, Error> run_heads(std::span<const float> trunk, const HeadWei
         if (!value) return std::unexpected(value.error());
         // One output buffer as in TornadoNetwork: the logits [batch][121][2], then the values [batch][players].
         const std::size_t logit_floats = b * nn::kPolicySize;
-        id<MTLBuffer> out = shared_buffer(**ctx, logit_floats + b * p);
-        write_to(out, logits.first(logit_floats));
+        Alloc alloc;
+        id<MTLBuffer> out = shared_buffer(**ctx, alloc, logit_floats + b * p);
+        id<MTLBuffer> trunk_buffer = shared_copy(**ctx, alloc, trunk.first(b * nn::kRows * c));
+        id<MTLBuffer> policy_w = shared_copy(**ctx, alloc, w.policy_weight.first(2 * c));
+        id<MTLBuffer> policy_b = shared_copy(**ctx, alloc, w.policy_bias.first(2));
+        id<MTLBuffer> dense1_w = shared_copy(**ctx, alloc, w.dense1_weight.first(h * c));
+        id<MTLBuffer> dense1_b = shared_copy(**ctx, alloc, w.dense1_bias.first(h));
+        id<MTLBuffer> dense2_w = shared_copy(**ctx, alloc, w.dense2_weight.first(p * h));
+        id<MTLBuffer> dense2_b = shared_copy(**ctx, alloc, w.dense2_bias.first(p));
+        if (!alloc.ok()) return fail(alloc.error);
+        if (auto r = write_to(out, logits.first(logit_floats)); !r) return r;
         const std::span<float> tail = as_floats(out).subspan(logit_floats);
         std::copy_n(values.begin(), b * p, tail.begin());
-        id<MTLBuffer> trunk_buffer = shared_copy(**ctx, trunk.first(b * nn::kRows * c));
         const HeadArgs a{batch, channels, hidden, players, apply_tanh ? 1 : 0, static_cast<int>(logit_floats)};
         id<MTLCommandBuffer> cb = [(*ctx)->queue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-        encode_policy(enc, *policy, trunk_buffer, shared_copy(**ctx, w.policy_weight.first(2 * c)), shared_copy(**ctx, w.policy_bias.first(2)), out, a);
-        encode_value(enc, *value, trunk_buffer, shared_copy(**ctx, w.dense1_weight.first(h * c)), shared_copy(**ctx, w.dense1_bias.first(h)),
-                     shared_copy(**ctx, w.dense2_weight.first(p * h)), shared_copy(**ctx, w.dense2_bias.first(p)), out, a);
+        encode_policy(enc, *policy, trunk_buffer, policy_w, policy_b, out, a);
+        encode_value(enc, *value, trunk_buffer, dense1_w, dense1_b, dense2_w, dense2_b, out, a);
         [enc endEncoding];
         if (auto r = finish(cb); !r) return r;
         const std::span<float> data = as_floats(out);

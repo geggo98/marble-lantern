@@ -606,7 +606,7 @@ def write_summary(path, book, date, report, effort):
         krows.append([r["program"], r["case"].split()[0], "%.3f [%.3f, %.3f]" % (r["median"], r["min"], r["max"]), "V" if r["status"] == "valid" else "u", v.group(1) if v else ""])
     w(table(["program", "preset", "ratio [pairs]", "st", "verdict"], krows))
     w("")
-    w("## Convolution kernel table (Java KernelsBenchmark against nn_bench --kernels; ms, status u, no output check in this table)")
+    w("## Convolution kernel table (Java KernelsBenchmark against nn_bench --kernels; ms, status u, no output check in this table). Clocks differ: Java = kernelNanos of the TornadoVM profiler (arrays resident on the device, floor of about 0.5 ms per task, values below it not explained); C++ = GPUEndTime - GPUStartTime of one command buffer with one dispatch (buffers created before it, outside the span). The C++/Java column is indicative only.")
     kt = []
     seen = []
     for r in get(table="kernel_table", metric="kernel_ms"):

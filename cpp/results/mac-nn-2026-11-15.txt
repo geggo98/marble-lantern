@@ -205,7 +205,7 @@ cpp:metal-copy    LARGE   0.920 [0.883, 1.073]  u   the unchecked build is 8.7 %
 cpp:metal-shared  SMALL   0.941 [0.932, 1.068]  u   the unchecked build is 6.2 % SLOWER than the hardened one 
 cpp:metal-shared  LARGE   0.917 [0.838, 1.069]  u   the unchecked build is 9.0 % SLOWER than the hardened one 
 
-## Convolution kernel table (Java KernelsBenchmark against nn_bench --kernels; ms, status u, no output check in this table)
+## Convolution kernel table (Java KernelsBenchmark against nn_bench --kernels; ms, status u, no output check in this table). Clocks differ: Java = kernelNanos of the TornadoVM profiler (arrays resident on the device, floor of about 0.5 ms per task, values below it not explained); C++ = GPUEndTime - GPUStartTime of one command buffer with one dispatch (buffers created before it, outside the span). The C++/Java column is indicative only.
 case            batch  Java ms  C++ ms  C++/Java
 --------------  -----  -------  ------  --------
 C=32 naive      1      0.032    0.026   0.812   

@@ -563,7 +563,7 @@ then reads `metal-copy:naive`). Every case ends with the check of its last call 
 
 A session (`bench-nn-mac.py`): hygiene, anchor rows (start, middle, end), N = 3 pairs of processes J, C, ... (the table of SMALL and
 LARGE u5 with all implementations, the gen11 rows, the cost of the checks as release-hardened against release at batch 256 with the
-order alternating between pairs), the kernel table (Java `KernelsBenchmark` against `nn_bench --kernels`, two rounds), the cold-start runs
+order alternating between pairs), the kernel table (Java `KernelsBenchmark` against `nn_bench --kernels`, two rounds) (the clocks differ: Java reports the TornadoVM profiler's `kernelNanos`, C++ the GPU time of one command buffer with one dispatch, so the C++/Java column is indicative only), the cold-start runs
 (three rounds, LARGE, batch 1 and 256), then the checks: anchors of the end against the start within 2 % for every program, no foreign
 process, no foreign CPU load above the limit, no CPU case with a thread CPU time below 0.8 of the wall time. A failed check makes the
 session invalid (exit 4): no result file, the files stay in the work directory; after three invalid sessions in a row measuring stops.

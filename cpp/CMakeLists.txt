@@ -155,6 +155,8 @@ add_test(NAME simd_object_code
 set_tests_properties(simd_object_code PROPERTIES SKIP_RETURN_CODE 77)
 sh_test(cuda_adapter_test sh_cuda_stub)
 sh_test(cuda_test sh_cuda_stub)
+sh_test(bench_series_test sh_nn)
+target_include_directories(bench_series_test PRIVATE apps)
 if(APPLE)
   add_executable(metal_test tests/metal_test.mm)
   sh_target(metal_test)

@@ -596,6 +596,50 @@ SH_TEST(buckets_plans_and_errors) {
     CHECK(!metal::MetalNet::create(weights, zero).has_value());
 }
 
+// A refused buffer allocation (nil from newBuffer...) ends in an error, never in a write through a null pointer.
+SH_TEST(refused_allocations_are_errors) {
+    if (!have_device()) return;
+    Preset preset;
+    auto loaded = load_preset("small", preset);
+    if (!loaded) return;
+    const Parameters& weights = loaded->second;
+    const auto contains = [](const std::string& s) { return s.find("allocation of") != std::string::npos && s.find("failed") != std::string::npos; };
+    // the net: create() fails when the weights cannot be uploaded
+    metal::set_buffer_limit_for_test(1000);
+    auto refused = metal::MetalNet::create(weights);
+    metal::set_buffer_limit_for_test(std::numeric_limits<std::size_t>::max());
+    CHECK(!refused.has_value());
+    if (!refused) CHECK(contains(refused.error().message));
+    // the plan of a bucket is built on the first call
+    auto net = metal::MetalNet::create(weights);
+    CHECK(net.has_value());
+    if (!net) return;
+    const auto in_size = static_cast<std::size_t>(weights.config().input_size());
+    std::vector<float> logits(static_cast<std::size_t>(kPolicySize));
+    std::vector<float> values(2);
+    metal::set_buffer_limit_for_test(1000);
+    auto plan = net->forward(std::span<const float>(loaded->first.inputs).first(in_size), 1, logits, values);
+    metal::set_buffer_limit_for_test(std::numeric_limits<std::size_t>::max());
+    CHECK(!plan.has_value());
+    if (!plan) CHECK(contains(plan.error().message));
+    CHECK(net->forward(std::span<const float>(loaded->first.inputs).first(in_size), 1, logits, values).has_value());  // recovers
+    // the single kernels
+    const int batch = 1, c = 8;
+    std::vector<float> in(static_cast<std::size_t>(batch) * kRows * c, 0.0f), weight(static_cast<std::size_t>(c) * kStencil * c, 0.0f), bias(c, 0.0f), res(1, 0.0f);
+    std::vector<float> out(in.size(), 0.0f);
+    metal::set_buffer_limit_for_test(100);
+    auto conv = metal::run_conv(ConvVariant::Naive, in, weight, bias, res, out, batch, c, c, false, false);
+    CHECK(!conv.has_value());
+    if (!conv) CHECK(contains(conv.error().message));
+    const std::size_t p = 2, h = 4;
+    std::vector<float> trunk(static_cast<std::size_t>(kRows) * c, 0.0f), pw(2 * c, 0.0f), pb(2, 0.0f), d1w(h * c, 0.0f), d1b(h, 0.0f), d2w(p * h, 0.0f), d2b(p, 0.0f);
+    std::vector<float> head_logits(static_cast<std::size_t>(kPolicySize), 0.0f), head_values(p, 0.0f);
+    auto heads = metal::run_heads(trunk, {pw, pb, d1w, d1b, d2w, d2b}, 1, c, static_cast<int>(h), static_cast<int>(p), true, head_logits, head_values);
+    metal::set_buffer_limit_for_test(std::numeric_limits<std::size_t>::max());
+    CHECK(!heads.has_value());
+    if (!heads) CHECK(contains(heads.error().message));
+}
+
 // ---- timing, instrumented mode, set-up record, variant rule ----
 
 SH_TEST(timing_setup_and_variant_rule) {

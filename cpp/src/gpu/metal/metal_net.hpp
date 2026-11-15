@@ -104,6 +104,10 @@ std::expected<double, nn::Error> run_conv(nn::ConvVariant variant, std::span<con
                                           std::span<const float> residual, std::span<float> out, int batch, int in_channels,
                                           int out_channels, bool use_residual, bool relu);
 
+// Test seam: from now on a buffer above this many bytes is refused like a device that returns nil (the call must fail with
+// an error and never write through a null pointer). The default is no limit.
+void set_buffer_limit_for_test(std::size_t bytes);
+
 // run_conv with the naive kernel (WP11a).
 std::expected<void, nn::Error> run_conv_naive(std::span<const float> in, std::span<const float> weight, std::span<const float> bias,
                                               std::span<const float> residual, std::span<float> out, int batch, int in_channels,
