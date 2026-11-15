@@ -82,7 +82,7 @@ JAVA=(${(z)$(<$JCMD_FILE)})   # java flags, class path and main class; spec and 
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/bench-mac.XXXXXX") || exit 1
 CHILD=
-abort() { [[ -n $CHILD ]] && kill $CHILD 2>/dev/null; print -u2 "bench-mac.sh: aborted (logs in $WORK)"; exit $1 }
+abort() { [[ -n $CHILD ]] && kill $CHILD 2>/dev/null; rm -f $out.tmp.$$; print -u2 "bench-mac.sh: aborted (logs in $WORK)"; exit $1 }
 trap 'abort 130' INT
 trap 'abort 143' TERM
 
@@ -189,6 +189,7 @@ fi
 
 # ---- the result file ----
 mkdir -p ${out:h}
+rm -f $out.tmp.*(N)   # leftovers of an aborted session
 JVM_FLAGS=$(print -r -- "$JAVA" | perl -ne 'print join " ", grep { /^-X|^--add-modules$|^jdk\.incubator/ } split " "')
 {
   (( gate )) || print "INVALID SESSION: --no-gate, hygiene not enforced; not a measurement"
@@ -297,7 +298,14 @@ if ($games == 0) {
   exit 5 unless $allequal;
 }
 EOF
-} >$out
+} >$out.tmp.$$
+# the block ends with the perl that parses the logs; its exit status (5 = the games of Java and C++ differ, or a die) decides
+if (( $? )); then
+  rm -f $out.tmp.$$
+  print -u2 "bench-mac.sh: the result could not be written or the games of the languages differ: session invalid, repeat it (logs in $WORK); no result file"
+  exit 4
+fi
+mv $out.tmp.$$ $out || { rm -f $out.tmp.$$; exit 1 }
 print -u2 "result written: ${out#$REPO/}"
 (( keep )) || rm -rf $WORK
 exit 0
