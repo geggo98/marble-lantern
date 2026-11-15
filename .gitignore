@@ -51,3 +51,7 @@ devenv.local.yaml
 # Results of scripts/cloud/aws-spot.sh
 cloud-results/
 /cloud-results/
+
+# C++ port: Java golden files and build trees
+/cpp/golden/
+/cpp/build/
