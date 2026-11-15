@@ -512,8 +512,20 @@ else
   # The instance's hard timer started at its boot, after LAUNCHED_AT: this deadline is the earliest it can have.
   deadline=$(( LAUNCHED_AT + MAX_MIN * 60 ))
   last_chance=0
+  last_collect=$(date +%s)
+  INTERRUPTED=0
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if bounded 60 "${SSH[@]}" "$SSH_USER@$IP" "test -f $REMOTE/DONE" 2> /dev/null; then break; fi
+    # a spot interruption ends the instance without a word: look at its state, or the loop would wait until the deadline (2026-11-15: 25 minutes lost)
+    state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].State.Name' --output text 2> /dev/null || echo unknown)
+    case $state in
+      terminated|shutting-down|stopped|stopping)
+        INTERRUPTED=1
+        echo "  the instance is $state before the run finished (spot interruption or shutdown); stopping the wait, the partial results of the last collection stay in $OUT_DIR" >&2
+        break ;;
+    esac
+    # keep a copy of the partial results every 5 minutes: an interruption loses nothing that is older
+    if [ "$(date +%s)" -ge $(( last_collect + 300 )) ]; then last_collect=$(date +%s); collect latest; fi
     if [ "$last_chance" = 0 ] && [ "$(date +%s)" -ge $(( deadline - 180 )) ]; then
       last_chance=1   # a step that hangs ends with the hard timer: take what the logs hold now
       collect last-chance
@@ -552,4 +564,6 @@ if [ "$DRY_RUN" = 1 ]; then
   echo "DRY-RUN: cleanup: cancel spot request, terminate $INSTANCE_ID and wait, delete security group $SG_ID (retry), delete key pair $KEY_NAME, then verify with describe-instances, describe-volumes, describe-security-groups, describe-key-pairs, describe-spot-instance-requests (tag RunId=$RUN_ID)" >&2
   exit 0
 fi
+# an interrupted run asks for a retry (exit 4: the caller may try again; the cost of this run is in cost.tsv)
+[ "${INTERRUPTED:-0}" = 1 ] && exit 4
 exit 0

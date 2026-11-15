@@ -57,6 +57,7 @@ case "$1 $2" in
     case "$*" in
       *PublicIpAddress*) echo 198.51.100.7 ;;
       *Availability*) echo eu-stub-1a ;;
+      *"Instances[0].State.Name"*) echo "${STUB_INSTANCE_STATE:-running}" ;;
       *) logged "terminate-instances" || echo i-0stub0001 ;;
     esac; exit 0 ;;
   "ec2 describe-spot-instance-requests") logged "cancel-spot-instance-requests" || echo sir-0stub; exit 0 ;;
