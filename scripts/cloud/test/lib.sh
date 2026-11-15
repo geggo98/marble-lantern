@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034,SC2054  # variables are used by the sourcing tests; commas inside array elements are intended
 # Shared helpers of the cloud script tests. Sourced, never run. Nothing here talks to AWS: every external command
 # (aws, ssh, scp, curl, git) is a stub on the PATH that only appends its arguments to $STUB_LOG.
 
@@ -27,6 +28,8 @@ make_sandbox() {
   trap 'rm -rf "$T"' EXIT
 }
 
+STUB_IMAGE_SUFFIX=0fedcba9876543210   # a made-up image id, assembled at run time so that no id-shaped literal is in the file
+export STUB_IMAGE_SUFFIX
 export VERIFY_SLEEP=0   # the leftover verification retries; do not sleep in tests
 write_stubs() {
   cat > "$STUB_BIN/aws" <<'STUB'
@@ -36,9 +39,16 @@ logged() { grep -q -- "$1" "$STUB_LOG"; }
 case "$1 $2" in
   "configure list") case " ${STUB_PROFILES:-known-profile} " in *" ${3#--profile} "*|*" $4 "*) echo "      Name       Value"; exit 0 ;; esac; echo "The config profile could not be found" >&2; exit 255 ;;
   "sts get-caller-identity") echo "arn:aws:iam::000000000000:user/stub"; exit 0 ;;
-  "ssm get-parameter") echo ami-0123456789abcdef0; exit 0 ;;
+  "ssm get-parameter")
+    [ -z "${STUB_SSM_FAIL:-}" ] || { echo "An error occurred (ParameterNotFound) when calling the GetParameter operation" >&2; exit 254; }
+    echo ami-0123456789abcdef0; exit 0 ;;
+  "ec2 describe-images") echo "${STUB_IMAGE_ID:-ami-$STUB_IMAGE_SUFFIX}"; exit 0 ;;
+  "ec2 describe-spot-price-history")
+    [ -z "${STUB_SPOT_PRICE:-}" ] || { case "$*" in *max-items*) echo "$STUB_SPOT_PRICE" ;; *) printf 'eu-stub-1a\t%s\n' "$STUB_SPOT_PRICE" ;; esac; }
+    exit 0 ;;
   "ec2 run-instances")
     case "$*" in *--dry-run*) echo "An error occurred (DryRunOperation) when calling the RunInstances operation"; exit 254 ;; esac
+    [ -z "${STUB_RUN_ERROR:-}" ] || { echo "An error occurred ($STUB_RUN_ERROR) when calling the RunInstances operation" >&2; exit 254; }
     echo i-0stub0001; exit 0 ;;
   "ec2 describe-instance-types") echo 4; exit 0 ;;
   "ec2 describe-vpcs") echo vpc-0stub; exit 0 ;;
@@ -60,6 +70,7 @@ STUB
 echo "ssh $*" >> "$STUB_LOG"
 case "$*" in
   *"test -f"*DONE*) : > "$STUB_MARK"; sleep "${STUB_SSH_WAIT:-0}"; exit 1 ;;
+  *sha256sum*) echo "${STUB_REMOTE_SHA:-0000000000000000000000000000000000000000000000000000000000000000}  real-weights.safetensors"; exit 0 ;;
 esac
 exit 0
 STUB
@@ -105,3 +116,53 @@ run_spot() {
     bash "$SPOT" "$@" > "$T/out.txt" 2>&1 || RC=$?
   OUTTXT=$(cat "$T/out.txt")
 }
+
+# --- stubs for spot-retry.py (no AWS: the "aws-spot.sh" is a script of this directory) ---------------------------------------------
+# make_retry_sandbox: sets T, RES (results dir), SPOTSTUB (the stub aws-spot.sh), STUB_LOG, CODES (a file: one exit code per
+# "run" call, taken from the top; empty = 0). Stub behaviour through files and variables:
+#   $T/pre-<region>   exit code of the pre-flight of that region (default 0)
+#   STUB_COST=<usd>   a run that did not end with 4 writes cloud-results/<run id>/cost.tsv with that estimate
+#   STUB_HANG=1       "run" waits for $T/release; on SIGTERM it writes $T/cleanup-ran and exits 143
+make_retry_sandbox() {
+  T=$(mktemp -d "${TMPDIR:-/tmp}/retrytest.XXXXXX")
+  RES=$T/cloud-results; mkdir -p "$RES"
+  STUB_LOG=$T/stub.log; CODES=$T/codes; SPOTSTUB=$T/aws-spot-stub.sh
+  : > "$STUB_LOG"; : > "$CODES"
+  cat > "$SPOTSTUB" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$STUB_LOG"
+cmd=$1; shift
+region=""; prev=""
+for a in "$@"; do [ "$prev" = --region ] && region=$a; prev=$a; done
+if [ "$cmd" = preflight ]; then
+  [ -f "$STUB_DIR/pre-$region" ] && exit "$(cat "$STUB_DIR/pre-$region")"
+  echo "pre-flight in $region: ok"; exit 0
+fi
+n=$(( $(cat "$STUB_DIR/counter" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/counter"
+id=$(printf 'sh-20260101-%06d-%d' "$n" "$n")
+echo "[00:00:00] run $id: suite cpp, g4dn.xlarge, in $region"
+if [ -n "${STUB_HANG:-}" ]; then
+  trap 'echo cleanup > "$STUB_DIR/cleanup-ran"; exit 143' TERM
+  : > "$STUB_DIR/in-run"
+  for _ in $(seq 1 150); do [ -f "$STUB_DIR/release" ] && break; sleep 0.2; done
+fi
+rc=$(head -1 "$CODES" 2>/dev/null); rc=${rc:-0}
+[ -s "$CODES" ] && tail -n +2 "$CODES" > "$CODES.n" && mv "$CODES.n" "$CODES"
+if [ "$rc" != 4 ] && [ -n "${STUB_COST:-}" ]; then
+  mkdir -p "$RESULTS_DIR/$id"
+  printf 'cpp\t2026-01-01T00:00:00Z\t100\t0.30\t%s\t0.2625\n' "$STUB_COST" > "$RESULTS_DIR/$id/cost.tsv"
+fi
+exit "$rc"
+STUB
+  chmod +x "$SPOTSTUB"
+  export STUB_DIR=$T STUB_LOG CODES RESULTS_DIR=$RES
+  trap 'rm -rf "$T"' EXIT
+}
+# run_retry ARGS...: spot-retry.py with the stub; output in $T/retry.out and RETOUT, exit code in $RC
+run_retry() {
+  RC=0
+  python3 -I "$SRC_CLOUD/spot-retry.py" --aws-spot "$SPOTSTUB" "$@" > "$T/retry.out" 2>&1 || RC=$?
+  RETOUT=$(cat "$T/retry.out")
+}
+RETRY_COMMON=(--regions eu-central-1,us-east-1 --attempts 6 --wait 0 --budget-usd 1.00 --suite cpp)
+RETRY_RUN=(-- --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 45 --backend cuda --feed-seconds 30 --yes)

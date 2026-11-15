@@ -1,0 +1,9 @@
+# Expected SHA-256 of the generated golden files (Java exporter :nn:goldenExport, from the Mac manifest). Columns: file, sha256, kind.
+# must: weights, inputs and cases are generated data and must be equal on the instance (bootstrap.sh --suite cpp, step golden-hash).
+# info: reference outputs of the JVM; a difference is recorded only (Math functions may differ by one ulp between platforms).
+nn-weights-small-u5.safetensors	0b67eb6052b2a6544ad3e0c40a5b695bf2ff9ed3c7db6a459ae6fb4893d74226	must
+nn-weights-large-u5.safetensors	ed6774710617eb70b2b8325d78f4d32afcf93e72eaedaf507608257238c69dae	must
+nn-inputs.safetensors	68d0ccfa68a5d44a9312e1cd954805a1ae477464c528f5baa24ed5e020cbfa2c	must
+nn-cases.safetensors	8d34c69952958c7820125c1375b8bb53741b222d1cf2362606ba44b2b0fc383c	must
+nn-ref-small-u5.safetensors	c9de391e96281defd35a0e3568c456d4a8189f40268bf021de40b2162f38dbba	info
+nn-ref-large-u5.safetensors	43cd59e2bb31786035659846d5a37684dab3987a689f9dadf607daf2df9f69cf	info
