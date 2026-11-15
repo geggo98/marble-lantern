@@ -404,6 +404,8 @@ else
   [ "$ok" = 1 ] || fail "ssh did not come up" 1
 fi
 log "uploading bootstrap.sh and the source tarball"
+# ssh answers before cloud-init has run the user data on some images (GPU deep learning AMI): create the target directory here as well (idempotent)
+mut "${SSH[@]}" "$SSH_USER@$IP" "sudo mkdir -p $REMOTE && sudo chmod 777 $REMOTE"
 mut "${SCP[@]}" "$here/bootstrap.sh" "$SSH_USER@$IP:$REMOTE/bootstrap.sh"
 mut "${SCP[@]}" "$SRC_TAR" "$SSH_USER@$IP:$REMOTE/src.tar.gz"
 mut "${SSH[@]}" "$SSH_USER@$IP" "touch $REMOTE/UPLOADED"
