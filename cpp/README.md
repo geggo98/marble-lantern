@@ -82,3 +82,91 @@ Consequences, applied in this package:
 - clang-tidy: the wrapper `clang-tidy` of nixpkgs `clang-tools` adds the Nix libc++ and fails on the Apple SDK (`mbstate_t` error);
   with `-isysroot` alone it still fails. The `tidy` preset therefore uses `clang-tidy-unwrapped` (same package) with
   `--extra-arg=-isysroot<sdk>`, which parses everything. Checks and exclusions are in `.clang-tidy`.
+
+## Network track: golden files, Java benchmark, tolerance (WP8)
+
+### Golden files of the network
+
+`./gradlew --no-build-cache :nn:goldenExport` (add `-Psternhalma.golden.real=true` for the real LARGE weights, read from
+`$STERNHALMA_DATA_DIR/loop4/gen-0011/candidate.safetensors`) writes `cpp/golden/` (git-ignored). All files are safetensors with
+F32 tensors:
+
+| File | Tensors |
+|---|---|
+| `nn-weights-small-u5`, `nn-weights-large-u5` | the u5 weights of SMALL and LARGE `classic1`, two players (`Parameters.uniform(config, 5, sqrt(6 / 7C))`) |
+| `nn-inputs` | `inputs` [1024][122][13]: 1,024 evenly spaced positions of `Playouts.positions(2, 60, 160, 1)`, encoded with `classic1` |
+| `nn-ref-small-u5`, `nn-ref-large-u5`, `nn-ref-large-gen11` (only with `real`) | `logits` [1024][242], `values` [1024][2] of the scalar `Network`; `vlogits`, `vvalues` of `VectorNetwork` (4 lanes, after three warm-up passes) |
+| `nn-cases` | TINY `classic1` u5 network as `base.*`; `input` and `dirty_input` [1][122][13]; `base.logits`, `base.values`; NaN case: `nan.conv_in.weight` replaces `conv_in.weight`, expected `nan.logits`, `nan.values` (the values are NaN); saturation cases: `sat_a.head_value.dense2.bias` = {44.3, 100} and `sat_b.head_value.dense2.bias` = {-1000, +inf} replace `head_value.dense2.bias`, expected `sat_a.values` = {1, 1} and `sat_b.values` = {-1, 1} exactly; `dirty_input` has 0.5 in the padding row (plane PROGRESS) and every forward pass must refuse it |
+
+`MANIFEST.tsv` has the columns `file`, `lines`, `sha256`, `commit` of `golden.hpp`. Binary files have the line count 0 (a C++ reader
+for them checks the SHA-256 only). Lines that do not start with `nn-` are kept by the exporter, so that it can share the file with
+the classical exporter. Comment lines `#<key><TAB><value>` hold measured figures:
+`#max_err_frac.<impl>.<preset>` (`impl` is `vector` or `tornado`, `preset` is `small-u5`, `large-u5` or `large-gen11`) is the
+largest error of the implementation against the scalar reference as a fraction of the bound 1e-4 + 1e-3 |ref|; if a figure
+exceeds 1, `#extra_rel_of_max_logit.<impl>.<preset>` is the extra term (times the largest |logit| of the position, policy only)
+that `nn_check` and `CrossBench` add to the bound. The `vector` figures come from `goldenExport`; run
+`./gradlew --no-build-cache :nn-tornado:goldenTolerance` afterwards for the `tornado` figures (it rewrites only those lines).
+
+Measured on 2026-11-15 (M3 Max, Metal), all far below 1.0, so no extra term:
+
+| Preset | `VectorNetwork` | `TornadoNetwork` (Metal) |
+|---|---|---|
+| SMALL u5 | 0.0131 | 0.0196 |
+| LARGE u5 | 0.0459 | 0.0499 |
+| LARGE gen11 | 0.0078 | 0.0069 |
+
+Two runs of `goldenExport` gave files with equal SHA-256 (also the references of `VectorNetwork`, which repeated bit for bit in
+the process).
+
+### The Java benchmark and its schedule
+
+`./gradlew --no-build-cache :nn-tornado:printRunCommand` writes the full `java` command of `CrossBench` and of `GpuFeedBenchmark`
+(`gpuFeed`) to `cpp/build/java-nn.cmd` and `cpp/build/java-gpufeed.cmd`: JVM flags `-Xms4g -Xmx4g`, the default GC (G1), the Vector
+API module and the TornadoVM flags of the SDK; the program arguments are appended by the caller (run it from the repository root,
+for example `eval "$(cat cpp/build/java-nn.cmd) --golden cpp/golden --presets small,large"`). `CrossBench` (task
+`:nn-tornado:crossBench`) prints comment lines (`# ...`: JVM flags with paths masked, GC, Vector API lanes, `UseAVX` and
+`MaxVectorSize` (`n/a` on arm), device, load before and after, GC collections per case), then a header line and one line per case
+in the shared schema:
+
+```text
+lang impl device preset weights batch bucket lanes evals_per_s ms_per_call_median ms_p90 round_min round_max
+copy_in_ms h2d_ms kernel_ms d2h_ms copy_out_ms priors_ms first_call_ms load_1min verified
+```
+
+The columns are tab-separated; `NA` means "not measured separately". `nn_bench` prints the same header line and columns.
+Schedule of every case (the same in `nn_bench`):
+
+- Warm-up: at least 2 s and 10 calls. A CPU case ends the warm-up at 2 s even with fewer calls (a call is then longer than 0.2 s).
+- Then 3 rounds of at least 1 s and at least one call. `evals_per_s` is the median round of calls x batch / round time;
+  `round_min` and `round_max` are the other two. `ms_per_call_median` and `ms_p90` are over the calls of all rounds.
+- The input of call c is the golden positions `c*n .. c*n+n-1` modulo 1,024 (for batches that divide 1,024: slice `c mod (1024/n)`),
+  prepared before the warm-up.
+- A CPU case whose one call would take more than 3 s at the rate of the smaller batches is skipped (comment line `# skipped`).
+- The last call of each case is checked against `nn-ref-*` (`logits`/`values`) with the bound above (plus the manifest's extra
+  term); on a violation the program ends with exit code 2 and prints no line for that case.
+- `first_call_ms` is the first call of the case: for TornadoVM it contains the plan build and the kernel compilation of the bucket.
+- TornadoVM reports one "execute" figure (host to device, kernels, device to host). It goes into `kernel_ms`; `h2d_ms` and
+  `d2h_ms` are `NA`. `copy_in_ms`, `copy_out_ms` and `priors_ms` are the per-execution deltas of `TornadoNetwork.timings()` over
+  the measured rounds. The CPU paths report `NA` for all phases.
+- `--anchors` runs only SMALL and LARGE at batch 256; `--cold` runs one forward pass and prints `# cold: construct .. ms, first
+  call .. ms, JVM uptime .. ms`; after the main table a profiled pass (`TornadoNetwork.profiled`, 20 calls per batch) prints
+  `#profiled` lines with the median wall time, kernel time, device write time and device read time of the TornadoVM profiler
+  (reported separately, because the profiler slows the call; `NA` where the backend reports 0).
+
+One full run on 2026-11-15 (SMALL and LARGE, all impls, six batches) printed 32 lines, all `verified = ok`; the scalar cases at
+batch 256 and above (LARGE) and 1024 (SMALL) were skipped by the 3 s rule. This was a functional run on a machine with other work
+running (load average above 3), not a measurement.
+
+### TornadoVM math flags (WP8 step 6)
+
+Determined by reading the bytecode of the 7.3.1 backend jars (`javap`), not by a run. The CUDA archive for Linux
+(`tornadovm-7.3.1-jdk22plus-cuda-linux-amd64.tar.gz`, SHA-256 equal to the pinned value in `scripts/setup-tornado.sh`) was
+unpacked in a scratch directory only for this reading; the Metal jar is the installed one.
+
+| Backend | What the code does | Consequence |
+|---|---|---|
+| CUDA (NVRTC) | `CUDACompiler` passes `--gpu-architecture=sm_NN` (falls back to `compute_NN` if the device architecture is newer than the NVRTC knows), `--include-path=<dir>` for `cuda_fp16.h` if needed, and `-rdc=true` only for kernels that launch kernels. The compiler flags of a task come from `TornadoOptions.DEFAULT_CUDA_COMPILER_FLAGS` = profile flags + `-Dtornado.cuda.compiler.flags` (default empty) + the FMA flag. The profile (`-Dtornado.cuda.compile.profile`) is `default` (no flags), `fast` (`--use_fast_math --extra-device-vectorization`), `debug` (`-lineinfo`) or `repro` (`--fmad=false`); the FMA flag is `--fmad=false` only if `-Dtornado.enable.fma=False` (default `True`) and no `-fmad` option is given | with the defaults the NVRTC options are the architecture only: **no `--use_fast_math`, and `--fmad` is not passed, so NVRTC's own default (`--fmad=true`: contraction of a*b+c into FMA) applies**. No string `fmad` or `use_fast_math` appears anywhere else in the CUDA driver or the driver-common jar |
+| Metal | `MetalContext.createProgramWithSource` passes `fastMathEnabled = TornadoOptions.METAL_FAST_MATH` (`-Dtornado.metal.fastmath`, default `False`) to the Metal compiler; `tornado.metal.compiler.flags` defaults to empty. The code does not set the Metal contraction mode | fast math is off by default (as `docs/tornado.md`, pitfall 8, measured); FMA contraction is left to the Metal compiler's default |
+
+Not confirmed by a run: the printed NVRTC option string. The CUDA part of the AWS run can confirm it with
+`-Dtornado.printKernel=True` if the backend logs its options; the document states "read from bytecode" until then.
