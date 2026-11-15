@@ -10,6 +10,10 @@
 
 usage: bench-nn-mac.py [--detach] [--status] [--out PREFIX] [--max-load L] [--pairs N] [--no-gate] [--work DIR] [--keep-work]
 
+--no-gate: test the script itself on a busy machine. The load, foreign-process, foreign-CPU and GPU checks are skipped, so the
+result is never a measurement: --out is required and must not be under cpp/results/, and both result files start with the line
+"INVALID SESSION: ...".
+
 One session: hygiene checks, anchor rows (SMALL and LARGE at batch 256, both programs), then N pairs of processes J, C, J, C, ... (Java
 CrossBench against C++ nn_bench, the full table, the gen11 rows, and the cost-of-the-checks rows C hardened against C release), the
 kernel table (Java KernelsBenchmark against nn_bench --kernels), the cold-start runs, and the anchor rows again. After the session:
@@ -32,7 +36,7 @@ Long runs (README, "long-running scripts"): --detach forks (os.fork, os.setsid) 
 its path and the PID. The lock is an fcntl.flock on a file in the temporary directory; a second start prints "already running: pid=...
 since ..." and exits 75. --status: lock probe, then the status file (display only) and ps -o etime=. SIGINT and SIGTERM set a flag; the
 running child is terminated, nothing is written, exit 130 or 143. One progress line per step on stderr: n/N, elapsed, estimated rest.
-Exit codes: 0 result written, 1 error, 3 not started (load, foreign processes, power), 4 invalid session, 75 already running,
+Exit codes: 0 result written, 1 error, 2 usage (--no-gate without a safe --out), 3 not started (load, foreign processes, power), 4 invalid session, 75 already running,
 130 and 143 aborted.
 """
 import argparse
@@ -63,6 +67,24 @@ FOREIGN_CPU_LIMIT = 350  # percent of one core, all processes except the benchma
 FOREIGN_GPU_LIMIT = 50  # percent device utilisation of the GPU between the steps; the desktop alone keeps it at 19 to 20
 
 stop_signal = []
+
+
+def no_gate_out_error(out):
+    """Why --no-gate may not write to `out` (None or a path), or None if it may: it needs an explicit PREFIX outside cpp/results/."""
+    if not out:
+        return "--no-gate needs --out PREFIX (the default cpp/results/mac-nn-<date> is for valid sessions only)"
+    results = (CPP / "results").resolve()
+    p = Path(out).resolve()
+    if p == results or results in p.parents:
+        return "--no-gate: --out must not be under cpp/results/ (an unchecked session is not a measurement)"
+    return None
+
+
+def marker_line(quick, no_gate):
+    """The first line of both result files: the marks of a session that is not a measurement."""
+    if no_gate:
+        return "# INVALID SESSION: --no-gate, hygiene not enforced; not a measurement"
+    return "# QUICK TEST of the session script, not a measurement" if quick else "#"
 
 
 def on_signal(sig, _frame):
@@ -238,6 +260,9 @@ def main():
 
     global QUICK
     QUICK = a.quick
+    if a.no_gate and (err := no_gate_out_error(a.out)):
+        print("bench-nn-mac.py: " + err, file=sys.stderr)
+        return 2
     lock = open(LOCK, "a")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -367,7 +392,7 @@ def main():
         for s in steps:
             f.write("%s\t%s\t%s\t%d\t%s\t%.2f\t%.2f\t%.2f\t%.0f\t%d\t%s\n" % (s.name, s.kind, s.lang, s.pair, s.rc, s.wall, s.load_before, s.load_after, s.foreign_max, s.gpu_before, "; ".join(s.top)))
     meta = [
-        "# QUICK TEST of the session script, not a measurement" if QUICK else "#",
+        marker_line(QUICK, a.no_gate),
         "# Network measurement on the Mac (docs/cpp-comparison-plan.md, WP13)",
         "# date %s" % date,
         "# machine %s, %s cores, macOS %s (build %s)" % (run_text(["sysctl", "-n", "machdep.cpu.brand_string"]).strip(), run_text(["sysctl", "-n", "hw.ncpu"]).strip(),
@@ -401,7 +426,7 @@ def main():
 
     summary = work / "summary.txt"
     pl = subprocess.run(["perl", "-CSDA", "-Mutf8", str(CPP / "scripts" / "merge-bench.pl"), str(work)], capture_output=True, text=True)
-    summary.write_text(pl.stdout)
+    summary.write_text((marker_line(QUICK, a.no_gate) + "\n" if a.no_gate else "") + pl.stdout)
     if pl.returncode != 0:
         invalid.append("merge-bench.pl failed: " + " | ".join(pl.stderr.strip().splitlines()[-3:]))
     # the checks that merge-bench.pl computed ("CHECK FAILED ..." lines)
