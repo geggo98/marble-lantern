@@ -693,6 +693,16 @@ run; the session 5 is booked as follows, and an invalid row is never reported as
    throughput at batch 256 to 1,024), **cost of the checks** and **cold start** are booked from the session 5, each row with its
    status valid or unsettled by the two rules above.
 
+#### Amendment 2 2026-11-15 (lead): Mac load limit
+
+The Hygiene rule "load before exceeds 2.0 on the Mac is not started, load after exceeds 2.0 is repeated" could not be kept: the idle base
+load of the owner's Mac is 3.0 to 3.7 (window server, audio routing, terminal; measured with `uptime` and `ps`). The scripts therefore
+use a **load limit of 4.0**. A row booked "valid" in the Mac result files is valid under this relaxed limit, and under the anchor rule
+of Amendment 1, not under the load limit of 2.0. The checks that stay strict: no foreign build or JVM process (by name), at most 350 % CPU
+for all other processes, power adapter, thermal state, the self-ratio of 0.98 to 1.02 and the anchors of 2 %. Reason and measurements:
+`cpp/README.md`, section "Load limit of the measurement sessions". The session 5 of the network measurement started some cases at
+2.08 to 4.59, which is also stated in its result file.
+
 The booked files are `cpp/results/mac-nn-2026-11-15.tsv` and `.txt`; the raw data of the session and the output of `merge-bench.pl`
 (with its four `CHECK FAILED` lines) are next to them.
 

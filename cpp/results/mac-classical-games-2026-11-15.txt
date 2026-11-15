@@ -76,7 +76,7 @@ Sessions of this measurement (the plan's rule: a failed session is repeated, not
      whenever --games is set. This is the only change to Java code; it affects no run without the option.
   2. invalid: the load after the third C++ run was 4.44 (limit 4.0) because OrbStack Helper used 78 % CPU for a while; search_bench refused the run
      and wrote no result. Not reported.
-  3. this file. Every check passed: self-ratios 0.9986 to 1.0024, trees identical on 64/64 positions and 2/2 games in every run, no JIT trend,
+  3. this file. Every check of the relaxed rule passed (load limit 4.0 instead of 2.0, see above; the plan's Amendment 2): self-ratios 0.9986 to 1.0024, trees identical on 64/64 positions and 2/2 games in every run, no JIT trend,
      the games of Java, release-hardened and release identical in nodes and moves (9,000,000 nodes and 540 moves per run summed over 3 repetitions).
   The working tree at the time of the session had the uncommitted changes of the script (options --games, --specs, --warm-games), search_bench.cpp
   and Bench.java (--warm-games); they are in the commit that adds this file. Two labels of the generated text were corrected by hand afterwards

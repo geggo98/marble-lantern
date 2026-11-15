@@ -45,7 +45,7 @@ of the version that builds with g++ 12.3 (the container script proves it).
 |---|---|---|
 | 1 | `exp/cpp-nn` (WP8 to WP12, branch tip `c0eeea9`), merge commit `48646af` | done in WP14 |
 | 2 | `exp/cpp-classical` (WP1 to WP5 and the `search_bench` code of WP7, branch tip `5bc9dda`), merge commit `3551a0d` | done in WP14 |
-| 3 | `exp/cpp-classical` again, after WP7 (measurement) and WP6 (race play, games row; done, see "Race play and the games row") | to do by the lead; WP13 on `exp/cpp-nn` is merged the same way before WP15 |
+| 3 | `exp/cpp-classical` again, after WP7 (measurement) and WP6 (race play, games row; done, see "Race play and the games row") | done: `exp/cpp-classical` merge commit `f12c5a0`, `exp/cpp-nn` (WP13) merge commit `8d40027`, both before WP15 |
 
 Repeat a merge (nothing is lost by a merge commit; `--no-ff` keeps one commit per track and merge):
 
@@ -65,7 +65,7 @@ classical track exports the engine and search files; the exporters keep each oth
 
 ## AWS scripts of WP14 (`scripts/cloud/`)
 
-All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, no account, no network). Nothing here ran against AWS.
+All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, no account, no network). State at the time of writing (WP14): nothing had run against AWS yet. The suite ran on 2026-11-15, all 19 steps OK; see "AWS run on the Tesla T4, booked (WP15)" and `results/aws-t4-2026-11-15.txt`.
 
 - **`bootstrap.sh --suite default|cpp`.** `cpp` needs `--backend cuda`. Order: apt, source, GPU driver check, `cpp-toolchain` (g++-12, nvcc
   through `find_nvcc`, compute-sanitizer, nvidia-smi; writes `nvcc-version.txt`, `toolchain.txt`), `cpp-build` (`build-cuda.sh`),
@@ -76,8 +76,8 @@ All of it is tested with stubs (`scripts/cloud/test/run-all.sh`, 15 test files, 
 - **`golden-hash`** compares weights, inputs and cases (`must`) of the instance's export with `cpp/expected-golden-sha256.tsv`
   (generated from the Mac manifest) and records the reference outputs (`info`) in `golden-sha256.txt`. WP13 may replace the file
   (same columns: file, sha256, `must|info`).
-- **WP13 dependency.** `nn_bench` is still the skeleton of WP0 (exit 64), so the steps `anchors-*` and `cpp-bench` end `FAIL` until
-  WP13 lands. The arguments are the ones of the plan (`--golden --presets --batches --impls --anchors --kernels --cold`); they are
+- **WP13 dependency.** At the time of writing `nn_bench` was the skeleton of WP0 (exit 64); WP13 has landed (merge commit `8d40027`), so the
+  steps `anchors-*` and `cpp-bench` run. The arguments are the ones of the plan (`--golden --presets --batches --impls --anchors --kernels --cold`); they are
   in `cpp_anchors` and `cpp_bench` of `bootstrap.sh` and are the only place to adjust if WP13 names an option differently. The Java
   rows run through the command line that `printRunCommand` wrote (`cpp/build/java-nn.cmd`).
 - **`aws-spot.sh`:** `--suite` (validated, in the user data), `cost.tsv` (provisional line at the launch, final line at the end and
@@ -197,7 +197,7 @@ Consequences, applied in this package:
 - `scripts/build-gcc12-stub.sh` compiles `src/core`, `src/nn`, the CUDA stub, the tests and the network apps with
   `g++ -std=c++23 -O2 -D_GLIBCXX_ASSERTIONS -ffp-contract=off` and the warning set of the plan, and runs the tests: all pass.
   `std::expected`, `std::span` and `std::bit_cast` work.
-- What stays unproven until the AWS gate: that the code also compiles with 12.3 of Ubuntu. The gate on the instance costs about 0.02 USD.
+- Settled by the AWS run of 2026-11-15: the code compiles with g++ 12.3 of Ubuntu and nvcc 13.2 (`-ccbin g++-12`), see `results/aws-t4-2026-11-15.txt`, section Correctness.
 
 ## Deviations from the plan, made in WP0
 
@@ -504,13 +504,15 @@ and bucket 8 is printed as information (CUDA gives no guarantee, the Metal port 
 
 ### What was NOT checked, and what can still fail on the instance
 
-- **nvcc has never read `cuda_net.cu` or `kernels.cuh`.** Clang accepts what nvcc may reject (a construct that nvcc 13.0 with `-std=c++20 -ccbin g++-12` does not support, a host/device attribute detail, `constexpr` variables in device code). This is the most likely cause of a failed build; the gate stops the instance after about 6 minutes (0.02 USD).
+This list is the risk list from before the paid run. The run of 2026-11-15 settled the nvcc build (nvcc 13.2 with g++-12), g++ 12.3, `cuda_test` (244 checks, 6 passed) and `compute-sanitizer` (0 errors); see `results/aws-t4-2026-11-15.txt`, section Correctness. Still open: the PTX, register use and occupancy were not inspected. The items below are kept as written then.
+
+- **At the time of writing, nvcc had never read `cuda_net.cu` or `kernels.cuh`** (settled by the AWS run: it builds). Clang accepts what nvcc may reject (a construct that nvcc 13.0 with `-std=c++20 -ccbin g++-12` does not support, a host/device attribute detail, `constexpr` variables in device code). This is the most likely cause of a failed build; the gate stops the instance after about 6 minutes (0.02 USD).
 - **The shim is not the CUDA header.** The signatures in `ptx-shim/cuda_runtime.h` are written from memory of the runtime API; a wrong one would pass here and fail on the instance.
 - **No PTX was generated**: Apple clang has no NVPTX target. Register use, shared-memory size (9 KB per block for `head_value`, 12.25 KB for `tiled`, computed from the array sizes), occupancy and the launch bounds were not seen.
 - **The device behaves differently from the emulation** in what the emulation cannot show: warps and divergence, memory ordering across blocks, the fused multiply-add of `--fmad=true` (the emulation is unfused; the bound 1e-4 + 1e-3 |ref| is what covers it), `tanhf` of the device (not bit-equal to the host's), pinned memory, events, the stream. `cuda_test` is the first test of these.
 - **g++ 12.3 of Ubuntu** was never run (GCC 13.5 stands in for it, as in WP0). The CUDA AMI may have no `g++-12`, no `compute_75` in nvcc, no `objdump` (the proof then reports "skipped") or a different `-march=native` situation (AVX-512 lanes 16 on the host).
 - **`-march=native` objects with `-DSH_SIMD_LANES=16`** assume an AVX-512 host; on an AVX2-only host the lane-16 binaries still work (vector extensions lower to two registers) but are not meant to be compared.
-- **`compute-sanitizer`** was never run (WP14/WP15 call it on `cuda_test --batches 1,67`; `-lineinfo` is set for it).
+- **`compute-sanitizer`** had not run then; it ran on the AWS run with 0 errors (WP14/WP15 call it on `cuda_test --batches 1,67`; `-lineinfo` is set for it).
 - `nvcc`'s linking (`nvcc -ccbin g++-12 ... objects -o binary`, which adds `cudart` statically) was only tested with the fake.
 
 ### Deviations from the plan, made in WP12
