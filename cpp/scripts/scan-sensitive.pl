@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-# usage: scan-sensitive.pl <file>...        scan files for sensitive data (formats, not words); exit 1 on a hit
+# usage: scan-sensitive.pl <file|dir>...    scan files (a directory: every regular file below it) for sensitive data (formats, not words); exit 1 on a hit
 #        scan-sensitive.pl --self-test      prove that every pattern finds its planted example; exit 1 otherwise
 #
 # Patterns (see docs/cpp-comparison-plan.md, "Disclosure and sensitive data"):
@@ -7,10 +7,12 @@
 #   ip- and ec2- host names, compute.internal and amazonaws.com host names, e-mail addresses, absolute home paths,
 #   the values of AWS_PROFILE, USER and the local host name from the environment.
 # For every file the script prints how many lines it read, so an empty result can be told apart from a scan that saw nothing.
-# Exit codes: 0 clean, 1 hit (or failed self-test), 2 usage or unreadable file.
+# Exit codes: 0 clean, 1 hit (or failed self-test), 2 usage, unreadable file, or a scan that read no line at all.
 use strict;
 use warnings;
 use utf8;
+use File::Find ();
+use File::Temp ();
 
 # Examples are assembled from fragments, so that this file does not match its own patterns.
 my @planted = (
@@ -108,6 +110,21 @@ if (@ARGV == 1 and $ARGV[0] eq '--self-test') {
         if (@hits) { print "self-test FAIL: clean line flagged as @hits: $clean\n"; $failed++ }
         else { print "self-test ok:   clean line stays clean\n" }
     }
+    # Directory arguments and empty scans (a scan that read nothing must never exit 0).
+    {
+        my $dir = File::Temp->newdir();
+        mkdir "$dir/sub" or die "mkdir: $!";
+        open my $o, '>', "$dir/sub/a.txt" or die "write: $!";
+        print $o "mail " . 'someone' . '@' . "example.org\n"; close $o;
+        my $run = sub { my $out = qx{$^X $0 @_ 2>&1}; ($? >> 8, $out) };
+        my ($rc, $out) = $run->("$dir");
+        if ($rc == 1 && $out =~ /HIT .*a\.txt:1/) { print "self-test ok:   a directory argument is scanned recursively\n" }
+        else { print "self-test FAIL: directory argument (exit $rc): $out\n"; $failed++ }
+        mkdir "$dir/empty" or die "mkdir: $!";
+        ($rc, $out) = $run->("$dir/empty");
+        if ($rc == 2 && $out =~ /no line was read/) { print "self-test ok:   a scan that read no line exits 2\n" }
+        else { print "self-test FAIL: empty scan (exit $rc): $out\n"; $failed++ }
+    }
     if ($failed) { print "self-test: $failed failure(s)\n"; exit 1 }
     print "self-test: all patterns found their planted example\n";
     exit 0;
@@ -117,8 +134,15 @@ die "usage: scan-sensitive.pl <file>... | --self-test\n" unless @ARGV;
 
 my @all = (@patterns, env_patterns());
 my ($hits, $unreadable, $total_lines) = (0, 0, 0);
-for my $file (@ARGV) {
-    next if -d $file;
+my @files;
+for my $arg (@ARGV) {
+    if (-d $arg) {
+        my @found;
+        File::Find::find({ no_chdir => 1, wanted => sub { push @found, $File::Find::name if -f $_ } }, $arg);
+        push @files, sort @found;
+    } else { push @files, $arg }
+}
+for my $file (@files) {
     my $fh;
     unless (open $fh, '<:raw', $file) {
         print STDERR "scan-sensitive: $file: $!\n";
@@ -139,6 +163,7 @@ for my $file (@ARGV) {
     $total_lines += $n;
     print "read $n lines: $file\n";
 }
-print "scan-sensitive: " . scalar(@ARGV) . " file(s), $total_lines line(s) read, $hits hit(s)\n";
+print "scan-sensitive: " . scalar(@files) . " file(s), $total_lines line(s) read, $hits hit(s)\n";
 exit 2 if $unreadable;
+if ($total_lines == 0) { print STDERR "scan-sensitive: no line was read (empty directory or empty files): this is not a clean result\n"; exit 2 }
 exit($hits ? 1 : 0);
