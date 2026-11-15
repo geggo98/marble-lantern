@@ -60,6 +60,7 @@ STATUS = Path(tempfile.gettempdir()) / "sternhalma-bench-nn-mac.status"
 BATCHES = "1,16,64,256,512,1024"
 QUICK = False
 FOREIGN_CPU_LIMIT = 350  # percent of one core, all processes except the benchmark; the base load at rest is about 120 to 150
+FOREIGN_GPU_LIMIT = 50  # percent device utilisation of the GPU between the steps; the desktop alone keeps it at 19 to 20
 
 stop_signal = []
 
@@ -102,6 +103,12 @@ def top3():
     return rows
 
 
+def gpu_util():
+    """Device utilisation of the GPU in percent (ioreg, no root): the desktop alone keeps it at about 19 to 20 %; read between the steps, so it is the foreign GPU load."""
+    m = re.search(r"\"Device Utilization %\"=(\d+)", run_text(["ioreg", "-r", "-d", "1", "-w0", "-c", "IOAccelerator"]))
+    return int(m.group(1)) if m else -1
+
+
 def therm():
     out = run_text(["pmset", "-g", "therm"])
     m = re.search(r"CPU_Speed_Limit\s*=\s*(\d+)", out)
@@ -127,6 +134,7 @@ def java_base():
 class Step:
     def __init__(self, name, kind, lang, cmd, pair=0, est=60, extra_env=None):
         self.foreign_max = 0.0
+        self.gpu_before = -1
         self.name, self.kind, self.lang, self.cmd, self.pair, self.est = name, kind, lang, cmd, pair, est
         self.extra_env = extra_env or {}
         self.rc = None
@@ -306,6 +314,7 @@ def main():
                 invalid.append("foreign process before step %s: %s" % (step.name, fp))
         step.load_before = load1()
         step.top = top3()
+        step.gpu_before = gpu_util()
         elapsed = time.monotonic() - t_start
         rest = (elapsed / done_est * (total_est - done_est)) if done_est > 30 else (total_est - done_est)
         log("%d/%d  %s  elapsed %ds  ETA %ds  load %.2f" % (n, len(steps), step.name, elapsed, rest, step.load_before))
@@ -334,6 +343,9 @@ def main():
     top_after = top3()
     containers_after = containers()
     for s in steps:
+        if gate and s.gpu_before > FOREIGN_GPU_LIMIT:
+            invalid.append("foreign GPU load %d %% (limit %d %%) before step %s" % (s.gpu_before, FOREIGN_GPU_LIMIT, s.name))
+    for s in steps:
         if gate and s.foreign_max > FOREIGN_CPU_LIMIT:
             invalid.append("foreign CPU load %.0f %% (limit %d %%) during step %s" % (s.foreign_max, FOREIGN_CPU_LIMIT, s.name))
     if gate and fp_after:
@@ -343,9 +355,9 @@ def main():
 
     # ---- write the steps table for merge-bench.pl and the raw result ----
     with open(work / "steps.tsv", "w") as f:
-        f.write("name\tkind\tlang\tpair\trc\twall_s\tload_before\tload_after\tforeign_cpu_max\ttop3_before\n")
+        f.write("name\tkind\tlang\tpair\trc\twall_s\tload_before\tload_after\tforeign_cpu_max\tgpu_util_before\ttop3_before\n")
         for s in steps:
-            f.write("%s\t%s\t%s\t%d\t%s\t%.2f\t%.2f\t%.2f\t%.0f\t%s\n" % (s.name, s.kind, s.lang, s.pair, s.rc, s.wall, s.load_before, s.load_after, s.foreign_max, "; ".join(s.top)))
+            f.write("%s\t%s\t%s\t%d\t%s\t%.2f\t%.2f\t%.2f\t%.0f\t%d\t%s\n" % (s.name, s.kind, s.lang, s.pair, s.rc, s.wall, s.load_before, s.load_after, s.foreign_max, s.gpu_before, "; ".join(s.top)))
     meta = [
         "# QUICK TEST of the session script, not a measurement" if QUICK else "#",
         "# Network measurement on the Mac (docs/cpp-comparison-plan.md, WP13)",

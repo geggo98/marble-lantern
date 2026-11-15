@@ -263,8 +263,8 @@ say_("  Java: $gcn collections, $gcms ms of GC pause in the measured rounds of a
 say_("  skipped cases (one call above 3 s): " . scalar(@skipped) . " (" . join("; ", @skipped[0 .. min(5, $#skipped)]) . (@skipped > 6 ? "; ..." : "") . ")") if @skipped;
 say_("");
 say_("## Steps");
-say_(sprintf "  %-30s %8s %6s %6s %8s  %s", "step", "wall s", "load<", "load>", "other %", "top 3 programs by CPU before the step");
-say_(sprintf "  %-30s %8.1f %6.2f %6.2f %8.0f  %s", $_->{name}, $_->{wall_s}, $_->{load_before}, $_->{load_after}, $_->{foreign_cpu_max}, $_->{top3_before}) for @steps;
+say_(sprintf "  %-30s %8s %6s %6s %8s %5s  %s", "step", "wall s", "load<", "load>", "other %", "gpu%", "top 3 programs by CPU before the step");
+say_(sprintf "  %-30s %8.1f %6.2f %6.2f %8.0f %5d  %s", $_->{name}, $_->{wall_s}, $_->{load_before}, $_->{load_after}, $_->{foreign_cpu_max}, $_->{gpu_util_before}, $_->{top3_before}) for @steps;
 say_("");
 say_($_) for @fail;
 print $out;
