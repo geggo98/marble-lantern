@@ -314,7 +314,8 @@ def main():
                 invalid.append("foreign process before step %s: %s" % (step.name, fp))
         step.load_before = load1()
         step.top = top3()
-        step.gpu_before = gpu_util()
+        time.sleep(3)  # the utilisation counter lags: our own previous step must have left it
+        step.gpu_before = min(gpu_util(), (time.sleep(1), gpu_util())[1])
         elapsed = time.monotonic() - t_start
         rest = (elapsed / done_est * (total_est - done_est)) if done_est > 30 else (total_est - done_est)
         log("%d/%d  %s  elapsed %ds  ETA %ds  load %.2f" % (n, len(steps), step.name, elapsed, rest, step.load_before))
