@@ -2,6 +2,7 @@ package sternhalma.tornado;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,9 @@ class DeviceDoubleTest {
 
     @Test
     void aKernelWithDoubleIsRejectedLoudly() {
+        // only a device without FP64 rejects the kernel; CUDA devices (Tesla T4) run it, slowly (measured on AWS, 2026-11-15)
+        assumeTrue("METAL".equalsIgnoreCase(TornadoSupport.status().backend()),
+                "the default device is not a Metal device (FP64 is only missing there): " + TornadoSupport.status().backend());
         FloatArray x = FloatArray.fromArray(new float[] {1f, 2f, 3f});
         DoubleArray out = new DoubleArray(3);
         TaskGraph graph = new TaskGraph("doubleprobe").transferToDevice(DataTransferMode.EVERY_EXECUTION, x)

@@ -26,13 +26,13 @@ class DeviceExpLogTest {
         TornadoAssumptions.assumeTornado();
     }
 
-    static void exp(FloatArray x, FloatArray out, int n) {
+    static void expKernel(FloatArray x, FloatArray out, int n) {
         for (@Parallel int i = 0; i < n; i++) {
             out.set(i, TornadoMath.exp(x.get(i)));
         }
     }
 
-    static void log(FloatArray x, FloatArray out, int n) {
+    static void logKernel(FloatArray x, FloatArray out, int n) {
         for (@Parallel int i = 0; i < n; i++) {
             out.set(i, TornadoMath.log(x.get(i)));
         }
@@ -59,7 +59,7 @@ class DeviceExpLogTest {
         for (int i = 0; i < n; i++) {
             x[i] = -30f * i / (n - 1);
         }
-        float[] got = run(DeviceExpLogTest::exp, x);
+        float[] got = run(DeviceExpLogTest::expKernel, x);
         double worst = 0;
         for (int i = 0; i < n; i++) {
             double ref = Math.exp(x[i]);
@@ -79,7 +79,7 @@ class DeviceExpLogTest {
         for (int i = 0; i < n; i++) {
             x[i] = 1f + 999f * i / (n - 1);
         }
-        float[] got = run(DeviceExpLogTest::log, x);
+        float[] got = run(DeviceExpLogTest::logKernel, x);
         double worst = 0;
         for (int i = 0; i < n; i++) {
             worst = Math.max(worst, Math.abs(got[i] - Math.log(x[i])));

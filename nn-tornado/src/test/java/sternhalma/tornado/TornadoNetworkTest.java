@@ -320,8 +320,8 @@ class TornadoNetworkTest {
                 ExecutionProfile warm = network.lastProfile();
                 assertEquals(0, warm.compileNanos(), "a warm call compiles nothing: " + warm);
                 assertTrue(warm.kernelNanos() > 0, "the kernels ran on the device: " + warm);
-                assertTrue(warm.bytesToDevice() >= inputBytes && warm.bytesToDevice() <= inputBytes + 64,
-                        "only the input goes to the device: " + warm + ", input " + inputBytes);
+                assertTrue(warm.bytesToDevice() >= inputBytes && warm.bytesToDevice() <= inputBytes + 128,
+                        "only the input goes to the device (the CUDA backend adds 80 bytes of its own): " + warm + ", input " + inputBytes);
                 assertTrue(warm.bytesToHost() >= outputBytes && warm.bytesToHost() <= outputBytes + 64,
                         "only the head output comes back: " + warm + ", output " + outputBytes);
                 assertTrue(warm.bytesToHost() < activationBytes, "no activation comes back");

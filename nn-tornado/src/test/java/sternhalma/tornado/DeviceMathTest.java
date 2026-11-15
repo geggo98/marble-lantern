@@ -28,8 +28,11 @@ class DeviceMathTest {
         TornadoAssumptions.assumeTornado();
     }
 
-    /** Kernel: {@code out[i] = DeviceMath.tanh(in[i])}. */
-    static void tanh(FloatArray in, FloatArray out) {
+    /** Kernel: {@code out[i] = DeviceMath.tanh(in[i])}.
+     * The method is not called {@code tanh}: on CUDA a kernel named like a math function does not compile
+     * ("more than one instance of overloaded function \"tanh\" has \"C\" linkage").
+     */
+    static void tanhKernel(FloatArray in, FloatArray out) {
         for (@Parallel int i = 0; i < in.getSize(); i++) {
             out.set(i, DeviceMath.tanh(in.get(i)));
         }
@@ -72,7 +75,7 @@ class DeviceMathTest {
         }
         System.arraycopy(specials, 0, x, n, specials.length);
 
-        float[] y = run("tanh", DeviceMathTest::tanh, x);
+        float[] y = run("tanh", DeviceMathTest::tanhKernel, x);
         long exactRequired = 0;
         double worst = 0;
         for (int i = 0; i < x.length; i++) {
