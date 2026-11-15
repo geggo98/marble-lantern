@@ -80,6 +80,23 @@ class Work:
         return b, report
 
 
+def add_checks(w, pairs):
+    """adds one hardened and one release step per pair; pairs: list of (hard_eps, release_eps) for simd-nofma and metal-copy"""
+    with open(os.path.join(w.dir, "steps.tsv"), "a") as f:
+        for i, (hard, rel) in enumerate(pairs, start=1):
+            for tag, eps in (("hard", hard), ("rel", rel)):
+                name = "checks-p%d-%s" % (i, tag)
+                w.put(name, cpp_header(["simd-nofma", "metal-copy"], [256]) + "lang\timpl\n"
+                      + row("cpp", "simd-nofma", 256, eps) + "\n" + row("cpp", "metal-copy", 256, eps) + "\n")
+                f.write("%s\tchecks\tcpp-%s\t%d\t0\t10.0\t2.0\t2.0\t100\t10\tx\n" % (name, tag, i))
+
+
+def checks_of(w):
+    b, _ = w.book()
+    b.checks()
+    return {r["program"]: r for r in b.rows if r["table"] == "checks_cost"}
+
+
 STABLE = {("cpp", "simd"): (100, 100, 100), ("java", "vector"): (90, 90, 90), ("cpp", "metal-copy"): (1000, 800, 900), ("java", "tornado"): (1000, 750, 950)}
 
 
@@ -152,6 +169,22 @@ class BookingTest(unittest.TestCase):
         r = find(b, "ratio", "cpp:simd / java:vector")[0]
         self.assertEqual(r["status"], "unsettled")
         self.assertIn("indicative only", r["note"])
+        self.assertNotIn("real", r["note"])     # "real" labels a resolved difference of a valid row only
+
+    def test_cost_of_the_checks_states_extra_time_of_the_unchecked_build(self):
+        w = Work(STABLE, [(90, 1000, 100, 1100)] * 2)
+        add_checks(w, [(100, 85.7)] * 3)       # unchecked/hardened 0.857: 1/0.857 - 1 = 16.7 % more time
+        r = checks_of(w)["cpp:simd-nofma"]
+        self.assertIn("needs 16.7 % more time", r["note"])
+        self.assertIn("not a cost of the checks", r["note"])
+        self.assertNotIn("SLOWER", r["note"])
+
+    def test_cost_of_the_checks_makes_no_statement_when_the_pairs_disagree(self):
+        w = Work(STABLE, [(90, 1000, 100, 1100)] * 2)
+        add_checks(w, [(100, 88), (100, 108), (100, 88)])   # median 0.88, but one pair is above 1
+        r = checks_of(w)["cpp:simd-nofma"]
+        self.assertIn("no statement (the pairs disagree on the direction)", r["note"])
+        self.assertNotIn("more time", r["note"])
 
     def test_columns_are_complete(self):
         b, _ = Work(STABLE, [(90, 1000, 100, 1100)] * 2).book()

@@ -289,12 +289,14 @@ class Book:
                     note = "ratio from adjacent pairs (J_i then C_i, back to back); the GPU state during each case was not recorded, same state is assumed, not shown; per pair: %s; %s" % (per, verdict)
                 else:
                     status = "valid" if js == "valid" and cs == "valid" else "unsettled"
-                    if abs(m - 1) > RATIO_LIMIT and disjoint:
-                        verdict = "real: C++ %s by %.1f %%" % ("faster" if m > 1 else "slower", 100 * abs(m - 1))
+                    resolved = abs(m - 1) > RATIO_LIMIT and disjoint
+                    size = "C++ %s by %.1f %%" % ("faster" if m > 1 else "slower", 100 * abs(m - 1))
+                    if status == "valid":
+                        verdict = "real: " + size if resolved else "not resolved (within 5 % or round ranges overlap)"
                     else:
-                        verdict = "not resolved (within 5 % or round ranges overlap)"
-                    if status == "unsettled":
-                        verdict = "indicative only (CPU anchor outside 2 %% on %s); %s" % ("Java" if js != "valid" else "C++", verdict)
+                        # "real" is the label of a resolved difference of a valid row; an unsettled row never carries it
+                        verdict = "indicative only (CPU anchor outside 2 %% on %s); %s" % (
+                            "Java" if js != "valid" else "C++", size if resolved else "not resolved (within 5 % or round ranges overlap)")
                     note = "median of the per-pair ratios; per pair: %s; %s" % (per, verdict)
                 self.add("ratio", "%s / %s" % (cp, jp), case_name(preset, weights), batch, "cpp_over_java_evals_per_s", m, min(q), max(q), status,
                          None, note + " (ratio above 1: C++ faster)")
@@ -401,8 +403,11 @@ class Book:
                 m = med(q)
                 if abs(m - 1) <= RATIO_LIMIT:
                     verdict = "not resolved (within 5 %)"
+                elif min(q) < 1 < max(q):
+                    verdict = "no statement (the pairs disagree on the direction)"
                 elif m < 1:
-                    verdict = "the unchecked build is %.1f %% SLOWER than the hardened one; a cost of the checks cannot be negative, not explained, do not read as a cost" % (100 * (1 / m - 1))
+                    # ratio = throughput release / throughput hardened, so 1/m - 1 is the extra time of the unchecked build
+                    verdict = "the unchecked build needs %.1f %% more time than the hardened one, not explained, not a cost of the checks" % (100 * (1 / m - 1))
                 else:
                     verdict = "the checks cost %.1f %%" % (100 * (1 - 1 / m))
                 self.add("checks_cost", prog, case_name(preset, "u5"), 256, "release_over_hardened_evals_per_s", m, min(q), max(q), status,
@@ -599,10 +604,10 @@ def write_summary(path, book, date, report, effort):
         crow.append([r["program"], r["batch"], fnum(pw["median"], 2), fnum(co["median"], 1), fnum(r["median"], 1), fnum(up["median"], 1), "V" if r["status"] == "valid" else "u"])
     w(table(["program", "batch", "process wall s", "construct ms", "first call ms", "uptime at end ms", "st"], crow))
     w("")
-    w("## Cost of the checks (batch 256, release over release-hardened; a value below 1 means the unchecked build is slower)")
+    w("## Cost of the checks (batch 256, release over release-hardened; a value below 1 means the unchecked build is slower; the verdict gives its extra time, 1/ratio - 1)")
     krows = []
     for r in get(table="checks_cost"):
-        v = re.search(r"(not resolved[^;]*|the unchecked build is [^;]*|the checks cost [^;]*)", r["note"])
+        v = re.search(r"(not resolved[^;]*|the unchecked build [^;]*|no statement[^;]*|the checks cost [^;]*)", r["note"])
         krows.append([r["program"], r["case"].split()[0], "%.3f [%.3f, %.3f]" % (r["median"], r["min"], r["max"]), "V" if r["status"] == "valid" else "u", v.group(1) if v else ""])
     w(table(["program", "preset", "ratio [pairs]", "st", "verdict"], krows))
     w("")

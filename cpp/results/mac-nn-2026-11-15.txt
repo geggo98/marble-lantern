@@ -193,17 +193,17 @@ java:tornado    256    1.01            8.6           498.1          896.0       
 java:vector     1      0.51            3.4           117.8          333.0             V 
 java:vector     256    1.01            3.3           557.0          777.0             V 
 
-## Cost of the checks (batch 256, release over release-hardened; a value below 1 means the unchecked build is slower)
+## Cost of the checks (batch 256, release over release-hardened; a value below 1 means the unchecked build is slower; the verdict gives its extra time, 1/ratio - 1)
 program           preset  ratio [pairs]         st  verdict                                                   
 ----------------  ------  --------------------  --  ----------------------------------------------------------
 cpp:simd          SMALL   1.007 [1.003, 1.045]  V   not resolved (within 5 %)                                 
 cpp:simd          LARGE   1.010 [1.008, 1.016]  V   not resolved (within 5 %)                                 
-cpp:simd-nofma    SMALL   0.857 [0.853, 0.858]  V   the unchecked build is 16.6 % SLOWER than the hardened one
-cpp:simd-nofma    LARGE   0.839 [0.831, 0.841]  V   the unchecked build is 19.2 % SLOWER than the hardened one
+cpp:simd-nofma    SMALL   0.857 [0.853, 0.858]  V   the unchecked build needs 16.6 % more time than the hardened one, not explained, not a cost of the checks
+cpp:simd-nofma    LARGE   0.839 [0.831, 0.841]  V   the unchecked build needs 19.2 % more time than the hardened one, not explained, not a cost of the checks
 cpp:metal-copy    SMALL   0.958 [0.932, 1.068]  u   not resolved (within 5 %)                                 
-cpp:metal-copy    LARGE   0.920 [0.883, 1.073]  u   the unchecked build is 8.7 % SLOWER than the hardened one 
-cpp:metal-shared  SMALL   0.941 [0.932, 1.068]  u   the unchecked build is 6.2 % SLOWER than the hardened one 
-cpp:metal-shared  LARGE   0.917 [0.838, 1.069]  u   the unchecked build is 9.0 % SLOWER than the hardened one 
+cpp:metal-copy    LARGE   0.920 [0.883, 1.073]  u   no statement (the pairs disagree on the direction) 
+cpp:metal-shared  SMALL   0.941 [0.932, 1.068]  u   no statement (the pairs disagree on the direction) 
+cpp:metal-shared  LARGE   0.917 [0.838, 1.069]  u   no statement (the pairs disagree on the direction) 
 
 ## Convolution kernel table (Java KernelsBenchmark against nn_bench --kernels; ms, status u, no output check in this table). Clocks differ: Java = kernelNanos of the TornadoVM profiler (arrays resident on the device, floor of about 0.5 ms per task, values below it not explained); C++ = GPUEndTime - GPUStartTime of one command buffer with one dispatch (buffers created before it, outside the span). The C++/Java column is indicative only.
 case            batch  Java ms  C++ ms  C++/Java
