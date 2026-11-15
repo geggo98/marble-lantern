@@ -188,5 +188,85 @@ class Aggregation(unittest.TestCase):
         self.assertEqual(ratios, [2.0, 2.0, 1.0, 0.5])
 
 
+CROSS_RE = r"^# (vector and tornado|cold start( round \d+: .*)?)$"
+
+
+def cold_row(lang, impl, preset, batch, first):
+    c = [lang, impl, "cpu" if impl in ("simd", "vector") else "cuda", preset, "u5", str(batch), "NA", "16", "NA", "NA", "NA", "NA", "NA",
+         "NA", "NA", "NA", "NA", "NA", "NA", str(first), "1.0", "ok"]
+    return "\t".join(c)
+
+
+def cold_block(lang, impl, preset, batch, rnd, construct, first, uptime, label_batch=None, extra_row=False):
+    head = "# hardened, " if lang == "cpp" else "# "
+    out = ["%scold start round %d: %s %s batch %s" % (head, rnd, impl, preset, label_batch or batch),
+           "# golden manifest checked; presets %s, batches %d, impls %s, variant auto, cold" % (preset, batch, impl),
+           cold_row(lang, impl, preset, batch, first)]
+    if extra_row:
+        out.append(cold_row(lang, impl, preset, batch, first))
+    out.append("# cold: construct %.1f ms, first call %.1f ms, %s uptime%s %.1f ms" % (
+        construct, first, "process" if lang == "cpp" else "JVM", " (from main)" if lang == "cpp" else "", uptime))
+    return "\n".join(out) + "\n"
+
+
+def booking_with_cold(nn_cold, java_cold):
+    c_main = lambda lanes: ("# hardened, l%d: S\n# golden manifest checked; presets small, batches 256, impls cuda-pinned, variant auto\n" % lanes +
+                            row("cpp", "cuda-pinned", "small", 256, 100.0) + "\n")
+    nn = ba.parse_blocks(c_main(8) + c_main(16) + nn_cold, r"^# (hardened|unchecked), ")
+    j = ba.parse_blocks("# vector and tornado\n# golden manifest checked; presets [small], batches [256], impls [tornado]\n" + row("java", "tornado", "small", 256, 100.0) + "\n" + java_cold, CROSS_RE)
+    ab = ba.parse_blocks(anchor_text({(w, r, l): ({("cuda-pinned", "small"): 100.0, ("simd", "small"): 1.0} if l == "C++" else
+                                                  {("tornado", "small"): 100.0, ("vector", "small"): 1.0})
+                                      for w, r in (("start", 1), ("start", 2), ("end", 1), ("end", 2)) for l in ("C++", "Java")}),
+                         r"^# anchors-(start|end) round \d: ")
+    return ba.Booking(nn, j, ab), nn, j
+
+
+class ColdStart(unittest.TestCase):
+    def three(self, lang, impl, batch, vals):
+        return "".join(cold_block(lang, impl, "small", batch, i + 1, *v) for i, v in enumerate(vals))
+
+    def test_round_blocks_are_blocks_of_their_own_and_do_not_fall_into_the_main_block(self):
+        bk, nn, j = booking_with_cold("", self.three("java", "vector", 1, [(4.5, 142.7, 686.0), (6.4, 147.0, 703.0), (6.3, 144.2, 708.0)]))
+        self.assertEqual(len(j), 4)
+        self.assertEqual(len(j[0]["rows"]), 1)           # the main block keeps its one row
+        self.assertEqual(len(bk.jcold), 3)
+        self.assertEqual(ba.check_blocks("c", j), 4)
+
+    def test_three_rounds_give_median_lowest_highest_and_are_unanchored(self):
+        bk, nn, j = booking_with_cold(self.three("cpp", "simd", 1, [(0.1, 0.2, 111.7), (0.1, 0.3, 113.6), (0.1, 0.2, 109.9)]),
+                                      self.three("java", "vector", 1, [(4.5, 142.7, 686.0), (6.4, 147.0, 703.0), (6.3, 144.2, 708.0)]))
+        bk.cold()
+        rows = {(r[1], r[4]): r for r in bk.rows if r[0] == "cold_start"}
+        r = rows[("cpp:simd", "process_to_first_result_ms")]
+        self.assertEqual((r[5], r[6], r[7], r[8]), ("111.7", "109.9", "113.6", "unanchored"))
+        r = rows[("java:vector", "first_call_ms")]
+        self.assertEqual((r[5], r[6], r[7]), ("144.2", "142.7", "147"))
+        self.assertEqual(len(bk.cold_runs[("cpp:simd", "small", 1)]), 3)
+        self.assertFalse([r for r in bk.rows if r[0] == "not_measured"])
+
+    def test_a_row_that_does_not_match_the_label_is_refused(self):
+        bk, nn, j = booking_with_cold(cold_block("cpp", "simd", "small", 1, 1, 0.1, 0.2, 111.0, label_batch=256), "")
+        with self.assertRaises(ba.BookingError):
+            bk.cold()
+
+    def test_a_cold_block_with_two_rows_is_refused(self):
+        bk, nn, j = booking_with_cold(cold_block("cpp", "simd", "small", 1, 1, 0.1, 0.2, 111.0, extra_row=True), "")
+        with self.assertRaises(ba.BookingError):
+            bk.cold()
+
+    def test_cases_stay_apart_by_batch(self):
+        bk, nn, j = booking_with_cold(self.three("cpp", "simd", 1, [(0.1, 0.2, 111.0)] * 3) + self.three("cpp", "simd", 256, [(0.1, 50.0, 160.0)] * 3), "")
+        bk.cold()
+        self.assertEqual(sorted(k[2] for k in bk.cold_runs), [1, 256])
+
+    def test_the_old_single_cold_block_of_run_1_is_still_booked_as_before(self):
+        old_j = ("# cold start\n# golden manifest checked; presets [small], batches [1], impls [vector], cold\n" + cold_row("java", "vector", "small", 1, 142.7) +
+                 "\n# cold: construct 4.5 ms, first call 142.7 ms, JVM uptime 686 ms\n")
+        bk, nn, j = booking_with_cold("", old_j)
+        bk.cold()
+        self.assertTrue([r for r in bk.rows if r[0] == "not_measured" and r[4] == "cold_start_process"])
+        self.assertTrue([r for r in bk.rows if r[0] == "cold_start" and r[1] == "java:vector"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

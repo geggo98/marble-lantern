@@ -9,6 +9,10 @@
 """Books the AWS run of the network measurement (docs/cpp-comparison-plan.md, WP15, "AWS run", "Decision rule", "Amendment 2026-11-15 (lead)").
 
 usage: book-aws.py <run results dir> <out-prefix> [--date YYYY-MM-DD] [--cost FILE ...] [--mac-tsv FILE] [--commit TEXT]
+               [--run 2 --prev <results dir of run 1>]
+
+--run 2 books the second AWS run (SIMD fix, cold start per case): the .txt then has its own, data-driven text with the before/after
+table against run 1 (--prev). The .tsv has the same tables as for run 1, and the cold_start table holds the per-case, per-round figures.
 
 <run results dir> is the "results" directory of one run (summary.txt, anchors.tsv, nn-bench.tsv, crossbench.tsv, ...). Writes
   <out-prefix>.tsv   one row per booked figure, the columns of mac-nn-2026-11-15.tsv:
@@ -270,14 +274,15 @@ class Booking:
         self.rows = []
         self.nn = nn
         self.cross = cross
+        self.anchor_blocks = anchor_blocks
         self.anch, self.anchor_order = read_anchors(anchor_blocks)
         self.anchors = Anchors(self.anch)
         self.main = [b for b in nn if re.match(r"^hardened, l(8|16): ", b["label"])]
         self.unchecked = [b for b in nn if b["label"].startswith("unchecked, ")]
         self.kernel_blocks = [b for b in nn if "kernels" in b["label"]]
-        self.cold_nn = [b for b in nn if b["label"].endswith("cold start")]
+        self.cold_nn = [b for b in nn if "cold start" in b["label"]]
         self.jmain = [b for b in cross if b["label"] == "vector and tornado"]
-        self.jcold = [b for b in cross if b["label"] == "cold start"]
+        self.jcold = [b for b in cross if b["label"].startswith("cold start")]
         if len(self.main) != 2 or len(self.jmain) != 1:
             raise BookingError("expected the blocks hardened l8, hardened l16 (C++) and one Java block")
         self.programs = {}      # (program, preset, batch) -> aggregated dict
@@ -514,26 +519,57 @@ class Booking:
                      "sum over the %d launches of one pass; Java side of the kernel table is a deliberate gap on the T4" % len(lst))
 
     def cold(self):
-        for b in self.cold_nn:
+        """Run 1: one cold case per language ('# cold start' blocks without a round). Run 2: one process per case and round
+        ('# ... cold start round N: <impl> <preset> batch B'); booked as median, lowest and highest of the rounds."""
+        self.cold_runs = {}
+        legacy = []
+        for lang, blocks in (("cpp", self.cold_nn), ("java", self.jcold)):
+            for b in blocks:
+                if not b["cold"]:
+                    continue
+                m = re.search(r"cold start round (\d+): (\S+) (\S+) batch (\d+)$", b["label"])
+                if not m:
+                    legacy.append((lang, b))
+                    continue
+                if len(b["rows"]) != 1:
+                    raise BookingError("cold block '%s': %d rows, expected 1" % (b["label"], len(b["rows"])))
+                r = b["rows"][0]
+                if (r["impl"], r["preset"], str(r["batch"])) != (m.group(2), m.group(3), m.group(4)):
+                    raise BookingError("cold block '%s': row is %s %s %d" % (b["label"], r["impl"], r["preset"], r["batch"]))
+                prog = program_of(r)
+                self.cold_runs.setdefault((prog, r["preset"], r["batch"]), []).append(
+                    (int(m.group(1)), b["cold"], r["first"], r["lanes"]))
+        for key, lst in sorted(self.cold_runs.items()):
+            prog, preset, batch = key
+            n = len(lst)
+            for metric, get in (("first_call_ms", lambda c: c["first_call_ms"]), ("construct_ms", lambda c: c["construct_ms"]),
+                                ("process_to_first_result_ms", lambda c: c["uptime_ms"])):
+                vals = [get(c) for _, c, f, _ in lst]
+                self.add("cold_start", prog, case_name(preset), batch, metric, statistics.median(vals), min(vals), max(vals), "unanchored",
+                         (None, None, None),
+                         "one fresh process per round, %d rounds (%s); median, lowest, highest; process_to_first_result = process uptime after the first call "
+                         "(C++ from main, JVM from JVM start); no anchor applies to a cold figure, the spread of the rounds is the only indicator%s" % (
+                             n, " / ".join("%.1f" % v for v in vals),
+                             "; C++ simd ran with %s lanes" % lst[0][3] if prog == "cpp:simd" else ""))
+        for lang, b in legacy:
             for r in b["rows"]:
-                if b["cold"]:
-                    self.add("cold_start", "cpp:" + r["impl"], case_name(r["preset"]), r["batch"], "first_call_ms", b["cold"]["first_call_ms"], None, None, "valid"
-                             if self.anchors.judge("cpp:simd", "small")[0] == "valid" else "unsettled", (None, None, None),
+                if lang == "cpp":
+                    self.add("cold_start", "cpp:" + r["impl"], case_name(r["preset"]), r["batch"], "first_call_ms", b["cold"]["first_call_ms"], None, None,
+                             "valid" if self.anchors.judge("cpp:simd", "small")[0] == "valid" else "unsettled", (None, None, None),
                              "separate process; construct %.1f ms, process uptime at the end %.1f ms; one case only (see not_measured)" %
                              (b["cold"]["construct_ms"], b["cold"]["uptime_ms"]))
-        for b in self.jcold:
-            for r in b["rows"]:
-                if b["cold"]:
+                else:
                     st = self.status_of("java:" + r["impl"], r["preset"])[0]
                     self.add("cold_start", "java:" + r["impl"], case_name(r["preset"]), r["batch"], "first_call_ms", b["cold"]["first_call_ms"], None, None, st,
                              (None, None, None),
                              "separate JVM; construct %.1f ms, JVM uptime at the end %.0f ms; one case only (see not_measured)" %
                              (b["cold"]["construct_ms"], b["cold"]["uptime_ms"]))
-        for prog, what in (("cpp:cuda-pinned", "C++ CUDA"), ("java:tornado", "TornadoVM")):
-            self.add("not_measured", prog, "LARGE u5", None, "cold_start_process", None, None, None, "not measured",
-                     note="the cold step of the instance script ran --cold with no --impls and no --batches and so measured one case only "
-                          "(C++ reference SMALL batch 1, Java vector SMALL batch 1); %s has no separate cold-process figure. The first-call "
-                          "figures per case in the breakdown are in-process" % what)
+        if legacy:
+            for prog, what in (("cpp:cuda-pinned", "C++ CUDA"), ("java:tornado", "TornadoVM")):
+                self.add("not_measured", prog, "LARGE u5", None, "cold_start_process", None, None, None, "not measured",
+                         note="the cold step of the instance script ran --cold with no --impls and no --batches and so measured one case only "
+                              "(C++ reference SMALL batch 1, Java vector SMALL batch 1); %s has no separate cold-process figure. The first-call "
+                              "figures per case in the breakdown are in-process" % what)
 
     def book(self):
         self.throughput()
@@ -596,7 +632,7 @@ def mac_value(mac_rows, program, case, batch):
 
 def main(argv):
     args = list(argv[1:])
-    opts = {"date": "2026-11-15", "cost": [], "mac": None, "commit": None}
+    opts = {"date": "2026-11-15", "cost": [], "mac": None, "commit": None, "run": 1, "prev": None}
     pos = []
     while args:
         a = args.pop(0)
@@ -608,6 +644,10 @@ def main(argv):
             opts["mac"] = args.pop(0)
         elif a == "--commit":
             opts["commit"] = args.pop(0)
+        elif a == "--run":
+            opts["run"] = int(args.pop(0))
+        elif a == "--prev":
+            opts["prev"] = args.pop(0)
         else:
             pos.append(a)
     if len(pos) != 2:
@@ -621,16 +661,20 @@ def main(argv):
         return 3
 
 
-def run(res, out, opts):
+def load_booking(res):
+    """parse, check and book the files of one run; (Booking, (n_nn, n_cross, n_anch), steps)"""
     steps, _ = parse_summary(read(os.path.join(res, "summary.txt")))
     nn = parse_blocks(read(os.path.join(res, "nn-bench.tsv")), r"^# (hardened|unchecked), ")
-    cross = parse_blocks(read(os.path.join(res, "crossbench.tsv")), r"^# (vector and tornado|cold start)$")
+    cross = parse_blocks(read(os.path.join(res, "crossbench.tsv")), r"^# (vector and tornado|cold start( round \d+: .*)?)$")
     anchor_blocks = parse_blocks(read(os.path.join(res, "anchors.tsv")), r"^# anchors-(start|end) round \d: ")
-    n_nn = check_blocks("nn-bench.tsv", nn)
-    n_cross = check_blocks("crossbench.tsv", cross)
-    n_anch = check_blocks("anchors.tsv", anchor_blocks, schedule_checked=False)
+    counts = (check_blocks("nn-bench.tsv", nn), check_blocks("crossbench.tsv", cross), check_blocks("anchors.tsv", anchor_blocks, schedule_checked=False))
     bk = Booking(nn, cross, anchor_blocks)
     bk.book()
+    return bk, counts, steps
+
+
+def run(res, out, opts):
+    bk, (n_nn, n_cross, n_anch), steps = load_booking(res)
     feeds = {p: parse_gpufeed(read(os.path.join(res, "gpufeed-%s.log" % p))) for p in ("small", "large")}
     for p, f in feeds.items():
         bk.add("gpufeed", "java:tornado-feed", case_name(p), f["batch"], "evals_per_s", f["eps"], None, None, "unanchored", (None, None, None),
@@ -638,12 +682,19 @@ def run(res, out, opts):
     bk.add("verification", "run", "all", None, "rows_verified_ok", n_nn + n_cross + n_anch, None, None, "valid", (None, None, None),
            "nn-bench.tsv %d, crossbench.tsv %d, anchors.tsv %d rows, every one verified=ok; %d summary steps, every one OK, exit status 0" %
            (n_nn, n_cross, n_anch, len(steps)))
-    write_tsv(out + ".tsv", bk.rows)
     mac_rows = []
     if opts["mac"]:
         with open(opts["mac"], encoding="utf-8") as f:
             mac_rows = [l.rstrip("\n").split("\t") for l in f][1:]
-    text = summary_text(res, bk, feeds, steps, (n_nn, n_cross, n_anch), mac_rows, opts)
+    if opts["run"] == 2:
+        if not opts["prev"]:
+            raise BookingError("--run 2 needs --prev <results dir of run 1>")
+        bk1 = load_booking(opts["prev"])[0]
+        feeds1 = {p: parse_gpufeed(read(os.path.join(opts["prev"], "gpufeed-%s.log" % p))) for p in ("small", "large")}
+        text = summary_text_run2(res, opts["prev"], bk, bk1, feeds, feeds1, steps, (n_nn, n_cross, n_anch), opts)
+    else:
+        text = summary_text(res, bk, feeds, steps, (n_nn, n_cross, n_anch), mac_rows, opts)
+    write_tsv(out + ".tsv", bk.rows)
     with open(out + ".txt", "w", encoding="utf-8") as f:
         f.write(text)
     print("booked %d rows into %s.tsv and the summary into %s.txt" % (len(bk.rows), out, out))
@@ -660,6 +711,68 @@ def table(head, rows):
 
 def tag(st):
     return {"valid": "V", "unsettled": "u"}.get(st, "?")
+
+
+def correctness_section(res, P):
+    P("## Correctness (the CUDA path is verified)")
+    ct = read(os.path.join(res, "cpp-cuda-test.log"))
+    cs_ = read(os.path.join(res, "compute-sanitizer.log"))
+    m1 = re.search(r"(\d+) passed, (\d+) skipped, (\d+) failed, (\d+) checks", ct)
+    m2 = re.search(r"(\d+) passed, (\d+) skipped, (\d+) failed, (\d+) checks", cs_)
+    errs = [float(x) for x in re.findall(r"largest error ([\d.e+-]+) of the bound", ct)]
+    sm = re.search(r"ERROR SUMMARY: (\d+) errors", cs_)
+    if not (m1 and m2 and sm) or m1.group(3) != "0" or m2.group(3) != "0" or sm.group(1) != "0":
+        raise BookingError("cuda_test or compute-sanitizer log: failed tests or errors")
+    P("  cuda_test (Tesla T4): %s passed, %s skipped, %s failed, %s checks; %d comparisons against ReferenceNet (TINY, SMALL, LARGE, 33-channel network; variants auto, naive, tiled;" % (
+        m1.group(1), m1.group(2), m1.group(3), m1.group(4), len(errs)))
+    P("    pageable and pinned; batches 1, 3, 67, 256); the largest error is %.4f of the bound (1e-4 + 1e-3 |ref|)." % max(errs))
+    P("  compute-sanitizer memcheck on cuda_test, batches 1 and 67: %s passed, %s failed, %s checks, ERROR SUMMARY: %s errors." % (m2.group(1), m2.group(3), m2.group(4), sm.group(1)))
+    nc = parse_nncheck(read(os.path.join(res, "cpp-check.log")))
+    rows = [[c["impl"] + (" l%s" % c["lanes"] if c["lanes"] else ""), c["preset"].upper(), "%.4f" % c["logits"], "%.4f" % c["values"], c["result"]] for c in nc]
+    if any(c["result"] != "ok" for c in nc):
+        raise BookingError("cpp-check.log: an nn_check line that is not ok")
+    P("  nn_check (all 1,024 golden positions, batch 64; error as a fraction of the bound, 1.0 = at the bound):")
+    P(table(["impl", "preset", "logits max err / bound", "values max err / bound", "result"], rows))
+    hashes = re.findall(r"^sha256 [^:]*:\s+([0-9a-f]{64})$", read(os.path.join(res, "real-weights.txt")), re.M)
+    if len(hashes) != 3 or len(set(hashes)) != 1:
+        raise BookingError("real-weights.txt: the SHA-256 before the upload, after the upload and after the run are not three equal values")
+    P("  gen11 is the real LARGE weights (uploaded; SHA-256 before the upload, after the upload and after the run equal: %s...). Only nn_check ran on gen11, no throughput rows." % hashes[0][:8])
+    gh = parse_goldenhash(read(os.path.join(res, "golden-hash.log")))
+    must = [r for r in gh if r[3] == "must"]
+    info = [r for r in gh if r[3] == "info"]
+    if any(r[2] != "equal" for r in must):
+        raise BookingError("golden-hash.log: a must line that is not equal")
+    P("  golden hash: %d 'must' lines (weights, inputs, cases) are equal to the Mac hashes; %d 'info' lines: %s." % (
+        len(must), len(info), "; ".join("%s %s" % (r[0].replace(".safetensors", ""), r[2]) for r in info)))
+    P("    The two DIFFERENT lines are the Java reference OUTPUTS (nn-ref-small/large-u5) as the JVM on this instance computed them. Weights, inputs and cases are bit-equal, so the")
+    P("    inputs of every check are the Mac's; the outputs of the same Java code differ in the last bits on another CPU (Math.exp and tanh may differ by one ulp between platforms,")
+    P("    other FMA and vector paths). That is what the plan's 'info' kind expects ('a difference is recorded only'), not a failure. It does mean that nn_check on the instance")
+    P("    compared against the instance's own reference files, not against the Mac's. The third info line (gen11) has no expected hash by design (real weights).")
+    P("    Not shown by this run: nn_check --impl reference (bit-identity with the Java reference) is not in cpp-check.log.")
+    P("")
+
+
+def toolchain_section(res, P):
+    P("## Toolchain")
+    tc = read(os.path.join(res, "cpp-toolchain.log"))
+    gx = re.search(r"^cxx:\s+(g\+\+-12 \(.*\) [\d.]+)", read(os.path.join(res, "cpp-build.log")), re.M) or re.search(r"^(g\+\+-12 \(.*\) [\d.]+)$", tc, re.M)
+    nv = re.search(r"release ([\d.]+), V([\d.]+)", read(os.path.join(res, "nvcc-version.txt")))
+    arch = re.search(r"compute_75", tc)
+    drv = re.search(r"^Tesla T4, ([\d.]+)$", tc, re.M)
+    jv = re.search(r'openjdk version "([\d.]+)"', read(os.path.join(res, "java-version.txt")))
+    tv = re.search(r"tornadovm-([\d.]+)-", read(os.path.join(res, "tornado-setup.log")))
+    fma = re.findall(r"check-fma lanes=(\d+): simd_net \(FMA\):\s+\d+ instructions, (\d+) fused multiply-add;simd_net_nofma:\s+\d+ instructions, (\d+) fused", read(os.path.join(res, "cpp-build.log")))
+    if len(fma) != 2 or any(x[2] != "0" for x in fma):
+        raise BookingError("cpp-build.log: check-fma lines missing or the no-FMA object contains fused instructions")
+    fused = fma[0][1] if fma[0][1] == fma[1][1] else "%s (8 lanes) and %s (16 lanes)" % (fma[0][1], fma[1][1])
+    P("  C++: %s, -O3 -march=native, -ffp-contract=off (FMA only in simd_net), 8 and 16 lanes, hardened (-D_GLIBCXX_ASSERTIONS) and unchecked builds; check-fma: %s fused" % (gx.group(1) if gx else "g++-12", fused))
+    P("  multiply-adds in simd_net%s, 0 in simd_net_nofma (read from cpp-build.log)." % (" for both lane counts" if fma[0][1] == fma[1][1] else ""))
+    P("  CUDA: nvcc release %s (V%s), compute_75 %s in nvcc's architecture list; flags of build-cuda.sh at the commit: -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true" % (
+        nv.group(1) if nv else "?", nv.group(2) if nv else "?", "present" if arch else "MISSING"))
+    P("  -gencode arch=compute_75,code=sm_75 and PTX compute_75, no fast math. Driver %s, Tesla T4, 15,360 MiB; compute-sanitizer 2026.1.0.0." % (drv.group(1) if drv else "?"))
+    P("  Java %s (Zulu), TornadoVM %s (CUDA backend), JVM flags -Xms4g -Xmx4g, G1, 512-bit Vector API (16 float lanes), UseAVX 3. OS: Ubuntu 22.04, kernel 6.8 (aws)." % (jv.group(1) if jv else "?", tv.group(1) if tv else "?"))
+    P("  CPU: Intel Xeon Platinum 8259CL @ 2.50 GHz, 4 vCPUs, 15.4 GiB, AVX-512 (F, BW, VL, VNNI).")
+    P("")
 
 
 def summary_text(res, bk, feeds, steps, counts, mac_rows, opts):
@@ -911,60 +1024,8 @@ def summary_text(res, bk, feeds, steps, counts, mac_rows, opts):
     P("  the CUDA and TornadoVM cold-process figures are therefore missing (table not_measured). The in-process figures are above (first call per case, construct per")
     P("  CUDA implementation: the first one of the process creates the context, SMALL pageable 96.8 and 101.4 ms; TornadoVM's first call in the JVM, SMALL batch 1, 4,683 ms).")
     P("")
-    # ---- correctness
-    P("## Correctness (the CUDA path is verified)")
-    ct = read(os.path.join(res, "cpp-cuda-test.log"))
-    cs_ = read(os.path.join(res, "compute-sanitizer.log"))
-    m1 = re.search(r"(\d+) passed, (\d+) skipped, (\d+) failed, (\d+) checks", ct)
-    m2 = re.search(r"(\d+) passed, (\d+) skipped, (\d+) failed, (\d+) checks", cs_)
-    errs = [float(x) for x in re.findall(r"largest error ([\d.e+-]+) of the bound", ct)]
-    sm = re.search(r"ERROR SUMMARY: (\d+) errors", cs_)
-    if not (m1 and m2 and sm) or m1.group(3) != "0" or m2.group(3) != "0" or sm.group(1) != "0":
-        raise BookingError("cuda_test or compute-sanitizer log: failed tests or errors")
-    P("  cuda_test (Tesla T4): %s passed, %s skipped, %s failed, %s checks; %d comparisons against ReferenceNet (TINY, SMALL, LARGE, 33-channel network; variants auto, naive, tiled;" % (
-        m1.group(1), m1.group(2), m1.group(3), m1.group(4), len(errs)))
-    P("    pageable and pinned; batches 1, 3, 67, 256); the largest error is %.4f of the bound (1e-4 + 1e-3 |ref|)." % max(errs))
-    P("  compute-sanitizer memcheck on cuda_test, batches 1 and 67: %s passed, %s failed, %s checks, ERROR SUMMARY: %s errors." % (m2.group(1), m2.group(3), m2.group(4), sm.group(1)))
-    nc = parse_nncheck(read(os.path.join(res, "cpp-check.log")))
-    rows = [[c["impl"] + (" l%s" % c["lanes"] if c["lanes"] else ""), c["preset"].upper(), "%.4f" % c["logits"], "%.4f" % c["values"], c["result"]] for c in nc]
-    if any(c["result"] != "ok" for c in nc):
-        raise BookingError("cpp-check.log: an nn_check line that is not ok")
-    P("  nn_check (all 1,024 golden positions, batch 64; error as a fraction of the bound, 1.0 = at the bound):")
-    P(table(["impl", "preset", "logits max err / bound", "values max err / bound", "result"], rows))
-    hashes = re.findall(r"^sha256 [^:]*:\s+([0-9a-f]{64})$", read(os.path.join(res, "real-weights.txt")), re.M)
-    if len(hashes) != 3 or len(set(hashes)) != 1:
-        raise BookingError("real-weights.txt: the SHA-256 before the upload, after the upload and after the run are not three equal values")
-    P("  gen11 is the real LARGE weights (uploaded; SHA-256 before the upload, after the upload and after the run equal: %s...). Only nn_check ran on gen11, no throughput rows." % hashes[0][:8])
-    gh = parse_goldenhash(read(os.path.join(res, "golden-hash.log")))
-    must = [r for r in gh if r[3] == "must"]
-    info = [r for r in gh if r[3] == "info"]
-    if any(r[2] != "equal" for r in must):
-        raise BookingError("golden-hash.log: a must line that is not equal")
-    P("  golden hash: %d 'must' lines (weights, inputs, cases) are equal to the Mac hashes; %d 'info' lines: %s." % (
-        len(must), len(info), "; ".join("%s %s" % (r[0].replace(".safetensors", ""), r[2]) for r in info)))
-    P("    The two DIFFERENT lines are the Java reference OUTPUTS (nn-ref-small/large-u5) as the JVM on this instance computed them. Weights, inputs and cases are bit-equal, so the")
-    P("    inputs of every check are the Mac's; the outputs of the same Java code differ in the last bits on another CPU (Math.exp and tanh may differ by one ulp between platforms,")
-    P("    other FMA and vector paths). That is what the plan's 'info' kind expects ('a difference is recorded only'), not a failure. It does mean that nn_check on the instance")
-    P("    compared against the instance's own reference files, not against the Mac's. The third info line (gen11) has no expected hash by design (real weights).")
-    P("    Not shown by this run: nn_check --impl reference (bit-identity with the Java reference) is not in cpp-check.log.")
-    P("")
-    # ---- toolchain
-    P("## Toolchain")
-    tc = read(os.path.join(res, "cpp-toolchain.log"))
-    gx = re.search(r"^cxx:\s+(g\+\+-12 \(.*\) [\d.]+)", read(os.path.join(res, "cpp-build.log")), re.M) or re.search(r"^(g\+\+-12 \(.*\) [\d.]+)$", tc, re.M)
-    nv = re.search(r"release ([\d.]+), V([\d.]+)", read(os.path.join(res, "nvcc-version.txt")))
-    arch = re.search(r"compute_75", tc)
-    drv = re.search(r"^Tesla T4, ([\d.]+)$", tc, re.M)
-    jv = re.search(r'openjdk version "([\d.]+)"', read(os.path.join(res, "java-version.txt")))
-    tv = re.search(r"tornadovm-([\d.]+)-", read(os.path.join(res, "tornado-setup.log")))
-    P("  C++: %s, -O3 -march=native, -ffp-contract=off (FMA only in simd_net), 8 and 16 lanes, hardened (-D_GLIBCXX_ASSERTIONS) and unchecked builds; check-fma: 31 fused" % (gx.group(1) if gx else "g++-12"))
-    P("  multiply-adds in simd_net for both lane counts, 0 in simd_net_nofma (read from cpp-build.log).")
-    P("  CUDA: nvcc release %s (V%s), compute_75 %s in nvcc's architecture list; flags of build-cuda.sh at the commit: -std=c++20 -ccbin g++-12 -O3 -lineinfo --fmad=true" % (
-        nv.group(1) if nv else "?", nv.group(2) if nv else "?", "present" if arch else "MISSING"))
-    P("  -gencode arch=compute_75,code=sm_75 and PTX compute_75, no fast math. Driver %s, Tesla T4, 15,360 MiB; compute-sanitizer 2026.1.0.0." % (drv.group(1) if drv else "?"))
-    P("  Java %s (Zulu), TornadoVM %s (CUDA backend), JVM flags -Xms4g -Xmx4g, G1, 512-bit Vector API (16 float lanes), UseAVX 3. OS: Ubuntu 22.04, kernel 6.8 (aws)." % (jv.group(1) if jv else "?", tv.group(1) if tv else "?"))
-    P("  CPU: Intel Xeon Platinum 8259CL @ 2.50 GHz, 4 vCPUs, 15.4 GiB, AVX-512 (F, BW, VL, VNNI).")
-    P("")
+    correctness_section(res, P)
+    toolchain_section(res, P)
     # ---- cost
     P("## Cost of the cpp suite (cost.tsv of the two runs; estimates, not the bill)")
     costs = []
@@ -995,6 +1056,349 @@ def summary_text(res, bk, feeds, steps, counts, mac_rows, opts):
     P("  - The commit of the run is not recorded in the run files; see the line 'The commit that the run used' at the top.")
     P("")
     return "\n".join(L) + "\n"
+
+
+# ------------------------------------------------------------------------------------------------------------------ text of run 2
+
+def unchecked_eps(bk, impl, lanes, preset):
+    for b in bk.unchecked:
+        if "l%s" % lanes in b["label"]:
+            for r in b["rows"]:
+                if r["impl"] == impl and r["preset"] == preset and r["batch"] == 256:
+                    return r["eps"]
+    return None
+
+
+def pct(x):
+    return "%+.1f %%" % ((x - 1) * 100)
+
+
+def cell(bk, prog, preset, batch):
+    key = (prog, preset, batch)
+    if key not in bk.runs:
+        return None
+    m_, lo, hi = bk.stat(key)
+    return m_, lo, hi, bk.status_of(prog, preset)[0]
+
+
+def summary_text_run2(res, prev, bk, bk1, feeds, feeds1, steps, counts, opts):
+    L = []
+    P = L.append
+    A = bk.anchors
+    n_nn, n_cross, n_anch = counts
+    P("# Second AWS run on a Tesla T4 (g4dn.xlarge, spot): SIMD fix before and after, cold start per case, %s" % opts["date"])
+    P("")
+    P("## Status: read this first")
+    P("n = 1 run per instance, on a shared, virtualised instance (4 vCPUs of an Intel Xeon Platinum 8259CL, one Tesla T4, CUDA 13.2), the same instance type and")
+    P("the same measurement method as the first run (cpp/results/aws-t4-2026-11-15.txt, called run 1 below). All %d steps of this run ended OK (exit status 0) and every" % len(steps))
+    P("one of the %d benchmark rows (nn_bench %d, CrossBench %d, anchors %d) has verified=ok; a case that fails its output check prints no row, so there are no" % (sum(counts), n_nn, n_cross, n_anch))
+    P("rows that did not pass. Nothing was smoothed, re-measured or dropped. Differences between run 1 and run 2 are between two different instances, one run each:")
+    P("a repeatability statement is an observation of two samples, not an error bar.")
+    P("  V = valid     all four anchor values of the row's program (batch 256: two runs at the start, two at the end) lie within 2 % of each other")
+    P("  u = unsettled the anchors differ by more than 2 %; the drift is stated. Unsettled rows are never quoted as valid.")
+    P("The anchors that decide (evals/s, batch 256):")
+    for key in sorted(A.v):
+        d = A.a[key]
+        P("  %-16s %-5s start %s / end %s  max/min %.4f  %s" % (key[0], key[1].upper(), " ".join("%.1f" % v for v in d["start"]), " ".join("%.1f" % v for v in d["end"]),
+                                                             A.v[key][0], "valid" if A.v[key][1] == "valid" else "UNSETTLED (%.1f %% drift)" % ((A.v[key][0] - 1) * 100)))
+    valid = sorted("%s %s" % (k[0], k[1].upper()) for k, v in A.v.items() if v[1] == "valid")
+    unsettled = sorted("%s %s" % (k[0], k[1].upper()) for k, v in A.v.items() if v[1] != "valid")
+    P("Result: valid: %s. Unsettled: %s." % (", ".join(valid), ", ".join(unsettled)))
+    P("A Java:C++ ratio comes only from adjacent pairs (anchor rows C, J, C, J at the start and at the end: 4 pairs at batch 256, none at another batch). The rows of the")
+    P("benchmark proper are one C++ block and one Java block; their quotient is 'unpaired' (orientation only). No statement about a difference below 5 % (GPU); CPU rows state")
+    P("the measured spread. The source of run 2: exp/cpp at %s (SIMD forward pass without bounds checks and stack round trips in the inner loop, commit e9af0d7: one process" % (opts["commit"] or "2446bd1"))
+    P("per cold case); the archive of the instance was made at 18:55 UTC from HEAD, and the reflog shows no later commit. Run 1 ran the code before the SIMD change.")
+    P("")
+    P("Files: aws-t4-run2-%s.tsv (every booked figure, one row each; columns as in run 1) and this text. Tables of the TSV: throughput, latency, anchors, ratio, ratio_blocks," % opts["date"])
+    P("checks_cost, breakdown, setup, kernel_table, cold_start (new: one row per program, case and metric, median / lowest / highest of 3 processes), gpufeed, not_measured,")
+    P("verification. Booked by cpp/scripts/book-aws.py --run 2; tests: cpp/scripts/test_book_aws.py.")
+    P("")
+
+    # ---- main numbers
+    P("## Throughput, evals/s (median, [lowest round, highest round], status); full table in the TSV (batches 1, 16, 64, 256, 512, 1024)")
+    progs = [("java:vector", "Java Vector API, 16 lanes (CPU)"), ("cpp:simd-l16", "C++ simd, 16 lanes (CPU, comparison row)"),
+             ("cpp:simd-l8", "C++ simd, 8 lanes (CPU, extra row)"), ("cpp:simd-nofma-l16", "C++ simd-nofma, 16 lanes"),
+             ("cpp:simd-nofma-l8", "C++ simd-nofma, 8 lanes"), ("cpp:cuda-pageable", "C++ CUDA, pageable host memory"),
+             ("cpp:cuda-pinned", "C++ CUDA, pinned host memory"), ("java:tornado", "Java TornadoVM on CUDA")]
+    for preset in ("small", "large"):
+        P("")
+        P("### %s u5" % preset.upper())
+        rows = []
+        for prog, label in progs:
+            row = [label]
+            for b in MAIN_BATCHES:
+                c = cell(bk, prog, preset, b)
+                row.append("%.1f [%.1f, %.1f] %s" % (c[0], c[1], c[2], tag(c[3])) if c else "not measured")
+            rows.append(row)
+        P(table(["program", "batch 1", "batch 256", "batch 1024"], rows))
+    skipped = sorted({"%s %s batch %s" % (k[0], k[1].upper(), k[2]) for k in
+                      [(r[1], r[2].split()[0].lower(), r[3]) for r in bk.rows if r[0] == "not_measured" and r[4] == "evals_per_s"]})
+    P("CUDA rows: median of the two hardened blocks (l8 and l16), range = lowest round minimum to highest round maximum of both. C++ CPU rows are judged by the anchor of")
+    P("cpp:simd (built with 16 lanes; the 8-lane rows have no anchor of their own). Not measured (the schedule skips a case if one call would take more than 3 s): %s." % ("; ".join(skipped) if skipped else "none"))
+    P("")
+
+    # ---- before / after
+    P("## SIMD fix, before and after (CPU, batch 256, evals/s; run 1 = old code, run 2 = new code; status as in each run)")
+    rows = []
+    summary_ratio = {}
+    for preset in ("small", "large"):
+        for prog, impl, lanes, label in (("cpp:simd-l16", "simd", 16, "simd 16 lanes, hardened"), ("cpp:simd-l8", "simd", 8, "simd 8 lanes, hardened"),
+                                         ("cpp:simd-nofma-l16", "simd-nofma", 16, "simd-nofma 16 lanes, hardened"), ("cpp:simd-nofma-l8", "simd-nofma", 8, "simd-nofma 8 lanes, hardened"),
+                                         ("cpp:simd-l16", "simd", 16, "simd 16 lanes, unchecked"), ("cpp:simd-l8", "simd", 8, "simd 8 lanes, unchecked"),
+                                         ("cpp:simd-nofma-l16", "simd-nofma", 16, "simd-nofma 16 lanes, unchecked"), ("cpp:simd-nofma-l8", "simd-nofma", 8, "simd-nofma 8 lanes, unchecked")):
+            if label.endswith("unchecked"):
+                v1, v2 = unchecked_eps(bk1, impl, lanes, preset), unchecked_eps(bk, impl, lanes, preset)
+                s1 = bk1.status_of(prog, preset)[0]
+                s2 = bk.status_of(prog, preset)[0]
+                j1, j2 = bk1.stat(("java:vector", preset, 256))[0], bk.stat(("java:vector", preset, 256))[0]
+            else:
+                v1, v2 = bk1.stat((prog, preset, 256))[0], bk.stat((prog, preset, 256))[0]
+                s1 = bk1.status_of(prog, preset)[0]
+                s2 = bk.status_of(prog, preset)[0]
+                j1, j2 = bk1.stat(("java:vector", preset, 256))[0], bk.stat(("java:vector", preset, 256))[0]
+            rows.append([preset.upper(), label, "%.1f" % v1, tag(s1), "%.1f" % v2, tag(s2), "%.2fx" % (v2 / v1), "%.2f" % (v1 / j1), "%.2f" % (v2 / j2)])
+            summary_ratio[(preset, label)] = (v1, v2, j1, j2, s1, s2)
+            bk.add("simd_fix", prog + (" unchecked" if label.endswith("unchecked") else ""), case_name(preset), 256, "run2_over_run1", v2 / v1, v1, v2, "%s/%s" % (s1, s2),
+                   (None, None, None), "evals/s run 1 (min column) and run 2 (max column); status run 1 / run 2; Java Vector %.1f (run 1) and %.1f (run 2); two separate instances, one run each" % (j1, j2))
+    P(table(["preset", "program", "run 1", "st", "run 2", "st", "run 2 / run 1", "C++ / Java run 1", "C++ / Java run 2"], rows))
+    j1s, j2s = bk1.stat(("java:vector", "small", 256))[0], bk.stat(("java:vector", "small", 256))[0]
+    j1l, j2l = bk1.stat(("java:vector", "large", 256))[0], bk.stat(("java:vector", "large", 256))[0]
+    P("The Java columns are the Java Vector blocks of the same run at batch 256 (SMALL %.1f then %.1f, %s; LARGE %.1f then %.1f, %s), so the C++ / Java columns are block quotients (unpaired," % (
+        j1s, j2s, pct(j2s / j1s), j1l, j2l, pct(j2l / j1l)))
+    P("orientation). The paired ratios are in the next section. Java Vector is the control: the same code on a second instance of the same type moves by the amount above.")
+    P("")
+    # which hypotheses
+    h16s, h8s = summary_ratio[("small", "simd 16 lanes, hardened")], summary_ratio[("small", "simd 8 lanes, hardened")]
+    u8s_old, u8s_new = summary_ratio[("small", "simd 8 lanes, unchecked")][:2]
+    P("### Is the diagnosis confirmed?")
+    P("The diagnosis (cpp/README.md, 'x86 code generation of the SIMD path'): bounds checks inside the inner loop of the hardened build, and at 16 lanes a stack round trip")
+    P("for every vector load, made the C++ path slow. The change removed both in one commit (the assembler loop has 18 instructions, 8 fma, no stack operand).")
+    P("  - Hardened build: simd 16 lanes SMALL %.1f -> %.1f (%.2fx), LARGE %.1f -> %.1f (%.2fx); simd 8 lanes SMALL %.1f -> %.1f (%.2fx), LARGE %.1f -> %.1f (%.2fx)." % (
+        h16s[0], h16s[1], h16s[1] / h16s[0], *summary_ratio[("large", "simd 16 lanes, hardened")][:2], summary_ratio[("large", "simd 16 lanes, hardened")][1] / summary_ratio[("large", "simd 16 lanes, hardened")][0],
+        h8s[0], h8s[1], h8s[1] / h8s[0], *summary_ratio[("large", "simd 8 lanes, hardened")][:2], summary_ratio[("large", "simd 8 lanes, hardened")][1] / summary_ratio[("large", "simd 8 lanes, hardened")][0]))
+    cc = {(r[1], r[2]): float(r[5]) for r in bk.rows if r[0] == "checks_cost" and "cuda" not in r[1]}
+    P("  - Cost of the checks (unchecked over hardened, batch 256, table checks_cost): run 1 SMALL 8 lanes %.2fx, run 2 %.3fx; run 2, all four CPU programs and both presets: %.3f to %.3f." % (
+        unchecked_eps(bk1, "simd", 8, "small") / bk1.stat(("cpp:simd-l8", "small", 256))[0], cc[("cpp:simd-l8", "SMALL u5")], min(cc.values()), max(cc.values())))
+    P("    The hardened build is now as fast as the unchecked one (within 3 %; below 5 % no statement). That the checks stood in the way is therefore confirmed: with them out of the")
+    P("    loop the difference is gone.")
+    P("  - 16 lanes against 8 lanes (hardened, SMALL / LARGE): run 1 %.2f / %.2f (16 slower), run 2 %.2f / %.2f (16 faster). The order has turned, as the stack-round-trip reading predicts." % (
+        h16s[0] / h8s[0], summary_ratio[("large", "simd 16 lanes, hardened")][0] / summary_ratio[("large", "simd 8 lanes, hardened")][0],
+        h16s[1] / h8s[1], summary_ratio[("large", "simd 16 lanes, hardened")][1] / summary_ratio[("large", "simd 8 lanes, hardened")][1]))
+    P("  - Confirmed: the poor C++ numbers of run 1 were bad code from the bounds checks and the stack round trips, not a property of C++. Not separable from the data: how much each of")
+    P("    the two causes contributed (they changed together), and the stall of the store-to-load forwarding itself was never measured. Results are unchanged: nn_check reports the same")
+    P("    error fractions for every impl, preset and lane count as in run 1 (compared below), and the offline check of the commit found 12 equal digests of old and new code.")
+    P("")
+
+    # ---- ratios
+    P("## Java:C++ ratios from adjacent pairs (anchor rows, batch 256; above 1: C++ faster)")
+    rows = []
+    for (label, preset), (m_, lo, hi, st, verdict, rs) in sorted(bk.pair_result.items()):
+        rows.append([label, preset.upper(), "%.3f [%.3f, %.3f]" % (m_, lo, hi), ", ".join("%.3f" % r for r in rs), tag(st), verdict])
+    P(table(["C++ / Java", "preset", "median [lowest, highest pair]", "pairs: start 1, start 2, end 1, end 2", "st", "verdict"], rows))
+    pr = bk.pair_result
+    P("")
+    P("### Honest state: C++ SIMD against the Java Vector API on AVX-512")
+    ps, pl = pr[("cpp:simd-l16 / java:vector", "small")], pr[("cpp:simd-l16 / java:vector", "large")]
+    blk_s, blk_l = bk.stat(("cpp:simd-l16", "small", 256))[0] / j2s, bk.stat(("cpp:simd-l16", "large", 256))[0] / j2l
+    P("  - Direction: C++ 16 lanes (gcc 12, vector extensions) is FASTER than Java's Vector API (16 lanes, same 512-bit width) on this instance. Paired: SMALL %.2f (%.2f to %.2f)," % (ps[0], ps[1], ps[2]))
+    P("    LARGE %.2f (%.2f to %.2f); block quotient (unpaired): SMALL %.2f, LARGE %.2f. All 8 pairs and both block quotients lie on the same side and above 5 %%." % (pl[0], pl[1], pl[2], blk_s, blk_l))
+    P("  - Status: by the rule these are NOT valid ratios, only 'indicative'. The Java anchors are unsettled in both presets (SMALL %.1f %%, LARGE %.1f %% drift) and the C++ SMALL anchor is" % (
+        (A.v[("java:vector", "small")][0] - 1) * 100, (A.v[("java:vector", "large")][0] - 1) * 100))
+    P("    unsettled (%.1f %%); only the C++ LARGE anchor is valid (%.1f %%). Do not quote a CPU ratio from this run without these labels." % ((A.v[("cpp:simd", "small")][0] - 1) * 100, (A.v[("cpp:simd", "large")][0] - 1) * 100))
+    P("  - Size: LARGE is tight (pairs %.2f to %.2f, block %.2f): about 1.3 times. SMALL depends on which Java level one takes: Java Vector SMALL sits at %.0f in its block and at %s in the anchors" % (
+        pl[1], pl[2], blk_l, j2s, " / ".join("%.0f" % v for v in bk.anch[("java:vector", "small")]["start"] + bk.anch[("java:vector", "small")]["end"])))
+    P("    (the same split as in run 1), so the SMALL factor is %.2f against the block level and %.2f to %.2f against the anchor levels. This is a property of the Java side's" % (blk_s, ps[1], ps[2]))
+    P("    variation on this instance, not something this run can resolve; n = 1 per instance.")
+    P("  - Other C++ rows against the Java block (unpaired, batch 256): 8 lanes (half the width of Java's species) %.2f SMALL and %.2f LARGE, i.e. about 10 %% behind Java Vector; simd-nofma 16 lanes %.2f and %.2f." % (
+        bk.stat(("cpp:simd-l8", "small", 256))[0] / j2s, bk.stat(("cpp:simd-l8", "large", 256))[0] / j2l,
+        bk.stat(("cpp:simd-nofma-l16", "small", 256))[0] / j2s, bk.stat(("cpp:simd-nofma-l16", "large", 256))[0] / j2l))
+    P("  - Not shown by this data: whether another JDK, another JIT warm-up or hand-tuned Java would close the gap; the plan compares the existing implementations as they are.")
+    P("")
+    P("C++ CUDA is the pinned row (the anchor rows run the pinned variant). The GPU pairs are %s; below 5 %% there is no statement. For orientation only, the unpaired block quotients" % (
+        " and ".join("%s %.3f" % (k[1].upper(), v[0]) for k, v in sorted(pr.items()) if "cuda" in k[0])))
+    P("(table ratio_blocks in the TSV, status 'unpaired'):")
+    rows = []
+    for preset in ("small", "large"):
+        for b in BATCHES:
+            row = [preset.upper(), str(b)]
+            for cprog, jprog in (("cpp:cuda-pinned", "java:tornado"), ("cpp:cuda-pageable", "java:tornado"), ("cpp:simd-l16", "java:vector"), ("cpp:simd-l8", "java:vector")):
+                ck, jk = (cprog, preset, b), (jprog, preset, b)
+                row.append("%.3f" % (bk.stat(ck)[0] / bk.stat(jk)[0]) if ck in bk.runs and jk in bk.runs else "not measured")
+            rows.append(row)
+    P(table(["preset", "batch", "CUDA pinned / TornadoVM", "CUDA pageable / TornadoVM", "simd l16 / Vector", "simd l8 / Vector"], rows))
+    P("")
+
+    # ---- latency
+    P("## Latency at batch 1, ms per call p50 / p90 (CUDA: median of the two blocks)")
+    rows = []
+    for prog, label in progs:
+        row = [label]
+        for preset in ("small", "large"):
+            key = (prog, preset, 1)
+            row.append("%.3f / %.3f %s" % (bk.stat(key, "ms50")[0], bk.stat(key, "ms90")[0], tag(bk.status_of(prog, preset)[0])) if key in bk.runs else "not measured")
+        rows.append(row)
+    P(table(["program", "SMALL", "LARGE"], rows))
+    P("")
+
+    # ---- CUDA repeatability
+    P("## GPU rows against run 1 (repeatability of two instances; evals/s, median)")
+    rows = []
+    worst = 0.0
+    for prog, label in progs[5:]:
+        for preset in ("small", "large"):
+            for b in MAIN_BATCHES:
+                c2, c1 = cell(bk, prog, preset, b), cell(bk1, prog, preset, b)
+                r = c2[0] / c1[0]
+                worst = max(worst, abs(r - 1))
+                rows.append([label, preset.upper(), b, "%.1f %s" % (c1[0], tag(c1[3])), "%.1f %s" % (c2[0], tag(c2[3])), pct(r)])
+                bk.add("gpu_repeat", prog, case_name(preset), b, "run2_over_run1", r, c1[0], c2[0], "%s/%s" % (c1[3], c2[3]), (None, None, None),
+                       "median evals/s run 1 (min column) and run 2 (max column); two instances, one run each")
+    P(table(["program", "preset", "batch", "run 1", "run 2", "run 2 vs run 1"], rows))
+    P("Largest difference between the two runs: %.1f %%. Run 1 ran the same CUDA code; the SIMD change touches only the CPU path." % (worst * 100))
+    P("")
+
+    # ---- anchors
+    P("## Anchors (batch 256, evals/s): two runs at the start (before nn_bench), two at the end (after CrossBench)")
+    rows = []
+    for (prog, preset) in sorted(bk.anch):
+        d = bk.anch[(prog, preset)]
+        v = bk.anchors.v[(prog, preset)]
+        rows.append([prog, preset.upper()] + ["%.1f" % x for x in d["start"] + d["end"]] + ["%.4f" % v[0], "%.1f %%" % ((v[0] - 1) * 100), tag(v[1])])
+    P(table(["program", "preset", "start 1", "start 2", "end 1", "end 2", "max/min", "drift", "st"], rows))
+    P("GPU state (nvidia-smi, SM clock): %s" % gpu_clocks(res))
+    loads = []
+    for b in bk.anchor_blocks:
+        loads.append("%s %.2f/%.2f" % (b["label"].replace("anchors-", "").replace(" round ", " r"), b["load_before"], b["load_after"]))
+    P("Load average (1 min), before/after each anchor block: %s." % "; ".join(loads))
+    P("Blocks of the benchmark proper: C++ l8 %.2f/%.2f, l16 %.2f/%.2f, Java %.2f/%.2f." % (bk.main[0]["load_before"], bk.main[0]["load_after"], bk.main[1]["load_before"], bk.main[1]["load_after"],
+                                                                                         bk.jmain[0]["load_before"], bk.jmain[0]["load_after"]))
+    over = [b["label"] for b in bk.anchor_blocks if b["load_before"] > 2.0]
+    if over:
+        P("The plan's limit of 2.0 for the load before a block was exceeded by: %s (load average %s; it follows directly after the Java block, which leaves the 1-minute average high)." % (
+            ", ".join(over), ", ".join("%.2f" % b["load_before"] for b in bk.anchor_blocks if b["load_before"] > 2.0)))
+    P("")
+    P("### Pattern of the CPU anchors (run 1 against run 2; no cause is claimed)")
+    rows = []
+    for tagname, b_ in (("run 1", bk1), ("run 2", bk)):
+        for prog in ("cpp:simd", "java:vector"):
+            for preset in ("small", "large"):
+                d = b_.anch[(prog, preset)]
+                s1, s2, e1, e2 = d["start"] + d["end"]
+                rows.append([tagname, prog, preset.upper(), "%.1f" % s1, "%.1f" % s2, "%.1f" % e1, "%.1f" % e2, pct(s2 / s1), pct(e2 / e1), pct(e1 / s1), "%.1f %%" % ((b_.anchors.v[(prog, preset)][0] - 1) * 100)])
+    P(table(["run", "program", "preset", "start 1", "start 2", "end 1", "end 2", "start 2 / start 1", "end 2 / end 1", "end 1 / start 1", "max/min - 1"], rows))
+    c_s, c_l = bk.anch[("cpp:simd", "small")], bk.anch[("cpp:simd", "large")]
+    jv_s = bk.anch[("java:vector", "small")]
+    P("  - Run 1: the second C++ run of each block was about 34 % slower than the first, at the start and at the end (steps within the block, none inside the blocks of the benchmark proper).")
+    P("  - Run 2, C++ SMALL: %s, i.e. no 34 %% step; the values rise from run to run (%s, steps %s, %s, %s), the total drift is %.1f %%. C++ LARGE: %s, no step above 2 %%, and it is valid." % (
+        "all four within %.1f %%" % ((A.v[("cpp:simd", "small")][0] - 1) * 100), " / ".join("%.0f" % v for v in c_s["start"] + c_s["end"]),
+        pct(c_s["start"][1] / c_s["start"][0]), pct(c_s["end"][0] / c_s["start"][1]), pct(c_s["end"][1] / c_s["end"][0]), (A.v[("cpp:simd", "small")][0] - 1) * 100,
+        " / ".join("%.0f" % v for v in c_l["start"] + c_l["end"])))
+    P("  - Run 2, Java Vector SMALL: the first start run is the lowest (%.0f), the second jumps by %s (%.0f), the end runs are in between (%.0f, %.0f); the Java block of the benchmark proper at" % (
+        jv_s["start"][0], pct(jv_s["start"][1] / jv_s["start"][0]), jv_s["start"][1], jv_s["end"][0], jv_s["end"][1]))
+    P("    batch 256 is at %.0f, above every anchor value. In run 1 the first Java SMALL anchor was the highest (%.0f) and the three later ones about %.0f." % (
+        j2s, bk1.anch[("java:vector", "small")]["start"][0], statistics.mean(bk1.anch[("java:vector", "small")]["start"][1:] + bk1.anch[("java:vector", "small")]["end"])))
+    P("    So Java Vector SMALL has two levels in both runs, one about 5,000 to 5,900 and one about 3,600 to 3,800 (run 2 also 4,563), and it switches between runs of the same")
+    P("    program about a minute apart (one anchor run lasts about a minute). Java Vector LARGE stays within 2.2 %. The C++ CPU programs of run 2 do not show such a switch.")
+    P("  - Whether the switch comes from a neighbour on the shared host, from the clock behaviour under AVX-512 load, or from the JVM (JIT or the Vector API's profile) is not known. The")
+    P("    pattern (steps between adjacent runs about a minute apart, not tied to one program position, seen in run 1 on C++ and in both runs on Java) is compatible with neighbour load or")
+    P("    clock changes; it is also compatible with other causes. No cause is claimed; the rule keeps these rows unsettled.")
+    P("")
+
+    # ---- gpuFeed
+    P("## Counter-check with the gpuFeed rows (CPU threads feed the T4, 30 s per row, batch 256; evals/s)")
+    rows = []
+    for p in ("small", "large"):
+        f, f1 = feeds[p], feeds1[p]
+        rows.append([p.upper(), "%.0f" % f1["eps"], "%.0f" % f["eps"], pct(f["eps"] / f1["eps"]), "%d %%" % f["busy"],
+                     "%.0f" % bk.runs[("java:tornado", p, 256)][0][1]["eps"], "%.1f %%" % ((f["eps"] / bk.runs[("java:tornado", p, 256)][0][1]["eps"] - 1) * 100)])
+    P(table(["preset", "run 1", "run 2", "run 2 vs run 1", "device busy (run 2)", "CrossBench TornadoVM b256 (run 2)", "feed against CrossBench"], rows))
+    P("The feed rows agree with run 1 within %.1f %% (SMALL) and %.1f %% (LARGE); earlier AWS runs gave SMALL 80,736 to 81,633 and LARGE 18,402 to 19,029. The feed is not an anchor and has no status." % (
+        abs(feeds["small"]["eps"] / feeds1["small"]["eps"] - 1) * 100, abs(feeds["large"]["eps"] / feeds1["large"]["eps"] - 1) * 100))
+    P("")
+
+    # ---- cold start
+    P("## Cold start (one fresh process per case and round, 3 rounds; median [lowest, highest] in ms; no anchor applies, status 'unanchored')")
+    P("construct = building the network object (CUDA: context creation, module and weight upload); first call = the first forward pass of the process; process to first result =")
+    P("process uptime after that first call (C++: from main(), without the kernel's exec and the dynamic loader; JVM: since JVM start, which includes the JVM's own start). The")
+    P("C++ CPU cold process is the 8-lane build (the cold step runs nn_bench_l8); Java Vector uses 16 lanes. The first case of a TornadoVM JVM also holds the TornadoVM start.")
+    names = {"cpp:simd": "C++ CPU simd (8 lanes)", "cpp:cuda-pageable": "C++ CUDA pageable", "cpp:cuda-pinned": "C++ CUDA pinned", "java:vector": "Java Vector", "java:tornado": "Java TornadoVM (CUDA)"}
+    order = ["cpp:simd", "java:vector", "cpp:cuda-pageable", "cpp:cuda-pinned", "java:tornado"]
+    rows = []
+    for preset in ("small", "large"):
+        for batch in (1, 256):
+            for prog in order:
+                lst = bk.cold_runs.get((prog, preset, batch))
+                if not lst:
+                    continue
+                f = lambda g: "%.1f [%.1f, %.1f]" % (statistics.median([g(c) for _, c, _, _ in lst]), min(g(c) for _, c, _, _ in lst), max(g(c) for _, c, _, _ in lst))
+                rows.append([preset.upper(), batch, names[prog], f(lambda c: c["construct_ms"]), f(lambda c: c["first_call_ms"]), f(lambda c: c["uptime_ms"]), len(lst)])
+    P(table(["preset", "batch", "program", "construct", "first call", "process to first result", "rounds"], rows))
+    # in-process first call, for comparison
+    P("")
+    fc = lambda prog, preset, batch: bk.stat((prog, preset, batch), "first")[0]
+    P("For comparison, the first call of a case inside a long-running process (benchmark block, table breakdown in the TSV), batch 1 / 256: C++ CUDA pinned SMALL %.1f / %.1f ms, LARGE %.1f / %.1f ms;" % (
+        fc("cpp:cuda-pinned", "small", 1), fc("cpp:cuda-pinned", "small", 256), fc("cpp:cuda-pinned", "large", 1), fc("cpp:cuda-pinned", "large", 256)))
+    P("TornadoVM SMALL %.1f / %.1f ms, LARGE %.1f / %.1f ms; Java Vector SMALL %.1f / %.1f ms, LARGE %.1f / %.1f ms (the very first case of the JVM block also holds the start of the runtime)." % (
+        fc("java:tornado", "small", 1), fc("java:tornado", "small", 256), fc("java:tornado", "large", 1), fc("java:tornado", "large", 256),
+        fc("java:vector", "small", 1), fc("java:vector", "small", 256), fc("java:vector", "large", 1), fc("java:vector", "large", 256)))
+    spread = max((max(c["uptime_ms"] for _, c, _, _ in l) / min(c["uptime_ms"] for _, c, _, _ in l) - 1) * 100 for l in bk.cold_runs.values())
+    P("Spread of the three rounds, process to first result: at most %.1f %% for any case. The C++ CPU first call at batch 256 (SMALL / LARGE %.1f / %.1f ms) is the cost of the first" % (
+        spread, statistics.median([c["first_call_ms"] for _, c, _, _ in bk.cold_runs[("cpp:simd", "small", 256)]]),
+        statistics.median([c["first_call_ms"] for _, c, _, _ in bk.cold_runs[("cpp:simd", "large", 256)]])))
+    st8 = [256000.0 / bk.stat(("cpp:simd-l8", pr_, 256))[0] for pr_ in ("small", "large")]
+    P("full 256-position pass, not a start-up fee: it equals the steady call time of that bucket in the 8-lane build (256 / %.1f = %.1f ms SMALL, 256 / %.1f = %.1f ms LARGE)." % (
+        bk.stat(("cpp:simd-l8", "small", 256))[0], st8[0], bk.stat(("cpp:simd-l8", "large", 256))[0], st8[1]))
+    P("")
+
+    # ---- correctness
+    correctness_section(res, P)
+    nc2 = parse_nncheck(read(os.path.join(res, "cpp-check.log")))
+    nc1 = parse_nncheck(read(os.path.join(prev, "cpp-check.log")))
+    same = [(a["impl"], a["lanes"], a["preset"], a["logits"], a["values"]) for a in nc1] == [(a["impl"], a["lanes"], a["preset"], a["logits"], a["values"]) for a in nc2]
+    P("  Against run 1 (before the SIMD change): the %d nn_check lines of run 2 have %s error fractions (logits and values) as the %d lines of run 1 for every impl, preset and lane count." % (
+        len(nc2), "IDENTICAL" if same else "DIFFERENT", len(nc1)))
+    if not same:
+        raise BookingError("nn_check error fractions of run 2 differ from run 1")
+    P("  The log of run 2 has a new 'digest=' field per line (a hash over the outputs of all 1,024 positions); run 1 has none, so there is no digest comparison between the two runs.")
+    P("  Bit-identity of old and new source is established offline (cpp/README.md, 'Equality': 12 equal digests of old and new code); this run supports it only through the equal")
+    P("  error fractions (a weaker statement).")
+    P("")
+    toolchain_section(res, P)
+    pat = r"check-fma lanes=(\d+): simd_net \(FMA\):\s+(\d+) instructions, (\d+) fused"
+    f1 = {m_[0]: m_[1:] for m_ in re.findall(pat, read(os.path.join(prev, "cpp-build.log")))}
+    f2 = {m_[0]: m_[1:] for m_ in re.findall(pat, read(os.path.join(res, "cpp-build.log")))}
+    P("  Note: check-fma on the object code of simd_net, 8 / 16 lanes: run 1 %s / %s instructions with %s / %s fused multiply-adds, run 2 %s / %s instructions with %s / %s. The object got smaller" % (
+        f1["8"][0], f1["16"][0], f1["8"][1], f1["16"][1], f2["8"][0], f2["16"][0], f2["8"][1], f2["16"][1]))
+    P("  and has fewer fused instructions in total; the cause was not examined (the inner loop has 8 per iteration, see the diagnosis in cpp/README.md). The check only requires more than 0 fused and none in the no-FMA object.")
+    P("")
+
+    # ---- cost
+    P("## Cost of the cpp suite (cost.tsv of the runs; estimates, not the bill)")
+    costs = [parse_cost(read(p)) for p in opts["cost"]]
+    if costs:
+        rows = [[c["launched"], "%d s" % c["seconds"], "%.4f" % c["price"], "%.4f" % c["estimate"]] for c in costs]
+        P(table(["launched (UTC)", "counted", "USD/h", "estimate USD"], rows))
+        tot = sum(c["estimate"] for c in costs)
+        P("  Sum of the %d runs: %.4f USD (the runner's cumulative figure for the cpp suite; about %.2f EUR at the assumed 0.90 EUR/USD); the root volume adds a few cents." % (len(costs), tot, tot * 0.9))
+        P("  The first entry is the run that a spot interruption cut off about 5 minutes after the launch; cost.tsv counts the %d s until its cleanup, so its estimate (%.4f USD) is an upper" % (costs[0]["seconds"], costs[0]["estimate"]))
+        P("  bound, about 0.02 USD if only the 5 minutes were billed (not verified against a bill). Run 2 cost %.4f USD for %d counted seconds (1619 s of the suite, the rest boot and cleanup)." % (costs[-1]["estimate"], costs[-1]["seconds"]))
+        P("  Budget of 5 EUR: earlier tests about 0.3 USD (the owner's figure) plus the cpp suite %.2f USD = about %.2f USD, i.e. about %.2f EUR or %.0f %% of the budget (an estimate; the" % (tot, 0.3 + tot, (0.3 + tot) * 0.9, (0.3 + tot) * 0.9 / 5 * 100))
+        P("  upper bound of the cut-off run included). The cumulative cap of the cpp suite (1.00 USD) was not reached.")
+    else:
+        P("  not measured (no cost.tsv given)")
+    P("")
+
+    # ---- not measured
+    P("## Not measured, or to be read with care")
+    P("  - n = 1 run per instance on shared virtualised hardware, two instances. Run-to-run differences are two samples.")
+    P("  - CPU rows of Java Vector are unsettled in both presets and the C++ SMALL rows are unsettled; no CPU ratio of this run is more than indicative.")
+    P("  - The two fixes (bounds checks, stack round trip) went in together; the data cannot tell their shares. The store-forwarding stall was not measured (no perf counters on the instance).")
+    P("  - Anchors in the middle of the measurement (anchor_mid) do not exist on this run. The nvidia-smi line was taken four times (before each block), not continuously.")
+    P("  - Java scalar and C++ reference throughput, and gen11 throughput: not in the AWS schedule. Kernel table: C++ only, LARGE only; the Java kernel table is a deliberate gap.")
+    P("  - The C++ cold CPU process is the 8-lane build (the cold step runs nn_bench_l8), Java Vector runs 16 lanes; there is no 16-lane C++ cold process.")
+    P("")
+    return "\n".join(L) + "\n"
+
 
 
 def gpu_clocks(res):

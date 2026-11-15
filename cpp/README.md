@@ -382,6 +382,14 @@ code: SMALL simd 4,163 against 4,208 (new 4,211 in a second run), LARGE simd 709
 a time. Whether the 16-lane build is now faster than the 8-lane build, what the hardened build costs, and how it compares with Java's Vector
 API will show a second AWS run. The explanation of the store-forwarding stall (point 2) is also a hypothesis until then.
 
+**Result of the second AWS run (2026-11-15, `results/aws-t4-run2-2026-11-15.txt`).** The diagnosis holds. Hardened build, batch 256, evaluations/s,
+old against new code on two instances of the same type: `simd` 16 lanes SMALL 1,154 -> 8,388 (7.3x), LARGE 204 -> 1,197 (5.9x); 8 lanes SMALL
+1,939 -> 5,140, LARGE 349 -> 819. The hardened build is now as fast as the unchecked one (0.97 to 1.01; run 1: 2.4x slower at 8 lanes), and 16 lanes
+beat 8 lanes (1.6x SMALL, 1.5x LARGE; run 1: 0.6x). `nn_check` shows the same error fractions as before for all 12 lines. Against Java's Vector API
+(16 lanes) C++ `simd` 16 lanes is now ahead: paired ratios 1.83 to 2.25 (SMALL) and 1.30 to 1.35 (LARGE), block quotients 1.48 and 1.30. By the rule
+these ratios are only indicative (Java anchors unsettled in both presets, C++ SMALL anchor 2.7 %; the C++ LARGE anchor is valid). The two fixes went in
+together, so their shares are not separable, and the store-forwarding stall itself was not measured.
+
 ## Metal backend, first half (WP11a)
 
 `src/gpu/metal/` ports `TornadoNetwork` on Metal. `metal_net.hpp` is plain C++ (pimpl, no Objective-C type); `metal_net.mm` is built with
@@ -618,6 +626,24 @@ one process per case: `nn_bench_l8 --presets P --batches B --impls I --cold` for
 `cuda-pinned`, and `crossBench ... --cold` for `vector` and `tornado`, in 3 rounds (`--cold-rounds N`); the stub tests in
 `scripts/cloud/test/test_suite_order.sh` count the processes and check that each names its preset, batch and impl. A mid-block anchor is not
 in the plan for the instance (anchors at the start and end, C, J, C, J) and was not added.
+
+### Second run, booked (WP15, run 2)
+
+The second run (`g4dn.xlarge`, spot, 1,619 s, all 19 steps OK, about 0.14 USD; source: `exp/cpp` at the SIMD change and the per-case cold start) is booked
+the same way into `results/aws-t4-run2-2026-11-15.tsv` and `.txt` (starts with "Status: read this first"):
+
+```sh
+python3 -I cpp/scripts/book-aws.py <run 2 dir>/results cpp/results/aws-t4-run2-2026-11-15 --run 2 --prev <run 1 dir>/results \
+  --commit 2446bd1 --cost <aborted run dir>/cost.tsv --cost <run 1 dir>/cost.tsv --cost <run 2 dir>/cost.tsv
+```
+
+`--run 2` writes the data-driven text: before/after of the SIMD fix next to run 1 (tables `simd_fix` and `gpu_repeat` in the TSV), the pairs, the
+anchor patterns, and the cold start per case (table `cold_start`: median, lowest and highest of 3 fresh processes for construct, first call and process to
+first result; status `unanchored`, since no anchor applies to a cold figure). The same rules apply (anchors within 2 %, pairs only, nothing below 5 % on
+the GPU, n = 1 per instance). Result in short: the GPU programs are valid and within 2.0 % of run 1; C++ CUDA and TornadoVM are within 3 % of each other at
+batch 256 (no statement) and TornadoVM is 1.7 to 2.1 times faster at batch 1; the CPU rows are unsettled except C++ LARGE (Java Vector SMALL has two
+levels, about 3,600 to 4,600 in the anchors and 5,700 in its block). Cost of the cpp suite over three runs: 0.396 USD (the aborted run counted as its
+upper bound), the 5 EUR budget about 13 % used (estimate, with the owner's 0.3 USD).
 
 ## Race play and the games row (WP6)
 
