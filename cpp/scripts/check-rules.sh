@@ -80,12 +80,26 @@ for my $f (@build) {
 printf "R3 fast-math: %d files, %d lines scanned\n", scalar(@build), $r3lines;
 printf "R5 fp-contract=fast only for simd_net: %d lines with the flag\n", $r5lines;
 
-# R4
+# R4: the flag must be in the real values, not in a comment or in a printed text.
+#   CMakePresets.json: CMAKE_CXX_FLAGS and CMAKE_OBJCXX_FLAGS;
+#   scripts/build-cuda.sh: the cxxflags array and, after "-Xcompiler", the nvcc flags (shell comments and print/echo lines are dropped first).
 my $r4 = 0;
-for my $name (qw(CMakePresets.json scripts/build-cuda.sh)) {
-  my $f = "$root/$name"; $r4++;
-  if (!-f $f) { report("R4", $f, 0, "file missing"); next }
-  report("R4", $f, 0, "-ffp-contract=off missing") unless slurp($f) =~ /-ffp-contract=off/;
+{
+  my $f = "$root/CMakePresets.json"; $r4++;
+  if (!-f $f) { report("R4", $f, 0, "file missing") }
+  else {
+    my $t = slurp($f);
+    for my $var (qw(CMAKE_CXX_FLAGS CMAKE_OBJCXX_FLAGS)) {
+      report("R4", $f, 0, "-ffp-contract=off missing from $var") unless $t =~ /"$var"\s*:\s*"[^"]*-ffp-contract=off/;
+    }
+  }
+  $f = "$root/scripts/build-cuda.sh"; $r4++;
+  if (!-f $f) { report("R4", $f, 0, "file missing") }
+  else {
+    my $code = join "\n", grep { !/^\s*#/ && !/^\s*(?:print|echo|printf)\b/ } split /\n/, slurp($f);
+    report("R4", $f, 0, "-ffp-contract=off missing from the cxxflags array") unless $code =~ /^\s*cxxflags=\([^\n]*-ffp-contract=off/m;
+    report("R4", $f, 0, "-Xcompiler -ffp-contract=off missing from the nvcc flags") unless $code =~ /-Xcompiler\s+-ffp-contract=off/;
+  }
 }
 printf "R4 fp-contract=off present: %d files checked\n", $r4;
 
@@ -110,8 +124,8 @@ if [[ ${1:-} == --self-test ]]; then
   clean() {   # $1 = dir
     mkdir -p $1/src/core $1/src/gpu $1/src/nn $1/apps $1/tests $1/scripts $1/cmake
     print -r -- 'int main() { return 0; }  // new delete malloc( memcpy in a comment, "new" in a string' > $1/src/core/ok.cpp
-    print -r -- '-ffp-contract=off' > $1/CMakePresets.json
-    print -r -- 'FLAGS=(-ffp-contract=off)' > $1/scripts/build-cuda.sh
+    print -r -- '{ "CMAKE_CXX_FLAGS": "-ffp-contract=off", "CMAKE_OBJCXX_FLAGS": "-ffp-contract=off" }' > $1/CMakePresets.json
+    print -r -- 'cxxflags=(-std=c++23 -ffp-contract=off)\nnvccflags=(-O3 -Xcompiler -ffp-contract=off)' > $1/scripts/build-cuda.sh
     print -r -- 'set_source_files_properties(src/nn/simd_net.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=fast")' > $1/CMakeLists.txt
   }
   clean $tmp/clean
@@ -133,6 +147,9 @@ if [[ ${1:-} == --self-test ]]; then
   plant R6 src/core/bad5.cpp '#include <print>'
   d=$tmp/R4; clean $d; print 'nothing' > $d/CMakePresets.json
   if check $d > $d.out 2>&1; then print "self-test FAIL: R4 not found"; failed=1; elif grep -q "FINDING R4 " $d.out; then print "self-test ok:   R4 found"; else print "self-test FAIL: R4"; failed=1; fi
+  d=$tmp/R4b; clean $d   # the flag is only in a comment and in a printed text of build-cuda.sh
+  print -r -- '# -ffp-contract=off everywhere\ncxxflags=(-std=c++23)\nnvccflags=(-O3)\nprint "fma: -ffp-contract=off"' > $d/scripts/build-cuda.sh
+  if check $d > $d.out 2>&1; then print "self-test FAIL: R4 not found for build-cuda.sh with the flag only in comments"; failed=1; elif grep -q "FINDING R4 " $d.out; then print "self-test ok:   R4 found (flag only in a comment and a print)"; else print "self-test FAIL: R4b"; failed=1; fi
   (( failed )) && { print "self-test: failed"; exit 1; }
   print "self-test: every rule found its planted violation"
   exit 0
