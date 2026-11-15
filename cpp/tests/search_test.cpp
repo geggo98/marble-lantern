@@ -3,6 +3,7 @@
 // cases always run. The race table of racelin1-r3 comes from STERNHALMA_TABLE_DIR or tablebase/tables.
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -19,14 +20,31 @@
 #include "golden_test_support.hpp"
 #include "linear_eval.hpp"
 #include "options.hpp"
+#include "parse_number.hpp"
 #include "player_spec.hpp"
 #include "position.hpp"
 #include "race_eval.hpp"
+#include "race_move.hpp"
+#include "solitaire.hpp"
 #include "scores.hpp"
 
 using namespace sh;
 
 namespace {
+
+std::vector<std::string_view> split_text(std::string_view text, char sep) {
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    while (true) {
+        const std::size_t at = text.find(sep, start);
+        if (at == std::string_view::npos) {
+            parts.push_back(text.substr(start));
+            return parts;
+        }
+        parts.push_back(text.substr(start, at - start));
+        start = at + 1;
+    }
+}
 
 constexpr std::size_t u(int i) { return static_cast<std::size_t>(i); }
 
@@ -202,11 +220,8 @@ SH_TEST(player_spec_errors) {
     CHECK(parse_error("ab:eval=linear-r1,tt=31").find("tt must be") != std::string::npos);
     CHECK(parse_error("ab:eval=linear-r1,depth=65").find("depth must be") != std::string::npos);
     CHECK(parse_error("ab:eval=linear-r1,futk=-1").find("fut, fut2 and futk") != std::string::npos);
-    // race play is WP6: a player cannot be created yet
-    const PlayerSpec best = parse_ok(fingerprint::kBestSpec);
-    const auto player = best.create();
-    CHECK(!player.has_value());
-    CHECK(player.error().find("race play not ported") != std::string::npos);
+    // the Java option racetable is not ported
+    CHECK(parse_error("ab:eval=linear-r1,race=1,racetable=0").find("unknown options") != std::string::npos);
 }
 
 SH_TEST(with_nodes_replaces_the_budget) {
@@ -564,12 +579,155 @@ SH_TEST(fingerprint_best_positions_equal_r3) {
     CHECK(fingerprint::kBestSpec == fingerprint::kR3Spec);
 }
 
-SH_TEST(fingerprint_game_refuses_race_play_until_wp6) {
-    const auto reference = fingerprint::load_reference();
-    if (!reference) return;
-    const auto game = fingerprint::game(*reference, fingerprint::kR3Spec, 1000);
-    CHECK(!game.has_value());
-    CHECK(game.error().find("race play not ported") != std::string::npos);
+SH_TEST(fingerprint_r3_game_1000_matches_java) { check_game("fingerprint-r3.txt", fingerprint::kR3Spec, 1000, 66); }
+
+SH_TEST(fingerprint_r3_game_5000_matches_java) { check_game("fingerprint-r3.txt", fingerprint::kR3Spec, 5000, 70); }
+
+SH_TEST(fingerprint_best_games_match_java) {
+    check_game("fingerprint-best.txt", fingerprint::kBestSpec, 1000, 66);
+    check_game("fingerprint-best.txt", fingerprint::kBestSpec, 5000, 70);
+}
+
+// ---- race play (WP6): every line of race-moves.tsv ----
+
+SH_TEST(race_moves_match_java) {
+    const auto lines = golden::lines_or_skip("race-moves.tsv");
+    if (!lines) return;
+    const auto table = RaceMove::shared_table(1);
+    CHECK(table.has_value());
+    if (!table) return;
+    int rows_checked = 0;
+    int table_moves = 0;
+    int plan_moves = 0;
+    int none = 0;
+    for (const std::string& line : *lines) {
+        if (line.empty() || line.front() == '#') continue;
+        const auto cols = split_text(line, '\t');
+        CHECK_EQ(static_cast<int>(cols.size()), 5);
+        if (cols.size() != 5) return;
+        std::vector<int> moves;
+        for (const std::string_view part : split_text(cols[2], ' ')) {
+            const auto m = parse_number<int>(part);
+            CHECK(m.has_value());
+            if (m) moves.push_back(*m);
+        }
+        auto pos = fingerprint::replay(moves);
+        CHECK(pos.has_value());
+        if (!pos) return;
+        CHECK_EQ(pos->ply(), *parse_number<int>(cols[1]));
+        RaceMove race(*table, 1);  // a fresh RaceMove for every position, as the exporter
+        const int got = race.choose(*pos);
+        const int want = *parse_number<int>(cols[3]);
+        const std::string origin = race.table_moves() == 1 ? "table" : race.plan_moves() == 1 ? "plan" : "none";
+        if (got != want || origin != cols[4]) {
+            ::sh::test::count_check();
+            ::sh::test::fail(__FILE__, __LINE__,
+                             "race-moves.tsv " + std::string(cols[0]) + " ply " + std::string(cols[1]) + ": golden move " + std::to_string(want) +
+                                 " (" + std::string(cols[4]) + "), ours " + std::to_string(got) + " (" + origin + ")");
+            return;
+        }
+        ::sh::test::count_check();
+        ++rows_checked;
+        if (origin == "table") ++table_moves;
+        else if (origin == "plan") ++plan_moves;
+        else ++none;
+    }
+    CHECK_EQ(rows_checked, 332);
+    CHECK(table_moves > 0 && plan_moves > 0);
+    std::cout << "race-moves.tsv: " << rows_checked << " rows, table " << table_moves << ", plan " << plan_moves << ", none " << none << "\n";
+}
+
+// ---- solitaire (constructed cases) ----
+
+SH_TEST(solitaire_goal_and_lower_bound) {
+    const Layout& layout = Layout::two_players();
+    for (const int player : {0, 1}) {
+        Solitaire sol(player, RuleSet::LeaveGoal::Forbidden, nullptr);
+        const auto goal = geometry::corner_cells(layout.goal_corner(player));
+        const std::vector<int> cells(goal.begin(), goal.end());
+        CHECK(sol.is_goal(cells));
+        CHECK_EQ(sol.lower_bound(cells), 0);
+        const auto start = geometry::corner_cells(layout.start_corner(player));
+        const std::vector<int> from(start.begin(), start.end());
+        CHECK(!sol.is_goal(from));
+        CHECK(sol.lower_bound(from) >= 10);  // every piece needs at least one move
+        std::uint64_t lo = 0;
+        std::uint64_t hi = 0;
+        for (const int c : cells) {
+            lo = Solitaire::with_lo(lo, c);
+            hi = Solitaire::with_hi(hi, c);
+        }
+        CHECK(sol.is_goal(lo, hi));
+        CHECK(Solitaire::cells_of(lo, hi) == cells);
+    }
+}
+
+SH_TEST(solitaire_plan_one_move_from_the_goal) {
+    const Layout& layout = Layout::two_players();
+    Solitaire sol(0, RuleSet::LeaveGoal::Forbidden, nullptr);
+    const auto goal = geometry::corner_cells(layout.goal_corner(0));
+    int missing = -1;  // the goal cell in the first row of the corner stays empty, its neighbour outside holds the tenth piece
+    for (const int c : goal) {
+        if (geometry::r(c) == 5) missing = c;
+    }
+    int outside = -1;
+    for (int d = 0; d < kDirections && outside < 0; ++d) {
+        const int n = geometry::neighbor(missing, d);
+        if (n >= 0 && geometry::corner_of(n) < 0 && layout.allowed(0, n)) outside = n;
+    }
+    CHECK(outside >= 0);
+    if (outside < 0) return;
+    std::vector<int> cells;
+    for (const int c : goal) {
+        if (c != missing) cells.push_back(c);
+    }
+    cells.push_back(outside);
+    std::ranges::sort(cells);
+    const auto plan = sol.plan(cells, 20, 5, -100);
+    CHECK(plan.has_value());
+    if (!plan) return;
+    CHECK_EQ(plan->moves(), 1);
+    CHECK_EQ(plan->steps.front().from, outside);
+    CHECK_EQ(plan->steps.front().to(), missing);
+    CHECK_EQ(static_cast<int>(plan->states.size()), 2);
+    CHECK(sol.is_goal(plan->states.back()));
+    // a goal start is a plan of no moves
+    const std::vector<int> done(goal.begin(), goal.end());
+    const auto none = sol.plan(done, 20, 5, -100);
+    CHECK(none.has_value() && none->moves() == 0);
+}
+
+SH_TEST(solitaire_landings_follow_the_rules) {
+    // two pieces in a row: the one behind may jump over the other; every landing row is >= min_landing
+    Solitaire sol(0, RuleSet::LeaveGoal::Forbidden, nullptr);
+    const int a = geometry::id(0, 0);
+    const int b = geometry::id(0, 1);
+    std::uint64_t lo = 0;
+    std::uint64_t hi = 0;
+    for (const int c : {a, b}) {
+        lo = Solitaire::with_lo(lo, c);
+        hi = Solitaire::with_hi(hi, c);
+    }
+    std::vector<int> ends;
+    sol.landings(lo, hi, a, -100, [&](int to) { ends.push_back(to); });
+    CHECK(std::ranges::contains(ends, geometry::id(0, 2)));  // the jump over b
+    CHECK(!std::ranges::contains(ends, b));
+    CHECK_EQ(sol.path(a, geometry::id(0, 2)).size(), std::size_t{1});
+    std::vector<int> high;
+    sol.landings(lo, hi, a, 1, [&](int to) { high.push_back(to); });
+    for (const int to : high) CHECK(geometry::r(to) >= 1);
+    CHECK(high.size() < ends.size());
+    const auto st = sol.step(lo, hi, a, geometry::id(0, 2), -100);
+    CHECK(st.has_value() && st->move() == Move::of(a, geometry::id(0, 2)));
+    CHECK(!sol.step(lo, hi, a, b, -100).has_value());
+}
+
+SH_TEST(player_with_race_play_has_the_java_name) {
+    const PlayerSpec spec = parse_ok("ab:eval=linear-r1,race=1,racerows=1,nodes=500");
+    const auto player = spec.create();
+    if (!player) return;  // no table on this machine
+    CHECK_EQ((*player)->name(), std::string("ab[eval=linear-r1, depth<=30, 500 nodes, race=1, racerows=1]"));
+    CHECK(((*player)->race()) != nullptr);
 }
 
 int main() { return sh::test::run_all(); }

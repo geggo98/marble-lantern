@@ -7,7 +7,7 @@
 //    the move, score and exact node count of a search to the fixed depth 4 without a node limit (a fresh searcher each time),
 //    plus the move lists of the positions themselves;
 //  - game(): the move sequence and the node totals of a full self-play game from full-game opening 0 at a node budget, with the
-//    players keeping their tables between moves. Race play (WP6) is not ported: game() fails for a spec with race != 0.
+//    players keeping their tables between moves.
 //
 // The reference move lists come from the golden file reference.tsv (the Java ReferencePositions), verified against its manifest.
 #pragma once

@@ -183,10 +183,16 @@ std::expected<std::unique_ptr<AlphaBeta>, std::string> PlayerSpec::make_searcher
 }
 
 std::expected<std::unique_ptr<AlphaBetaPlayer>, std::string> PlayerSpec::create() const {
-    if (race != 0) return std::unexpected("race play not ported");
+    std::unique_ptr<RaceMove> race_move;
+    if (race != 0) {
+        auto table = RaceMove::shared_table(race_rows);
+        if (!table) return std::unexpected(table.error());
+        race_move = std::make_unique<RaceMove>(std::move(*table), race);
+    }
     auto eval = make_evaluator();
     if (!eval) return std::unexpected(eval.error());
-    return std::make_unique<AlphaBetaPlayer>(std::move(*eval), depth, AlphaBeta::kNoLimit, nodes, table_bits, evaluator, options);
+    return std::make_unique<AlphaBetaPlayer>(std::move(*eval), depth, AlphaBeta::kNoLimit, nodes, table_bits, evaluator, options,
+                                             std::move(race_move));
 }
 
 }  // namespace sh
