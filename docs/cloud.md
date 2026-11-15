@@ -1,10 +1,10 @@
 # Cloud tests: NVIDIA GPUs and x86 CPUs
 
-**TL;DR:** The code can run on NVIDIA GPUs through the TornadoVM CUDA backend and on Intel/AMD CPUs through the Vector API, but so far only the Mac (Metal, ARM NEON) has run it.
-Two scripts prepare short AWS spot tests: `scripts/cloud/bootstrap.sh` runs on the instance and `scripts/cloud/aws-spot.sh` launches one instance, collects the results and deletes everything again.
-Nothing was launched: this document comes from the preparation on the Mac, with a dry run and a read-only pre-flight.
-The pre-flight could not run against the account (the AWS profile named by `AWS_PROFILE` does not exist in the local AWS configuration), so every price below is an **estimate**, not a fetched value.
-The expected cost of one GPU test and one CPU test of one hour each is below 1 EUR, far below the 5 EUR budget.
+**TL;DR:** The code runs on NVIDIA GPUs through the TornadoVM CUDA backend and on Intel CPUs through the Vector API.
+Two scripts run short AWS spot tests: `scripts/cloud/bootstrap.sh` runs on the instance and `scripts/cloud/aws-spot.sh` launches one instance, collects the results and deletes everything again.
+Two tests have run: an AVX-512 CPU test on 2026-11-14 (about 0.01 USD) and the first CUDA test on a Tesla T4 on 2026-11-15 (about 0.06 USD); see [Test results (2026-11-14)](#test-results-2026-11-14) and [Test results (2026-11-15)](#test-results-2026-11-15-cuda-on-a-tesla-t4).
+On the T4, the GPU feed reaches 81,633 SMALL or 19,029 LARGE evaluations (network presets of [network](network.md)) per second at batch 256, in the same class as the Apple M3 Max GPU; 5 of 160 device tests failed, all for reasons in the tests, which are fixed.
+The sections before the test results were written before the first launch, so their prices are **estimates**, not fetched values.
 
 ## What was verified, and what was not
 
@@ -20,12 +20,12 @@ Checked on 2026-11-14 against official sources. Values marked *computed* are SHA
 | `jdk22plus-opencl-linux-amd64.tar.gz`: 23,058,056 bytes, SHA-256 `ee9be026e535ea3563af02e87fec0989c0602fa7cd2489afead0ee7894a07b81` | *computed*, equals the digest of the release metadata | verified |
 | macOS opencl archive `d27cd906...de75` | verified by `scripts/setup-tornado.sh opencl` (download and check, 2026-11-14) | verified |
 | The Linux `cuda` archive's backend is `cuda-backend` (`etc/tornado.backend`); there is **no PTX and no SPIR-V backend** in 7.3.1 (enum `TornadoVMBackendType`: `OPENCL`, `METAL`, `CUDA`, `JAVA`, `VIRTUAL`; CHANGELOG: PTX removed in favour of the CUDA backend, SPIR-V removed, both in 6.0.0) | the archive itself | verified |
-| The CUDA backend compiles CUDA C with NVRTC and calls driver and NVRTC through `java.lang.foreign`; the driver must match or exceed the CUDA Toolkit version | `bin/tornado.py` and `CHANGELOG.rst` in the archive, `README.md` of the repository | verified as text; **not run** |
+| The CUDA backend compiles CUDA C with NVRTC and calls driver and NVRTC through `java.lang.foreign`; the driver must match or exceed the CUDA Toolkit version | `bin/tornado.py` and `CHANGELOG.rst` in the archive, `README.md` of the repository | verified as text; **run** on 2026-11-15 (the device tests compiled CUDA C kernels with NVRTC, see [Test results (2026-11-15)](#test-results-2026-11-15-cuda-on-a-tesla-t4)) |
 | Installer | SDKMAN: `sdk install tornadovm 7.3.1-jdk22plus-cuda` (documented); the repository's `scripts/setup-tornado.sh` is used instead (pinned, SHA-256 checked) | the SDKMAN route not tried |
 | JDK: Azul Zulu 25.0.3 Linux x64, `https://cdn.azul.com/zulu/bin/zulu25.34.17-ca-jdk25.0.3-linux_x64.tar.gz`, 222 MB, SHA-256 `3a93235f4e5b313232647916219e91dc5cca0b9835c9b52a404ba58c43571697` | *computed*, equals `sha256_hash` of the Azul metadata API (`https://api.azul.com/metadata/v1/zulu/packages/`) | verified (the same release as the Mac's JDK) |
-| Required CUDA Toolkit / driver version numbers | the documentation I could fetch states none | **not verified** |
-| `tornado --devices` on Linux, CUDA kernel compilation, the `cuda` archive's extra modules (`tornado.cudf`, `cuvs`, `nccl`, `cutlass` are on the `--add-modules` list of the Linux argfile) | needs a Linux machine | **not verified**; the first thing the test shows |
-| The Deep Learning AMI (name below) contains the NVIDIA driver and the CUDA Toolkit with `libnvrtc` | from memory of AWS documentation; the SSM parameter could not be read without credentials | **not verified**; `bootstrap.sh` checks `nvidia-smi -L` and `libnvrtc.so` and stops with exit 3 and a message if one is missing |
+| Required CUDA Toolkit / driver version numbers | the documentation I could fetch states none | minimum **not verified**; driver 595.112.07 with CUDA 13.2 works (`nvidia-smi` in `results/system.txt` of the 2026-11-15 run) |
+| `tornado --devices` on Linux, CUDA kernel compilation, the `cuda` archive's extra modules (`tornado.cudf`, `cuvs`, `nccl`, `cutlass` are on the `--add-modules` list of the Linux argfile) | the 2026-11-15 run on a `g4dn.xlarge` | verified: `tornado --devices` lists `CUDADriver` with the Tesla T4 (`results/tornado-devices.log`), and the device tests compiled and ran CUDA kernels with the Linux argfile |
+| The Deep Learning AMI (name below) contains the NVIDIA driver and the CUDA Toolkit with `libnvrtc` | the 2026-11-15 run | verified for the Ubuntu 22.04 variant: `bootstrap.sh` found both and did not stop |
 | EC2 prices, spot prices, quotas | need credentials | **not fetched**, see [Costs](#costs) |
 
 TornadoVM 8.0.0 and 8.1.0 are out (Linux amd64 `jdk22plus` archives with other SHA-256 sums, listed in the release metadata); the project stays on 7.3.1, because all kernels were validated against it.
@@ -79,14 +79,14 @@ What `bootstrap.sh` runs and writes to `results/` (`summary.txt` lists every ste
 | Step | Output |
 |---|---|
 | machine facts | `system.txt`: CPU model, AVX flags, `nvidia-smi` |
-| apt packages, JDK 25 (verified tarball), TornadoVM SDK (`setup-tornado.sh cuda`, SHA-256 checked), `tornado --devices` | `*.log`, `tornado-devices.txt` |
+| apt packages, JDK 25 (verified tarball), TornadoVM SDK (`setup-tornado.sh cuda`, SHA-256 checked), `tornado --devices` | `*.log`, `tornado-devices.log` |
 | build | `build.log` |
 | Vector API tests (`VectorSpeciesTest`, `VectorNetworkTest`, `VectorSupportTest`) | `vector-tests.log`, `xml/` |
 | Vector API benchmark, default species; on AVX-512 CPUs also with `-XX:UseAVX=2` and with `-XX:UseAVX=3 -XX:MaxVectorSize=64` | `vector-benchmark-*.log` |
 | device tests (14 classes, `TORNADO_BACKEND=cuda`) | `device-tests-per-class.txt`, `xml-device/` |
 | `gpuFeed` for SMALL and LARGE, batch 256, 60 s each, `--threads $(nproc)` | `gpufeed-small.log`, `gpufeed-large.log` |
 
-The cost of one GPU run is dominated by the build (about 5 minutes for Gradle and the dependencies), the test run and the two 60-second feed rows; the 75-minute cap is a ceiling, not the expected duration (not measured; I expect 25 to 40 minutes).
+The cost of one GPU run is dominated by the build (about 5 minutes for Gradle and the dependencies), the test run and the two 60-second feed rows; the 75-minute cap is a ceiling, not the expected duration. The first GPU run took 731 s for all steps (`results/summary.txt` of the 2026-11-15 run).
 
 ### AMI choice
 
@@ -113,7 +113,7 @@ Benchmark: `./gradlew --no-build-cache :nn:vectorBenchmark [-PvectorBits=256] [-
 
 ## Costs
 
-**All prices are estimates from general knowledge of the EC2 price lists, not fetched**: the pre-flight needs credentials that were not available. `aws-spot.sh preflight` prints the real spot price history per zone; replace the table with its output before the first launch. Spot prices change by the hour. `EUR_PER_USD` (default 0.90 in the script) is an assumption for the printed conversion.
+**All prices in the table are estimates from general knowledge of the EC2 price lists, not fetched**: the pre-flight needs credentials that were not available. The real runs paid about 0.095 USD/h for `c7i.xlarge` in Frankfurt and 0.2411 USD/h for `g4dn.xlarge` in us-east-1 (see the test results). `aws-spot.sh preflight` prints the real spot price history per zone; replace the table with its output before the first launch. Spot prices change by the hour. `EUR_PER_USD` (default 0.90 in the script) is an assumption for the printed conversion.
 
 | Instance | What it tests | vCPU, memory, GPU | Spot (estimate, USD/h) | Cap (`--max-price`) | Run time | Worst case at cap |
 |---|---|---|---|---|---|---|
@@ -129,7 +129,7 @@ Root volumes (gp3, about 100 GB for the Deep Learning AMI) add roughly 0.01 USD 
 ## Risks
 
 - **No spot quota for G instances** (most likely): the pre-flight says so. Alternatives: a quota increase request; on-demand `g4dn.xlarge` (needs the on-demand *G and VT* quota, same default 0), which would change the script (`--instance-market-options` removed) and the cost estimate (about 0.6 USD/h): not implemented.
-- **The CUDA backend has never run here.** Likely first failures: NVRTC or the driver not found, a kernel that CUDA C rejects (a `KernelContext` call or a Java construct that only Metal accepts), a `Math.max` or `tanh` difference. The device tests then fail with the message; `tornado-devices.txt` and `*.log` say why. A failing run is still a result.
+- **CUDA kernel compilation.** The first CUDA run (2026-11-15) found one kernel that CUDA C rejects: a test kernel named like a CUDA math function (see the test results). A new kernel can hit the same or another CUDA-only rule; the device tests then fail with the message, and `tornado-devices.log` and `*.log` say why. A failing run is still a result.
 - **The Deep Learning AMI**: name or contents may have changed; the pre-flight reads the parameter, `bootstrap.sh` checks for the driver and NVRTC.
 - **Interruption** of a spot instance loses the run.
 - **A runaway bill** is limited by the budget check, the two timers and the cleanup; a stuck `terminate` would show in the final verification, and `aws-spot.sh cleanup --run-id <id>` repeats it.
@@ -218,10 +218,84 @@ The profile named in the owner's `.env` is not defined in the local AWS configur
 
 One AVX-512 core is about four times as fast as one Apple M3 Max performance core for this code (about 30 GFLOP/s measured there), without any porting. A large CPU instance can therefore compete with a GPU for the self-play inference; this needs a measurement on a many-core instance.
 
-**GPU, CUDA (`g4dn.xlarge`): not tested; the account has no GPU quota.**
+**GPU, CUDA (`g4dn.xlarge`): no launch on 2026-11-14, because the account had no GPU quota yet.** The test ran on 2026-11-15, after the quota requests were approved; see [Test results (2026-11-15)](#test-results-2026-11-15-cuda-on-a-tesla-t4). The attempts of 2026-11-14:
 - Spot: `MaxSpotInstanceCountExceeded` in nine regions (us-east-1, us-east-2, us-west-2, eu-west-1, eu-north-1, ca-central-1, eu-west-2, ap-northeast-1, eu-central-1) and `InsufficientInstanceCapacity` in eu-central-1 (earlier attempts) and ap-south-1.
 - On-demand (`--on-demand --max-price 0.75`): `VcpuLimitExceeded` in all eight regions tried (eu-central-1, us-east-1, us-east-2, eu-west-1, us-west-2, eu-north-1, ca-central-1, ap-south-1).
 - Every failed launch cleaned up; the verification found nothing left each time.
-- To run the CUDA test: request the quotas "Running On-Demand G and VT instances" (at least 4 vCPUs, for g4dn.xlarge) and/or "All G and VT Spot Instance Requests" in Service Quotas for one region (the profile used here may not read or change quotas; the console of the account owner can). Then run, for example: `scripts/cloud/aws-spot.sh run --region <region> --instance-type g4dn.xlarge --on-demand --max-price 0.75 --max-minutes 75 --backend cuda --ami <ami> --yes` (the AMI id of the AWS Deep Learning Base OSS Nvidia Driver GPU AMI for Ubuntu 22.04 of that region, found with `aws ec2 describe-images --owners amazon`).
+- To run the CUDA test: request the quotas "Running On-Demand G and VT instances" (at least 4 vCPUs, for g4dn.xlarge) and/or "All G and VT Spot Instance Requests" in Service Quotas for one region (the profile used here may not read or change quotas; the console of the account owner can). The command that worked on 2026-11-15 is in the next section.
 
 Notes from the run: the AWS CLI installed locally is version 1 (the profile guard uses `aws configure list --profile`, which works in v1 and v2); the public SSM parameters for the AMIs were not readable with the profile used, so `--ami` was given explicitly; the verification now retries for up to a minute before it reports a spot request as left (its state settles a few seconds after the cancel).
+
+## Test results (2026-11-15): CUDA on a Tesla T4
+
+**TL;DR:** The first CUDA run of the project worked. TornadoVM 7.3.1 found the Tesla T4 through its CUDA backend, the build ran, and so did every benchmark. Of 160 device tests, 154 passed, 1 was skipped and 5 failed (about 3.1 %). All five failures came from the tests, none from a production kernel, and the tests are fixed in commit `48c224f`. In the GPU feed at batch 256, the T4 computes 81,633 SMALL or 19,029 LARGE evaluations per second (SMALL and LARGE are the network presets of [network](network.md)). That is about 1.0 to 1.3 times (SMALL) and 1.6 times (LARGE) the Apple M3 Max GPU in the same benchmark, and 15 to 21 times one CPU core of the same instance. The run took 731 s and cost about 0.06 USD.
+
+The result files are in the git-ignored run directory `cloud-results/sh-20261115-003548-20279/results/`; the file names below are relative to it. The directory exists only on the machine that started the run; the values cited here are copied from its files.
+
+| Item | Value | Source |
+|---|---|---|
+| Instance | `g4dn.xlarge`, spot, us-east-1, 0.2411 USD/h | output of `aws-spot.sh` (not saved in the run directory) |
+| CPU | 4 vCPUs, Intel Xeon Platinum 8259CL at 2.50 GHz (Cascade Lake), AVX2 and AVX-512 | `system.txt` |
+| GPU | Tesla T4, 15,360 MiB, 70 W power cap; NVIDIA driver 595.112.07, CUDA 13.2 | `nvidia-smi-L.txt`, `system.txt` |
+| TornadoVM | 7.3.1, CUDA backend: one driver `CUDADriver` with one device, `Tesla T4`, 1,024 threads per block, 48 KB local memory | `tornado-devices.log` |
+| Image | AWS *Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)* of us-east-1, passed with `--ami` | the command below |
+| Steps | all OK (apt packages, TornadoVM setup, `tornado --devices`, build, Vector API tests, three Vector API benchmarks, GPU feed SMALL and LARGE), except the device tests | `summary.txt` |
+| Duration and cost | 731 s for all steps on the instance; the script estimated 831 s from launch to end at 0.2411 USD/h = 0.056 USD (about 0.05 EUR) | `summary.txt`; cost line from the output of `aws-spot.sh` (not saved) |
+
+The command that worked (the AMI id is different in each region, so it is not given here; `aws ec2 describe-images --owners amazon` finds it):
+
+```sh
+scripts/cloud/aws-spot.sh run --region us-east-1 --instance-type g4dn.xlarge --max-price 0.35 --max-minutes 75 --backend cuda --ami <ami> --yes
+```
+
+### GPU feed
+
+`GpuFeedBenchmark` (Gradle task `:nn-tornado:gpuFeed`, see [training](training.md#as-implemented-block-g1)): `classic1` networks, 512 games as virtual threads on 4 carrier threads, 2 cohorts, batch 256, 60 s per row.
+
+| Net | Evaluations per s | Simulations per s (equivalent) | Device thread busy | Upload / download MB/s | CPU cores | Source |
+|---|---|---|---|---|---|---|
+| SMALL | 81,633 | 95,501 | 99 % | 518 / 80 | 2.92 | `gpufeed-small.log` |
+| LARGE | 19,029 | 22,805 | 100 % | 121 / 19 | 1.51 | `gpufeed-large.log` |
+
+"Evaluations per s" counts the positions the device computed inside the 60 s window. "Simulations per s (equivalent)" is the benchmark's `sims/s-equivalent` column: the `Evaluator.evaluate` calls of the game threads divided by the same 60 s. Each game thread adds its count only when it stops, so the sum also contains the calls of the 12 s warm-up and of the time after the window (`nn-tornado/src/test/java/sternhalma/tornado/GpuFeedBenchmark.java`), and the column is about 1.2 times too high. Use the first column for comparisons.
+
+The GPU is the bottleneck: of the device thread's measured time, the kernel execution (`plan.execute()`) takes 91 % for SMALL and 98 % for LARGE; the copies and the host priors take the rest (totals in the same logs).
+
+Against the Apple M3 Max (Metal), same benchmark, batch 256:
+
+| Net | Tesla T4, CUDA (4 carriers) | Apple M3 Max, Metal (8 carriers) | T4 / M3 Max |
+|---|---|---|---|
+| SMALL | 81,633 | 64,500 (60 s row); 81,500 (20 s run) | 1.27; 1.00 |
+| LARGE | 19,029 | 12,000 | 1.59 |
+
+The M3 Max numbers are from [training](training.md#as-implemented-block-g1), table "GPU feed". They were measured while another job used the same GPU. Without that load, in a single process without the feed, the M3 Max reached 111,409 SMALL and 21,073 LARGE evaluations per second at batch 256 ([tornado](tornado.md#measured-speed)); the T4 feed rates are 0.73 and 0.90 of those. The T4 is therefore in the same class as the M3 Max GPU, not a multiple of it. The T4 is a small data-centre GPU. No larger NVIDIA GPU (for example A10G, L4 or an RTX 4090-class card) has been measured, so how much faster one would be is open.
+
+### CPU on the same instance
+
+Vector API forward pass, one thread, median at batch 256 (`:nn:vectorBenchmark`):
+
+| JVM setting | SMALL evaluations/s (GFLOP/s) | LARGE evaluations/s (GFLOP/s) | Source |
+|---|---|---|---|
+| AVX2, 256-bit vectors (`-XX:UseAVX=2`) | 2,323 (33.2) | 395 (33.2) | `vector-benchmark-avx2.log` |
+| AVX-512, 512-bit vectors (the JVM default on this CPU) | 5,583 (79.7) | 908 (76.3) | `vector-benchmark-default.log` |
+| AVX-512, 512-bit forced (`-XX:UseAVX=3 -XX:MaxVectorSize=64`) | 5,679 (81.1) | 876 (73.6) | `vector-benchmark-avx512-512bit.log` |
+
+The default and the forced 512-bit run differ by less than 4 %, within the variation between runs. One Cascade Lake core is slower than one core of the newer Sapphire Rapids CPU of the 2026-11-14 test: 5,583 against 9,213 SMALL evaluations per second (0.61). The T4 computes 14.6 times (SMALL) and 21 times (LARGE) as many evaluations per second as one core of its own instance.
+
+### Device tests
+
+14 test classes with `TORNADO_BACKEND=cuda` (`device-tests-per-class.txt`): 160 tests, 154 passed, 1 skipped (in `TornadoSupportTest`), 5 failed. Among the classes that passed completely are `KernelsHexConvTest` (81 tests), `TornadoTrainerTest` (15), `OpsHeadsTest` (11), `DeviceOptimizerTest` (10), `KernelsDenseTest` (6), `BatchedMatMulTest` (6) and `GenericPathTest` (5). The five failures were all problems of the tests (`device-tests.log`):
+
+| Test | Message | Cause | Fix |
+|---|---|---|---|
+| `DeviceMathTest.tanhSaturatesExactlyAndKeepsNaN`, `DeviceExpLogTest.expIsAccurateWhereTheSoftmaxUsesIt`, `DeviceExpLogTest.logIsAccurateWhereTheSoftmaxUsesIt` | `TornadoBailoutRuntimeException` … `Error during code compilation with the CUDADriver driver: tornado_kernel.cu(1): error: more than one instance of overloaded function "tanh" has "C" linkage` (and the same for `exp` and `log`) | The test kernel methods were named `tanh`, `exp` and `log`. The CUDA backend emits a kernel as `extern "C" __global__ void <method name>(...)`, which clashes with the CUDA math function of the same name. | Renamed to `tanhKernel`, `expKernel` and `logKernel`. The rule is now pitfall 15 of [tornado](tornado.md#pitfalls). |
+| `DeviceDoubleTest.aKernelWithDoubleIsRejectedLoudly` | `Expected uk.ac.manchester.tornado.api.exceptions.TornadoDeviceFP64NotSupported to be thrown, but nothing was thrown.` | The T4 supports FP64 (slowly); only the Metal backend rejects it. | The test now runs on the Metal backend only. |
+| `TornadoNetworkTest.aWarmCallMovesOnlyTheInputAndTheOutput` | `bytesToDevice=13744` … `input 13664` | The CUDA backend sends 80 bytes of its own with a warm call. | The allowed slack went from 64 to 128 bytes. |
+
+The fixes are in commit `48c224f` ("fix(nn-tornado): device tests on CUDA: …"). They passed on Metal (the four changed classes). **Confirmation run pending: a second CUDA run with these fixes was started, and its result is not yet known.**
+
+### Notes from the run
+
+The first attempts on 2026-11-15 failed because of the script: `aws-spot.sh` uploaded `bootstrap.sh` before cloud-init had created the target directory `/var/tmp/sh`, because on this AMI ssh answers before cloud-init has run the user data. Commit `58d74bc` creates the directory over ssh before the upload.
+
+The GPU vCPU quota was 0 in every region at first (see the 2026-11-14 results). After the account owner's quota requests were approved, a spot launch in us-east-1 worked about 3 hours later; until then, a shell loop outside the repository started `aws-spot.sh run` again after each failed launch. A launch that fails costs nothing; a launch that fails after the instance has booted costs cents.

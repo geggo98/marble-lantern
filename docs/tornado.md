@@ -1,6 +1,7 @@
 # TornadoVM in this project
 
 **TL;DR:** TornadoVM 7.3.1 kernels run on the Metal GPU of the development Mac from an ordinary Gradle `Test` task, on the class path; no separate launcher is needed.
+On 2026-11-15 the device tests and the GPU feed also ran on an NVIDIA Tesla T4 through the CUDA backend ([Backends](#backends), [cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)).
 The build reads the JVM flags from the SDK's `tornado-argfile.template`, and it switches off JVM assertions for TornadoVM, because with `-ea` the TornadoVM backend fails to start.
 `TornadoNetwork` runs the whole forward pass on the device as an nn `ForwardPass`, so `new Evaluator(new TornadoNetwork(parameters))` works; it agrees with the reference far inside the tolerance (largest error 0.13 of the bound).
 A warm call of the whole network costs 0.3 ms (TINY) to 1 ms (LARGE) at batch 1. The GPU overtakes one CPU thread from batch 16 (SMALL) or already at batch 1 (LARGE), and reaches about 120,000 SMALL or 21,000 LARGE evaluations per second from batch 256 on, 38 to 39 times one Vector API thread (see [Measured speed](#measured-speed)).
@@ -122,7 +123,7 @@ Metal against OpenCL has **not** been compared yet.
 ## Backends
 
 The kernels were written and measured on Metal. This section says what is Metal-specific, what each other backend gets, and what has been validated where.
-The portability work (branch `exp/P1`, docs/cloud.md) was done on the Mac, so only Metal has run any kernel.
+The portability work (branch `exp/P1`, docs/cloud.md) was done on the Mac. The first run on another backend was CUDA on an NVIDIA Tesla T4 (AWS `g4dn.xlarge`, 2026-11-15, [cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)).
 
 **Backends of TornadoVM 7.3.1.** The enum `TornadoVMBackendType` of the 7.3.1 API jar has `OPENCL`, `METAL`, `CUDA`, `JAVA` and `VIRTUAL`. There is no PTX and no SPIR-V backend: the CHANGELOG in the Linux archive lists "#872 Remove PTX backend in favour of the newly added CUDA backend" and "#951 Remove the SPIR-V backend" under 6.0.0. The `CUDA` backend emits CUDA C and compiles it with NVRTC at run time; it calls the driver and NVRTC through `java.lang.foreign`, so a machine needs the NVIDIA driver (`libcuda.so`) and NVRTC (`libnvrtc.so`, from the CUDA Toolkit). `scripts/setup-tornado.sh` accepts `ptx` as an old name for `cuda`.
 
@@ -139,18 +140,19 @@ A forced `Variant.SIMDGROUP` on a device without the matrix operations throws `I
 
 **Tests that never fall back.** A test skips when there is no usable TornadoVM (no SDK, or no device) and fails, not skips, when the build passed the flags but the runtime is broken, **or when a backend was named and is not usable** (`TornadoAssumptions`). On a cloud machine `TORNADO_BACKEND=cuda` with no NVRTC therefore fails every device test instead of passing by skipping. `-Dtornado.recover.bailout=False` stays set: a kernel that does not compile on CUDA fails the test and is never run as Java.
 
-**Where each part has been validated** (2026-11-14; "to validate" = written to be portable, never run there):
+**Where each part has been validated** (2026-11-14, CUDA column 2026-11-15; "to validate" = written to be portable, never run there; the CUDA column is one run on a Tesla T4, test counts from its `device-tests-per-class.txt`, see [cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)):
 
 | Part | Metal (Apple M3 Max) | CUDA (NVIDIA) | OpenCL |
 |---|---|---|---|
-| Backend and device selection, logging, limits check | validated (`GenericPathTest`, all device tests run through it); a named but missing backend fails the tests (checked with `-Psternhalma.tornado.backend=cuda`) | to validate on AWS | to validate |
-| Naive and tiled hex convolution (forward) | validated (`KernelsHexConvTest`, 117 tests) | to validate on AWS | to validate |
+| Whole device test suite (14 classes) and benchmarks | validated | Tesla T4: benchmarks run, 5 test problems found and fixed in tests, confirmation pending ([cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)) | to validate |
+| Backend and device selection, logging, limits check | validated (`GenericPathTest`, all device tests run through it); a named but missing backend fails the tests (checked with `-Psternhalma.tornado.backend=cuda`) | passed on the T4 (`GenericPathTest`, 5 tests; `TornadoSupportTest`, 3 passed, 1 skipped) | to validate |
+| Naive and tiled hex convolution (forward) | validated (`KernelsHexConvTest`, 117 tests) | passed on the T4 (`KernelsHexConvTest`, 81 tests) | to validate |
 | SIMD-group hex convolution | validated | not applicable (refused) | not applicable (refused) |
 | Weight gradient, SIMD-group | validated (`GenericPathTest`, `TornadoTrainerTest`) | not applicable | not applicable |
-| Weight gradient, generic `weightPartialTiled` | validated on Metal by forcing it: `GenericPathTest` (3 shapes against the CPU reference trainer, error 0.0035 to 0.0053 of the bound), and `TornadoNetworkTest` + `TornadoTrainerTest` with `-Psternhalma.tornado.generic=true` | to validate on AWS | to validate |
-| `DeviceMath` (portable mode) | validated (`DeviceMathTest`) | to validate on AWS (also `native` mode, to learn whether the workarounds are needed) | to validate |
-| Dense layers, heads, optimiser, trainer | validated (earlier work, unchanged) | to validate on AWS | to validate |
-| `TornadoNetwork` at batch 256 (gpuFeed) | validated | to validate on AWS (a speed measurement, nothing else is claimed) | to validate |
+| Weight gradient, generic `weightPartialTiled` | validated on Metal by forcing it: `GenericPathTest` (3 shapes against the CPU reference trainer, error 0.0035 to 0.0053 of the bound), and `TornadoNetworkTest` + `TornadoTrainerTest` with `-Psternhalma.tornado.generic=true` | passed on the T4 (`GenericPathTest`, `TornadoTrainerTest`; the generic path is the default there) | to validate |
+| `DeviceMath` (portable mode) | validated (`DeviceMathTest`) | 1 of 2 `DeviceMathTest` tests passed on the T4; the other failed because its kernel was named `tanh` (fixed in the test, confirmation pending). `native` mode not run | to validate |
+| Dense layers, heads, optimiser, trainer | validated (earlier work, unchanged) | passed on the T4 (`KernelsDenseTest` 6, `OpsHeadsTest` 11, `DeviceOptimizerTest` 10, `TornadoTrainerTest` 15 tests) | to validate |
+| `TornadoNetwork` at batch 256 (gpuFeed) | validated | measured on the T4: 81,633 SMALL and 19,029 LARGE evaluations per second (a speed measurement, nothing else is claimed) | to validate |
 
 ## Pitfalls
 
@@ -169,7 +171,7 @@ A forced `Variant.SIMDGROUP` on a device without the matrix operations throws `I
 12. **`transferToHost` of an array that no task uses fails.** `TornadoExecutionResult.transferToHost(array)` for an array that is declared in the graph but read or written by no task throws `TornadoInternalError: failed guarantee: invalid variable` (in `MetalTornadoDevice.streamOutBlocking`); declaring it in the graph is harmless. Item 3 of [Findings and pitfalls](#findings-and-pitfalls) has the same cause: an array that no task touches has no device buffer. A trainer that reads gradients back must know which tensors a kernel writes.
 13. **`DataTransferMode` constants are `int`s**, not an enum: `TaskGraph.transferToDevice(int, Object...)`. A helper that takes a mode takes an `int`.
 14. **Metal's `exp` and `log` are accurate to about 2·10⁻⁶ only.** Measured by `DeviceExpLogTest`: `exp` on [−30, 0] has a relative error of at most 1.8·10⁻⁶ (30 float ulps) against the double result, `log` on [1, 1000] an absolute error of at most 8.8·10⁻⁷. Both stay inside the gradient tolerance of the softmax (largest error 0.27 of the bound with logits that differ by hundreds), but a result that must be exactly 0 or 1 is not: the policy loss of a sample with one legal move came out as a gradient of 1·10⁻⁷ until the kernel special-cased it.
-15. **A kernel method named like a Metal or OpenCL token fails at the first execution**: a method called `kernel` gave `TornadoRuntimeException: [ERROR] Java method name corresponds to an OpenCL Token. Change the Java method's name: kernel`. Names such as `exp`, `log`, `squares` and the project's own kernel names are fine.
+15. **A kernel method named like a Metal or OpenCL token fails at the first execution**: a method called `kernel` gave `TornadoRuntimeException: [ERROR] Java method name corresponds to an OpenCL Token. Change the Java method's name: kernel`. On Metal, names such as `exp`, `log`, `squares` and the project's own kernel names are fine. **On CUDA, a kernel method must not be named like a CUDA math function** (`tanh`, `exp`, `log`, ...): the backend emits the method as `extern "C" __global__ void exp(...)`, and NVRTC rejects it with `more than one instance of overloaded function "exp" has "C" linkage` (Tesla T4, 2026-11-15); `expKernel` compiles.
 16. **A task takes at most 20 arguments** (`TaskGraph.task` has overloads up to `Task20`, counting the `KernelContext`); the training value head uses 16.
 17. **A strided reduction with one work item per column is slow even when it is small.** Measured 2026-11-10 on the M3 Max, SMALL batch 1,024: summing the bias gradient with one work item per (chunk, channel) over rows of a [rows][32] array took about 1.1 ms for 1 million floats, nine of them 10 ms of a 27 ms training step; the same sums done by the items that load the tile of the SIMD-group weight-gradient kernel cost nothing measurable. The one-item-per-output weight gradient (229,000 items with 1,000 to 4,000 terms each) took 51 ms where the SIMD-group kernel takes 4.7 ms. A reduction over rows belongs in the kernel that already loads them, in tiles.
 18. **Gradle configuration cache and `onlyIf`.** `onlyIf { sdkArgfileTemplate != null }` in `selfplay/build.gradle.kts` made the build fail with `cannot serialize Gradle script object references as these are not supported with the configuration cache`; reading the value into a local `val` first fixes it (as `nn-tornado/build.gradle.kts` does with `reason`).
