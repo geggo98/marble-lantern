@@ -733,6 +733,18 @@ SH_TEST(nn_cases_of_the_java_exporter) {
 
 // ---------------------------------------------------------------- comparison, golden_io
 
+SH_TEST(compare_outputs_wraps_reference_rows) {
+    // 3 reference positions with distinct values; positions 2, 3 compare against rows 2, 0 (no read past the end)
+    const int players = 2;
+    std::vector<float> rl(3 * kPolicySize), rv = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f};
+    for (std::size_t i = 0; i < rl.size(); ++i) rl[i] = static_cast<float>(i / kPolicySize) + 1.0f;
+    std::vector<float> got(2 * kPolicySize), gv = {0.5f, 0.6f, 0.1f, 0.2f};
+    for (std::size_t i = 0; i < got.size(); ++i) got[i] = (i < kPolicySize ? 3.0f : 1.0f);
+    const Comparison c = compare_outputs(got, gv, rl, rv, 2, 2, players, 0.0);
+    CHECK(c.logits_bit_identical);
+    CHECK_EQ(c.fraction(), 0.0);
+}
+
 SH_TEST(compare_outputs_rules) {
     std::vector<float> ref(kPolicySize, 1.0f);
     std::vector<float> got = ref;

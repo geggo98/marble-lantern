@@ -126,7 +126,7 @@ final class GoldenFiles {
         double fraction = 0;
         double needed = 0;
         for (int b = 0; b < n; b++) {
-            int rb = first + b;
+            int rb = (first + b) % (refValues.length / players); // reference positions wrap around, as the callers build their inputs
             double largest = 0;
             for (int i = 0; i < Encoder.POLICY_SIZE; i++) {
                 largest = Math.max(largest, Math.abs(refLogits[rb * Encoder.POLICY_SIZE + i]));

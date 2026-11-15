@@ -168,8 +168,9 @@ Comparison compare_outputs(std::span<const float> logits, std::span<const float>
     Comparison out;
     const auto policy = static_cast<std::size_t>(kPolicySize);
     const auto p = static_cast<std::size_t>(players);
+    const std::size_t rows = p == 0 ? 0 : ref_values.size() / p;   // the reference positions wrap around, as the callers build their inputs
     for (std::size_t b = 0; b < static_cast<std::size_t>(n); ++b) {
-        const std::size_t rb = static_cast<std::size_t>(first) + b;
+        const std::size_t rb = rows == 0 ? static_cast<std::size_t>(first) + b : (static_cast<std::size_t>(first) + b) % rows;
         double largest = 0;
         for (std::size_t i = 0; i < policy; ++i) largest = std::max(largest, std::abs(static_cast<double>(ref_logits[rb * policy + i])));
         for (std::size_t i = 0; i < policy; ++i) {

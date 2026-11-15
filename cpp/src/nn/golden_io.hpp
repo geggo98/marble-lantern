@@ -64,7 +64,7 @@ struct Comparison {
     double fraction() const { return logits_fraction > values_fraction ? logits_fraction : values_fraction; }
 };
 
-// Compares positions [first, first + n) of the references with outputs for n positions. NaN equals NaN, NaN against a number is infinite.
+// Compares positions [first, first + n) (modulo the number of reference positions) of the references with outputs for n positions. NaN equals NaN, NaN against a number is infinite.
 Comparison compare_outputs(std::span<const float> logits, std::span<const float> values, std::span<const float> ref_logits,
                            std::span<const float> ref_values, int first, int n, int players, double extra);
 
