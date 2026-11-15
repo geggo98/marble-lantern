@@ -165,4 +165,8 @@ if(APPLE)
   target_compile_options(metal_test PRIVATE -fobjc-arc)
   target_link_libraries(metal_test PRIVATE sh_metal sh_core)
   add_test(NAME metal_test COMMAND metal_test)
+  # a run without a device must fail, not pass with every test skipped
+  add_test(NAME metal_test_no_device COMMAND metal_test --pretend-no-device)
+  set_tests_properties(metal_test_no_device PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME metal_test_no_device_allowed COMMAND metal_test --pretend-no-device --allow-no-device)
 endif()

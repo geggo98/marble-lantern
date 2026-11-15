@@ -7,11 +7,14 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "../apps/args.hpp"
 #include "check.hpp"
 #include "gather.hpp"
 #include "golden.hpp"
@@ -28,8 +31,11 @@ namespace {
 
 const float kNaN = std::numeric_limits<float>::quiet_NaN();
 
+// Set by main: --pretend-no-device lets the test of the "no device" exit code run on a machine that has a device.
+bool g_pretend_no_device = false;
+
 bool have_device() {
-    if (metal::device_available()) return true;
+    if (!g_pretend_no_device && metal::device_available()) return true;
     test::skip("no Metal device");
     return false;
 }
@@ -763,4 +769,25 @@ SH_TEST(skeleton_links) {
 
 }  // namespace
 
-int main() { return sh::test::run_all(); }
+// Without a Metal device every test would skip and the run would end green with zero checks: that is an error here, as in cuda_test,
+// unless --allow-no-device says that a missing device is expected.
+int main(int argc, char** argv) {
+    const auto args = sh::args_from_main(argc, argv);
+    bool allow_no_device = false;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        const std::string_view a = args[i];
+        if (a == "--allow-no-device") allow_no_device = true;
+        else if (a == "--pretend-no-device") g_pretend_no_device = true;
+        else {
+            std::cerr << "usage: metal_test [--allow-no-device]\n";
+            return 2;
+        }
+    }
+    if (g_pretend_no_device || !metal::device_available()) {
+        std::cout << "no Metal device\n";
+        if (allow_no_device) return 0;
+        std::cerr << "metal_test: there is no Metal device (use --allow-no-device where that is expected)\n";
+        return 1;
+    }
+    return sh::test::run_all();
+}
