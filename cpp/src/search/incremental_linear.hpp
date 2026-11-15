@@ -28,6 +28,7 @@ namespace sh {
 class IncrementalLinear final : public EvalState {
 public:
     explicit IncrementalLinear(const LinearEvaluator& evaluator) : evaluator_(&evaluator), saved_(kInitialHeight) {}
+    IncrementalLinear(const LinearEvaluator&&) = delete;  // would point to a temporary
 
     bool reset(const Position& root) override;
     void make(const Position& position, int move) override;

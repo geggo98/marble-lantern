@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "check.hpp"
@@ -237,15 +238,22 @@ SH_TEST(weights_are_the_java_values) {
     CHECK(same_bits(linear_weights::kRound3[8], -0.0580585));
 }
 
+// an incremental state keeps a pointer to its evaluator: neither can be moved away from it, nor can a temporary be wrapped
+static_assert(!std::is_copy_constructible_v<LinearEvaluator> && !std::is_move_constructible_v<LinearEvaluator>);
+static_assert(!std::is_copy_assignable_v<LinearEvaluator> && !std::is_move_assignable_v<LinearEvaluator>);
+static_assert(!std::is_copy_constructible_v<RaceEvaluator> && !std::is_move_constructible_v<RaceEvaluator>);
+static_assert(std::is_constructible_v<IncrementalLinear, LinearEvaluator&>);
+static_assert(!std::is_constructible_v<IncrementalLinear, LinearEvaluator>);
+
 SH_TEST(create_checks_the_number_of_weights) {
     const std::array<double, 12> w12{};
     const std::array<double, 13> w13{};
     const std::array<double, 5> w5{};
     CHECK(LinearEvaluator::create(w12, 100.0).has_value());
-    CHECK(!LinearEvaluator::create(w12, 100.0).value().gain_mode().has_value());
+    CHECK(!LinearEvaluator::create(w12, 100.0).value()->gain_mode().has_value());
     CHECK(LinearEvaluator::create(w13, 100.0).has_value());
-    CHECK(LinearEvaluator::create(w13, 100.0).value().gain_mode() == LinearEvaluator::GainMode::Both);
-    CHECK(LinearEvaluator::create(w13, 100.0, LinearEvaluator::GainMode::Mover).value().gain_mode() == LinearEvaluator::GainMode::Mover);
+    CHECK(LinearEvaluator::create(w13, 100.0).value()->gain_mode() == LinearEvaluator::GainMode::Both);
+    CHECK(LinearEvaluator::create(w13, 100.0, LinearEvaluator::GainMode::Mover).value()->gain_mode() == LinearEvaluator::GainMode::Mover);
     CHECK(!LinearEvaluator::create(w12, 100.0, LinearEvaluator::GainMode::Both).has_value());
     CHECK(!LinearEvaluator::create(w5, 100.0).has_value());
 }
@@ -258,7 +266,8 @@ SH_TEST(initial_position_is_balanced) {
     for (int i = 0; i < 11; ++i) CHECK_EQ(f[static_cast<std::size_t>(i)], 0.0);
     CHECK_EQ(f[11], 1.0);
     CHECK_EQ(LinearEvaluator::best_gain(pos, 0), LinearEvaluator::best_gain(pos, 1));
-    LinearEvaluator r1 = LinearEvaluator::linear_r1();
+    const auto r1_owner = LinearEvaluator::linear_r1();
+    LinearEvaluator& r1 = *r1_owner;
     CHECK_EQ(r1.evaluate(pos), 23);  // 100 * 0.22945, rounded: the first line of positions.tsv has 23 as well
 }
 
@@ -267,8 +276,10 @@ SH_TEST(linear_values_match_golden_bit_for_bit) {
     if (!lines) return;
     const auto rows = golden_positions(*lines);
     CHECK_EQ(static_cast<int>(rows.size()), 2000);
-    LinearEvaluator r1 = LinearEvaluator::linear_r1();
-    LinearEvaluator r3 = LinearEvaluator::linear_r3();
+    const auto r1_owner = LinearEvaluator::linear_r1();
+    LinearEvaluator& r1 = *r1_owner;
+    const auto r3_owner = LinearEvaluator::linear_r3();
+    LinearEvaluator& r3 = *r3_owner;
     int differences = 0;
     int compared = 0;
     int finals = 0;
@@ -348,7 +359,8 @@ SH_TEST(score_rounds_like_java) {
     // weights 1, 0, ...: score = round(scale * feature 0); the sums below are exact in binary
     std::array<double, 12> w{};
     w[0] = 1.0;
-    LinearEvaluator e = LinearEvaluator::create(w, 1.0).value();
+    const auto e_owner = LinearEvaluator::create(w, 1.0).value();
+    LinearEvaluator& e = *e_owner;
     std::array<double, 12> f{};
     f[0] = 2.5;
     CHECK_EQ(e.score(f, 0.0), 3);
@@ -551,8 +563,9 @@ SH_TEST(race_values_and_futility_match_golden_bit_for_bit) {
 }
 
 SH_TEST(race_evaluator_without_a_table_is_its_base) {
-    RaceEvaluator plain(std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r3()), nullptr);
-    LinearEvaluator base = LinearEvaluator::linear_r3();
+    RaceEvaluator plain(LinearEvaluator::linear_r3(), nullptr);
+    const auto base_owner = LinearEvaluator::linear_r3();
+    LinearEvaluator& base = *base_owner;
     Position pos = Position::initial(RuleSet::defaults());
     CHECK_EQ(plain.evaluate(pos), base.evaluate(pos));
     CHECK(plain.futility_safe(pos, 3));
@@ -564,8 +577,10 @@ SH_TEST(incremental_state_equals_full_evaluation_along_every_move_list) {
     const auto lines = golden::lines_or_skip("positions.tsv");
     if (!lines) return;
     const auto rows = golden_positions(*lines);
-    LinearEvaluator r1 = LinearEvaluator::linear_r1();
-    LinearEvaluator r3 = LinearEvaluator::linear_r3();
+    const auto r1_owner = LinearEvaluator::linear_r1();
+    LinearEvaluator& r1 = *r1_owner;
+    const auto r3_owner = LinearEvaluator::linear_r3();
+    LinearEvaluator& r3 = *r3_owner;
     const long long n1 = walk_move_lists(rows, r1, 1);
     const long long n3 = walk_move_lists(rows, r3, 1);
     std::cout << "incremental walk: " << n1 << " (linear-r1) and " << n3 << " (linear-r3) evaluations compared\n";
@@ -585,7 +600,8 @@ SH_TEST(incremental_state_of_the_race_evaluator_equals_full_evaluation_along_eve
 }
 
 SH_TEST(verifying_state_notices_a_wrong_value_and_a_wrong_sum) {
-    LinearEvaluator r3 = LinearEvaluator::linear_r3();
+    const auto r3_owner = LinearEvaluator::linear_r3();
+    LinearEvaluator& r3 = *r3_owner;
     Position pos = Position::initial(RuleSet::defaults());
     // a state whose values are off by one: the first evaluate throws
     VerifyingEvalState broken(r3, std::make_unique<OffByOneState>(r3.incremental()));

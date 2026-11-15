@@ -38,7 +38,7 @@ RaceEvaluator::RaceEvaluator(std::unique_ptr<Evaluator> base, std::shared_ptr<co
     : base_(std::move(base)), table_(std::move(table)), region_min_row_(table_ ? table_->min_row() : std::numeric_limits<int>::min()) {}
 
 std::unique_ptr<RaceEvaluator> RaceEvaluator::racelin1_r3(std::shared_ptr<const RaceTable> rows1) {
-    return std::make_unique<RaceEvaluator>(std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r3()), std::move(rows1));
+    return std::make_unique<RaceEvaluator>(LinearEvaluator::linear_r3(), std::move(rows1));
 }
 
 const std::expected<std::shared_ptr<const RaceTable>, LoadError>& RaceEvaluator::rows1_table() {

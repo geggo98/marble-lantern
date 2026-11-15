@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -157,12 +158,17 @@ public:
 
     // 12 weights: no bestGain; `gain` must be empty. 13 weights: bestGain in mode `gain` (empty means Both). Any other combination
     // (12 weights with a mode, any other number of weights) is an error.
-    static std::expected<LinearEvaluator, std::string> create(std::span<const double> weights, double scale,
+    static std::expected<std::unique_ptr<LinearEvaluator>, std::string> create(std::span<const double> weights, double scale,
                                                               std::optional<GainMode> gain = std::nullopt);
     // `linear-r1`: R1 weights, scale 100.
-    static LinearEvaluator linear_r1();
+    static std::unique_ptr<LinearEvaluator> linear_r1();
     // `linear-r3`: ROUND3 weights with bestGain (Both), scale 100.
-    static LinearEvaluator linear_r3();
+    static std::unique_ptr<LinearEvaluator> linear_r3();
+
+    // An incremental state points to its evaluator, so the evaluator has one address for its whole life: it is created on the heap
+    // by the factories above and cannot be copied or moved.
+    LinearEvaluator(const LinearEvaluator&) = delete;
+    LinearEvaluator& operator=(const LinearEvaluator&) = delete;
 
     // The mode of bestGain, or nullopt for the 12-feature evaluator.
     std::optional<GainMode> gain_mode() const { return gain_; }
@@ -188,10 +194,16 @@ public:
     // The integer sums of player p into `s`, over the pieces in cell order.
     static void side(const Position& position, int p, linear_detail::SideSums& s);
 
-private:
-    LinearEvaluator(const std::array<double, kGainFeatures>& weights, double scale, std::optional<GainMode> gain)
+    // Passkey: only the factories can call the constructor (make_unique needs it public).
+    struct Key {
+    private:
+        friend class LinearEvaluator;
+        Key() = default;
+    };
+    LinearEvaluator(Key, const std::array<double, kGainFeatures>& weights, double scale, std::optional<GainMode> gain)
         : weights_(weights), scale_(scale), gain_(gain) {}
 
+private:
     // Only the first kFeatures entries are used when gain_ is empty.
     std::array<double, kGainFeatures> weights_{};
     double scale_ = 0;

@@ -141,25 +141,25 @@ int GainSearch::component_of(std::span<const int> edge_start, std::span<const in
 
 // ---- LinearEvaluator ----
 
-std::expected<LinearEvaluator, std::string> LinearEvaluator::create(std::span<const double> weights, double scale,
+std::expected<std::unique_ptr<LinearEvaluator>, std::string> LinearEvaluator::create(std::span<const double> weights, double scale,
                                                                    std::optional<GainMode> gain) {
     std::array<double, kGainFeatures> w{};
     if (weights.size() == kFeatures && !gain) {
         std::copy(weights.begin(), weights.end(), w.begin());
-        return LinearEvaluator(w, scale, std::nullopt);
+        return std::make_unique<LinearEvaluator>(Key{}, w, scale, std::nullopt);
     }
     if (weights.size() == kGainFeatures) {
         std::copy(weights.begin(), weights.end(), w.begin());
-        return LinearEvaluator(w, scale, gain.value_or(GainMode::Both));
+        return std::make_unique<LinearEvaluator>(Key{}, w, scale, gain.value_or(GainMode::Both));
     }
     return std::unexpected("need " + std::to_string(gain ? kGainFeatures : kFeatures) + " weights, got " + std::to_string(weights.size()));
 }
 
-LinearEvaluator LinearEvaluator::linear_r1() {
+std::unique_ptr<LinearEvaluator> LinearEvaluator::linear_r1() {
     return create(linear_weights::kR1, linear_weights::kScale).value();
 }
 
-LinearEvaluator LinearEvaluator::linear_r3() {
+std::unique_ptr<LinearEvaluator> LinearEvaluator::linear_r3() {
     return create(linear_weights::kRound3, linear_weights::kScale, GainMode::Both).value();
 }
 

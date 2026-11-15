@@ -166,8 +166,8 @@ std::expected<PlayerSpec, std::string> PlayerSpec::parse(std::string_view text) 
 }
 
 std::expected<std::unique_ptr<Evaluator>, std::string> PlayerSpec::make_evaluator() const {
-    if (evaluator == "linear-r1") return std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r1());
-    if (evaluator == "linear-r3") return std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r3());
+    if (evaluator == "linear-r1") return LinearEvaluator::linear_r1();
+    if (evaluator == "linear-r3") return LinearEvaluator::linear_r3();
     if (evaluator == "racelin1-r3") {
         const auto& table = RaceEvaluator::rows1_table();
         if (!table) return std::unexpected("race table rows1: " + table.error().message);

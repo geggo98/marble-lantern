@@ -308,7 +308,8 @@ SH_TEST(terminal_scores) {
 }
 
 SH_TEST(futility_rules) {
-    LinearEvaluator eval = LinearEvaluator::linear_r1();
+    const auto eval_owner = LinearEvaluator::linear_r1();
+    LinearEvaluator& eval = *eval_owner;
     Position start = centre_position(RuleSet::defaults());
     CHECK(AlphaBeta::futility_allowed(start, 1, 0, eval));
     CHECK(AlphaBeta::futility_allowed(start, 2, -4999, eval));
@@ -377,7 +378,7 @@ SH_TEST(depth_bounds) {
     CHECK(thrown);
     thrown = false;
     try {
-        AlphaBeta bad(std::make_unique<LinearEvaluator>(LinearEvaluator::linear_r1()), 31, true);
+        AlphaBeta bad(LinearEvaluator::linear_r1(), 31, true);
     } catch (const std::invalid_argument&) {
         thrown = true;
     }

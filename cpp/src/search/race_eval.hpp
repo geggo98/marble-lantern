@@ -35,6 +35,9 @@ public:
 
     // `base` decides every position without a race value; `table` null makes this evaluator identical to `base`.
     RaceEvaluator(std::unique_ptr<Evaluator> base, std::shared_ptr<const RaceTable> table);
+    // The wrapped state points to this evaluator (see LinearEvaluator): one address for its whole life.
+    RaceEvaluator(const RaceEvaluator&) = delete;
+    RaceEvaluator& operator=(const RaceEvaluator&) = delete;
 
     // `racelin1-r3`: the race arithmetic of the rows >= 1 table over linear-r3 (the evaluator of BEST_SPEC and of R3).
     static std::unique_ptr<RaceEvaluator> racelin1_r3(std::shared_ptr<const RaceTable> rows1);
