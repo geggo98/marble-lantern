@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "incremental_linear.hpp"
 #include "java_compat.hpp"
 #include "linear_weights.hpp"
 
@@ -175,6 +176,8 @@ int LinearEvaluator::evaluate(const Position& position) {
     }
     return score(scratch_, best_gain);
 }
+
+std::unique_ptr<EvalState> LinearEvaluator::incremental() { return std::make_unique<IncrementalLinear>(*this); }
 
 int LinearEvaluator::score(std::span<const double, kFeatures> features, double best_gain) const {
     double sum = 0;

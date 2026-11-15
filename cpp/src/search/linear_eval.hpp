@@ -168,6 +168,8 @@ public:
     std::optional<GainMode> gain_mode() const { return gain_; }
 
     int evaluate(const Position& position) override;
+    // A state that keeps the sums up to date along a line of play (E13). It points to this evaluator, which must outlive it and not move.
+    std::unique_ptr<EvalState> incremental() override;
 
     // The rounded score of 12 features and, for a 13-feature evaluator, the bestGain value:
     // (int) Math.round(scale * (sum of weight * feature, in index order)).
