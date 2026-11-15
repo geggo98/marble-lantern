@@ -292,7 +292,7 @@ The default and the forced 512-bit run differ by less than 4 %, within the varia
 | `DeviceDoubleTest.aKernelWithDoubleIsRejectedLoudly` | `Expected uk.ac.manchester.tornado.api.exceptions.TornadoDeviceFP64NotSupported to be thrown, but nothing was thrown.` | The T4 supports FP64 (slowly); only the Metal backend rejects it. | The test now runs on the Metal backend only. |
 | `TornadoNetworkTest.aWarmCallMovesOnlyTheInputAndTheOutput` | `bytesToDevice=13744` … `input 13664` | The CUDA backend sends 80 bytes of its own with a warm call. | The allowed slack went from 64 to 128 bytes. |
 
-The fixes are in commit `48c224f` ("fix(nn-tornado): device tests on CUDA: …"). They passed on Metal (the four changed classes). **Confirmation run pending: a second CUDA run with these fixes was started, and its result is not yet known.**
+The fixes are in commit `48c224f` ("fix(nn-tornado): device tests on CUDA: …"). They passed on Metal (the four changed classes). **Confirmed on CUDA (second run, 2026-11-15, `g4dn.xlarge` spot in Frankfurt at about 0.30 USD/h, 752 s, about 0.07 USD, nothing left afterwards): all steps OK, `device-tests` OK (160 tests: 158 passed, 2 skipped on purpose, 0 failed; the skipped ones are `DeviceDoubleTest`, which only runs on Metal, and one test in `TornadoSupportTest`), exit status 0.** The second instance reproduces the benchmarks of the first within 3 %: GPU feed at batch 256 SMALL 80,736 evaluations/s (first run 81,633), LARGE 18,402 (19,029); one CPU core with the Vector API SMALL 5,908 (5,583), LARGE 952 (908). The run directory is `cloud-results/sh-20261115-005312-20787` on the machine that started it (git-ignored).
 
 ### Notes from the run
 

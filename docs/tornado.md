@@ -144,13 +144,13 @@ A forced `Variant.SIMDGROUP` on a device without the matrix operations throws `I
 
 | Part | Metal (Apple M3 Max) | CUDA (NVIDIA) | OpenCL |
 |---|---|---|---|
-| Whole device test suite (14 classes) and benchmarks | validated | Tesla T4: benchmarks run, 5 test problems found and fixed in tests, confirmation pending ([cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)) | to validate |
+| Whole device test suite (14 classes) and benchmarks | validated | Tesla T4: benchmarks run; 5 test problems found, fixed in the tests and confirmed on a second run (160 tests: 158 passed, 2 skipped on purpose, 0 failed) ([cloud](cloud.md#test-results-2026-11-15-cuda-on-a-tesla-t4)) | to validate |
 | Backend and device selection, logging, limits check | validated (`GenericPathTest`, all device tests run through it); a named but missing backend fails the tests (checked with `-Psternhalma.tornado.backend=cuda`) | passed on the T4 (`GenericPathTest`, 5 tests; `TornadoSupportTest`, 3 passed, 1 skipped) | to validate |
 | Naive and tiled hex convolution (forward) | validated (`KernelsHexConvTest`, 117 tests) | passed on the T4 (`KernelsHexConvTest`, 81 tests) | to validate |
 | SIMD-group hex convolution | validated | not applicable (refused) | not applicable (refused) |
 | Weight gradient, SIMD-group | validated (`GenericPathTest`, `TornadoTrainerTest`) | not applicable | not applicable |
 | Weight gradient, generic `weightPartialTiled` | validated on Metal by forcing it: `GenericPathTest` (3 shapes against the CPU reference trainer, error 0.0035 to 0.0053 of the bound), and `TornadoNetworkTest` + `TornadoTrainerTest` with `-Psternhalma.tornado.generic=true` | passed on the T4 (`GenericPathTest`, `TornadoTrainerTest`; the generic path is the default there) | to validate |
-| `DeviceMath` (portable mode) | validated (`DeviceMathTest`) | 1 of 2 `DeviceMathTest` tests passed on the T4; the other failed because its kernel was named `tanh` (fixed in the test, confirmation pending). `native` mode not run | to validate |
+| `DeviceMath` (portable mode) | validated (`DeviceMathTest`) | both `DeviceMathTest` tests passed on the T4 after the kernel was renamed (it was called `tanh`, which clashes with a CUDA math function on the first run). `native` mode not run | to validate |
 | Dense layers, heads, optimiser, trainer | validated (earlier work, unchanged) | passed on the T4 (`KernelsDenseTest` 6, `OpsHeadsTest` 11, `DeviceOptimizerTest` 10, `TornadoTrainerTest` 15 tests) | to validate |
 | `TornadoNetwork` at batch 256 (gpuFeed) | validated | measured on the T4: 81,633 SMALL and 19,029 LARGE evaluations per second (a speed measurement, nothing else is claimed) | to validate |
 
