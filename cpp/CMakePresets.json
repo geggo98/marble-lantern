@@ -60,17 +60,19 @@
       "name": "debug-asan",
       "configurePreset": "debug-asan",
       "output": { "outputOnFailure": true },
-      "environment": { "UBSAN_OPTIONS": "print_stacktrace=1" }
+      "environment": { "UBSAN_OPTIONS": "print_stacktrace=1", "STERNHALMA_GOLDEN_REQUIRED": "1" }
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "output": { "outputOnFailure": true }
+      "output": { "outputOnFailure": true },
+      "environment": { "STERNHALMA_GOLDEN_REQUIRED": "1" }
     },
     {
       "name": "release-hardened",
       "configurePreset": "release-hardened",
-      "output": { "outputOnFailure": true }
+      "output": { "outputOnFailure": true },
+      "environment": { "STERNHALMA_GOLDEN_REQUIRED": "1" }
     }
   ]
 }
