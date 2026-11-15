@@ -7,8 +7,10 @@
 // MANIFEST.tsv, if any) and prints, per preset, the largest error as a fraction of the bound for logits and values.
 // For --impl reference the C++ code must also reproduce the Java reference exactly: logits bit-identical, values within
 // 1 ulp; the other implementations only have to meet the bound. --batch N sets the number of positions per forward call
-// (default 64). Exit codes: 0 pass, 1 bound broken, 2 usage or unreadable golden data, 64 implementation not in this build.
+// (default 64). The line ends with digest=<FNV-1a 64 of the output bits>. Exit codes: 0 pass, 1 bound broken, 2 usage or unreadable golden data, 64 implementation not in this build.
+#include <bit>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -36,6 +38,19 @@
 namespace {
 
 using namespace sh::nn;
+
+// FNV-1a 64 over the bit patterns of logits and values: equal digests mean bit-identical outputs. It lets two builds of the same
+// implementation (before and after a change of the code, or lanes 8 against lanes 16) be compared without storing the outputs.
+std::uint64_t digest_of(const std::vector<float>& logits, const std::vector<float>& values) {
+    std::uint64_t h = 14695981039346656037ULL;
+    for (const std::vector<float>* v : {&logits, &values}) {
+        for (const float f : *v) {
+            const auto bits = std::bit_cast<std::uint32_t>(f);
+            for (int shift = 0; shift < 32; shift += 8) h = (h ^ ((bits >> shift) & 0xFFU)) * 1099511628211ULL;
+        }
+    }
+    return h;
+}
 
 struct Options {
     std::string golden;
@@ -236,6 +251,7 @@ int main(int argc, char** argv) {
                   << " logits_max_err_frac=" << c.logits_fraction << " values_max_err_frac=" << c.values_fraction
                   << " logits_bit_identical=" << (c.logits_bit_identical ? "yes" : "NO") << std::setprecision(0)
                   << " values_max_ulps=" << c.values_max_ulps << std::setprecision(4) << " extra_rel=" << extra
+                  << " digest=" << std::hex << std::setfill('0') << std::setw(16) << digest_of(logits, values) << std::dec << std::setfill(' ')
                   << " seconds=" << seconds << " -> " << (bound_ok && exact_ok ? "ok" : "FAIL") << '\n';
         ++checked;
         if (!bound_ok || !exact_ok) status = 1;

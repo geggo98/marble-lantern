@@ -139,7 +139,8 @@ build is `build-cuda.sh --stub --werror --with-tests` (`-std=c++23 -O3 -ffp-cont
 | `java_compat_test`, `nn_test`, `cuda_adapter_test`, `cuda_test_emu`, `cuda_test` (stub) | 8, 31, 16, 4 (2 skipped) passed; stub says "no device" | the same counts |
 | `nn_check` `reference` (bit-identical logits), `simd`, `simd-nofma` on SMALL and LARGE, 1,024 positions | within the bound (largest error as a fraction of the bound: SMALL 0.0131, LARGE 0.0433 for `simd`) | the same figures |
 | `nn_check` on the unchecked build, `nn_check_l16`, `nn_bench_l8` starts | ok | ok |
-| AVX-512 objects (`SH_SIMD_LANES=16`, `-mavx512f -mfma`), compile only | not applicable | accepted: 309 zmm instructions, 31 fused in `simd_net`, 0 in `simd_net_nofma` |
+| AVX-512 objects (`SH_SIMD_LANES=16`, `-mavx512f -mfma`), compile only | not applicable | accepted: 132 zmm instructions, 13 fused in `simd_net`, 0 in `simd_net_nofma` (after the change of the diagnosis below; before: 309 and 31) |
+| assembler of the convolution loop (`simd-loop-report.pl --check`, lanes 8 and 16, with and without `-D_GLIBCXX_ASSERTIONS`) | not applicable | 18 instructions, 8 fma, 0 jumps to an assertion block, 0 stack operands |
 | CMake and Ninja | not used: apt has CMake 3.22 and `CMakeLists.txt` needs 3.28; the instance builds with `build-cuda.sh` | same |
 
 Not run: the AVX-512 binaries (Rosetta has no AVX-512), everything with a device, `compute-sanitizer`, nvcc, the Java side, the
@@ -298,8 +299,8 @@ Not confirmed by a run: the printed NVRTC option string. The CUDA part of the AW
 
 `src/nn/simd_net.*` ports `VectorNetwork`: vector-extension types (`float __attribute__((vector_size(4 * L)))`), L = `SH_SIMD_LANES`
 (NEON 4, AVX2 8, AVX-512 16, overridable with `-DSH_SIMD_LANES=N`), weights repacked into tiles of 2L output channels, 4 cells and 8
-accumulators per step, channels padded with zero weights, no allocation in `forward`. The file needs no unsafe region: loads and stores
-go through `std::span`, `std::copy_n` and `std::bit_cast`.
+accumulators per step, channels padded with zero weights, no allocation in `forward`. Since the x86 diagnosis below the file is an unsafe zone
+(`check-rules.sh`): setup and the size checks use `std::span`, the hot loops use raw pointers into ranges checked once per call.
 
 - `SimdVariant::Fma` is `simd_net.cpp`, the only file built with `-ffp-contract=fast`; `SimdVariant::NoFma` is `simd_net_nofma.cpp`, which
   includes the same source with the default `-ffp-contract=off` into the namespace `simd_nofma`.
@@ -309,6 +310,77 @@ go through `std::span`, `std::copy_n` and `std::bit_cast`.
 - `nn_check --impl simd|simd-nofma [--batch N]` compares with the Java scalar reference under the bound; `nn_test` also compares with the
   Java `VectorNetwork` outputs. The no-allocation test replaces the global `operator new` in `nn_test` only (`tests/alloc_counter.hpp`, the
   one exception of rule R1 in `check-rules.sh`).
+
+## x86 code generation of the SIMD path (diagnosis 2026-11-15)
+
+**Finding.** The AWS run (Cascade Lake, g++ 12.3, `-O3 -march=native`) contradicted the Mac run: `simd` with 16 lanes was slower than with 8
+(batch 256, SMALL: 1,154 against 1,939 evaluations/s), the hardened build was 2.3 times slower than the unchecked one (1,939 against 4,614), and
+even the unchecked build was slower than Java's Vector API (5,866). On the Mac (clang, `libc++` hardening FAST) the checks cost about 1 %. That
+was a quality problem of this port's code on GCC 12, not a statement about C++ against Java. Offline diagnosis: `g++-12 -S` in the
+`ubuntu:22.04` container (amd64 under Rosetta, which cannot run AVX but can compile for it), `-O3 -ffp-contract=fast -march=cascadelake`
+(for 16 lanes also `-mprefer-vector-width=512`; without it the result is the same), `-DSH_SIMD_LANES=8|16`, with and without
+`-D_GLIBCXX_ASSERTIONS`. `scripts/simd-loop-report.pl` finds the innermost loop around each group of 8 `vfmadd231ps` and counts.
+
+**Cause, from the assembler.** The channel loop is vectorized by hand (vector extensions): `vfmadd231ps` on ymm (8 lanes) and zmm (16 lanes) was
+there in every variant; the auto-vectorizer does not touch the loop (`-fopt-info-vec-all`: "couldn't vectorize loop"), and does not have to.
+What was wrong around it (the old code, per iteration of the inner loop, 8 fma and 4 broadcasts in every case):
+
+| variant before the change | instructions | conditional jumps (to an assertion block) | stack operands (vector) |
+|---|---|---|---|
+| 8 lanes, unchecked | 20 | 1 (0) | 0 (0) |
+| 8 lanes, `-D_GLIBCXX_ASSERTIONS` | 35 to 39 | 7 (5 to 6) | 6 to 8 (0) |
+| 16 lanes, unchecked | 28 | 1 (0) | 2 (2) |
+| 16 lanes, `-D_GLIBCXX_ASSERTIONS` | 46 to 49 | 7 (6) | 10 (2) |
+
+1. **Bounds checks in the inner loop.** `x0[ch]`, `wk.subspan(ch * kTile, kTile)` and `wc.subspan(kL)` are checked by libstdc++ on every
+   iteration. In the hardened 8-lane loop (`l8-assert.s`) the compare-and-jump pairs sit between the fused multiply-adds, for example
+   `cmpq %rdx, 48(%rsp)` / `je .L385` (`.L385` calls `std::__glibcxx_assert_fail`), and the loop pointers live on the stack (`40(%rsp)`,
+   `56(%rsp)`). On the Mac the same source costs about 1 % with clang and `libc++` hardening FAST, so there the checks do not sit in the loop in this way (not looked at in the assembler).
+2. **A stack round trip for every vector load at 16 lanes.** `load()` copied through a `std::array<float, 16>` with `std::copy_n`. At 8
+   lanes that is one `vmovups`; at 16 lanes GCC 12 writes the 64 bytes to a stack buffer as two 32-byte stores and reloads them as one
+   64-byte vector, twice per iteration (`vmovdqu %ymm2, (%r14)` / `vmovdqu %ymm5, 32(%r14)` ... `vmovups -128(%rbp), %zmm15`). A load that
+   spans two earlier stores cannot be forwarded from the store buffer on Intel cores. This fits the measured order, 16 lanes slower than 8,
+   and also the extra cost of the unchecked 16-lane build. It is a reading of the assembler: the stall itself was not measured.
+3. The unchecked 8-lane loop was already good (16 instructions of work plus the loop overhead). That build still uses half the width of Java's
+   512-bit species on an AVX-512 machine; the comparable C++ build is the 16-lane one.
+
+**Change** (`src/nn/simd_net.cpp`; `simd_net_nofma.cpp` includes it; `apps/nn_check.cpp` got a `digest=` field):
+
+- `load` and `store` are one `__builtin_memcpy` of a vector from or to a raw pointer (a single `vmovups`, no temporary).
+- `conv()` cuts every range once per call with `std::span::first` (checked: a hardened build asserts there) and calls `conv_raw()`, which
+  indexes with pointers. The gather entries are the only indices that come from data; the constructor proves once that all of them are below
+  `kRows` (`gather_ok_`), and `forward()` fails otherwise.
+- The same for `dot` (the range of `b` is cut to the length of `a` once) and for the mean pooling of the value head.
+- Unchanged: the order of the operations. The accumulators, the order of stencil entry and channel, `splat(x) = x - 0`, the ReLU form, the
+  lane order of `reduce_add`, and `-ffp-contract=fast` only for `simd_net.cpp`. The region of raw pointers is marked with
+  `#pragma clang unsafe_buffer_usage begin/end` (clang only; gcc has no such pragma).
+
+**Result in the assembler** (g++ 12.3.0; `perl scripts/simd-loop-report.pl --check`, also a check of `container-inner.sh`):
+
+| variant | instructions | fma | conditional jumps (to an assertion block) | stack operands |
+|---|---|---|---|---|
+| 8 lanes, ymm, unchecked or `-D_GLIBCXX_ASSERTIONS` | 18 | 8 | 1 (0) | 0 |
+| 16 lanes, zmm, unchecked or `-D_GLIBCXX_ASSERTIONS` | 18 | 8 | 1 (0) | 0 |
+
+```
+.L4:  vmovdqu8 (%rdx), %zmm15   vmovdqu8 64(%rdx), %zmm0   vbroadcastss (%rax), %zmm5   (3 more broadcasts)   addq $4, %rax
+      vfmadd231ps %zmm15, %zmm5, %zmm13   vfmadd231ps %zmm0, %zmm5, %zmm12   ... (8 in all)   subq $-128, %rdx   cmpq %rax, %r11   jne .L4
+```
+
+The hardened build now has one copy of the loop (the three call sites are no longer inlined three times). The libstdc++ assertions remain
+outside the loops (the cuts once per call).
+
+**Equality.** `nn_check --impl simd|simd-nofma --preset small|large|gen11` prints `digest=`, an FNV-1a 64 over the bit patterns of all logits
+and values. Old and new source (g++ 12.3, `build-cuda.sh --stub`, lanes 8 and 16, `-ffp-contract=fast` for `simd`) gave 12 equal digests
+(2 variants x 3 presets x 2 lane counts), on x86-64 under Rosetta and on arm64 (native NEON FMA). The digests of x86-64 and arm64 are also equal to
+each other. `ctest --preset debug-asan`, `release` and `release-hardened` pass (10 of 10 each), `nn_test` included.
+
+**Mac, mechanics only (not for comparisons):** `nn_bench --impls simd,simd-nofma` at batch 256, 4 lanes, release-hardened, old against new
+code: SMALL simd 4,163 against 4,208 (new 4,211 in a second run), LARGE simd 709 against 711 evaluations/s; nothing got slower.
+
+**Not checked.** The speed on AVX-512 hardware. Rosetta cannot run AVX, so everything above is the assembler and its equality, not
+a time. Whether the 16-lane build is now faster than the 8-lane build, what the hardened build costs, and how it compares with Java's Vector
+API will show a second AWS run. The explanation of the store-forwarding stall (point 2) is also a hypothesis until then.
 
 ## Metal backend, first half (WP11a)
 
@@ -541,7 +613,11 @@ blocks is `unpaired`; no statement below 5 %; n = 1. The script fails (exit 3) o
 block whose rows plus skipped cases differ from its schedule. Result in short: the GPU programs (C++ CUDA, TornadoVM CUDA) are valid and
 within 3 % of each other at batch 256 (no statement); the CPU programs are unsettled (steps of 34 % between consecutive anchor runs); C++ CUDA is
 slower than TornadoVM at batch 1 (LARGE: 1.86 against 0.90 ms; the auto variant is the naive kernel set there). The CUDA test, the sanitizer and
-`nn_check --impl cuda` pass. Not measured: the cold process of C++ CUDA and TornadoVM (the instance's `--cold` step ran one case only).
+`nn_check --impl cuda` pass. Not measured: the cold process of C++ CUDA and TornadoVM (the instance's `--cold` step ran one case only). For a second run `bootstrap.sh` now starts
+one process per case: `nn_bench_l8 --presets P --batches B --impls I --cold` for SMALL and LARGE, batch 1 and 256, `simd`, `cuda-pageable`,
+`cuda-pinned`, and `crossBench ... --cold` for `vector` and `tornado`, in 3 rounds (`--cold-rounds N`); the stub tests in
+`scripts/cloud/test/test_suite_order.sh` count the processes and check that each names its preset, batch and impl. A mid-block anchor is not
+in the plan for the instance (anchors at the start and end, C, J, C, J) and was not added.
 
 ## Race play and the games row (WP6)
 

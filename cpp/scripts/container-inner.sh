@@ -66,6 +66,20 @@ if [ "$(uname -m)" = x86_64 ]; then
     nofused=$(objdump -d /tmp/simd_net_nofma_512.o | grep -c -E 'vfn?m(add|sub)')
     result "AVX-512 objects (compile only)" "ok (-mavx512f accepted; $zmm zmm instructions and $fused fused in simd_net, $nofused fused in simd_net_nofma)"
   else result "AVX-512 objects (compile only)" "FAIL"; tail -5 /tmp/avx512.err; fi
+  # the assembler of the convolution loop (README, "x86 code generation of the SIMD path"): with and without the libstdc++ assertions,
+  # 8 lanes (ymm) and 16 lanes (zmm); --check fails on a jump to an assertion block, a stack operand or other than 8 fused multiply-adds
+  asm_ok=1; asm_note=
+  for lanes in 8 16; do
+    for hard in -D_GLIBCXX_ASSERTIONS ""; do
+      asm=/tmp/simd_l${lanes}${hard:+_hardened}.s
+      asmflags=(-std=c++23 -O3 -march=skylake-avx512 -mprefer-vector-width=512 -ffp-contract=fast -Wno-psabi)   # simd_net.cpp only: the FMA variant
+      g++-12 "${asmflags[@]}" $hard -DSH_SIMD_LANES=$lanes -Isrc/core -Isrc/nn -S src/nn/simd_net.cpp -o "$asm" 2>> /tmp/avx512.err || asm_ok=0
+      perl scripts/simd-loop-report.pl --check "$asm" > "$asm.report" 2>&1 || asm_ok=0
+      asm_note+=" l$lanes${hard:+/hardened}: $(perl -ne 'print "$1 instr, $2 jumps to assertions, $3 stack; " if /(\d+) instructions, 8 fma, \d+ broadcasts, \d+ conditional jumps, (\d+) jumps to an assertion block, (\d+) stack/' "$asm.report" | head -c 60)"
+    done
+  done
+  cat /tmp/simd_l*.report
+  if [ "$asm_ok" = 1 ]; then result "SIMD convolution loop (assembler)" "ok ($asm_note)"; else result "SIMD convolution loop (assembler)" "FAIL"; fi
 else
   result "AVX-512 objects" "SKIP (arm64 container: no x86 flags; use --platform linux/amd64)"
 fi

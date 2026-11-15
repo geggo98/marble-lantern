@@ -1,6 +1,10 @@
 // Port of VectorNetwork. Vectors are compiler vector extensions (clang and gcc map them to NEON, AVX2 or AVX-512).
-// All loads and stores go through std::span sub-ranges, std::copy_n and std::bit_cast, so the file needs no unsafe region:
-// -Wunsafe-buffer-usage accepts it (spike 1). The size of every sub-range is checked where the span is cut.
+// This file is an unsafe zone (scripts/check-rules.sh). The checked parts (setup, the cut of every range, the size checks of one
+// convolution call) use std::span; the hot loops (convolution, dot product, pooling) work on raw pointers into ranges that were
+// checked once before the loop. Reason (README, "x86 code generation of the SIMD path"): with span access the libstdc++ assertions
+// of -D_GLIBCXX_ASSERTIONS sat in the inner loop (7 compare-and-jump pairs and spilled loop variables per iteration), and the
+// load through std::array and std::copy_n went through a stack temporary that GCC 12 split into two 32-byte stores followed by one
+// 64-byte reload (a store-forwarding stall) at 16 lanes.
 //
 // Layout, as in Java: with L lanes and T = 2 L, every internal activation has a row stride S = C rounded up to a multiple
 // of T, the value head's hidden vector has length H rounded up to a multiple of L. The extra channels have zero weights and
@@ -19,6 +23,15 @@
 #include "java_compat.hpp"
 #include "priors.hpp"
 
+// -Wunsafe-buffer-usage regions exist only in clang; gcc would warn about the pragma.
+#if defined(__clang__)
+#define SH_UNSAFE_BEGIN _Pragma("clang unsafe_buffer_usage begin")
+#define SH_UNSAFE_END _Pragma("clang unsafe_buffer_usage end")
+#else
+#define SH_UNSAFE_BEGIN
+#define SH_UNSAFE_END
+#endif
+
 #ifndef SH_SIMD_NS
 #define SH_SIMD_NS simd_fma
 #endif
@@ -36,18 +49,17 @@ using Vec = float __attribute__((vector_size(4 * SH_SIMD_LANES)));
 using Lane = std::array<float, kL>;
 static_assert(sizeof(Vec) == sizeof(Lane));
 
-Vec load(std::span<const float> s) {
-    Lane a{};
-    const auto head = s.first<kL>();
-    std::copy_n(head.begin(), kL, a.begin());
-    return std::bit_cast<Vec>(a);
+SH_UNSAFE_BEGIN
+// One unaligned vector load or store of L floats at p; the caller has checked the range. __builtin_memcpy of a vector is one
+// vmovups; it needs no temporary on the stack (the std::array round trip it replaces did at 16 lanes).
+inline Vec load(const float* p) {
+    Vec v;
+    __builtin_memcpy(&v, p, sizeof v);
+    return v;
 }
 
-void store(std::span<float> d, Vec v) {
-    const Lane a = std::bit_cast<Lane>(v);
-    const auto head = d.first<kL>();
-    std::copy_n(a.begin(), kL, head.begin());
-}
+inline void store(float* p, Vec v) { __builtin_memcpy(p, &v, sizeof v); }
+SH_UNSAFE_END
 
 // Every lane x. x - 0 keeps -0 and NaN, unlike 0 + x.
 Vec splat(float x) { return x - Vec{}; }
@@ -66,12 +78,17 @@ float reduce_add(Vec v) {
     return sum;
 }
 
-// Dot product of two ranges of the same length, a multiple of L.
-float dot(std::span<const float> a, std::span<const float> b) {
+SH_UNSAFE_BEGIN
+// The sum of a[i] * b[i] over n floats (n a multiple of L), lane-wise first, then the lanes in order, as in Java.
+float dot_raw(const float* a, const float* b, std::size_t n) {
     Vec sum{};
-    for (std::size_t i = 0; i < a.size(); i += kL) sum = sum + load(a.subspan(i)) * load(b.subspan(i));
+    for (std::size_t i = 0; i < n; i += kL) sum = sum + load(a + i) * load(b + i);
     return reduce_add(sum);
 }
+SH_UNSAFE_END
+
+// Dot product of two ranges of the same length, a multiple of L. The range of b is cut to the length of a once, outside the loop.
+float dot(std::span<const float> a, std::span<const float> b) { return dot_raw(a.data(), b.first(a.size()).data(), a.size()); }
 
 std::size_t round_up(std::size_t n, std::size_t multiple) { return (n + multiple - 1) / multiple * multiple; }
 
@@ -138,6 +155,8 @@ public:
         dense1_bias_.assign(p.data("head_value.dense1.bias").begin(), p.data("head_value.dense1.bias").end());
         dense2_weight_ = pad_rows(p.data("head_value.dense2.weight"), players, h, hidden_stride_);
         dense2_bias_.assign(p.data("head_value.dense2.bias").begin(), p.data("head_value.dense2.bias").end());
+        // conv_raw indexes the input rows with the gather entries without a check: prove once that every entry is a row.
+        gather_ok_ = std::ranges::all_of(gather_table(), [](int row) { return row >= 0 && row < kRows; });
         if (has_residual_priors(config_.planes)) {
             prior_beta_ = p.data(kPriorBeta)[0];
             prior_k_ = p.data(kPriorK)[0];
@@ -146,6 +165,7 @@ public:
 
     std::expected<void, Error> forward(std::span<const float> input, int batch, std::span<float> logits, std::span<float> values) override {
         if (batch < 1) return fail("batch must be >= 1, got " + std::to_string(batch));
+        if (!gather_ok_) return fail("gather table has an entry outside the rows");
         const auto b = static_cast<std::size_t>(batch);
         const auto planes = static_cast<std::size_t>(config_.input_planes());
         const auto in_size = static_cast<std::size_t>(config_.input_size());
@@ -192,11 +212,7 @@ private:
         const bool priors = has_residual_priors(config_.planes);
         if (priors) add_policy_prior(prior_beta_, input, config_.input_planes(), policy);
 
-        for (std::size_t v = 0; v < stride_; v += kL) {
-            Vec sum{};
-            for (std::size_t cell = 0; cell < kCellCount; ++cell) sum = sum + load(std::span<const float>(trunk).subspan(cell * stride_ + v));
-            store(std::span<float>(pooled_).subspan(v), sum / splat(static_cast<float>(kCells)));
-        }
+        pool(trunk.first(kCellCount * stride_), std::span<float>(pooled_).first(stride_));
         // hidden_[value_hidden .. hidden_stride_) is never written and stays 0.
         for (std::size_t o = 0; o < static_cast<std::size_t>(config_.value_hidden); ++o) {
             hidden_[o] = sh::java_max(dense1_bias_[o] + dot(pooled_, std::span<const float>(dense1_weight_).subspan(o * stride_, stride_)), 0.0f);
@@ -209,41 +225,70 @@ private:
         for (std::size_t o = 0; o < players; ++o) values[o] = static_cast<float>(std::tanh(static_cast<double>(values[o])));
     }
 
-    // Stores one tile of a cell: adds the residual if there is one (the span is empty if not), applies ReLU.
-    static void store_tile(std::span<float> out, std::span<const float> residual, std::size_t index, Vec a0, Vec a1) {
-        if (!residual.empty()) {
-            a0 = a0 + load(residual.subspan(index));
-            a1 = a1 + load(residual.subspan(index + kL));
+    // Mean over the 121 cell rows, lane-wise: pooled[v] = (sum of trunk[cell][v] over the cells in order) / 121.
+    void pool(std::span<const float> trunk, std::span<float> pooled) const {
+        SH_UNSAFE_BEGIN
+        const float* t = trunk.data();
+        float* out = pooled.data();
+        for (std::size_t v = 0; v < stride_; v += kL) {
+            Vec sum{};
+            for (std::size_t cell = 0; cell < kCellCount; ++cell) sum = sum + load(t + cell * stride_ + v);
+            store(out + v, sum / splat(static_cast<float>(kCells)));
         }
-        store(out.subspan(index), relu(a0));
-        store(out.subspan(index + kL), relu(a1));
+        SH_UNSAFE_END
     }
 
     // out = ReLU(bias + conv(in) [+ residual]) for the 121 cell rows; tail lanes become 0. `in` has rows of in_stride floats, of
-    // which the first in_channels take part; its padding row must be zero. weight is packed by pack_conv.
+    // which the first in_channels take part; its padding row must be zero. weight is packed by pack_conv. The span is empty if
+    // there is no residual. Row 121 of `out` is not written: nothing ever writes it, so it keeps the 0 of the allocation.
+    //
+    // Every range is cut to its size here, once per call (a checked cut: the libstdc++ assertion of the hardened build, or
+    // std::span::first itself); the loops in conv_raw then work on pointers. The gather entries were checked in the constructor.
     void conv(std::span<const float> in, std::size_t in_stride, std::size_t in_channels, std::span<const float> weight, std::span<const float> bias,
               std::span<float> out, std::span<const float> residual) const {
-        const GatherTable& gather = gather_table();
+        const std::size_t width = kStencilSize * in_channels;
+        const std::size_t tiles = stride_ / kTile;
+        const std::size_t rows = static_cast<std::size_t>(kRows);
+        conv_raw(in.first(rows * in_stride).data(), in_stride, in_channels, weight.first(tiles * width * kTile).data(), bias.first(stride_).data(),
+                 out.first(kCellCount * stride_).data(), residual.empty() ? nullptr : residual.first(kCellCount * stride_).data());
+    }
+
+    SH_UNSAFE_BEGIN
+    // Stores one tile of a cell: adds the residual if there is one (nullptr if not), applies ReLU.
+    static void store_tile(float* out, const float* residual, Vec a0, Vec a1) {
+        if (residual != nullptr) {
+            a0 = a0 + load(residual);
+            a1 = a1 + load(residual + kL);
+        }
+        store(out, relu(a0));
+        store(out + kL, relu(a1));
+    }
+
+    // The loops of conv() on pointers. Ranges (checked by conv): in rows * in_stride floats, weight tiles * width * T, bias S,
+    // out and residual 121 * S; every gather entry is below kRows (constructor). The order of the additions per accumulator is
+    // the one of Java's VectorNetwork: stencil entry k, then channel ch, one multiply-add each.
+    void conv_raw(const float* in, std::size_t in_stride, std::size_t in_channels, const float* weight, const float* bias, float* out,
+                  const float* residual) const {
+        const int* gather = gather_table().data();
         const std::size_t width = kStencilSize * in_channels;
         for (std::size_t tile = 0; tile < stride_ / kTile; ++tile) {
             const std::size_t o = tile * kTile;
-            const std::size_t tile_base = tile * width * kTile;
-            const Vec bias0 = load(bias.subspan(o));
-            const Vec bias1 = load(bias.subspan(o + kL));
+            const float* const tile_weight = weight + tile * width * kTile;
+            const Vec bias0 = load(bias + o);
+            const Vec bias1 = load(bias + o + kL);
             std::size_t cell = 0;
             for (; cell + kCellBlock <= kCellCount; cell += kCellBlock) {
                 Vec a00 = bias0, a01 = bias1, a10 = bias0, a11 = bias1, a20 = bias0, a21 = bias1, a30 = bias0, a31 = bias1;
+                const int* g = gather + cell * kStencilSize;
                 for (std::size_t k = 0; k < kStencilSize; ++k) {
-                    // One bounds check per range and stencil entry; the channel loop indexes inside the checked ranges.
-                    const auto x0 = in.subspan(static_cast<std::size_t>(gather[(cell + 0) * kStencilSize + k]) * in_stride, in_channels);
-                    const auto x1 = in.subspan(static_cast<std::size_t>(gather[(cell + 1) * kStencilSize + k]) * in_stride, in_channels);
-                    const auto x2 = in.subspan(static_cast<std::size_t>(gather[(cell + 2) * kStencilSize + k]) * in_stride, in_channels);
-                    const auto x3 = in.subspan(static_cast<std::size_t>(gather[(cell + 3) * kStencilSize + k]) * in_stride, in_channels);
-                    const auto wk = weight.subspan(tile_base + k * in_channels * kTile, in_channels * kTile);
-                    for (std::size_t ch = 0; ch < in_channels; ++ch) {
-                        const auto wc = wk.subspan(ch * kTile, kTile);
+                    const float* x0 = in + static_cast<std::size_t>(g[0 * kStencilSize + k]) * in_stride;
+                    const float* x1 = in + static_cast<std::size_t>(g[1 * kStencilSize + k]) * in_stride;
+                    const float* x2 = in + static_cast<std::size_t>(g[2 * kStencilSize + k]) * in_stride;
+                    const float* x3 = in + static_cast<std::size_t>(g[3 * kStencilSize + k]) * in_stride;
+                    const float* wc = tile_weight + k * in_channels * kTile;
+                    for (std::size_t ch = 0; ch < in_channels; ++ch, wc += kTile) {
                         const Vec w0 = load(wc);
-                        const Vec w1 = load(wc.subspan(kL));
+                        const Vec w1 = load(wc + kL);
                         const Vec v0 = splat(x0[ch]);
                         const Vec v1 = splat(x1[ch]);
                         const Vec v2 = splat(x2[ch]);
@@ -258,28 +303,29 @@ private:
                         a31 = a31 + w1 * v3;
                     }
                 }
-                store_tile(out, residual, (cell + 0) * stride_ + o, a00, a01);
-                store_tile(out, residual, (cell + 1) * stride_ + o, a10, a11);
-                store_tile(out, residual, (cell + 2) * stride_ + o, a20, a21);
-                store_tile(out, residual, (cell + 3) * stride_ + o, a30, a31);
+                const std::size_t i0 = cell * stride_ + o;
+                store_tile(out + i0 + 0 * stride_, residual ? residual + i0 + 0 * stride_ : nullptr, a00, a01);
+                store_tile(out + i0 + 1 * stride_, residual ? residual + i0 + 1 * stride_ : nullptr, a10, a11);
+                store_tile(out + i0 + 2 * stride_, residual ? residual + i0 + 2 * stride_ : nullptr, a20, a21);
+                store_tile(out + i0 + 3 * stride_, residual ? residual + i0 + 3 * stride_ : nullptr, a30, a31);
             }
             for (; cell < kCellCount; ++cell) {  // 121 = 4 * 30 + 1: the last cell
                 Vec a0 = bias0, a1 = bias1;
                 for (std::size_t k = 0; k < kStencilSize; ++k) {
-                    const auto x = in.subspan(static_cast<std::size_t>(gather[cell * kStencilSize + k]) * in_stride, in_channels);
-                    const auto wk = weight.subspan(tile_base + k * in_channels * kTile, in_channels * kTile);
-                    for (std::size_t ch = 0; ch < in_channels; ++ch) {
-                        const auto wc = wk.subspan(ch * kTile, kTile);
+                    const float* x = in + static_cast<std::size_t>(gather[cell * kStencilSize + k]) * in_stride;
+                    const float* wc = tile_weight + k * in_channels * kTile;
+                    for (std::size_t ch = 0; ch < in_channels; ++ch, wc += kTile) {
                         const Vec v = splat(x[ch]);
                         a0 = a0 + load(wc) * v;
-                        a1 = a1 + load(wc.subspan(kL)) * v;
+                        a1 = a1 + load(wc + kL) * v;
                     }
                 }
-                store_tile(out, residual, cell * stride_ + o, a0, a1);
+                const std::size_t i0 = cell * stride_ + o;
+                store_tile(out + i0, residual ? residual + i0 : nullptr, a0, a1);
             }
         }
-        // Row 121 of `out` is not written: nothing ever writes it, so it keeps the 0 of the allocation.
     }
+    SH_UNSAFE_END
 
     NetworkConfig config_;
     std::size_t stride_;         // row stride S of the internal activations
@@ -287,6 +333,7 @@ private:
     std::vector<float> conv_in_weight_, conv_in_bias_;
     std::vector<std::vector<float>> block_weight_, block_bias_;
     std::vector<float> policy_weight_, policy_bias_, dense1_weight_, dense1_bias_, dense2_weight_, dense2_bias_;
+    bool gather_ok_ = false;
     float prior_beta_ = 0;
     float prior_k_ = 0;
     std::vector<float> x_, t_, u_, pooled_, hidden_;
