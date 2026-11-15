@@ -36,6 +36,7 @@ run 5000
 check $rc 0 "exit 0"
 [[ -s $T/result.txt ]] && check ok ok "the result file exists" || check missing ok "the result file exists"
 left=($T/result.txt.tmp.*(N)); check ${#left} 0 "no temporary file is left"
+check "$(grep -c 'the plan says 2.0' $T/result.txt)" 1 "the header names the load limit deviation"
 print "valid" > $T/result.txt
 
 print "different games (C++ played other nodes than Java):"

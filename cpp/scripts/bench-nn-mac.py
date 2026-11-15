@@ -409,7 +409,7 @@ def main():
         "# method: processes alternate J, C (hardened), %d pairs; per process the schedule of the plan (warm-up of at least 2 s and 10 calls, 3 rounds of at least 1 s);" % a.pairs,
         "#         the reported figure of a program is the median over the pairs of the per-process median round; one host thread; Java started with java directly",
         "# equality: every case ends with the check of the last call against the Java reference outputs (exit 2 and no line on a violation)",
-        "# hygiene: load limit %.1f (base load of this Mac at rest 3.0 to 3.7); load before %.2f, after %.2f, %.2f after %ds of cool-down" % (a.max_load, load_before, load_after, load_decayed, waited),
+        "# hygiene: load limit %.1f%s (base load of this Mac at rest 3.0 to 3.7); load before %.2f, after %.2f, %.2f after %ds of cool-down" % (a.max_load, "" if a.max_load == 2.0 else " (the plan says 2.0: a deviation, see cpp/README.md; no amendment of the plan yet)", load_before, load_after, load_decayed, waited),
         "# hygiene: foreign processes (pgrep -l, by name: %s) before: %s; after: %s" % (PROC_PATTERN.replace("\\", ""), ", ".join(procs_before) or "none", ", ".join(fp_after) or "none"),
         "# hygiene: top 3 programs by CPU before: %s; after: %s" % ("; ".join(top_before), "; ".join(top_after)),
         "# hygiene: docker containers running before: %d, after: %d (OrbStack Kubernetes system pods, idle)" % (containers_before, containers_after),

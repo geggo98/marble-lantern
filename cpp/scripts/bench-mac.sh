@@ -216,7 +216,7 @@ JVM_FLAGS=$(print -r -- "$JAVA" | perl -ne 'print join " ", grep { /^-X|^--add-m
   print "          both sides of every self-check run searched identical trees"
   print ""
   print "hygiene:"
-  print "  load before: $load_before (1-minute average), after: $load_after; limit $max_load"
+  print "  load before: $load_before (1-minute average), after: $load_after; limit $max_load$([[ $max_load != 2.0 ]] && print ' (the plan says 2.0: a deviation, see cpp/README.md; no amendment of the plan yet)')"
   print "  foreign processes (pgrep -l gradle|java|clang|ninja|cmake, by process name) before: ${procs_before:-none}; after: ${procs_after:-none}"
   print "  thermal before:"; print -r -- "$therm_before"; print "  thermal after:"; print -r -- "$therm_after"
   print "  power: $(pmset -g batt | head -1 | perl -pe 's/^Now drawing from //; s/\s*$//')"
