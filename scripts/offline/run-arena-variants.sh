@@ -55,10 +55,10 @@ if (( ! force )) && [[ -f $result ]] && perl -ne '$f = 1 if /^RESULT /; END { ex
 fi
 
 # BEST_SPEC of Strategies.java, at the node budget; the check keeps this copy from drifting away from the source
-options='pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1'
-best="ab:eval=racelin1-r3,$options,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=$nodes"
-perl -0777 -ne 'exit(/OPTIONS\s*=\s*"\Q$ARGV[0]\E"/ && /BEST_SPEC\s*=\s*"ab:eval=racelin1-r3,"\s*\+\s*OPTIONS\s*\+\s*",fut=1,futk=20,fut2=1,race=1,racerows=1"/ ? 0 : 1)' \
-  "$options" search/src/main/java/sternhalma/search/Strategies.java \
+searchopts='pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1'
+best="ab:eval=racelin1-r3,$searchopts,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=$nodes"
+SEARCHOPTS="$searchopts" perl -0777 -ne 'exit(/OPTIONS\s*=\s*"\Q$ENV{SEARCHOPTS}\E"/ && /BEST_SPEC\s*=\s*"ab:eval=racelin1-r3,"\s*\+\s*OPTIONS\s*\+\s*",fut=1,futk=20,fut2=1,race=1,racerows=1"/ ? 0 : 1)' \
+  search/src/main/java/sternhalma/search/Strategies.java \
   || { echo "BEST_SPEC in Strategies.java differs from the copy in this script; update the script" >&2; exit 2; }
 
 ./gradlew --no-build-cache -q :search:classes
