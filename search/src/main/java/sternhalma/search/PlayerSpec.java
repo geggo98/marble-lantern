@@ -148,9 +148,18 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
      * first call per JVM loads the rows&gt;=1 table from the cache or builds it (minutes, progress on stderr).
      */
     public AlphaBetaPlayer create() {
+        return create(RaceTableSource.ambient());
+    }
+
+    /**
+     * {@link #create()} with the race tables of a {@link RaceTableSource}: the leaf evaluator and race play each ask
+     * the source for their table. {@link RaceTableSource#DEFAULT} gives the shared exact tables.
+     */
+    public AlphaBetaPlayer create(RaceTableSource source) {
         String label = weights.isEmpty() ? evaluator : evaluator + weights;
-        RaceMove raceMove = race == 0 ? null : new RaceMove(raceTable ? RaceTable.of(raceRows) : null, race);
-        return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights), depth, millis, nodes, tableBits, label,
+        RaceMove raceMove = race == 0 ? null
+                : new RaceMove(raceTable ? source.racePlay(raceRows).counts() : null, race);
+        return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights, source), depth, millis, nodes, tableBits, label,
                 options, raceMove);
     }
 }

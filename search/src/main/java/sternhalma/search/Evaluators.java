@@ -18,6 +18,7 @@ import sternhalma.tablebase.RaceTable;
 public final class Evaluators {
 
     private static final Map<String, Function<Map<String, Integer>, Evaluator>> REGISTRY = new TreeMap<>();
+    private static final Map<String, RaceEntry> RACE_ENTRIES = new TreeMap<>();
 
     static {
         put("distance", DistanceEvaluator::new);
@@ -35,14 +36,14 @@ public final class Evaluators {
         // the RACE score band; racelin reads the committed rows>=2 table, racelin1 the rows>=1 table (E09; loaded from
         // tablebase/tables/ or built into the cache on first use, like racerows=1). The one weight, wout=1, estimates
         // the counts of pieces behind the region (RaceEvaluator). No racelin-r1: the R2 fingerprint stays untouched.
-        REGISTRY.put("racelin", race("linear-r2", 2));
-        REGISTRY.put("racelin1", race("linear-r2", 1));
+        putRace("racelin", "linear-r2", 2);
+        putRace("racelin1", "linear-r2", 1);
         // integration of round 2: the race arithmetic of E08 over the bestGain evaluator of E07 (the evaluator of
         // Strategies.BEST_SPEC and of the reference player R3, ReferencePositions.R3_SPEC). Frozen like its parts.
-        REGISTRY.put("racelin1-r3", race("linear-r3", 1));
+        putRace("racelin1-r3", "linear-r3", 1);
         // the browser player (Strategies.BROWSER_SPEC): the same evaluation as racelin1-r3, but over the rows>=2 table
         // (12.5 MB instead of 242 MB), the only table a browser can hold. Not frozen: it may move with BEST_SPEC.
-        REGISTRY.put("racelin-r3", race("linear-r3", 2));
+        putRace("racelin-r3", "linear-r3", 2);
     }
 
     /**
@@ -59,8 +60,24 @@ public final class Evaluators {
      * tablebase/tables/ or built into the cache on first use, like {@code racerows=1}).
      */
     private static Function<Map<String, Integer>, Evaluator> race(String base, int rows) {
-        return weights -> RaceEvaluator.of(byName(base), rows == 1 ? RaceTable.rows1() : RaceTable.rows2(),
-                rows == 1 ? RaceTable.ROWS1.minRow() : RaceTable.ROWS2.minRow(), weights);
+        return race(base, rows, RaceTableSource.DEFAULT);
+    }
+
+    /** {@link #race(String, int)} with the tables of a {@link RaceTableSource} (the evaluator role). */
+    private static Function<Map<String, Integer>, Evaluator> race(String base, int rows, RaceTableSource source) {
+        return weights -> {
+            RaceTableSource.Table t = source.evaluator(rows);
+            return RaceEvaluator.of(byName(base), t.counts(), t.minRow(), weights);
+        };
+    }
+
+    /** Race evaluators of the registry by name: base evaluator and region, for building them over another source. */
+    private record RaceEntry(String base, int rows) {
+    }
+
+    private static void putRace(String name, String base, int rows) {
+        RACE_ENTRIES.put(name, new RaceEntry(base, rows));
+        REGISTRY.put(name, race(base, rows));
     }
 
     /** Registers an evaluator without weights; weights given in a spec are then an error. */
@@ -91,8 +108,16 @@ public final class Evaluators {
         return byName(name, Map.of());
     }
 
-    /** An evaluator with weights from a player spec (keys {@code w...}). */
+    /**
+     * An evaluator with weights from a player spec (keys {@code w...}). A race evaluator takes its table from
+     * {@link RaceTableSource#ambient()}, which is the exact shared table unless a system property says otherwise.
+     */
     public static Evaluator byName(String name, Map<String, Integer> weights) {
+        return byName(name, weights, RaceTableSource.ambient());
+    }
+
+    /** {@link #byName(String, Map)} with the race tables of {@code source}; the source matters for race evaluators only. */
+    public static Evaluator byName(String name, Map<String, Integer> weights, RaceTableSource source) {
         if (name.startsWith(LINEAR_FILE)) {
             if (!weights.isEmpty()) {
                 throw new IllegalArgumentException("'" + LINEAR_FILE + "' takes no weights, got " + weights.keySet());
@@ -100,10 +125,14 @@ public final class Evaluators {
             return LinearWeights.fromFile(name.substring(LINEAR_FILE.length()));
         }
         if (name.startsWith(RACELIN1_PREFIX)) {
-            return race(name.substring(RACELIN1_PREFIX.length()), 1).apply(weights);
+            return race(name.substring(RACELIN1_PREFIX.length()), 1, source).apply(weights);
         }
         if (name.startsWith(RACELIN_PREFIX)) {
-            return race(name.substring(RACELIN_PREFIX.length()), 2).apply(weights);
+            return race(name.substring(RACELIN_PREFIX.length()), 2, source).apply(weights);
+        }
+        RaceEntry entry = RACE_ENTRIES.get(name);
+        if (entry != null) {
+            return race(entry.base(), entry.rows(), source).apply(weights);
         }
         Function<Map<String, Integer>, Evaluator> factory = REGISTRY.get(name);
         if (factory == null) {
