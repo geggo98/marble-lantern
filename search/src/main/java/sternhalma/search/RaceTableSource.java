@@ -9,6 +9,7 @@ import java.util.BitSet;
 import sternhalma.tablebase.BlockRestrictedCounts;
 import sternhalma.tablebase.EstimatedCounts;
 import sternhalma.tablebase.MaxStonesCounts;
+import sternhalma.tablebase.PatternEstimator;
 import sternhalma.tablebase.PushEstimator;
 import sternhalma.tablebase.RaceCounts;
 import sternhalma.tablebase.RaceTable;
@@ -31,6 +32,8 @@ import sternhalma.tablebase.RowOneBlocks;
  *   <li>{@code blocks:FILE}: rows&gt;=1 inside the 64 KB blocks of the file ({@link RowOneBlocks}), else as {@code rows2};</li>
  *   <li>{@code estimate[:c0,...,c8]}: the {@link PushEstimator} with the given corrections per k (default all 0);
  *       the rows&gt;=1 table is not read.</li>
+ *   <li>{@code estimate2}: the {@link PatternEstimator}: the push estimate with one fitted correction per occupancy
+ *       pattern of row 1 (256 bytes, fixed); the rows&gt;=1 table is not read.</li>
  *   <li>{@code maxk:N[:estimate|rows2]}: the exact rows&gt;=1 count where the side has at most N stones in row 1, else the
  *       push estimator (default) or the rows&gt;=2 count; simulates a rows&gt;=1 table that stores only k &lt;= N.</li>
  * </ul>
@@ -203,6 +206,12 @@ public interface RaceTableSource {
                     }
                     return new Variant(text, "estimate", null, c);
                 }
+                case "estimate2" -> {
+                    if (head.length != 1) {
+                        throw new IllegalArgumentException("race variant 'estimate2' takes no argument");
+                    }
+                    return new Variant(text, "estimate2", null, null);
+                }
                 case "maxk" -> {
                     String[] parts = head.length == 2 ? head[1].split(":", -1) : new String[0];
                     if (parts.length < 1 || parts.length > 2) {
@@ -240,6 +249,8 @@ public interface RaceTableSource {
                     }
                     yield new Table(new BlockRestrictedCounts(RaceTable.rows1(), RaceTable.rows2(), blocks), 1);
                 }
+                case "estimate2" -> new Table(
+                        new EstimatedCounts(new PatternEstimator(RaceTable.rows2(), PatternEstimator.FITTED)), 1);
                 case "maxk" -> new Table(new MaxStonesCounts(RaceTable.rows1(), maxK,
                         estimateFallback ? new EstimatedCounts(new PushEstimator(RaceTable.rows2(), corrections))
                                 : RaceTable.rows2()), 1);

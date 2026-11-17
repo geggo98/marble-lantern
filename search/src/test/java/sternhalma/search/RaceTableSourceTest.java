@@ -193,6 +193,26 @@ class RaceTableSourceTest {
     }
 
     @Test
+    void estimate2UsesThePatternCorrectionAndNeverReadsRows1() {
+        needRows1();
+        RaceTable rows1 = RaceTable.rows1();
+        var counts = RaceTableSource.of("estimate2").evaluator(1).counts();
+        var reference = new sternhalma.tablebase.PatternEstimator(RaceTable.rows2(),
+                sternhalma.tablebase.PatternEstimator.FITTED);
+        var plain = RaceTableSource.of("estimate").evaluator(1).counts();
+        java.util.Random random = new java.util.Random(31);
+        int differs = 0;
+        for (int i = 0; i < 5000; i++) {
+            int[] cells = rows1.rankingOf().unrank(Math.floorMod(random.nextLong(), rows1.states()));
+            assertEquals(reference.estimate(cells), counts.count(cells));
+            differs += counts.count(cells) != plain.count(cells) ? 1 : 0;
+        }
+        assertTrue(differs > 500, "estimate2 must differ from the per-k estimate, differs " + differs);
+        assertEquals(256, sternhalma.tablebase.PatternEstimator.FITTED.length);
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("estimate2:1"));
+    }
+
+    @Test
     void maxkTextIsValidated() {
         assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk"));
         assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:x"));

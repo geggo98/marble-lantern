@@ -50,9 +50,18 @@ public final class EstimatorReport {
         report("plain (all corrections 0)", rows1, new PushEstimator(rows2, new int[PushEstimator.CLASSES]),
                 samples, seed + 1);
         report("fitted", rows1, new PushEstimator(rows2, fitted), samples, seed + 1);
+        int[] pattern = PatternEstimator.fit(rows1, rows2, fitSamples, seed);
+        System.out.println();
+        System.out.println("pattern fit: " + PatternEstimator.PATTERNS + " corrections (" + PatternEstimator.PATTERNS
+                + " bytes) from " + fitSamples + " random states (seed " + seed + "): "
+                + String.join(",", Arrays.stream(pattern).mapToObj(Integer::toString).toList()));
+        report("pattern-fitted (estimate2)", rows1, new PatternEstimator(rows2, pattern), samples, seed + 1);
+        // the fallback of the rows2 variants: the rows>=2 count, which does not cover a state with a stone in row 1
+        report("rows2 fallback (no estimate means: the evaluator keeps its base value)", rows1, rows2::count, samples,
+                seed + 1);
     }
 
-    static void report(String label, RaceTable rows1, PushEstimator est, long samples, long seed) {
+    static void report(String label, RaceTable rows1, Rows1Estimator est, long samples, long seed) {
         int classes = PushEstimator.CLASSES;
         long[] drawn = new long[classes];
         long[] unreachable = new long[classes];
