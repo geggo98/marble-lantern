@@ -162,6 +162,47 @@ class RaceTableSourceTest {
     }
 
     @Test
+    void maxkServesTheExactTableUpToNStonesInRowOneAndTheFallbackAbove() {
+        needRows1();
+        RaceTable rows1 = RaceTable.rows1();
+        var rows2Fallback = RaceTableSource.of("maxk:1:rows2").evaluator(1).counts();
+        var estimate = RaceTableSource.of("maxk:1").evaluator(1).counts();
+        var plain = RaceTableSource.of("estimate").evaluator(1).counts();
+        java.util.Random random = new java.util.Random(21);
+        int low = 0;
+        int high = 0;
+        for (int i = 0; i < 20_000; i++) {
+            long rank = Math.floorMod(random.nextLong(), rows1.states());
+            int exact = rows1.entry(rank);
+            if (exact == LookupObserver.UNKNOWN) {
+                continue;
+            }
+            int[] cells = rows1.rankingOf().unrank(rank);
+            if (sternhalma.tablebase.PushEstimator.stonesInRow1(cells) <= 1) {
+                low++;
+                assertEquals(exact, estimate.count(cells));
+                assertEquals(exact, rows2Fallback.count(cells));
+            } else {
+                high++;
+                assertEquals(plain.count(cells), estimate.count(cells), "above N the estimator answers");
+                assertEquals(RaceTable.rows2().count(cells), rows2Fallback.count(cells), "above N rows2 answers");
+            }
+        }
+        assertTrue(low > 1000 && high > 1000, low + " low, " + high + " high");
+        assertTrue(game(Strategies.BEST_SPEC, RaceTableSource.of("maxk:1")).size() > 0);
+    }
+
+    @Test
+    void maxkTextIsValidated() {
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk"));
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:x"));
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:-1"));
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:9"));
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:1:blocks"));
+        assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("maxk:1:rows2:x"));
+    }
+
+    @Test
     void badVariantsAreErrorsNotSilentFallbacks() {
         assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("rows3"));
         assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("blocks"));

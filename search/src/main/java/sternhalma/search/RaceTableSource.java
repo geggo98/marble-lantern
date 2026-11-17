@@ -8,6 +8,7 @@ import java.util.BitSet;
 
 import sternhalma.tablebase.BlockRestrictedCounts;
 import sternhalma.tablebase.EstimatedCounts;
+import sternhalma.tablebase.MaxStonesCounts;
 import sternhalma.tablebase.PushEstimator;
 import sternhalma.tablebase.RaceCounts;
 import sternhalma.tablebase.RaceTable;
@@ -30,6 +31,8 @@ import sternhalma.tablebase.RowOneBlocks;
  *   <li>{@code blocks:FILE}: rows&gt;=1 inside the 64 KB blocks of the file ({@link RowOneBlocks}), else as {@code rows2};</li>
  *   <li>{@code estimate[:c0,...,c8]}: the {@link PushEstimator} with the given corrections per k (default all 0);
  *       the rows&gt;=1 table is not read.</li>
+ *   <li>{@code maxk:N[:estimate|rows2]}: the exact rows&gt;=1 count where the side has at most N stones in row 1, else the
+ *       push estimator (default) or the rows&gt;=2 count; simulates a rows&gt;=1 table that stores only k &lt;= N.</li>
  * </ul>
  * With no property set, {@link #ambient()} is {@link #DEFAULT} and the construction path of a player is the old one.
  */
@@ -154,9 +157,17 @@ public interface RaceTableSource {
         private final String kind;
         private final Path file;
         private final int[] corrections;
+    private final int maxK;
+    private final boolean estimateFallback;
         private BitSet blocks;
 
         private Variant(String text, String kind, Path file, int[] corrections) {
+            this(text, kind, file, corrections, 0, false);
+        }
+
+        private Variant(String text, String kind, Path file, int[] corrections, int maxK, boolean estimateFallback) {
+            this.maxK = maxK;
+            this.estimateFallback = estimateFallback;
             this.text = text;
             this.kind = kind;
             this.file = file;
@@ -192,8 +203,24 @@ public interface RaceTableSource {
                     }
                     return new Variant(text, "estimate", null, c);
                 }
+                case "maxk" -> {
+                    String[] parts = head.length == 2 ? head[1].split(":", -1) : new String[0];
+                    if (parts.length < 1 || parts.length > 2) {
+                        throw new IllegalArgumentException("race variant 'maxk' needs maxk:N[:estimate|rows2]");
+                    }
+                    int n = Integer.parseInt(parts[0].strip());
+                    if (n < 0 || n > PushEstimator.CLASSES - 1) {
+                        throw new IllegalArgumentException("race variant 'maxk': N must be 0.." + (PushEstimator.CLASSES - 1));
+                    }
+                    String fallback = parts.length == 2 ? parts[1] : "estimate";
+                    if (!fallback.equals("estimate") && !fallback.equals("rows2")) {
+                        throw new IllegalArgumentException("race variant 'maxk': fallback must be estimate or rows2, got '"
+                                + fallback + "'");
+                    }
+                    return new Variant(text, "maxk", null, new int[PushEstimator.CLASSES], n, fallback.equals("estimate"));
+                }
                 default -> throw new IllegalArgumentException("unknown race variant '" + text
-                        + "', expected exact, rows2, blocks:FILE or estimate[:c0,...,c8]");
+                        + "', expected exact, rows2, blocks:FILE, estimate[:c0,...,c8] or maxk:N[:estimate|rows2]");
             }
         }
 
@@ -213,6 +240,9 @@ public interface RaceTableSource {
                     }
                     yield new Table(new BlockRestrictedCounts(RaceTable.rows1(), RaceTable.rows2(), blocks), 1);
                 }
+                case "maxk" -> new Table(new MaxStonesCounts(RaceTable.rows1(), maxK,
+                        estimateFallback ? new EstimatedCounts(new PushEstimator(RaceTable.rows2(), corrections))
+                                : RaceTable.rows2()), 1);
                 // one estimator per table: it keeps scratch space and must not be shared between searchers
                 default -> new Table(new EstimatedCounts(new PushEstimator(RaceTable.rows2(), corrections)), 1);
             };
