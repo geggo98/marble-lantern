@@ -159,8 +159,9 @@ std::expected<PlayerSpec, std::string> PlayerSpec::parse(std::string_view text) 
     if (spec.evaluator == "distance" || spec.evaluator == "linear-r2") {
         return std::unexpected("evaluator '" + spec.evaluator + "' is not ported");
     }
-    if (spec.evaluator != "linear-r1" && spec.evaluator != "linear-r3" && spec.evaluator != "racelin1-r3") {
-        return std::unexpected("unknown evaluator '" + spec.evaluator + "', known: linear-r1, linear-r3, racelin1-r3");
+    if (spec.evaluator != "linear-r1" && spec.evaluator != "linear-r3" && spec.evaluator != "racelin1-r3" &&
+        spec.evaluator != "racelin-r3") {
+        return std::unexpected("unknown evaluator '" + spec.evaluator + "', known: linear-r1, linear-r3, racelin1-r3, racelin-r3");
     }
     return spec;
 }
@@ -172,6 +173,11 @@ std::expected<std::unique_ptr<Evaluator>, std::string> PlayerSpec::make_evaluato
         const auto& table = RaceEvaluator::rows1_table();
         if (!table) return std::unexpected("race table rows1: " + table.error().message);
         return RaceEvaluator::racelin1_r3(*table);
+    }
+    if (evaluator == "racelin-r3") {
+        const auto table = RaceMove::shared_table(2);
+        if (!table) return std::unexpected(table.error());
+        return RaceEvaluator::racelin_r3(*table);
     }
     return std::unexpected("evaluator '" + evaluator + "' is not ported");
 }

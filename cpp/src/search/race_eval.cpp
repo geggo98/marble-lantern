@@ -1,6 +1,7 @@
 #include "race_eval.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <utility>
 
 #include "geometry.hpp"
@@ -41,7 +42,18 @@ std::unique_ptr<RaceEvaluator> RaceEvaluator::racelin1_r3(std::shared_ptr<const 
     return std::make_unique<RaceEvaluator>(LinearEvaluator::linear_r3(), std::move(rows1));
 }
 
+std::unique_ptr<RaceEvaluator> RaceEvaluator::racelin_r3(std::shared_ptr<const RaceTable> rows2) {
+    return std::make_unique<RaceEvaluator>(LinearEvaluator::linear_r3(), std::move(rows2));
+}
+
+namespace {
+std::atomic<int> g_rows1_requests{0};
+}  // namespace
+
+int RaceEvaluator::rows1_requests() { return g_rows1_requests.load(); }
+
 const std::expected<std::shared_ptr<const RaceTable>, LoadError>& RaceEvaluator::rows1_table() {
+    g_rows1_requests.fetch_add(1);
     static const std::expected<std::shared_ptr<const RaceTable>, LoadError> loaded =
         []() -> std::expected<std::shared_ptr<const RaceTable>, LoadError> {
         auto table = RaceTable::load_default(kRows1);

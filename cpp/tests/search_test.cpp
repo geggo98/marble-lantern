@@ -580,6 +580,15 @@ SH_TEST(fingerprint_best_positions_equal_r3) {
     CHECK(fingerprint::kBestSpec == fingerprint::kR3Spec);
 }
 
+// BROWSER_SPEC (racelin-r3, rows >= 2 table): the tree equals the Java tree, and no rows >= 1 table is requested on the way.
+SH_TEST(fingerprint_browser_matches_java_and_never_asks_for_rows1) {
+    const int before = RaceEvaluator::rows1_requests();
+    check_positions("fingerprint-browser.txt", fingerprint::kBrowserSpec);
+    check_game("fingerprint-browser.txt", fingerprint::kBrowserSpec, 1000, 66);
+    check_game("fingerprint-browser.txt", fingerprint::kBrowserSpec, 5000, 70);
+    CHECK_EQ(RaceEvaluator::rows1_requests(), before);
+}
+
 SH_TEST(fingerprint_r3_game_1000_matches_java) { check_game("fingerprint-r3.txt", fingerprint::kR3Spec, 1000, 66); }
 
 SH_TEST(fingerprint_r3_game_5000_matches_java) { check_game("fingerprint-r3.txt", fingerprint::kR3Spec, 5000, 70); }
@@ -721,6 +730,23 @@ SH_TEST(solitaire_landings_follow_the_rules) {
     const auto st = sol.step(lo, hi, a, geometry::id(0, 2), -100);
     CHECK(st.has_value() && st->move() == Move::of(a, geometry::id(0, 2)));
     CHECK(!sol.step(lo, hi, a, b, -100).has_value());
+}
+
+SH_TEST(browser_spec_parses_and_uses_the_rows2_table_only) {
+    const PlayerSpec browser = parse_ok(fingerprint::kBrowserSpec);
+    CHECK_EQ(browser.evaluator, std::string("racelin-r3"));
+    CHECK_EQ(browser.race, 1);
+    CHECK_EQ(browser.race_rows, 2);
+    CHECK_EQ(browser.options.futility_gain, 20);
+    const int before = RaceEvaluator::rows1_requests();
+    const auto player = browser.create();
+    const auto eval = browser.make_evaluator();
+    if (player) CHECK(((*player)->race()) != nullptr);
+    CHECK_EQ(RaceEvaluator::rows1_requests(), before);
+    // the guard can fail: BEST_SPEC asks for rows1 as soon as its evaluator is built (also when the file is missing)
+    const auto best_eval = parse_ok(fingerprint::kBestSpec).make_evaluator();
+    CHECK(RaceEvaluator::rows1_requests() > before);
+    (void)best_eval;
 }
 
 SH_TEST(player_with_race_play_has_the_java_name) {

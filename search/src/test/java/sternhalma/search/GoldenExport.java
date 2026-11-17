@@ -52,10 +52,13 @@ public final class GoldenExport {
     private static final String R2_NAME = "fingerprint-r2.txt";
     private static final String R3_NAME = "fingerprint-r3.txt";
     private static final String BEST_NAME = "fingerprint-best.txt";
+    private static final String BROWSER_NAME = "fingerprint-browser.txt";
 
     /** The constants of BestSpecFingerprintTest: positions checksum, game at 1000 nodes, game at 5000 nodes. */
     private static final long[] R2_SUMS = {-8723226000912328943L, -6000360130468970639L, -1429733491373947983L};
     private static final long[] R3_SUMS = {4852147404152522458L, 2660956470353287877L, -3579989785793258016L};
+    /** The constants of BrowserSpecTest (BROWSER_SPEC at 20000 nodes). */
+    private static final long[] BROWSER_SUMS = {5143429675982717449L, -4846771179482559087L, 5086002913037729825L};
 
     private final Path out;
     private final List<String[]> manifest = new ArrayList<>();
@@ -292,10 +295,16 @@ public final class GoldenExport {
         fingerprint("r2", R2_NAME, ReferencePositions.R2_SPEC, R2_SUMS);
         fingerprint("r3", R3_NAME, ReferencePositions.R3_SPEC, R3_SUMS);
         fingerprint("best", BEST_NAME, Strategies.BEST_SPEC + ",nodes=20000", R3_SUMS);
+        fingerprint("browser", BROWSER_NAME, Strategies.BROWSER_SPEC + ",nodes=20000", BROWSER_SUMS, false);
     }
 
     /** The text that {@code Fingerprint.main} prints for one spec, checked against the recorded constants. */
     private void fingerprint(String label, String file, String spec, long[] sums) throws IOException {
+        fingerprint(label, file, spec, sums, true);
+    }
+
+    /** @param trace whether the game positions that pass the race test join the race files (the browser game does not: it would change the row counts the C++ tests pin) */
+    private void fingerprint(String label, String file, String spec, long[] sums, boolean trace) throws IOException {
         List<String> lines = new ArrayList<>();
         lines.add("spec " + spec);
         Fingerprint.Part positions = Fingerprint.positions(spec);
@@ -308,14 +317,16 @@ public final class GoldenExport {
             game.lines().forEach(l -> lines.add("  game@" + nodes + " " + l));
             lines.add("  game@" + nodes + " checksum " + game.checksum() + "L");
             expect(label + " game@" + nodes, sums[1 + i], game.checksum());
-            traceGame(label + "-game" + nodes, spec, nodes, game.checksum());
+            if (trace) {
+                traceGame(label + "-game" + nodes, spec, nodes, game.checksum());
+            }
         }
         write(file, lines);
     }
 
     private static void expect(String what, long recorded, long actual) {
         if (recorded != actual) {
-            throw new IllegalStateException("fingerprint " + what + " differs from BestSpecFingerprintTest: " + actual
+            throw new IllegalStateException("fingerprint " + what + " differs from BestSpecFingerprintTest/BrowserSpecTest: " + actual
                     + " instead of " + recorded);
         }
     }

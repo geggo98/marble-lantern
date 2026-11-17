@@ -43,6 +43,11 @@ public:
     static std::unique_ptr<RaceEvaluator> racelin1_r3(std::shared_ptr<const RaceTable> rows1);
     // The rows >= 1 table from STERNHALMA_TABLE_DIR or tablebase/tables, loaded once per process and shared (Java: RaceTable.rows1()).
     static const std::expected<std::shared_ptr<const RaceTable>, LoadError>& rows1_table();
+    // How often rows1_table() was called in this process (loaded or not): a test proves that a player never asks for it.
+    static int rows1_requests();
+    // `racelin-r3`: the same arithmetic and weights over the rows >= 2 table (the evaluator of BROWSER_SPEC; the table is the
+    // one of RaceMove::shared_table(2), 12.5 MB, so no code path of the browser spec touches rows1).
+    static std::unique_ptr<RaceEvaluator> racelin_r3(std::shared_ptr<const RaceTable> rows2);
 
     const Evaluator& base() const { return *base_; }
     const RaceTable* table() const { return table_.get(); }
