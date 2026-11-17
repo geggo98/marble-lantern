@@ -40,6 +40,9 @@ public final class Evaluators {
         // integration of round 2: the race arithmetic of E08 over the bestGain evaluator of E07 (the evaluator of
         // Strategies.BEST_SPEC and of the reference player R3, ReferencePositions.R3_SPEC). Frozen like its parts.
         REGISTRY.put("racelin1-r3", race("linear-r3", 1));
+        // the browser player (Strategies.BROWSER_SPEC): the same evaluation as racelin1-r3, but over the rows>=2 table
+        // (12.5 MB instead of 242 MB), the only table a browser can hold. Not frozen: it may move with BEST_SPEC.
+        REGISTRY.put("racelin-r3", race("linear-r3", 2));
     }
 
     /**
