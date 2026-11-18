@@ -37,7 +37,7 @@ export interface PlayModel {
   humanSide: Side;
   demo: boolean;
   level: number;
-  /** Skill estimate: the tracker, and the preset level that "Reset to level" returns to. */
+  /** Skill estimate: the tracker, and the preset level that "Back to preset level" returns to. */
   tracker: SkillTracker;
   presetLevel: number;
   /** Copy link: only while a human game runs. */

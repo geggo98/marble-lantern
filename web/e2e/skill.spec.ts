@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test';
 import { openApp, pickEngine, playOneExchange, watchPageErrors } from './helpers';
 
-test('the estimate appears after 8 moves; "Match engine to my strength" sets a custom level; "Reset to level" goes back', async ({ page }) => {
+test('the estimate appears after 8 moves; "Match engine to my strength" sets a custom level; "Back to preset level" goes back', async ({ page }) => {
   const errors = watchPageErrors(page);
   await openApp(page, 'en');
   await pickEngine(page, 'cpp-wasm'); // 1,000 nodes per move: the engine answers fast; the analysis always uses its own budget
@@ -27,7 +27,7 @@ test('the estimate appears after 8 moves; "Match engine to my strength" sets a c
   await expect.poll(() => Number(new URL(page.url()).hash.match(/&l=(\d+)$/)?.[1])).toBeGreaterThanOrEqual(10);
 
   await playOneExchange(page); // the game goes on with the new budget
-  await skill.getByRole('button', { name: 'Reset to level' }).click();
+  await skill.getByRole('button', { name: 'Back to preset level' }).click();
   await expect(page.locator('.ml-engine__level')).not.toContainText('Custom');
   await expect.poll(() => new URL(page.url()).hash.match(/&l=(\d+)$/)?.[1]).toBe('0');
   errors.expectNone();

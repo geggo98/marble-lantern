@@ -14,14 +14,14 @@ You need [devenv](https://devenv.sh) and [Git LFS](https://git-lfs.com). The gam
 |---|---|
 | Build the offline site into `web/dist/` | `devenv tasks run web:build` |
 | Serve it at <http://localhost:4173/marble-lantern/> | `cd web && BASE_PATH=/marble-lantern/ devenv shell -- npx vite preview` |
-| Run the online mode (engines also on the server) at <http://localhost:8080/> | `devenv tasks run app:run` |
+| Run the [online mode](docs/web-ui.md#the-two-modes) (engines also on the server) at <http://localhost:8080/> | `devenv tasks run app:run` |
 | Build and test the Java modules | `devenv shell -- ./gradlew --no-build-cache build` |
 
 The TornadoVM SDK setup is in [architecture, getting started](docs/architecture.md#getting-started).
 
 ## Documentation
 
-- [Web UI](docs/web-ui.md): offline and online mode, the browser engines, how to build and test them.
+- [Web UI](docs/web-ui.md): offline and online mode, the browser engines, game links, move guides, the skill estimate, how to build and test them.
 - [Web benchmark](docs/web-benchmark.md): the browser engines compared on identical work.
 - [ADR 0002](docs/adr/0002-browser-engines.md): the three browser engines (C++ and two TeaVM builds of Java) and their measurements.
 - [ADR 0003](docs/adr/0003-teavm-default-engine.md): why Java compiled by TeaVM to Wasm GC is the default browser engine, with C++ as the fallback for browsers without Wasm GC.

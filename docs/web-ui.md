@@ -7,6 +7,7 @@ Three browser engines play the same moves: Java compiled by TeaVM to WebAssembly
 All engines implement one TypeScript `Engine` interface, and the browser engines speak one worker message protocol.
 The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons for the default engine are in [ADR 0003](adr/0003-teavm-default-engine.md), and the speed comparison is in [web benchmark](web-benchmark.md).
 The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
+The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
 
 ## Contents
 
@@ -17,12 +18,13 @@ The address of the page holds the current game, so a game can be shared as a lin
 5. [The engine interface](#the-engine-interface)
 6. [The worker protocol](#the-worker-protocol)
 7. [Analysis API](#analysis-api)
-8. [Skill estimate](#skill-estimate)
-9. [Small screens and touch](#small-screens-and-touch)
-10. [Loading and checking the race table](#loading-and-checking-the-race-table)
-11. [Build, run and test](#build-run-and-test)
-12. [Continuous integration](#continuous-integration)
-13. [Known limits](#known-limits)
+8. [Move guides](#move-guides)
+9. [Skill estimate](#skill-estimate)
+10. [Small screens and touch](#small-screens-and-touch)
+11. [Loading and checking the race table](#loading-and-checking-the-race-table)
+12. [Build, run and test](#build-run-and-test)
+13. [Continuous integration](#continuous-integration)
+14. [Known limits](#known-limits)
 
 ## Terms
 
@@ -30,7 +32,10 @@ The address of the page holds the current game, so a game can be shared as a lin
 - **`BROWSER_SPEC`:** the classical alpha-beta player of the browser. It reads `rows2.bin` only. Defined in `search/src/main/java/sternhalma/search/Strategies.java` and, for the C++ port, in `cpp/src/search/player_spec.cpp`.
 - **C++ port:** a reimplementation of the Java engine and search in C++ (`cpp/`) that plays the same moves ([C++ comparison](cpp-comparison.md)).
 - **`BEST_SPEC`:** the strongest classical player. It reads `rows1.bin`, so it runs on the server only.
-- **Node budget:** the number of search nodes an engine may visit for one move. The UI calls it strength and offers 1,000, 5,000, 20,000 (default), 100,000 and 500,000 nodes.
+- **Node budget:** the number of search nodes an engine may visit for one move.
+- **Level:** the strength setting of the engine in the UI. The five preset levels, counted from 1, are the node budgets 1,000, 5,000, 20,000 (default), 100,000 and 500,000. A custom level is any other node budget from 10 to 5,000,000; the [skill estimate](#skill-estimate) sets one.
+- **Score:** the value of a move or position that the search reports, in points, from the point of view of the side that makes the move; higher is better. One step of progress towards the goal corner is worth about 30 points ([analysis API](#analysis-api)).
+- **Engine card, skill card:** panels of the play screen. The engine card shows the engine and its level. The skill card shows the skill estimate. The engine sheet is the dialog "Engine and strength", opened from the engine card, in which the player chooses engine and level.
 - **Ply:** one move of one side.
 - **Wasm GC:** WebAssembly with garbage collection. TeaVM 0.16.0 has only this WebAssembly backend.
 - **Network player:** the player that searches with Monte Carlo tree search (MCTS) guided by a neural network; its weights are a safetensors file ([network](network.md)). It runs only on the server.
@@ -69,7 +74,8 @@ In the online mode, `app/build.gradle.kts` copies `web/public/engines/` and `web
 | `web/src/board/` | board geometry `cells.generated.json` (121 cells with id and axial coordinates `q`, `r`) and `path.ts` (jump path for the move animation) |
 | `web/src/game/` | game state: move history, side to move, undo, new game |
 | `web/src/ui/`, `web/src/app/` | screens and components |
-| `web/src/skill/` | skill estimate: statistic, calibration, level encoding, background tracker (see [Skill estimate](#skill-estimate)) |
+| `web/src/guides/` | move guides: bands, marks, advantage text, background analysis (see [move guides](#move-guides)) |
+| `web/src/skill/` | skill estimate: statistic, calibration, level encoding, background tracker (see [skill estimate](#skill-estimate)) |
 | `web/src/i18n/` | German and English texts |
 | `web/src/bench/`, `web/bench/` | benchmark (see [web benchmark](web-benchmark.md)) |
 | `web/e2e/` | Playwright browser tests |
@@ -93,8 +99,8 @@ Code: `web/src/app/game-url.ts` (encode, decode and parse, pure functions withou
 ```
 
 - `g=v1.` is the version prefix.
-- `h=0` or `h=1` is the side the human plays. Side 0 (Blue in the UI) moves first; side 1 is Amber.
-- `l=<n>` is the strength level. A number 0 to 4 is an index into the node budgets 1,000, 5,000, 20,000, 100,000 and 500,000. A number 10 to 5,000,000 is a custom node budget itself, which the button "Match engine to my strength" sets (see [Skill estimate](#skill-estimate)); `l=7300` means 7,300 nodes per move. The numbers 5 to 9 and everything else are invalid.
+- `h=0` or `h=1` is the side the human plays. Side 0 moves first. The dialogs call side 0 Blue and side 1 Amber.
+- `l=<n>` is the level. A number 0 to 4 is an index into the five preset levels (1,000, 5,000, 20,000, 100,000 and 500,000 nodes). A number 10 to 5,000,000 is a custom level, the node budget itself, which the button "Match engine to my strength" sets (see [skill estimate](#skill-estimate)); `l=7300` means 7,300 nodes per move. The numbers 5 to 9 and everything else are invalid.
 
 `h` and `l` are optional for the parser; the app always writes both. An empty game at the default strength is `#g=v1.&h=0&l=2`.
 
@@ -104,7 +110,7 @@ Size, measured by the unit test `web/src/app/game-url.test.ts`: 100 plies give 1
 
 ### Routes
 
-`#/bench` and `#/about` open the benchmark and the about screen; these routes are unchanged by the game fragment. Any other fragment that is not a game fragment shows the play screen. When the user goes back from another screen to the play screen during a game, the app writes the current game into the address again.
+`#/bench` and `#/about` open the benchmark and the about screen. Any other fragment that is not a game fragment shows the play screen. When the user goes back from another screen to the play screen during a game, the app writes the current game into the address again.
 
 ### History
 
@@ -133,10 +139,10 @@ The parser is strict. It requires:
 - only the base64url alphabet, in canonical form: no padding characters and no non-zero spare bits
 - every cell between 0 and 120
 - at most 200 moves
-- `h` 0 or 1, `l` a number of one or two digits between 0 and 4; the two fields may come in either order, and either may be missing
+- `h` 0 or 1; `l` 0 to 4 or 10 to 5,000,000, without leading zeros; the two fields may come in either order, and either may be missing
 - no unknown fields and no repeated fields
 
-Anything else is a broken link, which the app reports and never repairs. Rationale: a repaired link could show a game that nobody sent, and the canonical payload rule makes each game's move list have exactly one text. Limit: the optional fields are less strict; `l=01` is read as level 1.
+Anything else is a broken link, which the app reports and never repairs. Rationale: a repaired link could show a game that nobody sent, and the canonical payload gives each move list exactly one text.
 
 The parser does not check whether the moves are legal; the engine does. `legalMoves(history)` rejects an illegal history with the error code `illegal-history` ([worker protocol](#the-worker-protocol)). The app asks the engine as soon as the engine is ready, while the dialog is still open, and again when the player continues the game. A broken link or an illegal history shows a plain message with the choice "Start a new game". A bad link never crashes the app.
 
@@ -175,7 +181,7 @@ No network player runs in the browser: the C++ port has no Monte Carlo tree sear
 
 - `engines()`: the list of server engines. `browser` always; `best` when the server finds `rows1.bin`; `net` when the property `sternhalma.app.weights` names a readable safetensors weights file.
 - `legalMoves(history)`: the legal moves after the history.
-- `choose(engineId, history, nodes)`: replays the history, creates a fresh player, searches and returns the same fields as `ChooseResult`. The node budget must be between 1 and 5,000,000. A semaphore limits concurrent searches to the number of CPU cores.
+- `choose(engineId, history, nodes)`: replays the history, creates a fresh player, searches and returns the same fields as `ChooseResult` ([the engine interface](#the-engine-interface)). The node budget must be between 1 and 5,000,000. A semaphore limits concurrent searches to the number of CPU cores.
 
 The server is stateless: no transposition table carries over between calls. The `net` player turns the node budget into `nodes / 100` simulations, at least one.
 
@@ -241,11 +247,11 @@ A failed request replies with `ok: false` and an `EngineError` with an English m
 - `position`: the best of `scores`, so the value of the position for the side to move (the best of the subset if a subset is given).
 - `nodes`: the nodes searched for all moves together; `ms`: the wall time inside the worker.
 
-The worker request has the type `analyse` with the fields `history`, `moves` and `nodes`; the reply is an `AnalysisResult`. Error codes: `illegal-move` (a move is not legal, or the list is empty), `illegal-history` (the game is over or the history is invalid) and `internal` (`nodes` is less than 1). An abort works as for `choose`: the client terminates the worker and starts a new one. The server engines reject the call with the code `unsupported`, because `GameEndpoint` has no analysis method yet. `rows1Requests` stays 0 as for `choose`.
+The worker request has the type `analyse` with the fields `history`, `moves` and `nodes`; the reply is an `AnalysisResult`. Error codes, in addition to those of [the worker protocol](#the-worker-protocol): `illegal-move` (a move is not legal, or the list is empty), `illegal-history` (the game is over or the history is invalid) and `internal` (`nodes` is less than 1). An abort works as for `choose`: the client terminates the worker and starts a new one. The server engines reject the call with the code `unsupported`, because `GameEndpoint` has no analysis method yet. `rows1Requests` stays 0 as for `choose`.
 
-**Method.** For each move, the engine makes the move, searches the resulting position with the full node budget and negates the score. The budget therefore applies per scored move. The search runs in a separate analysis player, not in the game players. It has its own transposition table of 2^16 entries, which the engine clears before every move, so a score depends neither on earlier calls nor on the order of the moves. Its specification is `BROWSER_SPEC` without race play (`race=1,racerows=2` removed), plus `tt=16`. Because the game players stay untouched, `choose` results and the benchmark fingerprint do not change; a test runs an analysis between every two moves and checks this. The three browser engines return identical scores for the same position and budget. The code is in `shw_analyse` in `cpp/src/wasm/wasm_api.cpp`, in `WebCore.analyse` in `teavm-web/`, and in `web/src/engines/cpp/core.ts` and `web/src/engines/java/core.ts`.
+**Method.** For each move, the engine makes the move, searches the resulting position with the full node budget and negates the score. The budget therefore applies per scored move. The search runs in a separate analysis player, not in the game players. It has its own transposition table of 2^16 entries, which the engine clears before every move, so a score depends neither on earlier calls nor on the order of the moves. Its specification is `BROWSER_SPEC` without race play (`race=1,racerows=2` removed), plus `tt=16`. A player specification is a comma-separated list of options: `race=1` turns on race play, `racerows=2` selects the table `rows2.bin`, `tt=N` sets a transposition table of 2^N entries, and `nodes=N` sets the node budget. Because the game players stay untouched, `choose` results and the benchmark fingerprint do not change; a test runs an analysis between every two moves and checks this. The three browser engines return identical scores for the same position and budget. The code is in `shw_analyse` in `cpp/src/wasm/wasm_api.cpp`, in `WebCore.analyse` in `teavm-web/`, and in `web/src/engines/cpp/core.ts` and `web/src/engines/java/core.ts`.
 
-**Scores.** The unit is the same as for `ChooseResult.score`. A score is always seen from the side that makes the move, and higher is better. A move that wins at once scores 999,999 (the mate value 1,000,000 minus one); a move that allows the opponent to win with the next move scores -999,998. In race positions, `choose` reports 0 for a move from race play, because race play does not search. The analysis player has no race play and searches such positions like any other, so its scores there are meaningful: at the first race move of a measured self-play game, all scores had the sign of the eventual winner.
+**Scores.** The unit is the same as for `ChooseResult.score`. A score is always seen from the side that makes the move, and higher is better. A move that wins at once scores 999,999 (the mate value 1,000,000 minus one); a move that allows the opponent to win with the next move scores -999,998. In race positions, `choose` reports 0 for a move from race play, because race play does not search. The analysis player has no race play and searches such positions like any other, so its scores there are meaningful.
 
 | Band | Range of \|score\| | Source of the leaf values |
 |---|---|---|
@@ -253,33 +259,77 @@ The worker request has the type `analyse` with the fields `history`, `moves` and
 | race | 5,000 to below 999,000 | race table; 200 points per race move |
 | win | 999,000 and above | a forced win was found |
 
-In the ordinary band, a logistic fit gives the probability that the side to move wins as 1 / (1 + exp(-score / 80)): 100 points are 78 %, 200 points 92 %, 300 points 98 %. The fit comes from 4,407 positions of 60 self-play games with 1,000 against 20,000 nodes, so the strength gap inflates these rates. Scores of one position vary by about 20 points between budgets. `web/src/engines/analysis.ts` exports `SCORE` (the band constants), `scoreScale = 80`, `advantage(score)` (a value from -1 to 1), `scoreBand`, `scoreLoss`, `GUIDE_NODES = 4000` and `SKILL_NODES = 20000`.
+In the ordinary band, a logistic fit gives the probability that the side to move wins as 1 / (1 + exp(-score / 80)): 100 points are 78 %, 200 points 92 %, 300 points 98 %. The fit comes from 4,407 positions of 60 self-play games with 1,000 against 20,000 nodes, so the strength gap inflates these rates. Scores of one position vary by about 20 points between budgets. `web/src/engines/analysis.ts` exports `SCORE` (the band constants), `scoreScale = 80`, `advantage(score)` (tanh(score / 160), which equals 2 × win probability − 1, a value from -1 to 1), `scoreBand`, `scoreLoss`, `GUIDE_NODES = 4000` and `SKILL_NODES = 20000`.
 
-**Speed.** `cpp-wasm` in Node.js analyses about 1.7 million nodes per second. All 68 legal moves of a mid-game position take 82 ms at 2,000 nodes per move, 197 ms at 5,000 and 726 ms at 20,000. `GUIDE_NODES` keeps such a position near 0.16 s; `SKILL_NODES` is meant for skill estimates in the background.
+**Speed.** On `cpp-wasm`, all 68 legal moves of a mid-game position take about 0.1 to 0.2 s at `GUIDE_NODES` (4,000 nodes per move, for the [move guides](#move-guides)) and about 0.7 s at `SKILL_NODES` (20,000 nodes per move, for the [skill estimate](#skill-estimate), which runs in the background). These figures come from the comments in `analysis.ts`; the measurement setup is not recorded.
 
 **Tests.** `web/src/engines/testing/analysis-suite.ts` runs against the C++ engine and both TeaVM targets; `web/src/engines/analysis.cross.test.ts` compares the engines; further tests are `WebFacadeTest` in `teavm-web/` and `cpp/wasm/test/analyse.mjs`.
 
+## Move guides
+
+Move guides are optional marks on the board that show how good each move is. The switch "Show move guides" turns them on; they are off by default. The app stores the choice in `localStorage` under the key `ml.guides` and works without storage too; the choice then lasts for the page only.
+
+**What is shown.**
+
+- **Piece badges.** Each piece that can move gets a badge with a ring. It rates the best move of that piece against the best move of the whole position.
+- **Target marks.** After the human selects a piece, each target cell gets a ring and a mark. It rates that move against the value of the position.
+- **Advantage bar.** A gauge near the board shows who is ahead, with a text such as "You: slightly ahead".
+- **Legend.** "What the marks mean" under the switch lists the five bands and their marks.
+
+The marks appear only while the board accepts input, that is on the human's turn.
+
+**The five bands.** Targets and pieces share five bands, five marks and five ring styles. A step is one step of progress towards the goal corner, about 30 points ([analysis API](#analysis-api)).
+
+| Band | Mark | Target: difference to the position value | Piece badge: its best move behind the best move of the position |
+|---|---|---|---|
+| much better | ▲▲ | 90 points or more | up to 30 points (text "best move: top") |
+| better | ▲ | more than 30, less than 90 | up to 90 (text "good") |
+| about equal | = | -30 to 30 | up to 180 (text "fair") |
+| worse | ▼ | more than -90, less than -30 | up to 300 (text "weak") |
+| much worse | ▼▼ | -90 or less | more than 300 (text "poor") |
+
+The limits are in `web/src/guides/bands.ts`: one step (30 points) is the half width of "about equal", because the scores of one position vary by about 20 points between budgets; three steps (90 points) mark "much". The piece ranks use 1, 3, 6 and 10 steps. Before the comparison, every forced win counts the same and every forced loss counts the same, so that two winning moves are never told apart by the number of plies to the win.
+
+**How the scores are computed.** On the human's turn, while the engine is idle, `web/src/guides/analyser.ts` calls `Engine.analyse(history, null, GUIDE_NODES)`: all legal moves, 4,000 nodes each. One position is analysed at a time. The result is cached by engine and history, so Undo and Back do not repeat the work. A move of the human, an undo or the engine's turn aborts a running analysis; the adapter then restarts its worker, as for any abort. `web/src/guides/model.ts` turns the scores into bands (`buildView`).
+
+**The advantage bar.** It shows the value of the position from the human's side. The text uses the score: below 30 points "Even", below 100 "slightly ahead", below 200 "clearly ahead", from 200 on "far ahead"; in the race band "ahead in the race"; for a forced win "wins by force in N plies" (`web/src/guides/advantage.ts`). After the human moves, the bar shows the cached score of that move at once. After the engine answers, the bar is dimmed and marked "updating" until the analysis of the new position is ready.
+
+**The reference problem.** The analysis returns the best score as the value of the position (`AnalysisResult.position`). Target bands compare each move with that value, so no target can be better than the position: the best target is "about equal", and the others are "about equal", "worse" or "much worse". The bands "better" and "much better" therefore appear only on piece badges, where they mean "top" and "good". `buildView(result, reference)` accepts another reference value, but no honest one is available: the engine's last `score` is 0 after a move from race play and is out of date after an undo. This stays open.
+
+**Accessibility.**
+
+- Colour is never the only carrier: each band has its own mark and its own ring style (width and dash pattern).
+- The accessible name of a cell includes the band, for example "e5, empty, target, much better", and of a piece its rank, for example "best move: top".
+- The advantage bar is a `role="meter"` with the text as `aria-valuetext`. The state of the analysis ("Analysing the position") is a polite live region.
+- The five guide colours reach a contrast of at least 3:1 against the board colours in the light and the dark theme; `web/src/guides/tokens.test.ts` computes the ratios from `tokens.css`. In forced-colours mode the marks use system colours.
+- The marks have no animation.
+- On small screens the marks grow with the other board marks ([small screens and touch](#small-screens-and-touch)).
+
+**Server engines.** The server engines reject `analyse` with the code `unsupported`. The guides then show "Move guides need an engine that runs in this browser." and draw no marks; choosing a browser engine brings them back. Any other error shows "Move guides are not available right now." for that position. A failure never stops the game.
+
+**Tests.** `web/src/guides/*.test.ts` (bands, model, advantage text, marks, preference, analyser, contrast), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the switch and the marks in a browser).
+
 ## Skill estimate
 
-**TL;DR:** While the human plays, the app scores each of the human's moves against the best move of the same position. From these losses it estimates a node budget that plays about as well, and one button sets the engine to it. The estimate is rough, and it is valid only for this scoring.
+While the human plays, the app scores each of the human's moves against the best move of the same position. From these losses it estimates a node budget that plays about as well, and one button sets the engine to it. The estimate is rough, and it is valid only for this scoring.
 
-**What is measured.** After each human move, the position before that move is analysed with `Engine.analyse(history, null, SKILL_NODES)` (all legal moves, 20,000 nodes each, see [Analysis API](#analysis-api)). The loss of the move is `scoreLoss(best score, score of the move played)`, in score points (about 30 points per step towards the goal corner). The statistic of a set of moves is the mean of the losses, each capped at `LOSS_CAP = 200` points (`web/src/skill/stats.ts`). The median is shown in the data but not used for the mapping.
+**What is measured.** After each human move, the position before that move is analysed with `Engine.analyse(history, null, SKILL_NODES)` (all legal moves, 20,000 nodes each, see [analysis API](#analysis-api)). The loss of the move is `scoreLoss(best score, score of the move played)`, in score points (about 30 points per step towards the goal corner). The statistic of a set of moves is the mean of the losses, each capped at `LOSS_CAP = 200` points (`web/src/skill/stats.ts`). The median is shown in the data but not used for the mapping.
 
-- *Why a capped mean.* A good player plays the best move most of the time, so the median is 0 for a wide range of strengths and cannot tell them apart (in the table below it is 0 from 1,000 nodes on). The plain mean fails the other way: race and mate scores reach 1,000,000 points, so one blunder into a lost position would be the whole statistic. The cap limits one move to 200 points, one move of race arithmetic and a swing of about 92 % in win probability.
-- *Minimum.* No estimate is shown below 8 analysed moves (`MIN_MOVES`). The card shows "N of 8 moves analysed" until then. With 8 moves the interval is wide; the card always shows the number of moves the estimate rests on.
+- *Why a capped mean.* A good player plays the best move most of the time, so the median is 0 for a wide range of strengths and cannot tell them apart (in the table below it is 0 at every budget from 1,000 nodes on except 2,000). The plain mean fails the other way: race and mate scores reach 1,000,000 points, so one blunder into a lost position would be the whole statistic. The cap limits one move to 200 points, one move of race arithmetic and a swing of about 92 % in win probability.
+- *Minimum.* No estimate is shown below 8 analysed moves (`MIN_MOVES`). The skill card shows "N of 8 moves analysed" until then. With 8 moves the interval is wide; the card always shows the number of moves the estimate rests on.
 - *Interval.* The card shows an 80 % interval: a seeded percentile bootstrap of the mean of the capped losses (400 resamples), mapped through the same function. It shows the sampling noise of the player's moves only. It does not include the noise of the calibration.
 
 **When it runs.** `web/src/skill/tracker.ts` (`SkillTracker`, framework-free) runs one analysis at a time, newest human move first, in the background of the engine worker.
 
-- It starts only while the engine is not thinking and it is the human's turn, after the legal moves of the position are loaded, and after the game has been quiet for 800 ms. One worker handles one request at a time and an analysis takes about a second. Without the quiet period, an analysis started right after the engine's move delayed the legal-move request of the next turn (found in the browser test). A player who moves faster than 800 ms after the engine's reply never waits for an analysis; one who moves while an analysis runs waits for it, up to about one second, before the engine starts its search.
+- It starts only while the engine is not thinking and it is the human's turn, after the legal moves of the position are loaded, and after the game has been quiet for 800 ms. One worker handles one request at a time and an analysis takes about a second. Without the quiet period, an analysis started right after the engine's move delayed the legal-move request of the next turn (found by the browser test `web/e2e/flow.spec.ts`). A player who moves faster than 800 ms after the engine's reply never waits for an analysis; one who moves while an analysis runs waits for it, up to about one second, before the engine starts its search.
 - It aborts the running analysis when the engine starts to think, when the history no longer contains the analysed position (undo, new game, a loaded game), and when the engine loads or is replaced. The adapter then restarts its worker, as for any abort. A result that arrives after an abort is dropped.
 - Results are cached by position and move. Undo, Back and an engine switch do not repeat finished work. The cache is valid across engines because all browser engines return identical analysis scores.
 - The human's moves of a loaded game link are analysed in the same way, newest first. The card shows "Analysing your moves: n of N".
 - A server engine rejects `analyse` with the code `unsupported`. The tracker then stops, and the card says that this engine cannot analyse moves. Choosing another engine tries again. Any other error stops the tracker and the card says so; the next engine switch resets it.
 
-**Calibration.** The mapping from the statistic to a node budget comes from measurements, not from a model. `scripts/web/calibrate-skill.zsh` (code in `scripts/web/calibrate-skill.mts`; run it inside `devenv shell`, after `devenv tasks run web:engines web:tables`) lets the C++ engine at each budget of a ladder play whole games against itself. The first 4 plies are random legal moves, seeded with 1000 to 1015, the same 16 seeds for every budget. For every engine move after the opening, the script measures the loss with the same analysis as the app (`analyse` at `SKILL_NODES`, same engine code). `web/src/skill/calibration.json` holds the result with the seeds, the number of games and moves, the engine version, the date and the definition of the statistic.
+**Calibration.** The mapping from the statistic to a node budget comes from measurements, not from a model. `scripts/web/calibrate-skill.zsh` (code in `scripts/web/calibrate-skill.mts`; run it inside `devenv shell`, after `devenv tasks run web:engines web:tables`) lets the C++ engine play whole games against itself at each node budget of a ladder: the 13 budgets from 50 to 500,000 nodes in the table below, one rung each. The first 4 plies are random legal moves, seeded with 1000 to 1015, the same 16 seeds for every budget. For every engine move after the opening, the script measures the loss with the same analysis as the app (`analyse` at `SKILL_NODES`, same engine code). `web/src/skill/calibration.json` holds the result with the seeds, the number of games and moves, the engine version, the date and the definition of the statistic.
 
-Result (16 games per budget, both sides measured, committed on 2026-11-18, engine version `3ac176f`):
+Result (16 games per budget, both sides measured, committed on 2026-11-18, engine built from commit `3ac176f`):
 
 | Budget (nodes) | Moves | Statistic ± standard error | Median | After smoothing |
 |---|---|---|---|---|
@@ -299,12 +349,12 @@ Result (16 games per budget, both sides measured, committed on 2026-11-18, engin
 
 The standard error treats the moves as independent, which they are not (moves of one game share a position type), so it is optimistic.
 
-- *Monotonicity.* The raw ladder is not monotone: 3 of 12 neighbouring pairs increase with the budget (1,000 to 2,000, 100,000 to 200,000, 200,000 to 500,000). The first increase (0.2 points) is within the standard error. The other two are larger than the combined standard error (1.2 points against about 0.6, and 2.5 against about 0.7), and the last shows the effect: 500,000 nodes lose more against the 20,000-node analysis than 100,000 nodes do. A search with much more budget than the analysis sees better moves than the analysis can confirm, so "agreement with a 20,000-node search" stops measuring strength there. The app therefore uses the isotonic fit (pool-adjacent-violators, weighted by the number of moves), which never increases with the budget. The column "After smoothing" shows it.
-- *The strong end.* From 50,000 nodes on, the smoothed ladder is flat. `resolvedUpTo` in the file (50,000) is the first budget within one standard error of that plateau, and the mapping uses only rungs up to it. A player whose statistic is as low as that or lower gets "at least 50,000 nodes" (the card says the real value may be higher). Levels 4 and 5 (100,000 and 500,000 nodes) cannot be told apart from level 3 and above by this method. A higher `SKILL_NODES` would move that limit up and make the background analysis proportionally slower.
+- *Monotonicity.* The raw ladder is not monotone: 3 of 12 neighbouring pairs increase with the budget (1,000 to 2,000, 100,000 to 200,000, 200,000 to 500,000). The first increase (0.2 points) is within the standard error. The other two are larger than the combined standard error (1.2 points against about 0.6, and 2.5 against about 0.7), and the last shows the effect: 500,000 nodes lose more against the 20,000-node analysis than 100,000 nodes do. A search with much more budget than the analysis sees better moves than the analysis can confirm, so "agreement with a 20,000-node search" stops measuring strength there. The app therefore uses the isotonic fit (pool-adjacent-violators, weighted by the number of moves): the closest fit that never increases with the budget. The column "After smoothing" shows it.
+- *The strong end.* From 50,000 nodes on, the smoothed ladder is flat. `resolvedUpTo` in `web/src/skill/calibration.json` (50,000) is the first budget within one standard error of that plateau, and the mapping uses only rungs up to it. A player whose statistic is as low as that or lower gets "at least 50,000 nodes" (the card says the real strength may be higher). Levels 4 and 5 (100,000 and 500,000 nodes) lie on the plateau, so this method cannot tell them apart from each other or from 50,000 nodes. A higher `SKILL_NODES` would move that limit up and make the background analysis proportionally slower.
 - *The weak end.* The engine at 10 and 20 nodes gave the same results as at 50 nodes (all 16 games gave the same number of moves and the same statistic), so 50 nodes is the weakest setting. Its statistic, 19.5, is far below that of a random mover: a test on the real engine measured 86.4 for 12 random moves (seed 2). A player who loses more than 19.5 points per move on average is weaker than anything the engine can be set to; the card then says "weaker than anything measured", and the button sets 50 nodes.
-- *The mapping* (`nodesForStat` in `web/src/skill/calibration.ts`) is piecewise linear between ladder points on log(nodes) and clamped at both ends. On a plateau it returns the middle of the plateau on the log scale. The card describes the result relative to the five levels ("between level 2 and level 3"), rounds it to two significant figures and shows the interval in nodes. Levels are counted from 1 as in the engine card.
+- *The mapping* (`nodesForStat` in `web/src/skill/calibration.ts`) is piecewise linear between ladder points on log(nodes) and clamped at both ends. On a plateau it returns the middle of the plateau on the log scale. The card describes the result relative to the five levels ("between level 2 and level 3"), rounds it to two significant figures and shows the interval in nodes. Levels are counted from 1, as in the engine card.
 
-**The button.** "Match engine to my strength" sets a custom level: `level` is then a node budget of 10 to 5,000,000 instead of an index 0 to 4 (`web/src/skill/level.ts`). The engine card shows "Custom" and the budget, and the game URL carries the budget in `l=` (see [Game URL](#game-url)). The game stays: `onApply` in `App.tsx` makes a new engine game with the new budget, and the engine replays the history on its next search. "Reset to level" goes back to the last preset level. The engine dialog shows the default level while a custom level is active; applying it replaces the custom level.
+**The button.** "Match engine to my strength" sets a custom level: `level` is then a node budget of 10 to 5,000,000 instead of an index 0 to 4 (`web/src/skill/level.ts`). The engine card shows "Custom" and the budget, and the game URL carries the budget in `l=` (see [game URL](#game-url)). The game stays: `onApply` in `App.tsx` makes a new engine game with the new budget, and the engine replays the history on its next search. "Back to preset level" goes back to the last preset level. The engine sheet shows the default level while a custom level is active; applying it replaces the custom level.
 
 **Limits.**
 
@@ -319,9 +369,9 @@ The standard error treats the moves as independent, which they are not (moves of
 
 The play screen has two presentations of one set of content. The breakpoint is 60 rem (960 px at the default font size). `useWide()` in `web/src/ui/useMedia.ts` reads it for React, and `web/src/ui/mobile.css` repeats it as `max-width: 59.99rem` for the layout.
 
-**Wide screens (60 rem and up).** Board on the left, side column on the right, as before. The side column holds the notice, the four buttons, the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
+**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the four game buttons (Undo, New game, Swap sides, Engine vs. engine), the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
 
-**Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: swap sides, engine demo, move guides, copy link, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
+**Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: Swap sides, Engine vs. engine, move guides, copy link, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
 
 - **Portrait.** Header (one row from 320 px; the mode badge keeps only its icon below 26 rem), status bar, board, advantage bar, bottom bar. The page is exactly as high as the viewport (`100dvh`) and does not scroll; the footer is hidden on this screen because the menu holds its content.
 - **Landscape phones** (height up to 32 rem). The header is one row. The board stands on the left. A column 12 to 17 rem wide holds the status bar, the advantage bar and the three actions, stacked.
@@ -332,12 +382,12 @@ The play screen has two presentations of one set of content. The breakpoint is 6
 
 **Touch input on the board** (`Board.tsx`, `touch-model.ts`).
 
-- **Tap and tap** as before. The hit circle of each cell is at least 44 CSS px wide (`hitRadiusUnits`): on a 320 px board the drawn cell is about 20 px, the hit circle 44 px, so neighbouring circles overlap. The nearest cell centre decides, not the topmost circle.
+- **Tap and tap.** A tap on a piece selects it, a tap on a target plays the move. The hit circle of each cell is at least 44 CSS px wide (`hitRadiusUnits`): on a board 320 px wide the drawn cell is about 16 px across (23 of the 468 units of the board width), the hit circle 44 px, so neighbouring circles overlap. The nearest cell centre decides, not the topmost circle.
 - **Drag and drop** with Pointer Events. A press on a movable piece followed by a move of more than 6 px picks the piece up and selects it. The piece follows the pointer; the nearest legal target within 22 px of the pointer is highlighted. Release there plays the move. Release anywhere else cancels the drop and leaves the piece selected. `pointercancel` cancels without a move. The click that follows a drag is ignored. This works with finger, pen and mouse.
 - **Gestures.** `touch-action: none` and `user-select: none` apply to the board only, and its `contextmenu` event is cancelled, so a long press opens no menu. The rest of the page uses `touch-action: manipulation` (no double-tap zoom; pinch zoom stays).
 - **Vibration.** A short `navigator.vibrate` on select, move and illegal target, wrapped in `try/catch`. Safari on iOS has no `vibrate`; nothing depends on it.
 - **No hover.** The mouse preview of a target is an addition; every action works without it.
-- **Keyboard and screen reader** are unchanged: one tab stop, arrow keys, Enter and Space, Escape.
+- **Keyboard and screen reader** work on every screen size: one tab stop, arrow keys, Enter and Space, Escape.
 - **Marks at small sizes.** Below 0.9 px per board unit (a board narrower than about 420 px) the select ring, the target rings and dots, and the guide badges grow by up to 1.5 times (`markBoost`, CSS variable `--ml-boost`). Colour is still never the only carrier: each band has its own glyph.
 
 **Targets.** Buttons, links, the language and theme switches, the sliders and the switch labels are at least 44 px high and wide on small screens. `web/e2e/mobile.spec.ts` measures this.
@@ -437,7 +487,7 @@ CI runs neither the native C++ tests (the Linux devenv shell has no host C++ com
 ## Known limits
 
 - **Safari and Wasm GC.** MDN lists Safari 18.4 for the Wasm GC features TeaVM uses; caniuse lists no Safari version. Nobody has tested a real Safari. When the feature check fails, the session starts with `cpp-wasm` instead.
-- **No benchmark in the browser.** As of 2026-11-18, the benchmark screen of the app is not connected to the benchmark code and shows that the benchmark is not part of the build. The separate benchmark page `web/bench/index.html` is not part of the Vite build, and under the Vite development server it fails to load the C++ engine. The benchmark in Node.js (`devenv tasks run web:bench`) works. Details in [web benchmark](web-benchmark.md#what-the-benchmark-does-not-measure).
+- **Benchmark in the browser.** The benchmark screen of the app (`#/bench`) runs the benchmark in the browser, but a web page cannot read the CPU time of a worker and reads memory only for `cpp-wasm`. The separate benchmark page `web/bench/index.html` is not part of the Vite build, and under the Vite development server it fails to load the C++ engine. The benchmark in Node.js (`devenv tasks run web:bench`) works. Details in [web benchmark](web-benchmark.md#what-the-benchmark-does-not-measure).
 - **Node for the Hilla build.** The Vaadin Gradle plugin downloads its own Node.js (24.22.2) into `~/.vaadin` for the production front-end build. No plugin option to use the Node.js of devenv was found.
 - **TornadoVM in the online mode** was run once, on 2026-11-18 on an Apple M3 Max: the server selected the Metal device and `server:net` answered a move with a small test weights file. Its playing strength in the online mode was not measured.
 - **No offline cache.** The site has no service worker, so it needs the network on every visit.

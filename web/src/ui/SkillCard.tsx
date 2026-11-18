@@ -21,7 +21,7 @@ export interface SkillCardProps {
   level: number;
   /** "Match engine to my strength": the level (a custom node budget) to play at. */
   onMatch: (level: number) => void;
-  /** "Reset to level": back to a preset level. */
+  /** "Back to preset level": back to a preset level. */
   onReset: () => void;
   calibration?: Calibration;
 }

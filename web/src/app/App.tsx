@@ -88,7 +88,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   /** The side the human played last; stays while a demo runs, so that "new game" returns to it. */
   const lastHuman = useRef<Side>(1);
   const levelRef = useRef(levelOf(setup, DEFAULT_LEVEL));
-  /** The last preset level: where "Reset to level" of the skill card goes back to. */
+  /** The last preset level: where "Back to preset level" of the skill card goes back to. */
   const presetLevel = useRef(DEFAULT_LEVEL);
   const started = useRef(false);
   const booted = useRef(false);

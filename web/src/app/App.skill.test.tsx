@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The skill estimate in the app, with the fake engine: the human's moves are analysed in the background, the card shows the
-// estimate after 8 moves, "Match engine to my strength" sets a custom level (in the address too), "Reset to level" undoes it.
+// estimate after 8 moves, "Match engine to my strength" sets a custom level (in the address too), "Back to preset level" undoes it.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
@@ -93,7 +93,7 @@ describe('skill estimate in the app', () => {
     expect(button('Match engine to my strength').disabled).toBe(false);
   }, 30_000);
 
-  it('"Match engine to my strength" sets a custom level shown on the engine card and in the address; "Reset to level" goes back', async () => {
+  it('"Match engine to my strength" sets a custom level shown on the engine card and in the address; "Back to preset level" goes back', async () => {
     const nav = new FakeNavigation('');
     await start(nav);
     for (let i = 0; i < 8; i++) await humanMove();
@@ -106,7 +106,7 @@ describe('skill estimate in the app', () => {
     if (link.kind !== 'game') return;
     expect(link.link.level).toBeGreaterThanOrEqual(10); // a node budget, not a preset index
     expect(plies()).toBe(movesBefore); // the game stays
-    await click(button('Reset to level'));
+    await click(button('Back to preset level'));
     await until(() => !(q('.ml-engine__level')?.textContent ?? '').includes('Custom'), 'preset level again');
     const back = parseHash(nav.hash);
     expect(back.kind === 'game' && back.link.level).toBe(2);
