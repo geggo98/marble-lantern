@@ -6,6 +6,11 @@ import { MOVE_LIMIT, initialOwners } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import type { EngineId } from '../engines/engine';
 import { Board } from '../ui/Board';
+import { AdvantageBar } from '../ui/AdvantageBar';
+import { GuideSettings } from '../ui/GuideSettings';
+import { useGuides } from '../guides/useGuides';
+import { loadGuidesPreference, saveGuidesPreference } from '../guides/preference';
+import type { AnalyseFn } from '../guides/analyser';
 import { CopyLink } from '../ui/Chrome';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
@@ -22,6 +27,8 @@ import type { SessionError } from './session';
 export interface PlayModel {
   game: GameController;
   session: EngineSession;
+  /** The engine's analyse method, for the move guides. */
+  analyse: AnalyseFn;
   humanSide: Side;
   demo: boolean;
   level: number;
@@ -91,6 +98,11 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const rotated = aSide === 0;
   const styleOf = (side: number): SideStyle => (side === aSide ? 'a' : 'b');
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.sideToMove === humanSide;
+  const [guidesOn, setGuidesOn] = useState(loadGuidesPreference);
+  const guides = useGuides({
+    analyse: model.analyse, scope: s.current?.info.id ?? null, enabled: guidesOn && !demo, humanTurn, history: state.history,
+  });
+  const boardGuides = useMemo(() => (guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guides.view]);
   const sideLabel = (side: Side): string =>
     demo ? t(styleOf(side) === 'a' ? 'cell_side_a' : 'cell_side_b') : t(side === humanSide ? 'cell_own' : 'cell_other');
   const who = (side: Side): string => (demo ? t(styleOf(side) === 'a' ? 'side_a' : 'side_b') : t(side === humanSide ? 'side_you' : 'side_engine'));
@@ -158,14 +170,19 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           legal={state.legal}
           interactive={humanTurn}
           inert={!humanTurn}
+          guides={boardGuides}
           aSide={aSide}
           rotated={rotated}
           plies={state.history.length}
           last={last}
           halo={halo}
           sideLabel={sideLabel}
-          onMove={(move) => void game.play(move).catch(() => undefined)}
+          onMove={(move) => {
+            guides.noteMove(move);
+            void game.play(move).catch(() => undefined);
+          }}
         />
+        {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
         <p className="ml-visually-hidden" role="status" aria-live="polite">
           {last ? t('announce_move', { side: who(last.side), from: cellName(last.from), to: cellName(last.to) }) : ''}
         </p>
@@ -180,6 +197,14 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           onUndo={model.onUndo}
           onSwap={model.onSwap}
           onDemo={model.onDemo}
+        />
+        <GuideSettings
+          enabled={guidesOn}
+          status={guides.status}
+          onChange={(on) => {
+            setGuidesOn(on);
+            saveGuidesPreference(on);
+          }}
         />
         <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
         <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
