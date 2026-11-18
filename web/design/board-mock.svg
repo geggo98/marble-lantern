@@ -1,0 +1,236 @@
+<svg class="ml-board__svg" width="468" height="532" viewBox="-234 -266 468 532" role="group" aria-label="marble-lantern board mock: side A (plain) to move, one piece selected" xmlns="http://www.w3.org/2000/svg">
+<title>marble-lantern board mock</title>
+<style>
+svg{--ml-color-focus:#5b2bd9;--ml-color-danger:#a3261b;--ml-board-star:#e7dcc6;--ml-board-star-edge:#b9aa8b;--ml-board-glow:#f3ead8;--ml-board-socket:#cfc0a2;--ml-board-socket-edge:#84765c;--ml-board-select:#1f1b16;--ml-board-target:#1f1b16;--ml-piece-a:#e39a0b;--ml-piece-a-hi:#ffd476;--ml-piece-a-lo:#b46f00;--ml-piece-a-edge:#6b4100;--ml-piece-a-text:#7a4a00;--ml-piece-b:#1565ad;--ml-piece-b-hi:#5fa8e6;--ml-piece-b-lo:#0a4379;--ml-piece-b-edge:#062c52;--ml-piece-b-mark:#fff6e0;--ml-piece-b-text:#0f538f;}
+@media (prefers-color-scheme: dark){svg{--ml-color-focus:#c2adff;--ml-color-danger:#ff9d90;--ml-board-star:#25201b;--ml-board-star-edge:#4a4135;--ml-board-glow:#3a2f20;--ml-board-socket:#120f0c;--ml-board-socket-edge:#7a6d5a;--ml-board-select:#f2ebdf;--ml-board-target:#f2ebdf;--ml-piece-a:#f0aa1f;--ml-piece-a-hi:#ffe19a;--ml-piece-a-lo:#b87400;--ml-piece-a-edge:#ffd88a;--ml-piece-a-text:#f3b744;--ml-piece-b:#2f7fcc;--ml-piece-b-hi:#8cc4f5;--ml-piece-b-lo:#114a85;--ml-piece-b-edge:#a9d4f8;--ml-piece-b-mark:#fff6e0;--ml-piece-b-text:#7fbaf0;}}
+/* ===== board ===== */
+.ml-board { margin-inline: calc(var(--ml-gutter) * -0.5); }
+.ml-board__svg { display: block; width: 100%; height: auto; touch-action: manipulation; }
+
+.ml-board__svg.is-inert { cursor: progress; }
+.ml-board__plate-edge { fill: var(--ml-board-star-edge); stroke: var(--ml-board-star-edge); stroke-width: 51; stroke-linejoin: round; }
+.ml-board__plate-fill { fill: url(#ml-plate); stroke: url(#ml-plate); stroke-width: 48; stroke-linejoin: round; }
+.ml-stop-glow { stop-color: var(--ml-board-glow); }
+.ml-stop-star { stop-color: var(--ml-board-star); }
+.ml-socket { fill: var(--ml-board-socket); stroke: var(--ml-board-socket-edge); stroke-width: 1; }
+.ml-socket--goal-a { stroke: var(--ml-piece-a-text); stroke-width: 2.5; }
+.ml-socket--goal-b { stroke: var(--ml-piece-b-text); stroke-width: 2.5; }
+.ml-socket__mark-b { fill: none; stroke: var(--ml-piece-b-text); stroke-width: 1.6; }
+
+/* pieces: side A plain, side B carries a ring */
+.ml-piece__shadow { fill: #000; opacity: 0.22; }
+.ml-piece__body--a { fill: url(#ml-grad-a); stroke: var(--ml-piece-a-edge); stroke-width: 1.5; }
+.ml-piece__body--b { fill: url(#ml-grad-b); stroke: var(--ml-piece-b-edge); stroke-width: 1.5; }
+.ml-piece__mark { fill: none; stroke: var(--ml-piece-b-mark); stroke-width: 2.8; }
+.ml-piece__shine { fill: #fff; opacity: 0.5; }
+.ml-stop-a-hi { stop-color: var(--ml-piece-a-hi); } .ml-stop-a { stop-color: var(--ml-piece-a); } .ml-stop-a-lo { stop-color: var(--ml-piece-a-lo); }
+.ml-stop-b-hi { stop-color: var(--ml-piece-b-hi); } .ml-stop-b { stop-color: var(--ml-piece-b); } .ml-stop-b-lo { stop-color: var(--ml-piece-b-lo); }
+
+/* selection, targets, preview */
+.ml-select { fill: none; stroke: var(--ml-board-select); stroke-width: 3; }
+.ml-target__ring { fill: none; stroke: var(--ml-board-target); stroke-width: 2.2; }
+.ml-target__dot { fill: var(--ml-board-target); }
+.ml-preview__line { fill: none; stroke: var(--ml-board-select); stroke-width: 2.5; stroke-dasharray: 2 6; stroke-linecap: round; stroke-linejoin: round; }
+.ml-preview__ghost { opacity: 0.55; }
+
+/* last move trail */
+.ml-trail__line { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: 0.6; }
+.ml-trail__origin { fill: none; stroke-width: 2.5; stroke-dasharray: 3 3.5; }
+.ml-trail__dest { fill: none; stroke-width: 2.5; }
+.ml-trail--a .ml-trail__line, .ml-trail--a .ml-trail__origin, .ml-trail--a .ml-trail__dest { stroke: var(--ml-piece-a-text); }
+.ml-trail--b .ml-trail__line, .ml-trail--b .ml-trail__origin, .ml-trail--b .ml-trail__dest { stroke: var(--ml-piece-b-text); }
+.ml-trail--a .ml-trail__hop { fill: var(--ml-piece-a-text); }
+.ml-trail--b .ml-trail__hop { fill: var(--ml-piece-b-text); }
+
+/* keyboard focus on a cell, illegal click, result halo */
+.ml-cellfocus { fill: none; stroke: var(--ml-color-focus); stroke-width: 3.5; }
+.ml-cellfocus__gap { fill: none; stroke: var(--ml-board-star); stroke-width: 2; }
+.ml-illegal circle { fill: none; stroke: var(--ml-color-danger); stroke-width: 2.5; }
+.ml-illegal path { fill: none; stroke: var(--ml-color-danger); stroke-width: 2.5; stroke-linecap: round; }
+.ml-illegal { transform-box: fill-box; transform-origin: center; animation: ml-nudge 240ms var(--ml-ease) 1; }
+@keyframes ml-nudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.ml-halo { fill: none; stroke: var(--ml-board-select); stroke-width: 2; stroke-dasharray: 1 5; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .ml-illegal { animation: none; } }
+
+</style>
+<defs>
+<radialGradient id="ml-plate" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="250"><stop offset="0" class="ml-stop-glow"/><stop offset="1" class="ml-stop-star"/></radialGradient>
+<radialGradient id="ml-grad-a" cx="0.36" cy="0.3" r="0.78"><stop offset="0" class="ml-stop-a-hi"/><stop offset="0.45" class="ml-stop-a"/><stop offset="1" class="ml-stop-a-lo"/></radialGradient>
+<radialGradient id="ml-grad-b" cx="0.36" cy="0.3" r="0.78"><stop offset="0" class="ml-stop-b-hi"/><stop offset="0.45" class="ml-stop-b"/><stop offset="1" class="ml-stop-b-lo"/></radialGradient>
+<g id="ml-piece-a"><circle class="ml-piece__shadow" cy="2" r="13.5"/><circle class="ml-piece__body--a" r="13.5"/><ellipse class="ml-piece__shine" cx="-4.8" cy="-6.4" rx="3.6" ry="2.1" transform="rotate(-32 -4.8 -6.4)"/></g>
+<g id="ml-piece-b"><circle class="ml-piece__shadow" cy="2" r="13.5"/><circle class="ml-piece__body--b" r="13.5"/><circle class="ml-piece__mark" r="6.2"/><ellipse class="ml-piece__shine" cx="-4.8" cy="-6.4" rx="3.6" ry="2.1" transform="rotate(-32 -4.8 -6.4)"/></g>
+</defs>
+
+<g class="ml-board__plate">
+<polygon class="ml-board__plate-edge" points="0.0,-240.0 207.8,120.0 -207.8,120.0"/>
+<polygon class="ml-board__plate-edge" points="0.0,240.0 -207.8,-120.0 207.8,-120.0"/>
+<polygon class="ml-board__plate-fill" points="0.0,-240.0 207.8,120.0 -207.8,120.0"/>
+<polygon class="ml-board__plate-fill" points="0.0,240.0 -207.8,-120.0 207.8,-120.0"/>
+</g><g class="ml-board__sockets">
+<circle class="ml-socket ml-socket--goal-a" cx="0.0" cy="-240.0" r="11.5" data-cell="A1"/>
+<circle class="ml-socket ml-socket--goal-a" cx="-17.3" cy="-210.0" r="11.5" data-cell="B1"/>
+<circle class="ml-socket ml-socket--goal-a" cx="17.3" cy="-210.0" r="11.5" data-cell="B2"/>
+<circle class="ml-socket ml-socket--goal-a" cx="-34.6" cy="-180.0" r="11.5" data-cell="C1"/>
+<circle class="ml-socket ml-socket--goal-a" cx="0.0" cy="-180.0" r="11.5" data-cell="C2"/>
+<circle class="ml-socket ml-socket--goal-a" cx="34.6" cy="-180.0" r="11.5" data-cell="C3"/>
+<circle class="ml-socket ml-socket--goal-a" cx="-52.0" cy="-150.0" r="11.5" data-cell="D1"/>
+<circle class="ml-socket ml-socket--goal-a" cx="-17.3" cy="-150.0" r="11.5" data-cell="D2"/>
+<circle class="ml-socket ml-socket--goal-a" cx="17.3" cy="-150.0" r="11.5" data-cell="D3"/>
+<circle class="ml-socket ml-socket--goal-a" cx="52.0" cy="-150.0" r="11.5" data-cell="D4"/>
+<circle class="ml-socket" cx="-207.8" cy="-120.0" r="11.5" data-cell="E1"/>
+<circle class="ml-socket" cx="-173.2" cy="-120.0" r="11.5" data-cell="E2"/>
+<circle class="ml-socket" cx="-138.6" cy="-120.0" r="11.5" data-cell="E3"/>
+<circle class="ml-socket" cx="-103.9" cy="-120.0" r="11.5" data-cell="E4"/>
+<circle class="ml-socket" cx="-69.3" cy="-120.0" r="11.5" data-cell="E5"/>
+<circle class="ml-socket" cx="-34.6" cy="-120.0" r="11.5" data-cell="E6"/>
+<circle class="ml-socket" cx="0.0" cy="-120.0" r="11.5" data-cell="E7"/>
+<circle class="ml-socket" cx="34.6" cy="-120.0" r="11.5" data-cell="E8"/>
+<circle class="ml-socket" cx="69.3" cy="-120.0" r="11.5" data-cell="E9"/>
+<circle class="ml-socket" cx="103.9" cy="-120.0" r="11.5" data-cell="E10"/>
+<circle class="ml-socket" cx="138.6" cy="-120.0" r="11.5" data-cell="E11"/>
+<circle class="ml-socket" cx="173.2" cy="-120.0" r="11.5" data-cell="E12"/>
+<circle class="ml-socket" cx="207.8" cy="-120.0" r="11.5" data-cell="E13"/>
+<circle class="ml-socket" cx="-190.5" cy="-90.0" r="11.5" data-cell="F1"/>
+<circle class="ml-socket" cx="-155.9" cy="-90.0" r="11.5" data-cell="F2"/>
+<circle class="ml-socket" cx="-121.2" cy="-90.0" r="11.5" data-cell="F3"/>
+<circle class="ml-socket" cx="-86.6" cy="-90.0" r="11.5" data-cell="F4"/>
+<circle class="ml-socket" cx="-52.0" cy="-90.0" r="11.5" data-cell="F5"/>
+<circle class="ml-socket" cx="-17.3" cy="-90.0" r="11.5" data-cell="F6"/>
+<circle class="ml-socket" cx="17.3" cy="-90.0" r="11.5" data-cell="F7"/>
+<circle class="ml-socket" cx="52.0" cy="-90.0" r="11.5" data-cell="F8"/>
+<circle class="ml-socket" cx="86.6" cy="-90.0" r="11.5" data-cell="F9"/>
+<circle class="ml-socket" cx="121.2" cy="-90.0" r="11.5" data-cell="F10"/>
+<circle class="ml-socket" cx="155.9" cy="-90.0" r="11.5" data-cell="F11"/>
+<circle class="ml-socket" cx="190.5" cy="-90.0" r="11.5" data-cell="F12"/>
+<circle class="ml-socket" cx="-173.2" cy="-60.0" r="11.5" data-cell="G1"/>
+<circle class="ml-socket" cx="-138.6" cy="-60.0" r="11.5" data-cell="G2"/>
+<circle class="ml-socket" cx="-103.9" cy="-60.0" r="11.5" data-cell="G3"/>
+<circle class="ml-socket" cx="-69.3" cy="-60.0" r="11.5" data-cell="G4"/>
+<circle class="ml-socket" cx="-34.6" cy="-60.0" r="11.5" data-cell="G5"/>
+<circle class="ml-socket" cx="0.0" cy="-60.0" r="11.5" data-cell="G6"/>
+<circle class="ml-socket" cx="34.6" cy="-60.0" r="11.5" data-cell="G7"/>
+<circle class="ml-socket" cx="69.3" cy="-60.0" r="11.5" data-cell="G8"/>
+<circle class="ml-socket" cx="103.9" cy="-60.0" r="11.5" data-cell="G9"/>
+<circle class="ml-socket" cx="138.6" cy="-60.0" r="11.5" data-cell="G10"/>
+<circle class="ml-socket" cx="173.2" cy="-60.0" r="11.5" data-cell="G11"/>
+<circle class="ml-socket" cx="-155.9" cy="-30.0" r="11.5" data-cell="H1"/>
+<circle class="ml-socket" cx="-121.2" cy="-30.0" r="11.5" data-cell="H2"/>
+<circle class="ml-socket" cx="-86.6" cy="-30.0" r="11.5" data-cell="H3"/>
+<circle class="ml-socket" cx="-52.0" cy="-30.0" r="11.5" data-cell="H4"/>
+<circle class="ml-socket" cx="-17.3" cy="-30.0" r="11.5" data-cell="H5"/>
+<circle class="ml-socket" cx="17.3" cy="-30.0" r="11.5" data-cell="H6"/>
+<circle class="ml-socket" cx="52.0" cy="-30.0" r="11.5" data-cell="H7"/>
+<circle class="ml-socket" cx="86.6" cy="-30.0" r="11.5" data-cell="H8"/>
+<circle class="ml-socket" cx="121.2" cy="-30.0" r="11.5" data-cell="H9"/>
+<circle class="ml-socket" cx="155.9" cy="-30.0" r="11.5" data-cell="H10"/>
+<circle class="ml-socket" cx="-138.6" cy="0.0" r="11.5" data-cell="I1"/>
+<circle class="ml-socket" cx="-103.9" cy="0.0" r="11.5" data-cell="I2"/>
+<circle class="ml-socket" cx="-69.3" cy="0.0" r="11.5" data-cell="I3"/>
+<circle class="ml-socket" cx="-34.6" cy="0.0" r="11.5" data-cell="I4"/>
+<circle class="ml-socket" cx="0.0" cy="0.0" r="11.5" data-cell="I5"/>
+<circle class="ml-socket" cx="34.6" cy="0.0" r="11.5" data-cell="I6"/>
+<circle class="ml-socket" cx="69.3" cy="0.0" r="11.5" data-cell="I7"/>
+<circle class="ml-socket" cx="103.9" cy="0.0" r="11.5" data-cell="I8"/>
+<circle class="ml-socket" cx="138.6" cy="0.0" r="11.5" data-cell="I9"/>
+<circle class="ml-socket" cx="-155.9" cy="30.0" r="11.5" data-cell="J1"/>
+<circle class="ml-socket" cx="-121.2" cy="30.0" r="11.5" data-cell="J2"/>
+<circle class="ml-socket" cx="-86.6" cy="30.0" r="11.5" data-cell="J3"/>
+<circle class="ml-socket" cx="-52.0" cy="30.0" r="11.5" data-cell="J4"/>
+<circle class="ml-socket" cx="-17.3" cy="30.0" r="11.5" data-cell="J5"/>
+<circle class="ml-socket" cx="17.3" cy="30.0" r="11.5" data-cell="J6"/>
+<circle class="ml-socket" cx="52.0" cy="30.0" r="11.5" data-cell="J7"/>
+<circle class="ml-socket" cx="86.6" cy="30.0" r="11.5" data-cell="J8"/>
+<circle class="ml-socket" cx="121.2" cy="30.0" r="11.5" data-cell="J9"/>
+<circle class="ml-socket" cx="155.9" cy="30.0" r="11.5" data-cell="J10"/>
+<circle class="ml-socket" cx="-173.2" cy="60.0" r="11.5" data-cell="K1"/>
+<circle class="ml-socket" cx="-138.6" cy="60.0" r="11.5" data-cell="K2"/>
+<circle class="ml-socket" cx="-103.9" cy="60.0" r="11.5" data-cell="K3"/>
+<circle class="ml-socket" cx="-69.3" cy="60.0" r="11.5" data-cell="K4"/>
+<circle class="ml-socket" cx="-34.6" cy="60.0" r="11.5" data-cell="K5"/>
+<circle class="ml-socket" cx="0.0" cy="60.0" r="11.5" data-cell="K6"/>
+<circle class="ml-socket" cx="34.6" cy="60.0" r="11.5" data-cell="K7"/>
+<circle class="ml-socket" cx="69.3" cy="60.0" r="11.5" data-cell="K8"/>
+<circle class="ml-socket" cx="103.9" cy="60.0" r="11.5" data-cell="K9"/>
+<circle class="ml-socket" cx="138.6" cy="60.0" r="11.5" data-cell="K10"/>
+<circle class="ml-socket" cx="173.2" cy="60.0" r="11.5" data-cell="K11"/>
+<circle class="ml-socket" cx="-190.5" cy="90.0" r="11.5" data-cell="L1"/>
+<circle class="ml-socket" cx="-155.9" cy="90.0" r="11.5" data-cell="L2"/>
+<circle class="ml-socket" cx="-121.2" cy="90.0" r="11.5" data-cell="L3"/>
+<circle class="ml-socket" cx="-86.6" cy="90.0" r="11.5" data-cell="L4"/>
+<circle class="ml-socket" cx="-52.0" cy="90.0" r="11.5" data-cell="L5"/>
+<circle class="ml-socket" cx="-17.3" cy="90.0" r="11.5" data-cell="L6"/>
+<circle class="ml-socket" cx="17.3" cy="90.0" r="11.5" data-cell="L7"/>
+<circle class="ml-socket" cx="52.0" cy="90.0" r="11.5" data-cell="L8"/>
+<circle class="ml-socket" cx="86.6" cy="90.0" r="11.5" data-cell="L9"/>
+<circle class="ml-socket" cx="121.2" cy="90.0" r="11.5" data-cell="L10"/>
+<circle class="ml-socket" cx="155.9" cy="90.0" r="11.5" data-cell="L11"/>
+<circle class="ml-socket" cx="190.5" cy="90.0" r="11.5" data-cell="L12"/>
+<circle class="ml-socket" cx="-207.8" cy="120.0" r="11.5" data-cell="M1"/>
+<circle class="ml-socket" cx="-173.2" cy="120.0" r="11.5" data-cell="M2"/>
+<circle class="ml-socket" cx="-138.6" cy="120.0" r="11.5" data-cell="M3"/>
+<circle class="ml-socket" cx="-103.9" cy="120.0" r="11.5" data-cell="M4"/>
+<circle class="ml-socket" cx="-69.3" cy="120.0" r="11.5" data-cell="M5"/>
+<circle class="ml-socket" cx="-34.6" cy="120.0" r="11.5" data-cell="M6"/>
+<circle class="ml-socket" cx="0.0" cy="120.0" r="11.5" data-cell="M7"/>
+<circle class="ml-socket" cx="34.6" cy="120.0" r="11.5" data-cell="M8"/>
+<circle class="ml-socket" cx="69.3" cy="120.0" r="11.5" data-cell="M9"/>
+<circle class="ml-socket" cx="103.9" cy="120.0" r="11.5" data-cell="M10"/>
+<circle class="ml-socket" cx="138.6" cy="120.0" r="11.5" data-cell="M11"/>
+<circle class="ml-socket" cx="173.2" cy="120.0" r="11.5" data-cell="M12"/>
+<circle class="ml-socket" cx="207.8" cy="120.0" r="11.5" data-cell="M13"/>
+<circle class="ml-socket ml-socket--goal-b" cx="-52.0" cy="150.0" r="11.5" data-cell="N1"/>
+<circle class="ml-socket__mark-b" cx="-52.0" cy="150.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="-17.3" cy="150.0" r="11.5" data-cell="N2"/>
+<circle class="ml-socket__mark-b" cx="-17.3" cy="150.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="17.3" cy="150.0" r="11.5" data-cell="N3"/>
+<circle class="ml-socket__mark-b" cx="17.3" cy="150.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="52.0" cy="150.0" r="11.5" data-cell="N4"/>
+<circle class="ml-socket__mark-b" cx="52.0" cy="150.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="-34.6" cy="180.0" r="11.5" data-cell="O1"/>
+<circle class="ml-socket__mark-b" cx="-34.6" cy="180.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="0.0" cy="180.0" r="11.5" data-cell="O2"/>
+<circle class="ml-socket__mark-b" cx="0.0" cy="180.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="34.6" cy="180.0" r="11.5" data-cell="O3"/>
+<circle class="ml-socket__mark-b" cx="34.6" cy="180.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="-17.3" cy="210.0" r="11.5" data-cell="P1"/>
+<circle class="ml-socket__mark-b" cx="-17.3" cy="210.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="17.3" cy="210.0" r="11.5" data-cell="P2"/>
+<circle class="ml-socket__mark-b" cx="17.3" cy="210.0" r="5.6"/>
+<circle class="ml-socket ml-socket--goal-b" cx="0.0" cy="240.0" r="11.5" data-cell="Q1"/>
+<circle class="ml-socket__mark-b" cx="0.0" cy="240.0" r="5.6"/>
+</g>
+<g class="ml-targets">
+<circle class="ml-target__ring" cx="69.3" cy="60.0" r="11.5"/><circle class="ml-target__dot" cx="69.3" cy="60.0" r="4.5"/>
+<circle class="ml-target__ring" cx="69.3" cy="120.0" r="11.5"/><circle class="ml-target__dot" cx="69.3" cy="120.0" r="4.5"/>
+<circle class="ml-target__ring" cx="121.2" cy="30.0" r="11.5"/><circle class="ml-target__dot" cx="121.2" cy="30.0" r="4.5"/>
+<circle class="ml-target__ring" cx="52.0" cy="30.0" r="11.5"/><circle class="ml-target__dot" cx="52.0" cy="30.0" r="4.5"/>
+<circle class="ml-target__ring" cx="86.6" cy="-30.0" r="11.5"/><circle class="ml-target__dot" cx="86.6" cy="-30.0" r="4.5"/>
+<circle class="ml-target__ring" cx="-17.3" cy="-90.0" r="11.5"/><circle class="ml-target__dot" cx="-17.3" cy="-90.0" r="4.5"/>
+<circle class="ml-target__ring" cx="17.3" cy="-30.0" r="11.5"/><circle class="ml-target__dot" cx="17.3" cy="-30.0" r="4.5"/>
+</g>
+<polyline class="ml-preview__line" points="86.6,90.0 121.2,30.0 52.0,30.0 86.6,-30.0 52.0,-90.0"/>
+<g class="ml-pieces">
+<use href="#ml-piece-b" transform="translate(-17.3 -210.0)"/>
+<use href="#ml-piece-b" transform="translate(17.3 -210.0)"/>
+<use href="#ml-piece-b" transform="translate(-52.0 -150.0)"/>
+<use href="#ml-piece-b" transform="translate(-69.3 -120.0)"/>
+<use href="#ml-piece-b" transform="translate(69.3 -120.0)"/>
+<use href="#ml-piece-b" transform="translate(0.0 -60.0)"/>
+<use href="#ml-piece-b" transform="translate(69.3 0.0)"/>
+<use href="#ml-piece-b" transform="translate(-17.3 30.0)"/>
+<use href="#ml-piece-b" transform="translate(86.6 30.0)"/>
+<use href="#ml-piece-b" transform="translate(52.0 90.0)"/>
+<use href="#ml-piece-a" transform="translate(17.3 -90.0)"/>
+<use href="#ml-piece-a" transform="translate(69.3 -60.0)"/>
+<use href="#ml-piece-a" transform="translate(0.0 0.0)"/>
+<use href="#ml-piece-a" transform="translate(103.9 60.0)"/>
+<use href="#ml-piece-a" transform="translate(17.3 90.0)"/>
+<use class="is-selected" href="#ml-piece-a" transform="translate(86.6 90.0) scale(1.12)"/>
+<use href="#ml-piece-a" transform="translate(-69.3 120.0)"/>
+<use href="#ml-piece-a" transform="translate(-52.0 150.0)"/>
+<use href="#ml-piece-a" transform="translate(-17.3 210.0)"/>
+<use href="#ml-piece-a" transform="translate(17.3 210.0)"/>
+</g>
+<g class="ml-preview__ghost"><use href="#ml-piece-a" transform="translate(52.0 -90.0)"/></g>
+<circle class="ml-select" cx="86.6" cy="90.0" r="19"/>
+</svg>

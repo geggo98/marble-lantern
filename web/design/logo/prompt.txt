@@ -1,0 +1,11 @@
+Generate a square logo image, 1024x1024 px, saved as a PNG file named logo-codex.png in the current directory. Use your image generation tool.
+
+Design: a very simple geometric mark that stays readable at 32 px. A six-pointed star (hexagram) made of only 19 large round glass marbles on a triangular grid: one centre marble, a ring of 6 marbles around it, and six outer marbles forming the six tips of the star (each tip marble sits on the axis of the centre, with two marbles between... keep it a clean hexagram silhouette). Use only two marble colors, deep indigo and teal, in flat style with one small soft highlight each. The centre marble is a small lantern: warm amber-yellow, with a soft glowing halo that reaches into the neighbouring marbles. Generous margin around the mark, centered.
+
+Background: fully transparent, with crisp clean edges and no fringing, no shadow outside the mark. Mid-tone colors with enough contrast on both white and near-black backgrounds.
+
+Strict constraints: no text, no letters, no numbers, no watermark. Do not copy any board-game maker's artwork; no trademarks or brand logos.
+
+
+---
+Notes: codex exec -m gpt-6.1-sol, no Astra. Rasters: logo-codex-v1.png (prompt-v1.txt, too busy, 121 marbles), logo-codex-v2.png (prompt-v2.txt, not a hexagram, fringed alpha). Final logo.svg is a hand-drawn redraw (37 marbles); logo.png and favicons are rendered from it.

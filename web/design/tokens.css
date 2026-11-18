@@ -1,0 +1,214 @@
+/*
+ * marble-lantern design tokens.
+ *
+ * Theme selection:
+ *   - no attribute on <html>: follows prefers-color-scheme
+ *   - <html data-theme="light"> or <html data-theme="dark">: forced by the theme switch
+ * The dark values exist twice (media query and attribute selector). Keep both blocks equal.
+ *
+ * Contrast figures are in design-notes.md, section "Colour and contrast".
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---------- colour: page ---------- */
+  --ml-color-bg: #f5f0e6;            /* warm paper */
+  --ml-color-surface: #fffdf8;       /* cards, sheets */
+  --ml-color-surface-sunken: #ece5d6;/* wells, table header, slider track */
+  --ml-color-ink: #1f1b16;           /* body text, icons */
+  --ml-color-ink-muted: #5a5246;     /* secondary text, 4.5:1 on bg and surface */
+  --ml-color-line: #d9cfbb;          /* hairlines, decorative only */
+  --ml-color-line-strong: #857a68;   /* control borders, 3:1 on bg and surface */
+  --ml-color-primary: #1f1b16;       /* primary button fill */
+  --ml-color-on-primary: #fffdf8;
+  --ml-color-focus: #5b2bd9;         /* focus ring, never used for anything else */
+  --ml-color-scrim: rgb(31 27 22 / 0.45);
+
+  /* ---------- colour: status ---------- */
+  --ml-color-danger: #a3261b;
+  --ml-color-danger-bg: #fbe9e4;
+  --ml-color-ok: #1d6537;
+  --ml-color-ok-bg: #e3f1e4;
+  --ml-color-info-bg: #ece5d6;
+
+  /* ---------- colour: board ---------- */
+  --ml-board-star: #e7dcc6;          /* the star plate */
+  --ml-board-star-edge: #b9aa8b;
+  --ml-board-glow: #f3ead8;          /* centre of the plate, the "lantern" light */
+  --ml-board-socket: #cfc0a2;        /* empty cell */
+  --ml-board-socket-edge: #84765c;   /* 3:1 on the plate */
+  --ml-board-select: #1f1b16;        /* ring around the selected piece */
+  --ml-board-target: #1f1b16;        /* reachable-cell marker */
+
+  /* ---------- colour: side A (plain marble, amber) ---------- */
+  --ml-piece-a: #e39a0b;
+  --ml-piece-a-hi: #ffd476;
+  --ml-piece-a-lo: #b46f00;
+  --ml-piece-a-edge: #6b4100;        /* outline, carries the 3:1 against the plate */
+  --ml-piece-a-text: #7a4a00;        /* side A colour for text and the trail, 4.5:1 */
+
+  /* ---------- colour: side B (ringed marble, blue) ---------- */
+  --ml-piece-b: #1565ad;
+  --ml-piece-b-hi: #5fa8e6;
+  --ml-piece-b-lo: #0a4379;
+  --ml-piece-b-edge: #062c52;
+  --ml-piece-b-mark: #fff6e0;        /* the ring on the marble, 3:1 on --ml-piece-b */
+  --ml-piece-b-text: #0f538f;
+
+  /* ---------- type ---------- */
+  --ml-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+  --ml-font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --ml-font-data: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+
+  --ml-text-xs: 0.75rem;    /* 12px: tags, table units */
+  --ml-text-sm: 0.875rem;   /* 14px: secondary text, buttons */
+  --ml-text-md: 1rem;       /* 16px: body */
+  --ml-text-lg: 1.125rem;   /* 18px: card titles */
+  --ml-text-xl: 1.375rem;   /* 22px: screen titles */
+  --ml-text-2xl: 1.75rem;   /* 28px: result headline */
+  --ml-leading-tight: 1.2;
+  --ml-leading-body: 1.5;
+  --ml-weight-regular: 400;
+  --ml-weight-medium: 550;
+  --ml-weight-bold: 700;
+
+  /* ---------- space (4px grid) ---------- */
+  --ml-space-1: 0.25rem;
+  --ml-space-2: 0.5rem;
+  --ml-space-3: 0.75rem;
+  --ml-space-4: 1rem;
+  --ml-space-5: 1.5rem;
+  --ml-space-6: 2rem;
+  --ml-space-7: 3rem;
+  --ml-gutter: 1rem;                 /* page side padding on a phone */
+
+  /* ---------- shape ---------- */
+  --ml-radius-sm: 6px;
+  --ml-radius-md: 10px;
+  --ml-radius-lg: 16px;
+  --ml-radius-pill: 999px;
+  --ml-border: 1px;
+  --ml-focus-width: 3px;
+  --ml-focus-offset: 2px;
+  --ml-shadow-card: 0 1px 2px rgb(31 27 22 / 0.06), 0 4px 14px rgb(31 27 22 / 0.06);
+  --ml-shadow-sheet: 0 -8px 32px rgb(31 27 22 / 0.18);
+
+  /* ---------- size ---------- */
+  --ml-size-control: 2.75rem;        /* 44px: minimum height of buttons and inputs */
+  --ml-size-header: 3.5rem;
+  --ml-width-panel: 24rem;           /* side panel on desktop */
+  --ml-width-page: 76rem;
+  --ml-breakpoint-wide: 60rem;       /* documentation only; media queries cannot read it */
+
+  /* ---------- board geometry (SVG user units) ---------- */
+  --ml-board-unit: 20;               /* x = sqrt(3)*unit*(q + r/2), y = 1.5*unit*r */
+  --ml-board-socket-r: 11.5;
+  --ml-board-piece-r: 13.5;
+
+  /* ---------- motion ---------- */
+  --ml-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ml-dur-fast: 120ms;              /* hover, press */
+  --ml-dur-base: 200ms;              /* select, sheet, fades */
+  --ml-dur-hop: 180ms;               /* one hop of a move; a step uses the same value */
+  --ml-dur-think: 1400ms;            /* one cycle of the thinking pulse */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ml-color-bg: #14110e;
+    --ml-color-surface: #1e1a16;
+    --ml-color-surface-sunken: #0f0d0b;
+    --ml-color-ink: #f2ebdf;
+    --ml-color-ink-muted: #b8ad9c;
+    --ml-color-line: #332d26;
+    --ml-color-line-strong: #7d7364;
+    --ml-color-primary: #f2ebdf;
+    --ml-color-on-primary: #14110e;
+    --ml-color-focus: #c2adff;
+    --ml-color-scrim: rgb(0 0 0 / 0.6);
+
+    --ml-color-danger: #ff9d90;
+    --ml-color-danger-bg: #3a1814;
+    --ml-color-ok: #86d6a0;
+    --ml-color-ok-bg: #14301d;
+    --ml-color-info-bg: #2a251f;
+
+    --ml-board-star: #25201b;
+    --ml-board-star-edge: #4a4135;
+    --ml-board-glow: #3a2f20;
+    --ml-board-socket: #120f0c;
+    --ml-board-socket-edge: #7a6d5a;
+    --ml-board-select: #f2ebdf;
+    --ml-board-target: #f2ebdf;
+
+    --ml-piece-a: #f0aa1f;
+    --ml-piece-a-hi: #ffe19a;
+    --ml-piece-a-lo: #b87400;
+    --ml-piece-a-edge: #ffd88a;
+    --ml-piece-a-text: #f3b744;
+
+    --ml-piece-b: #2f7fcc;
+    --ml-piece-b-hi: #8cc4f5;
+    --ml-piece-b-lo: #114a85;
+    --ml-piece-b-edge: #a9d4f8;
+    --ml-piece-b-mark: #fff6e0;
+    --ml-piece-b-text: #7fbaf0;
+
+    --ml-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
+    --ml-shadow-sheet: 0 -8px 32px rgb(0 0 0 / 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ml-color-bg: #14110e;
+  --ml-color-surface: #1e1a16;
+  --ml-color-surface-sunken: #0f0d0b;
+  --ml-color-ink: #f2ebdf;
+  --ml-color-ink-muted: #b8ad9c;
+  --ml-color-line: #332d26;
+  --ml-color-line-strong: #7d7364;
+  --ml-color-primary: #f2ebdf;
+  --ml-color-on-primary: #14110e;
+  --ml-color-focus: #c2adff;
+  --ml-color-scrim: rgb(0 0 0 / 0.6);
+
+  --ml-color-danger: #ff9d90;
+  --ml-color-danger-bg: #3a1814;
+  --ml-color-ok: #86d6a0;
+  --ml-color-ok-bg: #14301d;
+  --ml-color-info-bg: #2a251f;
+
+  --ml-board-star: #25201b;
+  --ml-board-star-edge: #4a4135;
+  --ml-board-glow: #3a2f20;
+  --ml-board-socket: #120f0c;
+  --ml-board-socket-edge: #7a6d5a;
+  --ml-board-select: #f2ebdf;
+  --ml-board-target: #f2ebdf;
+
+  --ml-piece-a: #f0aa1f;
+  --ml-piece-a-hi: #ffe19a;
+  --ml-piece-a-lo: #b87400;
+  --ml-piece-a-edge: #ffd88a;
+  --ml-piece-a-text: #f3b744;
+
+  --ml-piece-b: #2f7fcc;
+  --ml-piece-b-hi: #8cc4f5;
+  --ml-piece-b-lo: #114a85;
+  --ml-piece-b-edge: #a9d4f8;
+  --ml-piece-b-mark: #fff6e0;
+  --ml-piece-b-text: #7fbaf0;
+
+  --ml-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
+  --ml-shadow-sheet: 0 -8px 32px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ml-dur-fast: 0ms;
+    --ml-dur-base: 0ms;
+    --ml-dur-hop: 0ms;
+    --ml-dur-think: 0ms;
+  }
+}

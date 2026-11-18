@@ -1,0 +1,7 @@
+Generate a square logo image, 1024x1024 px, saved as a PNG file named logo-codex.png in the current directory. Use your image generation tool.
+
+Design: a simple geometric mark. A six-pointed star (hexagram) built from round glass marbles arranged on a triangular grid: a hexagon of marbles in the centre with six triangular points of marbles. Marbles in flat colors from a small palette of teal, indigo, amber and coral, with soft highlights. The centre marble is a small lantern: a warm amber-yellow glow with a soft halo around it. Flat vector style, clean edges, generous margin, centered.
+
+Background: fully transparent (alpha), so the mark works on both light and dark backgrounds. Choose mid-tone colors with enough contrast on white and on near-black.
+
+Strict constraints: no text, no letters, no numbers, no watermark. Do not copy any board-game maker's artwork or board layout; no trademarks or brand logos.
