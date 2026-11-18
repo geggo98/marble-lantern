@@ -102,6 +102,17 @@ public final class Arena {
      */
     public static Report match(PlayerSpec a, PlayerSpec b, int pairs, long seed, int openingPlies, int threads,
             Sprt sprt) {
+        return match(a, b, null, null, pairs, seed, openingPlies, threads, sprt);
+    }
+
+    /**
+     * {@link #match(PlayerSpec, PlayerSpec, int, long, int, int, Sprt)} with the race tables of each side from its own
+     * {@link RaceTableSource}; a null source means the ambient one (system properties, default the exact tables), which is
+     * what the overload without sources does. A source is shared by all games of its side, so it must be thread-safe
+     * ({@link RaceTableSource#of} is).
+     */
+    public static Report match(PlayerSpec a, PlayerSpec b, RaceTableSource sourceA, RaceTableSource sourceB, int pairs,
+            long seed, int openingPlies, int threads, Sprt sprt) {
         RuleSet rules = RuleSet.defaults(2);
         List<Future<GameData[]>> futures = new ArrayList<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads))) {
@@ -109,7 +120,8 @@ public final class Arena {
                 int index = pair;
                 futures.add(pool.submit(() -> {
                     Position start = opening(rules, seed, index, openingPlies);
-                    return new GameData[] {play(start, a, b, true), play(start, a, b, false)};
+                    return new GameData[] {play(start, a, b, sourceA, sourceB, true),
+                            play(start, a, b, sourceA, sourceB, false)};
                 }));
             }
             double[] pairScores = new double[pairs];
@@ -178,9 +190,10 @@ public final class Arena {
         }
     }
 
-    private static GameData play(Position start, PlayerSpec a, PlayerSpec b, boolean aFirst) {
-        AlphaBetaPlayer playerA = a.create();
-        AlphaBetaPlayer playerB = b.create();
+    private static GameData play(Position start, PlayerSpec a, PlayerSpec b, RaceTableSource sourceA,
+            RaceTableSource sourceB, boolean aFirst) {
+        AlphaBetaPlayer playerA = sourceA == null ? a.create() : a.create(sourceA);
+        AlphaBetaPlayer playerB = sourceB == null ? b.create() : b.create(sourceB);
         GameRunner.Result result = aFirst
                 ? GameRunner.play(start, playerA, playerB)
                 : GameRunner.play(start, playerB, playerA);
@@ -195,6 +208,14 @@ public final class Arena {
                 playerB.totalNodes(), result.wallNanos()[indexB], result.cpuNanos()[indexB], result.moves()[indexB]);
     }
 
+    /** The source of one side from its two role variants; null (the ambient source) if neither is given. */
+    static RaceTableSource side(String eval, String play) {
+        if (eval == null && play == null) {
+            return null;
+        }
+        return RaceTableSource.of(eval == null ? "exact" : eval, play == null ? "exact" : play);
+    }
+
     public static void main(String[] args) {
         String a = null;
         String b = null;
@@ -203,6 +224,7 @@ public final class Arena {
         int openingPlies = 4;
         int threads = Runtime.getRuntime().availableProcessors();
         Sprt sprt = null;
+        String[] race = new String[4]; // a-eval, a-play, b-eval, b-play; null = not given
         for (int i = 0; i < args.length; i += 2) {
             if (i + 1 >= args.length) {
                 throw new IllegalArgumentException("missing value for " + args[i]);
@@ -215,13 +237,19 @@ public final class Arena {
                 case "--opening-plies" -> openingPlies = Integer.parseInt(args[i + 1]);
                 case "--threads" -> threads = Integer.parseInt(args[i + 1]);
                 case "--sprt" -> sprt = Sprt.parse(args[i + 1]);
+                case "--a-race-eval" -> race[0] = args[i + 1];
+                case "--a-race-play" -> race[1] = args[i + 1];
+                case "--b-race-eval" -> race[2] = args[i + 1];
+                case "--b-race-play" -> race[3] = args[i + 1];
                 default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
         if (a == null || b == null) {
             throw new IllegalArgumentException("usage: Arena --a <spec> --b <spec> [--pairs N] [--seed S] "
-                    + "[--opening-plies K] [--threads T] [--sprt elo0,elo1]");
+                    + "[--opening-plies K] [--threads T] [--sprt elo0,elo1] "
+                    + "[--a-race-eval V] [--a-race-play V] [--b-race-eval V] [--b-race-play V]");
         }
-        System.out.println(match(PlayerSpec.parse(a), PlayerSpec.parse(b), pairs, seed, openingPlies, threads, sprt));
+        System.out.println(match(PlayerSpec.parse(a), PlayerSpec.parse(b), side(race[0], race[1]), side(race[2], race[3]),
+                pairs, seed, openingPlies, threads, sprt));
     }
 }

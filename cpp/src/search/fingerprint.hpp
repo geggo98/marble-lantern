@@ -31,6 +31,9 @@ inline constexpr std::string_view kR2Spec = "ab:eval=linear-r1,pvs=1,killers=1,h
 inline constexpr std::string_view kR3Spec =
     "ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1,nodes=20000";
 inline constexpr std::string_view kBestSpec = kR3Spec;
+// Strategies.BROWSER_SPEC + ",nodes=20000": BEST with racelin-r3 (rows >= 2 table) and race play with the rows >= 2 table.
+inline constexpr std::string_view kBrowserSpec =
+    "ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=20000";
 
 // A fingerprint part: the checksum (Java long, wrapping) and the lines it was computed from.
 struct Part {

@@ -76,6 +76,16 @@ public final class Strategies {
     public static final String RACELIN_SPEC = "ab:eval=racelin1,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,"
             + "partial=1,fut=1,futk=30,fut2=1,race=1,racerows=1";
 
+    /**
+     * The player of the offline browser build: {@link #BEST_SPEC} with the leaf evaluator {@code racelin-r3} (the
+     * same arithmetic and weights as {@code racelin1-r3}, over the rows&gt;=2 table) and race play with the rows&gt;=2
+     * table ({@code racerows=2}). No code path of it touches the rows&gt;=1 table (254 million states, 242 MB), which
+     * a browser cannot hold; {@code BrowserSpecTest} checks that. Measured cost: the table covers fewer race
+     * positions (docs/endgame-and-opening.md; E08 measured about +6 Elo for rows&gt;=2 against about +45 for rows&gt;=1).
+     */
+    public static final String BROWSER_SPEC =
+            "ab:eval=racelin-r3," + OPTIONS + ",fut=1,futk=20,fut2=1,race=1,racerows=2";
+
     private Strategies() {
     }
 
@@ -88,7 +98,7 @@ public final class Strategies {
         }
         // the round-1 BEST with race play (round-2 experiment E03, both modes) so that the contract covers RaceMove
         // with the rows>=2 table too; BEST_SPEC itself plays races with the rows>=1 table
-        for (String spec : List.of(BEST_SPEC, BEST_R1_SPEC, W1_SPEC, FUTILITY_SPEC, GAIN_SPEC, RACELIN_SPEC,
+        for (String spec : List.of(BEST_SPEC, BROWSER_SPEC, BEST_R1_SPEC, W1_SPEC, FUTILITY_SPEC, GAIN_SPEC, RACELIN_SPEC,
                 "ab:eval=stage4,ws=15,wq=6,wj=3", BEST_R1_SPEC + ",race=1", BEST_R1_SPEC + ",race=2")) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));

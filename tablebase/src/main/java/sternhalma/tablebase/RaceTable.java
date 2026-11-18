@@ -139,7 +139,21 @@ public final class RaceTable implements RaceCounts {
         return shared(region(minRow), true);
     }
 
+    private static final java.util.concurrent.atomic.AtomicInteger ROWS1_REQUESTS = new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * How often any code asked for the shared rows&gt;=1 table in this JVM ({@link #rows1()}, {@link #rows1IfCached()},
+     * {@link #of(int)}), whether or not it was loaded. For tests that prove a player never touches the 242 MB table
+     * (compare the value before and after).
+     */
+    public static int rows1Requests() {
+        return ROWS1_REQUESTS.get();
+    }
+
     private static RaceTable shared(Region region, boolean allowBuild) {
+        if (region.minRow == ROWS1.minRow) {
+            ROWS1_REQUESTS.incrementAndGet();
+        }
         // the two regions are told apart by their minimum row; "committed" only says where a file may live
         boolean rows2 = region.minRow == ROWS2.minRow;
         RaceTable t = rows2 ? sharedRows2 : sharedRows1;
