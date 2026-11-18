@@ -1,5 +1,5 @@
 // The play screen: status bar, board, notices (loading, result, error), controls, engine card, figures, move list.
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GOAL_CELLS } from '../board/cells';
 import type { GameController } from '../game/game';
 import { MOVE_LIMIT, initialOwners } from '../game/board-state';
@@ -11,7 +11,10 @@ import { GuideSettings } from '../ui/GuideSettings';
 import { useGuides } from '../guides/useGuides';
 import { loadGuidesPreference, saveGuidesPreference } from '../guides/preference';
 import type { AnalyseFn } from '../guides/analyser';
-import { CopyLink } from '../ui/Chrome';
+import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
+import { ActionBar } from '../ui/ActionBar';
+import { Menu } from '../ui/Menu';
+import { useWide } from '../ui/useMedia';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
 import {
@@ -48,14 +51,6 @@ export interface PlayModel {
   onRestart: () => void;
   onSelect: (engine: EngineId) => void;
 }
-
-const wideScreen = (): boolean => {
-  try {
-    return typeof matchMedia === 'function' && matchMedia('(min-width: 60rem)').matches;
-  } catch {
-    return false;
-  }
-};
 
 /** E1 to E4 of the design: the error code decides title, text and actions. */
 function describeError(
@@ -96,7 +91,9 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const state = useSyncExternalStore(game.subscribe.bind(game), () => game.state);
   const s = useSyncExternalStore(session.subscribe, session.getState);
   const [sheet, setSheet] = useState(false);
-  const [open] = useState(wideScreen);
+  const wide = useWide();
+  const [menu, setMenu] = useState(false);
+  const menuButton = useRef<HTMLButtonElement | null>(null);
 
   const ready = s.phase === 'ready';
   const aSide: Side = demo ? 1 : humanSide;
@@ -160,6 +157,44 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
       ? GOAL_CELLS[state.outcome.winner].filter((c) => state.owner[c] === (state.outcome as { winner: Side }).winner)
       : [];
 
+  const controls = (part: 'all' | 'secondary'): React.JSX.Element => (
+    <Controls
+      part={part}
+      disabled={!ready}
+      canUndo={state.history.length > 0}
+      demoRunning={model.demo && (state.thinking || (!state.outcome && ready && game.isEngineTurn()))}
+      onNewGame={model.onNewGame}
+      onUndo={model.onUndo}
+      onSwap={model.onSwap}
+      onDemo={model.onDemo}
+    />
+  );
+  // One source of content, two presentations: the side column of a wide screen and the menu of a small one.
+  const cards = (
+    <>
+      <GuideSettings
+        enabled={guidesOn}
+        status={guides.status}
+        onChange={(on) => {
+          setGuidesOn(on);
+          saveGuidesPreference(on);
+        }}
+      />
+      <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
+      <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
+      {!demo && s.current && (
+        <SkillCard
+          tracker={model.tracker}
+          level={model.level}
+          onMatch={(level) => model.onApply(s.current!.info.id, level)}
+          onReset={() => model.onApply(s.current!.info.id, model.presetLevel)}
+        />
+      )}
+      <Telemetry result={state.lastEngine} stale={state.thinking} />
+      <MoveList moves={moves} styleOf={styleOf} defaultOpen={wide} />
+    </>
+  );
+
   return (
     <main className="ml-play">
       <div className="ml-play__stage">
@@ -170,60 +205,61 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           ply={state.history.length}
           limit={MOVE_LIMIT}
         />
-        <Board
-          owner={state.owner}
-          legal={state.legal}
-          interactive={humanTurn}
-          inert={!humanTurn}
-          guides={boardGuides}
-          aSide={aSide}
-          rotated={rotated}
-          plies={state.history.length}
-          last={last}
-          halo={halo}
-          sideLabel={sideLabel}
-          onMove={(move) => {
-            guides.noteMove(move);
-            void game.play(move).catch(() => undefined);
-          }}
-        />
+        <div className="ml-play__boardwrap">
+          <Board
+            owner={state.owner}
+            legal={state.legal}
+            interactive={humanTurn}
+            inert={!humanTurn}
+            guides={boardGuides}
+            aSide={aSide}
+            rotated={rotated}
+            plies={state.history.length}
+            last={last}
+            halo={halo}
+            sideLabel={sideLabel}
+            onMove={(move) => {
+              guides.noteMove(move);
+              void game.play(move).catch(() => undefined);
+            }}
+          />
+          {!wide && notice && <div className="ml-play__notice">{notice}</div>}
+        </div>
         {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
         <p className="ml-visually-hidden" role="status" aria-live="polite">
           {last ? t('announce_move', { side: who(last.side), from: cellName(last.from), to: cellName(last.to) }) : ''}
         </p>
       </div>
-      <div className="ml-play__side">
-        {notice}
-        <Controls
+      {wide ? (
+        <div className="ml-play__side">
+          {notice}
+          {controls('all')}
+          {cards}
+        </div>
+      ) : (
+        <ActionBar
           disabled={!ready}
           canUndo={state.history.length > 0}
-          demoRunning={model.demo && (state.thinking || (!state.outcome && ready && game.isEngineTurn()))}
-          onNewGame={model.onNewGame}
+          menuOpen={menu}
+          menuId="ml-menu"
+          menuRef={menuButton}
           onUndo={model.onUndo}
-          onSwap={model.onSwap}
-          onDemo={model.onDemo}
+          onNewGame={model.onNewGame}
+          onMenu={() => setMenu(true)}
         />
-        <GuideSettings
-          enabled={guidesOn}
-          status={guides.status}
-          onChange={(on) => {
-            setGuidesOn(on);
-            saveGuidesPreference(on);
-          }}
-        />
-        <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
-        <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
-        {!demo && s.current && (
-          <SkillCard
-            tracker={model.tracker}
-            level={model.level}
-            onMatch={(level) => model.onApply(s.current!.info.id, level)}
-            onReset={() => model.onApply(s.current!.info.id, model.presetLevel)}
-          />
-        )}
-        <Telemetry result={state.lastEngine} stale={state.thinking} />
-        <MoveList moves={moves} styleOf={styleOf} defaultOpen={open} />
-      </div>
+      )}
+      {!wide && menu && (
+        <Menu id="ml-menu" onClose={() => setMenu(false)} inert={sheet} returnFocusTo={menuButton}>
+          {controls('secondary')}
+          {cards}
+          <div className="ml-menu__foot">
+            <ThemeSwitch />
+            <p className="ml-menu__note">
+              {t('footer_note')} · <a href={REPO_URL} rel="noreferrer">{t('source_code')}</a>
+            </p>
+          </div>
+        </Menu>
+      )}
       {sheet && (
         <EngineSheet
           choices={s.choices}

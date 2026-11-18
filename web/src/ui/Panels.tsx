@@ -46,20 +46,26 @@ export interface ControlsProps {
   onUndo: () => void;
   onSwap: () => void;
   onDemo: () => void;
+  /** 'secondary': only swap sides and the demo; undo and new game stand in the bottom bar of a small screen. */
+  part?: 'all' | 'secondary';
 }
 
 export function Controls(props: ControlsProps): React.JSX.Element {
   const { t } = useT();
   return (
     <div className="ml-controls">
-      <button type="button" className="ml-btn ml-btn--primary" disabled={props.disabled} onClick={props.onNewGame}>
-        <Icon name="plus" />
-        <span>{t('new_game')}</span>
-      </button>
-      <button type="button" className="ml-btn" disabled={props.disabled || !props.canUndo} onClick={props.onUndo}>
-        <Icon name="undo" />
-        <span>{t('undo')}</span>
-      </button>
+      {props.part !== 'secondary' && (
+        <>
+          <button type="button" className="ml-btn ml-btn--primary" disabled={props.disabled} onClick={props.onNewGame}>
+            <Icon name="plus" />
+            <span>{t('new_game')}</span>
+          </button>
+          <button type="button" className="ml-btn" disabled={props.disabled || !props.canUndo} onClick={props.onUndo}>
+            <Icon name="undo" />
+            <span>{t('undo')}</span>
+          </button>
+        </>
+      )}
       <button type="button" className="ml-btn" disabled={props.disabled || props.demoRunning} onClick={props.onSwap}>
         <Icon name="swap" />
         <span>{t('swap_sides')}</span>

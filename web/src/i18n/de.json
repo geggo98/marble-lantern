@@ -230,5 +230,10 @@
   "skill_disclaimer": "Eine grobe Schätzung: wie viel schlechter deine Züge bewertet werden als der beste Zug, nach dem Urteil dieses Programms. Sie ist keine Wertungszahl und sagt nichts über andere Spieler.",
   "skill_match": "Engine auf meine Stärke einstellen",
   "skill_reset": "Zurück zur Stufe",
-  "skill_matched": "Die Engine spielt jetzt mit etwa {nodes} Knoten pro Zug."
+  "skill_matched": "Die Engine spielt jetzt mit etwa {nodes} Knoten pro Zug.",
+  "menu": "Menü",
+  "menu_close_hint": "Nach unten wischen oder außerhalb tippen zum Schließen",
+  "menu_actions": "Spielaktionen",
+  "menu_settings": "Einstellungen",
+  "bar_label": "Schnellaktionen"
 }

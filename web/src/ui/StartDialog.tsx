@@ -1,11 +1,11 @@
 // The dialog that stands before a game: "Do you want to begin?", "Continue this game?" for a game link, and the error
 // for a link that does not work. A modal dialog: focus moves in, Tab stays inside, focus returns to where it was.
 // Escape closes the dialog only when a game is already running (`onCancel`); otherwise there is nothing to go back to.
-import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { useT } from './texts';
+import { useDialog } from './useDialog';
 import './start-dialog.css';
 
 export type StartDialogModel =
@@ -27,48 +27,9 @@ export interface StartDialogProps {
   onCancel?: (() => void) | undefined;
 }
 
-const TABBABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.Element {
   const { t } = useT();
-  const ref = useRef<HTMLElement | null>(null);
-  const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
-
-  useEffect(() => {
-    const first = ref.current?.querySelector<HTMLElement>('[data-autofocus]') ?? ref.current?.querySelector<HTMLElement>(TABBABLE);
-    first?.focus();
-  }, [model.kind]);
-
-  useEffect(() => {
-    const back = opener.current;
-    return () => {
-      if (back instanceof HTMLElement && back.isConnected) back.focus();
-    };
-  }, []);
-
-  const onKeyDown = (event: React.KeyboardEvent): void => {
-    if (event.key === 'Escape' && onCancel) {
-      event.stopPropagation();
-      onCancel();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(TABBABLE) ?? []);
-    const firstEl = items[0];
-    const lastEl = items[items.length - 1];
-    if (!firstEl || !lastEl) return;
-    const active = document.activeElement;
-    if (!ref.current?.contains(active)) {
-      event.preventDefault();
-      firstEl.focus();
-    } else if (event.shiftKey && active === firstEl) {
-      event.preventDefault();
-      lastEl.focus();
-    } else if (!event.shiftKey && active === lastEl) {
-      event.preventDefault();
-      firstEl.focus();
-    }
-  };
+  const { ref, onKeyDown } = useDialog<HTMLElement>({ onEscape: onCancel, focusKey: model.kind });
 
   const sideName = (side: Side): string => t(side === 0 ? 'dlg_side_0' : 'dlg_side_1');
   const titleId = 'ml-start-title';

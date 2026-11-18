@@ -389,7 +389,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   const online = __ONLINE__;
   return (
     <>
-      <div className="ml-app" {...(showDialog ? { inert: true } : {})}>
+      <div className="ml-app" data-screen={screen} {...(showDialog ? { inert: true } : {})}>
         <Sprite />
         <Header screen={screen} online={online} />
         {screen === 'play' && <PlayScreen model={model} />}

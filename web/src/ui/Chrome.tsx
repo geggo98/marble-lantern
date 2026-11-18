@@ -1,5 +1,5 @@
 // App frame: header (brand, navigation, mode badge, language switch) and footer (note, source link, theme switch).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { i18n } from '../i18n/i18n';
 import { LANGUAGES } from '../i18n/keys';
 import { Icon } from './primitives';
@@ -88,37 +88,56 @@ export function applyTheme(theme: ThemeChoice): void {
   else root.setAttribute('data-theme', theme);
 }
 
+// One store for the choice: the footer and the menu on a small screen both show the switch and must agree.
+let currentTheme: ThemeChoice | null = null;
+const themeListeners = new Set<() => void>();
+const themeSnapshot = (): ThemeChoice => (currentTheme ??= readTheme());
+const themeSubscribe = (listener: () => void): (() => void) => {
+  themeListeners.add(listener);
+  return () => themeListeners.delete(listener);
+};
+function chooseTheme(next: ThemeChoice): void {
+  currentTheme = next;
+  applyTheme(next);
+  try {
+    globalThis.localStorage?.setItem(THEME_KEY, next);
+  } catch {
+    // the choice then lasts for this page view only
+  }
+  themeListeners.forEach((l) => l());
+}
+
+/** The three-way theme switch. */
+export function ThemeSwitch(): React.JSX.Element {
+  const { t } = useT();
+  const theme = useSyncExternalStore(themeSubscribe, themeSnapshot, () => 'auto' as ThemeChoice);
+  useEffect(() => applyTheme(theme), [theme]);
+  return (
+    <div className="ml-seg" role="group" aria-label={t('theme')}>
+      {THEMES.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          className="ml-seg__opt"
+          aria-pressed={theme === o.id}
+          aria-label={t(o.key)}
+          onClick={() => chooseTheme(o.id)}
+        >
+          <Icon name={o.icon} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Footer(): React.JSX.Element {
   const { t } = useT();
-  const [theme, setTheme] = useState<ThemeChoice>(readTheme);
-  useEffect(() => applyTheme(theme), [theme]);
-  const choose = (next: ThemeChoice): void => {
-    setTheme(next);
-    try {
-      globalThis.localStorage?.setItem(THEME_KEY, next);
-    } catch {
-      // the choice then lasts for this page view only
-    }
-  };
   return (
     <footer className="ml-footer">
       <span>
         {t('footer_note')} · <a href={REPO_URL} rel="noreferrer">{t('source_code')}</a>
       </span>
-      <div className="ml-seg" role="group" aria-label={t('theme')}>
-        {THEMES.map((o) => (
-          <button
-            key={o.id}
-            type="button"
-            className="ml-seg__opt"
-            aria-pressed={theme === o.id}
-            aria-label={t(o.key)}
-            onClick={() => choose(o.id)}
-          >
-            <Icon name={o.icon} />
-          </button>
-        ))}
-      </div>
+      <ThemeSwitch />
     </footer>
   );
 }

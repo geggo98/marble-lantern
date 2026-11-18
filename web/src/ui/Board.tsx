@@ -12,6 +12,10 @@ import type { ArrowKey, MoveDescription, Point, TapAction } from './board-model'
 import { GuideGlyphPath, GuideRing, bandTextKey, pieceTextKey } from './GuideGlyph';
 import type { Band } from '../guides/bands';
 import { prefersReducedMotion } from './primitives';
+import { haptic, HAPTIC_ILLEGAL, HAPTIC_MOVE, HAPTIC_SELECT } from './haptics';
+import {
+  clientToBoard, exceedsDragThreshold, hitRadiusUnits, markBoost, nearestCell, REACH_PX, snapTarget,
+} from './touch-model';
 import type { SideStyle } from './primitives';
 import { useT } from './texts';
 
@@ -53,6 +57,21 @@ interface Moving {
   at: Point;
 }
 
+/** A piece that the finger or the mouse carries: where it is on the board, and the target it would snap to. */
+interface Drag {
+  cell: number;
+  at: Point;
+}
+
+/** A press on a movable piece that may become a drag. */
+interface Press {
+  id: number;
+  from: number;
+  x: number;
+  y: number;
+  dragging: boolean;
+}
+
 export function Board(props: BoardProps): React.JSX.Element {
   const { owner, legal, interactive, inert, aSide, rotated, plies, last, halo, onMove } = props;
   const { t } = useT();
@@ -63,6 +82,10 @@ export function Board(props: BoardProps): React.JSX.Element {
   const [previewTarget, setPreviewTarget] = useState<number | null>(null);
   const [illegal, setIllegal] = useState<{ cell: number; key: number } | null>(null);
   const [moving, setMoving] = useState<Moving | null>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [pxPerUnit, setPxPerUnit] = useState(1);
+  const press = useRef<Press | null>(null);
+  const suppressClick = useRef(false);
   const columnMemory = useRef<number | null>(null);
   const previousPlies = useRef(plies);
 
@@ -125,6 +148,21 @@ export function Board(props: BoardProps): React.JSX.Element {
     };
   }, [plies, last, rotated]);
 
+  // The scale of the board in CSS px per board unit: the hit circles and the marks follow it.
+  useLayoutEffect(() => {
+    const el = svgRef.current;
+    if (!el) return undefined;
+    const measure = (): void => {
+      const box = el.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) setPxPerUnit(clientToBoard(box, { x: 0, y: 0 }).pxPerUnit);
+    };
+    measure();
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const defaultFocus = useMemo(() => {
     const first = reading(movable, rotated)[0];
     return first ?? CELLS.find((c) => c.q === 0 && c.r === 0)!.id;
@@ -136,10 +174,12 @@ export function Board(props: BoardProps): React.JSX.Element {
       case 'select':
         setSelected(action.cell);
         setIllegal(null);
+        haptic(HAPTIC_SELECT);
         break;
       case 'move':
         setSelected(null);
         setPreviewTarget(null);
+        haptic(HAPTIC_MOVE);
         onMove(action.move);
         break;
       case 'clear':
@@ -148,23 +188,26 @@ export function Board(props: BoardProps): React.JSX.Element {
         break;
       case 'illegal':
         setIllegal({ cell: action.cell, key: Date.now() });
+        haptic(HAPTIC_ILLEGAL);
         break;
       case 'none':
         break;
     }
   };
 
+  /** The pointer in board units, and the reach of a cell (44 CSS px wide) in board units. */
   const toBoard = (event: { clientX: number; clientY: number }): { point: Point; radius: number } | null => {
     const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0) return null;
-    const scale = VIEW_BOX.width / rect.width;
-    return {
-      point: { x: VIEW_BOX.x + (event.clientX - rect.left) * scale, y: VIEW_BOX.y + (event.clientY - rect.top) * scale },
-      radius: 16 * scale,
-    };
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const mapped = clientToBoard(rect, { x: event.clientX, y: event.clientY });
+    return { point: mapped.point, radius: REACH_PX / mapped.pxPerUnit };
   };
 
   const onClick = (event: React.MouseEvent<SVGSVGElement>): void => {
+    if (suppressClick.current) {
+      suppressClick.current = false; // the click that ends a drag has been handled by the drop
+      return;
+    }
     if (!interactive) return;
     setKeyboard(false);
     const element = (event.target as Element).closest('[data-cell]');
@@ -174,12 +217,68 @@ export function Board(props: BoardProps): React.JSX.Element {
     if (hitCell !== null) setFocusCell(hitCell);
   };
 
+  // Drag and drop: a press on a movable piece, then a move of more than 6 px, carries the piece; a release near a legal
+  // target plays the move, a release elsewhere cancels the drop. A press without that move stays a tap (see onClick).
+  const onPointerDown = (event: React.PointerEvent<SVGSVGElement>): void => {
+    setKeyboard(false);
+    if (!interactive || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const where = toBoard(event);
+    if (!where) return;
+    const candidates = selected === null ? movable : [...new Set([...targetsOf(legal, selected), ...movable])];
+    const from = nearestCell(where.point, candidates, rotated, where.radius);
+    if (from === null || !movable.includes(from)) return; // a target is tapped, not dragged
+    press.current = { id: event.pointerId, from, x: event.clientX, y: event.clientY, dragging: false };
+  };
+
+  const endDrag = (): void => {
+    press.current = null;
+    setDrag(null);
+    setPreviewTarget(null);
+  };
+
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>): void => {
-    if (!interactive || selected === null || event.pointerType !== 'mouse') return;
+    if (!interactive) return;
+    const p = press.current;
+    if (p && p.id === event.pointerId) {
+      if (!p.dragging && exceedsDragThreshold(event.clientX - p.x, event.clientY - p.y)) {
+        p.dragging = true;
+        try {
+          svgRef.current?.setPointerCapture?.(event.pointerId);
+        } catch {
+          // the pointer is gone already; pointercancel follows
+        }
+        if (selected !== p.from) act({ type: 'select', cell: p.from });
+      }
+      if (p.dragging) {
+        const where = toBoard(event);
+        if (!where) return;
+        setDrag({ cell: p.from, at: where.point });
+        setPreviewTarget(snapTarget(where.point, targetsOf(legal, p.from), rotated, where.radius));
+        return;
+      }
+    }
+    if (selected === null || event.pointerType !== 'mouse') return;
     const where = toBoard(event);
     if (!where) return;
     const action = resolveTap({ selected, legal, rotated, hitCell: null, point: where.point, radius: where.radius });
     setPreviewTarget(action.type === 'move' ? action.move >>> 8 : null);
+  };
+
+  const onPointerUp = (event: React.PointerEvent<SVGSVGElement>): void => {
+    const p = press.current;
+    if (!p || p.id !== event.pointerId) return;
+    if (!p.dragging) {
+      press.current = null;
+      return;
+    }
+    suppressClick.current = true; // the click that follows the release is not a tap
+    setTimeout(() => {
+      suppressClick.current = false;
+    }, 100);
+    const where = toBoard(event);
+    const drop = where ? snapTarget(where.point, targetsOf(legal, p.from), rotated, where.radius) : null;
+    endDrag();
+    if (drop !== null) act({ type: 'move', move: makeMove(p.from, drop) });
   };
 
   const focusOn = (cell: number): void => {
@@ -240,6 +339,8 @@ export function Board(props: BoardProps): React.JSX.Element {
   const points = (cells: readonly number[]): string =>
     cells.map((c) => `${pos(c).x.toFixed(1)},${pos(c).y.toFixed(1)}`).join(' ');
 
+  const boost = markBoost(pxPerUnit);
+  const hitRadius = hitRadiusUnits(pxPerUnit);
   const guides = interactive ? (props.guides ?? null) : null;
   const targetBand = (cell: number): Band | undefined =>
     guides && selected !== null ? guides.moves.get(makeMove(selected, cell)) : undefined;
@@ -262,7 +363,7 @@ export function Board(props: BoardProps): React.JSX.Element {
   // Pieces, the moving one last so that it is drawn on top.
   const pieceCells = CELLS.filter((c) => (owner[c.id] ?? -1) >= 0)
     .map((c) => c.id)
-    .sort((a, b) => Number(moving?.cell === a) - Number(moving?.cell === b));
+    .sort((a, b) => Number(moving?.cell === a || drag?.cell === a) - Number(moving?.cell === b || drag?.cell === b));
 
   const selectedPoint = selected === null ? null : pos(selected);
   const focusPoint = keyboard ? pos(tabCell) : null;
@@ -280,8 +381,13 @@ export function Board(props: BoardProps): React.JSX.Element {
         xmlns="http://www.w3.org/2000/svg"
         onClick={onClick}
         onPointerMove={onPointerMove}
-        onPointerDown={() => setKeyboard(false)}
-        onPointerLeave={() => setPreviewTarget(null)}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerLeave={() => !press.current?.dragging && setPreviewTarget(null)}
+        style={{ ['--ml-boost' as string]: boost }}
       >
         <g className="ml-board__plate">
           <polygon className="ml-board__plate-edge" points="0,-240 207.8,120 -207.8,120" />
@@ -323,7 +429,7 @@ export function Board(props: BoardProps): React.JSX.Element {
                     <GuideGlyphPath band={band} />
                   </g>
                 ) : (
-                  <circle className="ml-target__dot" cx={pos(c).x} cy={pos(c).y} r={4.5} />
+                  <circle className="ml-target__dot" cx={pos(c).x} cy={pos(c).y} r={4.5 * boost} />
                 )}
               </g>
             );
@@ -336,12 +442,13 @@ export function Board(props: BoardProps): React.JSX.Element {
         <g className="ml-pieces">
           {pieceCells.map((c) => {
             const o = owner[c] ?? 0;
-            const p = moving?.cell === c ? moving.at : pos(c);
+            const dragged = drag?.cell === c;
+            const p = dragged ? drag.at : moving?.cell === c ? moving.at : pos(c);
             const isSelected = c === selected;
             return (
               <use
                 key={c}
-                className={isSelected ? 'is-selected' : undefined}
+                className={dragged ? 'is-selected is-dragging' : isSelected ? 'is-selected' : undefined}
                 href={`#ml-piece-${styleOf(o, aSide)}`}
                 transform={`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})${isSelected ? ' scale(1.12)' : ''}`}
               />
@@ -356,7 +463,7 @@ export function Board(props: BoardProps): React.JSX.Element {
               return (
                 <g key={c} className={`ml-guide ml-guide--${band}`} data-guide="piece" data-band={band} data-cell-of={c} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
                   <GuideRing band={band} r={16.8} />
-                  <g transform="translate(12 -12)">
+                  <g transform={`translate(12 -12) scale(${boost.toFixed(2)})`}>
                     <circle className="ml-guide__badge" r={8.2} />
                     <g transform="scale(0.95)">
                       <GuideGlyphPath band={band} />
@@ -399,7 +506,7 @@ export function Board(props: BoardProps): React.JSX.Element {
                 data-cell={c.id}
                 cx={p.x}
                 cy={p.y}
-                r={15}
+                r={hitRadius}
                 fill="transparent"
                 role="button"
                 tabIndex={c.id === tabCell ? 0 : -1}

@@ -230,5 +230,10 @@
   "skill_disclaimer": "A rough estimate from how much worse your moves score than the best move, judged by this program. It is not a rating and says nothing about other players.",
   "skill_match": "Match engine to my strength",
   "skill_reset": "Reset to level",
-  "skill_matched": "The engine now plays with about {nodes} nodes per move."
+  "skill_matched": "The engine now plays with about {nodes} nodes per move.",
+  "menu": "Menu",
+  "menu_close_hint": "Swipe down or tap outside to close",
+  "menu_actions": "Game actions",
+  "menu_settings": "Settings",
+  "bar_label": "Quick actions"
 }
