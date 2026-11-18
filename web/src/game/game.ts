@@ -137,6 +137,26 @@ export class GameController {
     await this.resetTo(history, null);
   }
 
+  /**
+   * Replaces the game by a position given as a move list (a game link, or the browser's Back button): cancels a running
+   * search, asks the engine whether the history is legal and, if so, continues with the engine when it is on move.
+   * Rejects, and leaves the game as it was, when the engine refuses the history (code illegal-history).
+   */
+  async loadGame(history: readonly number[], options?: { humanSide?: Side }): Promise<void> {
+    this.cancel();
+    await this.idle();
+    await this.engine.legalMoves(history); // throws for an illegal history, before anything changes
+    replay(history); // the same check for the board, in case an engine does not validate
+    this.cancel();
+    await this.idle();
+    this.generation++;
+    this.mode = 'human-vs-engine';
+    if (options?.humanSide !== undefined) this.humanSide = options.humanSide;
+    await this.engine.newGame(this.setup);
+    await this.resetTo([...history], null);
+    await this.playEngineTurns();
+  }
+
   // ---- internals ----
 
   private async idle(): Promise<void> {
