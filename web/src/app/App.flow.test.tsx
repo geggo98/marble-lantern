@@ -227,9 +227,8 @@ describe('a game link', () => {
     const d = dialog()!;
     expect(d.textContent).toContain('Continue this game?');
     expect(d.textContent).toContain('ply 3 of 200');
-    expect(d.textContent).toContain('Amber is to move'); // side 1 is on move after three plies
-    expect(choice('link-side-to-move').textContent).toBe('Continue as Amber');
-    expect(choice('link-other-side').textContent).toBe('Continue as Blue');
+    expect(choice('link-side-to-move').textContent).toBe('Continue as the side on move');
+    expect(choice('link-other-side').textContent).toBe('Continue as the other side');
     expect(choice('link-new')).not.toBeNull();
     expect(choice('link-keep') ?? null).toBeNull(); // no game runs yet, so nothing to keep
     expect(document.activeElement).toBe(choice('link-side-to-move'));

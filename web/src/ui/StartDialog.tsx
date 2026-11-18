@@ -31,7 +31,6 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
   const { t } = useT();
   const { ref, onKeyDown } = useDialog<HTMLElement>({ onEscape: onCancel, focusKey: model.kind });
 
-  const sideName = (side: Side): string => t(side === 0 ? 'dlg_side_0' : 'dlg_side_1');
   const titleId = 'ml-start-title';
   const bodyId = 'ml-start-body';
   let title: string;
@@ -55,7 +54,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
     title = t('link_title');
     body = (
       <>
-        <p id={bodyId}>{t('link_info', { ply: model.ply, limit: MOVE_LIMIT, side: sideName(model.sideToMove) })}</p>
+        <p id={bodyId}>{t('link_info', { ply: model.ply, limit: MOVE_LIMIT })}</p>
         <p className="ml-hint">{t('link_as_hint')}</p>
       </>
     );
@@ -69,7 +68,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         {...(side === focusSide ? { 'data-autofocus': true } : {})}
         onClick={() => model.onContinueAs(side)}
       >
-        {t('link_as', { side: sideName(side) })}
+        {t(choice === 'link-side-to-move' ? 'link_as_mover' : 'link_as_other')}
       </button>
     );
     actions = (
