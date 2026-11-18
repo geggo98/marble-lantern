@@ -4,14 +4,14 @@
 //
 // payload: every move as 14 bits (from 7 bit, to 7 bit, cells 0 to 120), big-endian bit stream, zero-padded to whole
 //          bytes, base64url without padding.
-// h:       the side the human plays (0 moves first). l: the strength level (index into NODE_LEVELS).
+// h:       the side the human plays (0 moves first). l: the strength level: an index into NODE_LEVELS (0 to 4) or a custom node budget (skill/level.ts).
 //
 // Parsing is strict: a link that is not exactly what the encoder writes is reported as broken, never repaired.
 import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { makeMove, moveFrom, moveTo } from '../engines/engine';
 import { CELL_COUNT } from '../board/cells';
-import { NODE_LEVELS } from '../ui/Panels';
+import { isValidLevel } from '../skill/level';
 import type { Screen } from '../ui/Chrome';
 
 export const GAME_URL_VERSION = 'v1';
@@ -147,7 +147,7 @@ export function parseGameFragment(fragment: string): GameLink {
     if (!key || seen.has(key)) throw new GameUrlError('field', `bad or repeated field "${field}"`);
     seen.add(key);
     if (key === 'h' && (value === '0' || value === '1')) link.humanSide = Number(value) as Side;
-    else if (key === 'l' && /^\d{1,2}$/.test(value) && Number(value) < NODE_LEVELS.length) link.level = Number(value);
+    else if (key === 'l' && /^(0|[1-9]\d{0,6})$/.test(value) && isValidLevel(Number(value))) link.level = Number(value);
     else throw new GameUrlError('field', `bad value in "${field}"`);
   }
   return link;

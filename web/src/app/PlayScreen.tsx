@@ -16,6 +16,8 @@ import type { AlertAction } from '../ui/Panels';
 import type { SideStyle } from '../ui/primitives';
 import { useT } from '../ui/texts';
 import type { TextKey } from '../ui/texts';
+import { SkillCard } from '../ui/SkillCard';
+import type { SkillTracker } from '../skill/tracker';
 import type { EngineSession } from './session';
 import type { SessionError } from './session';
 
@@ -25,6 +27,9 @@ export interface PlayModel {
   humanSide: Side;
   demo: boolean;
   level: number;
+  /** Skill estimate: the tracker, and the preset level that "Reset to level" returns to. */
+  tracker: SkillTracker;
+  presetLevel: number;
   /** Copy link: only while a human game runs. */
   canShare: boolean;
   getUrl: () => string;
@@ -183,6 +188,14 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         />
         <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
         <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
+        {!demo && s.current && (
+          <SkillCard
+            tracker={model.tracker}
+            level={model.level}
+            onMatch={(level) => model.onApply(s.current!.info.id, level)}
+            onReset={() => model.onApply(s.current!.info.id, model.presetLevel)}
+          />
+        )}
         <Telemetry result={state.lastEngine} stale={state.thinking} />
         <MoveList moves={moves} styleOf={styleOf} defaultOpen={open} />
       </div>
