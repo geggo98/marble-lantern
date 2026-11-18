@@ -96,6 +96,32 @@ sh_library(sh_search
 target_include_directories(sh_search PUBLIC src/search)
 target_link_libraries(sh_search PUBLIC sh_engine sh_tablebase)
 
+# ---- WebAssembly (preset "wasm", configured with emcmake): the classical engine as engine-cpp.{js,wasm} ----
+# Only the engine libraries above are built; the network code, the apps and the tests need a host and stay out of this build.
+if(EMSCRIPTEN)
+  # SH_WASM_ES6 ON: engine-cpp.js is an ES module (export default). OFF: a classic script that defines createEngineCpp.
+  option(SH_WASM_ES6 "Emit engine-cpp.js as an ES module" ON)
+  add_executable(engine-cpp src/wasm/wasm_api.cpp)
+  sh_target(engine-cpp)
+  target_link_libraries(engine-cpp PRIVATE sh_search)
+  set(sh_wasm_exports
+    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_game_new _shw_side_to_move _shw_ply
+    _shw_owner _shw_cell_count _shw_cell_q _shw_cell_r _shw_legal_moves _shw_play _shw_unmake _shw_outcome _shw_choose
+    _shw_last_score _shw_last_depth _shw_last_nodes _shw_has_result _shw_total_nodes _shw_race_moves _shw_rows1_requests)
+  list(JOIN sh_wasm_exports "," sh_wasm_exports_csv)
+  # No threads and no SharedArrayBuffer (GitHub Pages cannot send COOP/COEP); no file system (the table comes as bytes).
+  target_link_options(engine-cpp PRIVATE
+    --no-entry -sMODULARIZE=1 -sEXPORT_NAME=createEngineCpp -sENVIRONMENT=web,worker,node
+    -sALLOW_MEMORY_GROWTH=1 -sFILESYSTEM=0 -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP32,UTF8ToString
+    "-sEXPORTED_FUNCTIONS=_malloc,_free,${sh_wasm_exports_csv}")
+  if(SH_WASM_ES6)
+    target_link_options(engine-cpp PRIVATE -sEXPORT_ES6=1)
+  endif()
+  # Emscripten's own warning when nixpkgs binaryen is one release ahead of the one it expects must not stop the build.
+  target_link_options(engine-cpp PRIVATE -Wno-version-check)
+  return()
+endif()
+
 sh_library(sh_nn
   src/nn/config.cpp src/nn/safetensors.cpp src/nn/parameters.cpp src/nn/gather.cpp
   src/nn/reference_net.cpp src/nn/simd_net.cpp src/nn/simd_net_nofma.cpp src/nn/priors.cpp src/nn/golden_io.cpp src/nn/buckets.cpp)
@@ -143,6 +169,7 @@ endif()
 sh_test(java_compat_test sh_core)
 sh_test(engine_test sh_engine)
 sh_test(tablebase_test sh_tablebase)
+sh_test(race_table_bytes_test sh_search)
 sh_test(eval_test sh_search)
 sh_test(search_test sh_search)
 sh_test(nn_test sh_nn)

@@ -65,10 +65,18 @@ public:
     // 10 pieces, cell list, state count).
     static std::expected<RaceTable, LoadError> load(const std::filesystem::path& file, const Region& region);
 
+    // The same checks on bytes that are already in memory (the browser: the inflated rows2.bin); `name` is for messages only.
+    // verify = false skips the two SHA-256 passes (the whole file against the region constant, the body against the header) for a
+    // caller that has checked the SHA-256 of the whole file itself; every other check still runs.
+    static std::expected<RaceTable, LoadError> load_bytes(std::vector<char> data, const std::string& name, const Region& region, bool verify = true);
+
     // STERNHALMA_TABLE_DIR, else <repository root>/tablebase/tables (the root is found by walking up from the working
     // directory to settings.gradle.kts, else from this source file).
     static std::filesystem::path table_dir();
-    static std::filesystem::path default_path(const Region& region) { return table_dir() / region.file_name; }
+    // Where a table of `region` is read from by default: the first real file (not a Git LFS pointer) of STERNHALMA_TABLE_DIR (if set),
+    // <repository root>/tablebase/tables and the unpack cache <repository root>/tablebase/build/tables (filled by `devenv tasks run
+    // tables:unpack`). If none is a real file, the first candidate, so that the error names the usual place.
+    static std::filesystem::path default_path(const Region& region);
     // load(default_path(region), region)
     static std::expected<RaceTable, LoadError> load_default(const Region& region);
 

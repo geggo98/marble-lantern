@@ -24,12 +24,12 @@ A worktree has no git-ignored files. Environment variables, no absolute path in 
 
 ```sh
 export STERNHALMA_DATA_DIR=<data directory of the main checkout>     # real LARGE weights for --real
-export STERNHALMA_TABLE_DIR=<directory with rows1.bin and rows2.bin>  # default: <repo>/tablebase/tables/
+export STERNHALMA_TABLE_DIR=<directory with rows1.bin and rows2.bin>  # default: <repo>/tablebase/build/tables/ (rows1.bin), <repo>/tablebase/tables/ (rows2.bin)
 export STERNHALMA_GOLDEN_DIR=<golden directory>                      # default: <repo>/cpp/golden
 export STERNHALMA_GOLDEN_REQUIRED=1                                  # a missing golden file fails the test instead of skipping it
 ```
 
-`git lfs pull` in each worktree, then check `shasum -a 256 tablebase/tables/rows1.bin tablebase/tables/rows2.bin` against the
+`git lfs pull` in each worktree, then `devenv tasks run tables:unpack` (unpacks `tablebase/tables/rows1.bin.zst` into `tablebase/build/tables/rows1.bin`), then check `shasum -a 256 tablebase/build/tables/rows1.bin tablebase/tables/rows2.bin` against the
 constants of WP3 (`85850d6f...` and `d62edf38...`).
 
 ## Merging the tracks into `exp/cpp` (WP14)

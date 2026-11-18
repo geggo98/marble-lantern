@@ -43,6 +43,17 @@
       "cacheVariables": { "SH_HARDENING": "FAST" }
     },
     {
+      "name": "wasm",
+      "inherits": "base",
+      "displayName": "WebAssembly: -O3, no hardening, no threads; configure with emcmake (scripts/web/build-wasm.zsh)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+        "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+        "SH_HARDENING": "NONE"
+      }
+    },
+    {
       "name": "tidy",
       "inherits": "release",
       "displayName": "Static analysis: release plus clang-tidy",
@@ -53,7 +64,8 @@
     { "name": "debug-asan", "configurePreset": "debug-asan" },
     { "name": "release", "configurePreset": "release" },
     { "name": "release-hardened", "configurePreset": "release-hardened" },
-    { "name": "tidy", "configurePreset": "tidy" }
+    { "name": "tidy", "configurePreset": "tidy" },
+    { "name": "wasm", "configurePreset": "wasm" }
   ],
   "testPresets": [
     {

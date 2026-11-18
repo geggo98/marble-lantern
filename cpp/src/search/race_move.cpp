@@ -8,12 +8,22 @@
 
 namespace sh {
 
+namespace {
+std::shared_ptr<const RaceTable>& installed_rows2() {
+    static std::shared_ptr<const RaceTable> table;
+    return table;
+}
+}  // namespace
+
+void RaceMove::install_rows2(std::shared_ptr<const RaceTable> table) { installed_rows2() = std::move(table); }
+
 std::expected<std::shared_ptr<const RaceTable>, std::string> RaceMove::shared_table(int rows) {
     if (rows == 1) {
         const auto& loaded = RaceEvaluator::rows1_table();
         if (!loaded) return std::unexpected("race table rows1: " + loaded.error().message);
         return *loaded;
     }
+    if (installed_rows2()) return installed_rows2();
     static const std::expected<std::shared_ptr<const RaceTable>, LoadError> rows2 =
         []() -> std::expected<std::shared_ptr<const RaceTable>, LoadError> {
         auto table = RaceTable::load_default(kRows2);

@@ -27,6 +27,9 @@ public:
 
     // The race table of a region (1 or 2), loaded once per process and shared; the error is the load error text.
     static std::expected<std::shared_ptr<const RaceTable>, std::string> shared_table(int rows);
+    // The browser path: shared_table(2) returns this table (built from bytes) instead of reading rows2.bin from disk. Call it before
+    // the first player is created; nullptr removes it again. Not thread-safe.
+    static void install_rows2(std::shared_ptr<const RaceTable> table);
 
     int mode() const { return mode_; }
     int table_min_row() const { return table_->min_row(); }

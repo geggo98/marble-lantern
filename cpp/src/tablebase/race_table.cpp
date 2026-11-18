@@ -82,6 +82,33 @@ std::filesystem::path RaceTable::table_dir() {
     return repository_root() / "tablebase" / "tables";
 }
 
+namespace {
+
+// Whether `file` is a regular file that does not start with the Git LFS pointer prefix (reads at most kMaxPointerSize bytes).
+bool is_real_file(const std::filesystem::path& file) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec)) return false;
+    const std::uintmax_t size = std::filesystem::file_size(file, ec);
+    if (ec) return false;
+    if (size > kMaxPointerSize) return true;
+    std::ifstream in(file, std::ios::binary);
+    std::string head(static_cast<std::size_t>(size), '\0');
+    in.read(head.data(), static_cast<std::streamsize>(head.size()));
+    return !std::string_view(head.data(), static_cast<std::size_t>(in.gcount())).starts_with(kLfsPointerPrefix);
+}
+
+}  // namespace
+
+std::filesystem::path RaceTable::default_path(const Region& region) {
+    const std::filesystem::path root = repository_root();
+    const std::filesystem::path candidates[] = {table_dir() / region.file_name, root / "tablebase" / "tables" / region.file_name,
+                                                root / "tablebase" / "build" / "tables" / region.file_name};
+    for (const auto& candidate : candidates) {
+        if (is_real_file(candidate)) return candidate;
+    }
+    return candidates[0];
+}
+
 std::expected<RaceTable, LoadError> RaceTable::load_default(const Region& region) { return load(default_path(region), region); }
 
 std::expected<RaceTable, LoadError> RaceTable::load(const std::filesystem::path& file, const Region& region) {
@@ -97,6 +124,10 @@ std::expected<RaceTable, LoadError> RaceTable::load(const std::filesystem::path&
         in.read(data.data(), static_cast<std::streamsize>(data.size()));
         if (in.gcount() != static_cast<std::streamsize>(data.size())) return fail(LoadError::Kind::Unreadable, name + ": short read");
     }
+    return load_bytes(std::move(data), name, region);
+}
+
+std::expected<RaceTable, LoadError> RaceTable::load_bytes(std::vector<char> data, const std::string& name, const Region& region, bool verify) {
     const std::span<const std::byte> bytes = std::as_bytes(std::span<const char>(data));
 
     if (data.size() <= kMaxPointerSize && std::string_view(data.data(), data.size()).starts_with(kLfsPointerPrefix)) {
@@ -146,12 +177,14 @@ std::expected<RaceTable, LoadError> RaceTable::load(const std::filesystem::path&
     if (bytes.size() - body_offset > body_size) return fail(LoadError::Kind::TrailingBytes, name + " has trailing bytes");
 
     // ---- checksums ----
-    const std::string file_sha = sha256_hex(bytes);
-    if (file_sha != region.sha256) {
-        return fail(LoadError::Kind::FileChecksum, name + " has sha256 " + file_sha + ", expected " + region.sha256);
-    }
-    if (sha256_hex(bytes.subspan(body_offset)) != to_hex(body_sha)) {
-        return fail(LoadError::Kind::BodyChecksum, name + " body checksum mismatch");
+    if (verify) {
+        const std::string file_sha = sha256_hex(bytes);
+        if (file_sha != region.sha256) {
+            return fail(LoadError::Kind::FileChecksum, name + " has sha256 " + file_sha + ", expected " + region.sha256);
+        }
+        if (sha256_hex(bytes.subspan(body_offset)) != to_hex(body_sha)) {
+            return fail(LoadError::Kind::BodyChecksum, name + " body checksum mismatch");
+        }
     }
 
     // ---- the header against the region ----
