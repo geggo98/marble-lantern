@@ -1,0 +1,153 @@
+{
+  "v": 1,
+  "statistic": {
+    "name": "mean of the per-move losses, each capped at cap points",
+    "cap": 200
+  },
+  "analysisNodes": 20000,
+  "engine": {
+    "id": "cpp-wasm",
+    "version": "3ac176f"
+  },
+  "date": "2026-11-18",
+  "openingPlies": 4,
+  "seeds": [
+    1000,
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1008,
+    1009,
+    1010,
+    1011,
+    1012,
+    1013,
+    1014,
+    1015
+  ],
+  "ladder": [
+    {
+      "nodes": 50,
+      "moves": 1448,
+      "games": 16,
+      "stat": 19.52,
+      "median": 7,
+      "se": 0.71,
+      "smoothed": 19.52
+    },
+    {
+      "nodes": 100,
+      "moves": 1489,
+      "games": 16,
+      "stat": 18.97,
+      "median": 6,
+      "se": 0.7,
+      "smoothed": 18.97
+    },
+    {
+      "nodes": 200,
+      "moves": 1642,
+      "games": 16,
+      "stat": 18.66,
+      "median": 9,
+      "se": 0.62,
+      "smoothed": 18.66
+    },
+    {
+      "nodes": 500,
+      "moves": 1540,
+      "games": 16,
+      "stat": 16.22,
+      "median": 5,
+      "se": 0.63,
+      "smoothed": 16.22
+    },
+    {
+      "nodes": 1000,
+      "moves": 1452,
+      "games": 16,
+      "stat": 13.83,
+      "median": 0,
+      "se": 0.58,
+      "smoothed": 13.94
+    },
+    {
+      "nodes": 2000,
+      "moves": 1553,
+      "games": 16,
+      "stat": 14.04,
+      "median": 2,
+      "se": 0.59,
+      "smoothed": 13.94
+    },
+    {
+      "nodes": 5000,
+      "moves": 1451,
+      "games": 16,
+      "stat": 10.6,
+      "median": 0,
+      "se": 0.51,
+      "smoothed": 10.6
+    },
+    {
+      "nodes": 10000,
+      "moves": 1416,
+      "games": 16,
+      "stat": 10.1,
+      "median": 0,
+      "se": 0.49,
+      "smoothed": 10.1
+    },
+    {
+      "nodes": 20000,
+      "moves": 1533,
+      "games": 16,
+      "stat": 8.65,
+      "median": 0,
+      "se": 0.46,
+      "smoothed": 8.65
+    },
+    {
+      "nodes": 50000,
+      "moves": 1447,
+      "games": 16,
+      "stat": 7.02,
+      "median": 0,
+      "se": 0.47,
+      "smoothed": 7.97
+    },
+    {
+      "nodes": 100000,
+      "moves": 1479,
+      "games": 16,
+      "stat": 6.7,
+      "median": 0,
+      "se": 0.44,
+      "smoothed": 7.97
+    },
+    {
+      "nodes": 200000,
+      "moves": 1532,
+      "games": 16,
+      "stat": 7.85,
+      "median": 0,
+      "se": 0.41,
+      "smoothed": 7.97
+    },
+    {
+      "nodes": 500000,
+      "moves": 1463,
+      "games": 16,
+      "stat": 10.34,
+      "median": 0,
+      "se": 0.56,
+      "smoothed": 7.97
+    }
+  ],
+  "resolvedUpTo": 50000,
+  "notes": "Self-play with the engine at each node budget; loss of every move after the random opening, measured by analyse at 20000 nodes. 3 of 12 neighbouring rungs of the raw ladder increased with the budget (noise); the column \"smoothed\" is the isotonic fit that the app uses."
+}
