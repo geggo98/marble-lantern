@@ -65,6 +65,20 @@ public final class Web {
         }
     }
 
+    /**
+     * {@code ok <nodes> <ms> <rows1Requests> <moves> <scores>}, the last two comma separated and in the same order.
+     * {@code moves} is a comma separated list of the moves to score, or empty for all legal moves.
+     */
+    @JSExport
+    public static String analyse(String history, String moves, int nodes) {
+        try {
+            WebCore.Analysis a = CORE.analyse(parse(history), moves == null || moves.isEmpty() ? null : parse(moves), nodes);
+            return "ok " + a.nodes() + " " + a.ms() + " " + a.rows1Requests() + " " + join(a.moves()) + " " + join(a.scores());
+        } catch (RuntimeException e) {
+            return error(e);
+        }
+    }
+
     /** {@code ok <moves> <nodes per ply> <ms per ply> <rows1Requests>}, the three lists comma separated. */
     @JSExport
     public static String bench(int plies, int nodes) {

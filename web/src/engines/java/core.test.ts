@@ -14,6 +14,7 @@ import type { JavaModule } from './core';
 import { JavaRequestHandler, pickAssets } from './handler';
 import type { JavaAssets } from './handler';
 import { loadJavaModuleInNode } from './node';
+import { analysisSuite } from '../testing/analysis-suite';
 
 const path = (rel: string): string => fileURLToPath(new URL(`../../../public/${rel}`, import.meta.url));
 const present = ['engines/java/engine-java.js', 'engines/java/engine-java.wasm', 'engines/java/engine-java.wasm-runtime.js',
@@ -65,6 +66,8 @@ describe.skipIf(!present).each(TARGETS)('TeaVM $name in node', ({ assets }) => {
     core.installTable(table(), true);
     return core;
   };
+
+  analysisSuite(`TeaVM ${assets.target}`, load);
 
   it('plays the benchmark game with the fingerprint of the JVM: checksum -1986550544382302149, 800,000 nodes', async () => {
     const core = await load();

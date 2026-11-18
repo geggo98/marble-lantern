@@ -1,5 +1,5 @@
 // Wraps a Worker into an Engine: id counter, pending map, progress routing, terminate-and-restart on abort.
-import type { ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from './engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from './engine';
 import { isEvent, EngineFailure } from './protocol';
 import type { AssetUrls, Reply, Request, RequestBody, WorkerOut } from './protocol';
 import type { LoadedTable } from './tables';
@@ -83,13 +83,23 @@ export class WorkerEngine implements Engine {
   }
 
   async choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult> {
+    return (await this.abortable({ type: 'choose', history: [...history] }, signal)) as ChooseResult;
+  }
+
+  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult> {
+    const request: RequestBody = { type: 'analyse', history: [...history], moves: moves === null ? null : [...moves], nodes };
+    return (await this.abortable(request, signal)) as AnalysisResult;
+  }
+
+  /** A long request that the caller may abort: cancel means terminate the worker and start a new one. */
+  private async abortable(request: RequestBody, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) throw abortError();
     if (!this.initialised) throw new EngineFailure('internal', 'engine is not initialised');
     // After an abort the new worker needs its init and the replayed newGame first.
     await this.ready;
     if (signal?.aborted) throw abortError();
-    const { id, promise } = this.send({ type: 'choose', history: [...history] });
-    if (!signal) return (await promise) as ChooseResult;
+    const { id, promise } = this.send(request);
+    if (!signal) return await promise;
     const onAbort = (): void => {
       this.restart();
       const p = this.pending.get(id);
@@ -100,7 +110,7 @@ export class WorkerEngine implements Engine {
     };
     signal.addEventListener('abort', onAbort, { once: true });
     try {
-      return (await promise) as ChooseResult;
+      return await promise;
     } finally {
       signal.removeEventListener('abort', onAbort);
     }

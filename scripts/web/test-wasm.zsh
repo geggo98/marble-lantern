@@ -44,4 +44,6 @@ print -u2 -- "--- benchmark game"
 node $dir/game.mjs --engine $engine --tables $tables
 print -u2 -- "--- damaged tables"
 node $dir/probe.mjs --engine $engine --tables $tables
+print -u2 -- "--- analysis"
+node $dir/analyse.mjs --engine $engine --tables $tables
 print -u2 "test-wasm: all tests passed"

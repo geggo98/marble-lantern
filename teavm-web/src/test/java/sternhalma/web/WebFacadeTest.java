@@ -145,6 +145,127 @@ class WebFacadeTest {
         assertEquals("internal", assertThrows(WebFailure.class, () -> new WebCore().newGame(1000, 1000)).code());
     }
 
+    // ---- analysis ----
+
+    private static final int MATE = 1_000_000;
+
+    /** A finished game: self-play with a small budget until the side to move has no legal move; the last move wins. */
+    private static int[] finishedGame(WebCore core) {
+        core.newGame(300, 300);
+        java.util.List<Integer> history = new java.util.ArrayList<>();
+        while (core.legalMoves(history.stream().mapToInt(Integer::intValue).toArray()).length > 0) {
+            history.add(core.choose(history.stream().mapToInt(Integer::intValue).toArray()).move());
+        }
+        return history.stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    @Test
+    void analyseScoresAllLegalMovesInOrderAndCountsTheBudgetPerMove() {
+        WebCore core = ready();
+        WebCore.Analysis a = core.analyse(new int[0], null, 500);
+        assertArrayEquals(core.legalMoves(new int[0]), a.moves());
+        assertEquals(a.moves().length, a.scores().length);
+        assertTrue(a.nodes() > a.moves().length * 100L && a.nodes() <= a.moves().length * 564L, "nodes " + a.nodes());
+        assertEquals(0, a.rows1Requests());
+    }
+
+    @Test
+    void anAnalysisScoreIsTheNegatedSearchScoreOfTheChildPosition() {
+        // oracle: an independent player with the analysis spec searches the position after the move; its score is from the
+        // opponent, so the mover's score is its negation (mate scores one ply nearer to 0: see WebCore#analyse)
+        WebCore core = ready();
+        int[] history = Arrays.copyOf(finishedGame(core), 14);
+        WebCore.Analysis a = core.analyse(history, null, 800);
+        Position position = Position.initial(RuleSet.defaults(2));
+        for (int move : history) {
+            position.make(move);
+        }
+        for (int i = 0; i < a.moves().length; i += 5) {
+            AlphaBetaPlayer oracle = core.player(WebCore.ANALYSIS_SPEC + ",nodes=800");
+            Position child = position.copy();
+            child.make(a.moves()[i]);
+            oracle.choose(child);
+            assertEquals(-oracle.lastResult().score(), a.scores()[i], "move " + a.moves()[i]);
+        }
+    }
+
+    @Test
+    void aSubsetKeepsTheOrderAndTheScoresOfTheFullList() {
+        WebCore core = ready();
+        int[] history = Arrays.copyOf(finishedGame(core), 10);
+        WebCore.Analysis all = core.analyse(history, null, 600);
+        int[] picks = {all.moves()[3], all.moves()[0]};
+        WebCore.Analysis some = core.analyse(history, picks, 600);
+        assertArrayEquals(picks, some.moves());
+        assertArrayEquals(new int[] {all.scores()[3], all.scores()[0]}, some.scores());
+        core.analyse(history, picks, 200); // another budget replaces the analysis player
+        assertArrayEquals(all.scores(), core.analyse(history, null, 600).scores());
+    }
+
+    @Test
+    void theMoveThatWinsAtOnceScoresMateMinusOneAndTheMoveThatAllowsItMinusMateMinusTwo() {
+        WebCore core = ready();
+        int[] game = finishedGame(core);
+        int n = game.length;
+        WebCore.Analysis atWin = core.analyse(Arrays.copyOf(game, n - 1), null, 400);
+        int at = Arrays.stream(atWin.moves()).boxed().toList().indexOf(game[n - 1]);
+        assertEquals(MATE - 1, atWin.scores()[at]);
+        assertEquals(1, Arrays.stream(atWin.scores()).filter(x -> x == MATE - 1).count());
+        for (int i = 0; i < atWin.scores().length; i++) {
+            if (i != at) {
+                assertTrue(atWin.scores()[i] < MATE - 1);
+            }
+        }
+        WebCore.Analysis atLoss = core.analyse(Arrays.copyOf(game, n - 2), new int[] {game[n - 2]}, 400);
+        assertEquals(-(MATE - 2), atLoss.scores()[0]);
+    }
+
+    @Test
+    void analysisLeavesTheGamePlayersAndTheirResultsAsTheyWere() {
+        // the benchmark fingerprint, with an analysis between every two moves
+        WebCore core = ready();
+        core.newGame(20_000, 20_000);
+        int[] history = new int[40];
+        long checksum = 0;
+        long nodes = 0;
+        for (int ply = 0; ply < 40; ply++) {
+            WebCore.Choice c = core.choose(Arrays.copyOf(history, ply));
+            history[ply] = c.move();
+            nodes += c.nodes();
+            checksum = checksum * 31 + c.move();
+            core.analyse(Arrays.copyOf(history, ply + 1), null, 300 + 100 * (ply % 3));
+        }
+        assertEquals(-1986550544382302149L, checksum);
+        assertEquals(800_000L, nodes);
+    }
+
+    @Test
+    void analyseRejectsABadMoveABadBudgetAndAFinishedGame() {
+        WebCore core = ready();
+        int[] legal = core.legalMoves(new int[0]);
+        assertEquals("illegal-move", assertThrows(WebFailure.class, () -> core.analyse(new int[0], new int[] {legal[0], 0}, 100)).code());
+        assertEquals("internal", assertThrows(WebFailure.class, () -> core.analyse(new int[0], null, 0)).code());
+        int[] game = finishedGame(core);
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(game, null, 100)).code());
+    }
+
+    @Test
+    void theExportedAnalyseAnswersInTheDocumentedFormat() {
+        Web.setTable(file, false);
+        String[] reply = Web.analyse("", "", 200).split(" ");
+        assertEquals(6, reply.length, Arrays.toString(reply));
+        assertEquals("ok", reply[0]);
+        assertEquals("0", reply[3]);
+        int moves = reply[4].split(",").length;
+        assertEquals(moves, reply[5].split(",").length);
+        assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, moves);
+        String one = Web.analyse("", reply[4].split(",")[2], 200);
+        assertEquals("ok", one.split(" ")[0]);
+        assertEquals(reply[5].split(",")[2], one.split(" ")[5]);
+        assertTrue(Web.analyse("", "0", 200).startsWith("error illegal-move "));
+        assertTrue(Web.analyse("1,x", "", 200).startsWith("error illegal-history "));
+    }
+
     // ---- corrupt tables ----
 
     @Test

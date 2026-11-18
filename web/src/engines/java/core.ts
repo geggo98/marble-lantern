@@ -3,7 +3,7 @@
 //
 // The facade exports string-only methods that never throw (see Web.java): the reply is "ok <fields>" or
 // "error <code> <message>". The move history is the game state and crosses the boundary as "1,2,3".
-import type { BenchResult, ChooseResult, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, GameSetup } from '../engine';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
 
@@ -15,11 +15,13 @@ export interface JavaModule {
   legalMoves(history: string): string;
   choose(history: string): string;
   bench(plies: number, nodes: number): string;
+  /** `moves` is a comma separated list, or empty for all legal moves. */
+  analyse(history: string, moves: string, nodes: number): string;
 }
 
 const CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'table-checksum', 'table-truncated', 'table-trailing', 'table-magic', 'wasm-gc-unsupported',
-  'illegal-history', 'rows1-requested', 'aborted', 'internal',
+  'illegal-history', 'illegal-move', 'rows1-requested', 'aborted', 'internal',
 ]);
 
 const now = (): number => performance.now();
@@ -85,6 +87,30 @@ export class JavaCore {
     if (!this.gameStarted) throw new EngineFailure('internal', 'newGame was not called');
     const f = fields(this.m.choose(this.encode(history)));
     return this.parseChoice(f);
+  }
+
+  /**
+   * Scores moves of the position after `history` for the side to move with the facade's analysis player: a player of its
+   * own, so the game players, their tables and choose() results stay untouched. `moves` null scores all legal moves.
+   * `nodes` is the budget for each scored move.
+   */
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
+    this.requireTable();
+    if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
+    if (moves !== null && (moves.length === 0 || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
+      throw new EngineFailure('illegal-move', 'the move list is empty or not made of moves');
+    }
+    const f = fields(this.m.analyse(this.encode(history), moves === null ? '' : moves.join(','), nodes));
+    const visited = Number(f[0]);
+    const ms = Number(f[1]);
+    const rows1 = Number(f[2]);
+    const scored = numbers(f[3]);
+    const scores = numbers(f[4]);
+    if (f.length !== 5 || ![visited, ms, rows1].every(Number.isFinite) || scored.length === 0 || scored.length !== scores.length) {
+      throw new EngineFailure('internal', `unexpected analyse reply: ${f.join(' ').slice(0, 120)}`);
+    }
+    if (rows1 > 0) throw new EngineFailure('rows1-requested', `${rows1} request(s) for rows1.bin (ADR 0001)`);
+    return { scores, moves: scored, position: Math.max(...scores), nodes: visited, ms };
   }
 
   /**

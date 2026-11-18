@@ -14,6 +14,8 @@ export type Request =
   | { id: number; type: 'newGame'; setup: GameSetup }
   | { id: number; type: 'legalMoves'; history: number[] }
   | { id: number; type: 'choose'; history: number[] }
+  /** moves: null scores all legal moves. */
+  | { id: number; type: 'analyse'; history: number[]; moves: number[] | null; nodes: number }
   /** Runs the benchmark game inside the worker. */
   | { id: number; type: 'bench'; plies: number; nodes: number };
 
@@ -24,6 +26,7 @@ export type ErrorCode =
   | 'table-magic'
   | 'wasm-gc-unsupported'
   | 'illegal-history'
+  | 'illegal-move'
   | 'rows1-requested'
   | 'aborted'
   | 'internal';
@@ -34,7 +37,7 @@ export interface EngineError {
   message: string;
 }
 
-/** result: LoadReport, number[], ChooseResult, BenchResult, or null. */
+/** result: LoadReport, number[], ChooseResult, AnalysisResult, BenchResult, or null. */
 export type Reply =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: EngineError };

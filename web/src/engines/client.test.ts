@@ -98,6 +98,53 @@ describe('WorkerEngine', () => {
     expect(report.fetchMs).toBe(3);
   });
 
+  describe('analyse', () => {
+    it('sends the request through the protocol and returns the scores', async () => {
+      const { engine, workers } = harness();
+      await engine.init();
+      const all = await engine.analyse([], null, 700);
+      expect(all.moves.length).toBeGreaterThan(5);
+      expect(all.scores).toHaveLength(all.moves.length);
+      expect(all.position).toBe(Math.max(...all.scores));
+      expect(all.nodes).toBe(700 * all.moves.length);
+      const some = await engine.analyse([], [all.moves[2]!, all.moves[0]!], 100);
+      expect(some.moves).toEqual([all.moves[2], all.moves[0]]);
+      expect(workers).toHaveLength(1);
+    });
+
+    it('rejects a bad move with the protocol code and does not restart the worker', async () => {
+      const { engine, workers } = harness();
+      await engine.init();
+      await expect(engine.analyse([], [0 | (0 << 8)], 100)).rejects.toMatchObject({ code: 'illegal-move' });
+      expect(workers).toHaveLength(1);
+    });
+
+    it('is abortable like choose: AbortError, the worker is terminated and a new one is started with the game setup', async () => {
+      const { engine, workers, core } = harness({ withTable: true, chooseDelayMs: 200 });
+      await engine.init();
+      await engine.newGame({ nodes: [500, 600] });
+      const controller = new AbortController();
+      const run = engine.analyse([], null, 4000, controller.signal);
+      await new Promise((r) => setTimeout(r, 0));
+      controller.abort();
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(workers).toHaveLength(2);
+      expect(workers[0]!.terminated).toBe(true);
+      expect(core.newGameCalls).toBe(2);
+      // the new worker answers
+      expect((await engine.analyse([], null, 10)).moves.length).toBeGreaterThan(0);
+    });
+
+    it('rejects at once for a signal that is already aborted', async () => {
+      const { engine, workers } = harness();
+      await engine.init();
+      const controller = new AbortController();
+      controller.abort();
+      await expect(engine.analyse([], null, 10, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+      expect(workers).toHaveLength(1);
+    });
+  });
+
   describe('abort', () => {
     it('rejects with AbortError, terminates the worker and starts a new one without a second download', async () => {
       const { engine, workers, core, tableLoads } = harness({ withTable: true, chooseDelayMs: 200 });

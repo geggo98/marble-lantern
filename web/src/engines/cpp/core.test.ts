@@ -9,6 +9,7 @@ import type { ErrorCode } from '../protocol';
 import { CppCore } from './core';
 import type { CppModuleFactory } from './core';
 import { CppRequestHandler } from './handler';
+import { analysisSuite } from '../testing/analysis-suite';
 
 const publicDir = fileURLToPath(new URL('../../../public/', import.meta.url));
 const enginePath = publicDir + 'engines/cpp/engine-cpp.js';
@@ -98,6 +99,14 @@ describe.skipIf(!assetsPresent)('CppCore on the real engine', () => {
     const r = core.choose([start[0]!]);
     expect(next).toContain(r.move);
     expect(r.rows1Requests).toBe(0);
+  });
+});
+
+describe.skipIf(!assetsPresent)('the analysis API of CppCore', () => {
+  analysisSuite('C++ Wasm', async () => {
+    const core = await CppCore.create(factory);
+    core.installTable(table(), false);
+    return core;
   });
 });
 

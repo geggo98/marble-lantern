@@ -3,7 +3,7 @@
 //
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
-import type { BenchResult, ChooseResult, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, GameSetup } from '../engine';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
 
@@ -28,6 +28,8 @@ export interface CppModule {
   _shw_last_nodes(id: number): number;
   _shw_has_result(id: number): number;
   _shw_race_moves(id: number): number;
+  _shw_analyse(nodes: number, movesIn: number, nIn: number, movesOut: number, scoresOut: number, cap: number): number;
+  _shw_analysis_nodes(): number;
   _shw_rows1_requests(): number;
 }
 
@@ -58,6 +60,8 @@ export class CppCore {
   private budgets: [number, number] = [0, 0];
   private tableInstalled = false;
   private movesPtr = 0;
+  /** Scratch for analyse: input moves, output moves, output scores (MOVE_CAPACITY ints each). */
+  private analysisPtr = 0;
 
   private constructor(module: CppModule) {
     this.m = module;
@@ -130,6 +134,51 @@ export class CppCore {
       ms,
       raceMove: this.m._shw_race_moves(id) > raceBefore,
       rows1Requests,
+    };
+  }
+
+  /**
+   * Scores moves of the position after `history` for the side to move with the module's analysis player (shw_analyse): a
+   * player of its own, so the game players, their tables and choose() results stay untouched. `moves` null scores all
+   * legal moves. `nodes` is the budget for each scored move.
+   */
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
+    this.requireTable();
+    if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
+    if (moves !== null && (moves.length === 0 || moves.length > MOVE_CAPACITY || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
+      throw new EngineFailure('illegal-move', 'the move list is empty, too long or not made of moves');
+    }
+    this.replay(history);
+    if (this.analysisPtr === 0) {
+      this.analysisPtr = this.m._malloc(3 * MOVE_CAPACITY * 4);
+      if (this.analysisPtr === 0) throw new EngineFailure('internal', 'out of memory for the analysis buffers');
+    }
+    const inBase = this.analysisPtr;
+    const outMoves = inBase + MOVE_CAPACITY * 4;
+    const outScores = outMoves + MOVE_CAPACITY * 4;
+    if (moves !== null) this.m.HEAP32.set(moves, inBase >>> 2);
+    const t0 = now();
+    const n = this.m._shw_analyse(nodes, moves === null ? 0 : inBase, moves === null ? 0 : moves.length, outMoves, outScores, MOVE_CAPACITY);
+    const ms = now() - t0;
+    if (n < 0) {
+      const text = n === -4 ? this.m.UTF8ToString(this.m._shw_error()) : '';
+      const [code, message]: [ErrorCode, string] =
+        n === -1 ? ['illegal-move', 'a move to analyse is not legal'] :
+        n === -2 ? ['illegal-history', 'the game is over'] :
+        ['internal', `shw_analyse returned ${n} ${text}`.trim()];
+      throw new EngineFailure(code, message);
+    }
+    const rows1Requests = this.m._shw_rows1_requests();
+    if (rows1Requests > 0) throw new EngineFailure('rows1-requested', `${rows1Requests} request(s) for rows1.bin (ADR 0001)`);
+    // HEAP32 is read after the call: a view taken earlier may be stale after memory growth.
+    const heap = this.m.HEAP32;
+    const scores = Array.from(heap.subarray(outScores >>> 2, (outScores >>> 2) + n));
+    return {
+      scores,
+      moves: Array.from(heap.subarray(outMoves >>> 2, (outMoves >>> 2) + n)),
+      position: Math.max(...scores),
+      nodes: this.m._shw_analysis_nodes(),
+      ms,
     };
   }
 

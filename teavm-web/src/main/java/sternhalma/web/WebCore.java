@@ -9,6 +9,7 @@ import java.util.List;
 
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.search.AlphaBeta;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.RaceTableSource;
@@ -38,7 +39,27 @@ public final class WebCore {
     public record Bench(int[] moves, long[] nodes, double[] ms, int rows1Requests) {
     }
 
+    /**
+     * The result of one {@link #analyse} call: the scored moves and their scores (same order, integers of the search
+     * scale, from the point of view of the side that makes the move, higher is better), the nodes of all searches
+     * together and the wall time.
+     */
+    public record Analysis(int[] moves, int[] scores, long nodes, double ms, int rows1Requests) {
+    }
+
+    /**
+     * The spec of the analysis player: BROWSER_SPEC without race play and with a small transposition table. Race play
+     * would play a passed position without a search and so without a score; without it the search scores the position
+     * with the exact race arithmetic of the evaluator. The table is cleared before every scored move. Must equal
+     * {@code kAnalysisSpecPrefix} of cpp/src/wasm/wasm_api.cpp.
+     */
+    static final String ANALYSIS_SPEC = Strategies.BROWSER_SPEC.replace(",race=1,racerows=2", "") + ",tt=16";
+
+    private static final int MATE_BOUND = AlphaBeta.MATE - 1000;
+
     private RaceTable rows2;
+    private AlphaBetaPlayer analysisPlayer;
+    private int analysisNodes;
     private int rows1Requests;
     private AlphaBetaPlayer[] players;
 
@@ -67,6 +88,7 @@ public final class WebCore {
         }
         rows2 = table;
         players = null;
+        analysisPlayer = null;
         return table.states();
     }
 
@@ -116,6 +138,56 @@ public final class WebCore {
         return result == null
                 ? new Choice(move, 0, 0, 0, ms, true, rows1Requests)
                 : new Choice(move, result.score(), result.depth(), result.nodes(), ms, false, rows1Requests);
+    }
+
+    /**
+     * Scores moves of the position after {@code history} for the side to move. {@code moves} lists the moves to score
+     * (each must be legal), or is null for all legal moves in the order of {@link #legalMoves}. Each move is made, the
+     * child position is searched with {@code nodes} nodes by a dedicated analysis player (not a game player, so the
+     * game's own searches stay as they are) and the score is negated, so it is from the point of view of the side that
+     * makes the move. A win or loss found by the search is one ply farther from the root than from the child, so mate
+     * scores move one step towards 0: a move that wins at once scores {@code AlphaBeta.MATE - 1}, as in a search of the
+     * parent position.
+     */
+    public Analysis analyse(int[] history, int[] moves, int nodes) {
+        if (nodes < 1) {
+            throw new WebFailure("internal", "node budget must be positive: " + nodes);
+        }
+        Position position = replay(history);
+        int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
+        if (legal.length == 0) {
+            throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
+        }
+        int[] chosen = moves == null ? legal : moves;
+        for (int move : chosen) {
+            if (!contains(legal, move)) {
+                throw new WebFailure("illegal-move", "move " + move + " is not legal after " + history.length + " plies");
+            }
+        }
+        if (analysisPlayer == null || analysisNodes != nodes) {
+            analysisPlayer = player(ANALYSIS_SPEC + ",nodes=" + nodes);
+            analysisNodes = nodes;
+        }
+        long t0 = System.nanoTime();
+        int[] scores = new int[chosen.length];
+        long visited = 0;
+        for (int i = 0; i < chosen.length; i++) {
+            position.make(chosen[i]);
+            analysisPlayer.clearSearch();
+            analysisPlayer.choose(position);
+            position.unmake();
+            SearchResult result = analysisPlayer.lastResult();
+            int score = result == null ? 0 : -result.score();
+            if (score >= MATE_BOUND) {
+                score--;
+            } else if (score <= -MATE_BOUND) {
+                score++;
+            }
+            scores[i] = score;
+            visited += result == null ? 0 : result.nodes();
+        }
+        double ms = (System.nanoTime() - t0) / 1e6;
+        return new Analysis(chosen.clone(), scores, visited, ms, rows1Requests);
     }
 
     /**

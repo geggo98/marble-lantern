@@ -46,6 +46,20 @@ export interface ChooseResult {
   rows1Requests: number;
 }
 
+/** Result of Engine.analyse: a score for each analysed move. */
+export interface AnalysisResult {
+  /** One score per move, in the order of `moves`: the same unit as ChooseResult.score, from the point of view of the side that makes the move (higher is better for the mover). See analysis.ts. */
+  scores: number[];
+  /** The moves that were scored: the argument of analyse, or all legal moves in the order of legalMoves. */
+  moves: number[];
+  /** Score of the position for the side to move: the best of `scores`. */
+  position: number;
+  /** Nodes searched, all moves together (each move gets the node budget of the call). */
+  nodes: number;
+  /** Wall time of the analysis inside the worker. */
+  ms: number;
+}
+
 export interface Progress {
   phase: 'fetch' | 'inflate' | 'verify' | 'instantiate' | 'table';
   loaded: number;
@@ -71,6 +85,13 @@ export interface Engine {
   legalMoves(history: readonly number[]): Promise<number[]>;
   /** Rejects with an AbortError when the signal fires; the adapter then restarts its worker. */
   choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult>;
+  /**
+   * Scores moves of the position after `history` for the side to move, with a dedicated analysis player (never the game
+   * players: their tables, budgets and choose() results stay as they are). `moves` null means all legal moves. `nodes` is
+   * the node budget for each scored move. Rejects with an AbortError when the signal fires; the adapter then restarts its worker.
+   * Rejects with code illegal-move if a move is not legal, illegal-history if the game is over.
+   */
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult>;
   dispose(): void;
 }
 

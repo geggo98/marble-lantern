@@ -1,6 +1,6 @@
 // The online adapter: the Engine interface on top of the Hilla endpoint GameEndpoint (app/.../GameEndpoint.java).
 // It knows nothing about Hilla: the generated client is injected as a ServerApi (see load.ts), so tests run without it.
-import type { ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engine';
 
 /** What the server lists in engines(): ServerEngine.java. */
 export interface ServerEngineEntry {
@@ -102,6 +102,14 @@ export class ServerEngineAdapter implements Engine {
     } catch (e) {
       throw toServerError(e);
     }
+  }
+
+  /**
+   * Not offered by the server endpoint yet: GameEndpoint has no analysis method. It rejects with code "unsupported" so that a
+   * caller can hide move guides and skill estimates for this engine.
+   */
+  async analyse(_history: readonly number[], _moves: readonly number[] | null, _nodes: number, _signal?: AbortSignal): Promise<AnalysisResult> {
+    throw new ServerError('unsupported', 'the server engines have no analysis endpoint');
   }
 
   /** A request in flight ends with its signal; there is no worker to stop. */

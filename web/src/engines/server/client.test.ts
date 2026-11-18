@@ -24,6 +24,10 @@ class ConnectionFailureError extends Error {
 }
 
 describe('ServerEngineAdapter', () => {
+  it('has no analysis yet and says so with the code "unsupported"', async () => {
+    await expect(new ServerEngineAdapter(entry, api()).analyse([], null, 100)).rejects.toMatchObject({ code: 'unsupported' });
+  });
+
   it('describes itself as a server engine with the server prefix', () => {
     const info = new ServerEngineAdapter(entry, api()).info;
     expect(info).toMatchObject({ id: 'server:browser', runtime: 'server', language: 'Java', labelKey: 'engine.serverBrowser', version: 'jvm' });

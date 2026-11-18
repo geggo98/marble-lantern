@@ -2,7 +2,7 @@
 // Do not import it from production code.
 import { CELLS } from '../../board/cells';
 import { replay, sideToMove } from '../../game/board-state';
-import type { ChooseResult, EngineInfo, LoadReport } from '../engine';
+import type { AnalysisResult, ChooseResult, EngineInfo, LoadReport } from '../engine';
 import { EngineFailure } from '../protocol';
 import type { Request, WorkerOut } from '../protocol';
 import type { WorkerLike } from '../client';
@@ -34,6 +34,7 @@ export class FakeEngineCore {
   private nodes: [number, number] = [1000, 1000];
   private random: () => number;
   initCalls = 0;
+  analyseCalls = 0;
   newGameCalls = 0;
   tableReceived: number | null = null;
 
@@ -61,6 +62,8 @@ export class FakeEngineCore {
         return this.legal(request.history);
       case 'choose':
         return this.choose(request.history);
+      case 'analyse':
+        return this.analyse(request.history, request.moves, request.nodes);
       case 'bench':
         throw new EngineFailure('internal', 'bench is not implemented by the fake engine');
     }
@@ -74,6 +77,25 @@ export class FakeEngineCore {
       throw new EngineFailure('illegal-history', String(e));
     }
     return tinyLegalMoves(owner, sideToMove(history.length));
+  }
+
+  /**
+   * Scores for tests: 30 points for each row a move gains towards the goal row, from the point of view of the mover (30 is
+   * the unit of the real evaluator's progress step). `nodes` is only echoed, per move.
+   */
+  private analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
+    this.analyseCalls++;
+    const side = sideToMove(history.length);
+    const legal = this.legal(history);
+    if (legal.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
+    const chosen = moves === null ? legal : [...moves];
+    if (chosen.length === 0) throw new EngineFailure('illegal-move', 'no moves to score');
+    for (const m of chosen) if (!legal.includes(m)) throw new EngineFailure('illegal-move', `move ${m} is not legal`);
+    const scores = chosen.map((m) => {
+      const dr = CELLS[m >>> 8]!.r - CELLS[m & 0xff]!.r;
+      return 30 * (side === 0 ? dr : -dr);
+    });
+    return { scores, moves: chosen, position: Math.max(...scores), nodes: nodes * chosen.length, ms: 0 };
   }
 
   private choose(history: readonly number[]): ChooseResult {
@@ -95,7 +117,7 @@ export class FakeEngineCore {
 }
 
 export interface FakeWorkerOptions {
-  /** Delay before the reply to a "choose" request, in ms. */
+  /** Delay before the reply to a "choose" or "analyse" request, in ms. */
   chooseDelayMs?: number;
   /** Fail the init request of the Nth worker (1-based) with this code. */
   initError?: EngineFailure;
@@ -130,7 +152,7 @@ export class FakeWorker implements WorkerLike {
       }
       this.onmessage?.({ data: reply });
     };
-    if (message.type === 'choose' && this.options.chooseDelayMs) {
+    if ((message.type === 'choose' || message.type === 'analyse') && this.options.chooseDelayMs) {
       const t = setTimeout(() => { this.timers.delete(t); run(); }, this.options.chooseDelayMs);
       this.timers.add(t);
     } else {

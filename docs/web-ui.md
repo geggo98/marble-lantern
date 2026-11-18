@@ -14,10 +14,11 @@ The reasons for the default engine are in [ADR 0002](adr/0002-browser-engines.md
 3. [The engines](#the-engines)
 4. [The engine interface](#the-engine-interface)
 5. [The worker protocol](#the-worker-protocol)
-6. [Loading and checking the race table](#loading-and-checking-the-race-table)
-7. [Build, run and test](#build-run-and-test)
-8. [Continuous integration](#continuous-integration)
-9. [Known limits](#known-limits)
+6. [Analysis API](#analysis-api)
+7. [Loading and checking the race table](#loading-and-checking-the-race-table)
+8. [Build, run and test](#build-run-and-test)
+9. [Continuous integration](#continuous-integration)
+10. [Known limits](#known-limits)
 
 ## Terms
 
@@ -155,6 +156,33 @@ A failed request replies with `ok: false` and an `EngineError` with an English m
 | `rows1-requested` | the engine asked for `rows1.bin` |
 | `aborted` | the request was cancelled |
 | `internal` | anything else |
+
+## Analysis API
+
+`Engine.analyse(history, moves, nodes, signal?)` scores candidate moves after a history and returns an `AnalysisResult`:
+
+- `moves`: the scored moves. If the call passes `null`, these are all legal moves in the order of `legalMoves`; otherwise the given subset.
+- `scores`: one score per move, in the order of `moves`.
+- `position`: the best of `scores`, so the value of the position for the side to move (the best of the subset if a subset is given).
+- `nodes`: the nodes searched for all moves together; `ms`: the wall time inside the worker.
+
+The worker request has the type `analyse` with the fields `history`, `moves` and `nodes`; the reply is an `AnalysisResult`. Error codes: `illegal-move` (a move is not legal, or the list is empty), `illegal-history` (the game is over or the history is invalid) and `internal` (`nodes` is less than 1). An abort works as for `choose`: the client terminates the worker and starts a new one. The server engines reject the call with the code `unsupported`, because `GameEndpoint` has no analysis method yet. `rows1Requests` stays 0 as for `choose`.
+
+**Method.** For each move, the engine makes the move, searches the resulting position with the full node budget and negates the score. The budget therefore applies per scored move. The search runs in a separate analysis player, not in the game players. It has its own transposition table of 2^16 entries, which the engine clears before every move, so a score depends neither on earlier calls nor on the order of the moves. Its specification is `BROWSER_SPEC` without race play (`race=1,racerows=2` removed), plus `tt=16`. Because the game players stay untouched, `choose` results and the benchmark fingerprint do not change; a test runs an analysis between every two moves and checks this. The three browser engines return identical scores for the same position and budget. The code is in `shw_analyse` in `cpp/src/wasm/wasm_api.cpp`, in `WebCore.analyse` in `teavm-web/`, and in `web/src/engines/cpp/core.ts` and `web/src/engines/java/core.ts`.
+
+**Scores.** The unit is the same as for `ChooseResult.score`. A score is always seen from the side that makes the move, and higher is better. A move that wins at once scores 999,999 (the mate value 1,000,000 minus one); a move that allows the opponent to win with the next move scores -999,998. In race positions, `choose` reports 0 for a move from race play, because race play does not search. The analysis player has no race play and searches such positions like any other, so its scores there are meaningful: at the first race move of a measured self-play game, all scores had the sign of the eventual winner.
+
+| Band | Range of \|score\| | Source of the leaf values |
+|---|---|---|
+| ordinary | below 5,000 | linear evaluation; about 30 points per step towards the goal corner |
+| race | 5,000 to below 999,000 | race table; 200 points per race move |
+| win | 999,000 and above | a forced win was found |
+
+In the ordinary band, a logistic fit gives the probability that the side to move wins as 1 / (1 + exp(-score / 80)): 100 points are 78 %, 200 points 92 %, 300 points 98 %. The fit comes from 4,407 positions of 60 self-play games with 1,000 against 20,000 nodes, so the strength gap inflates these rates. Scores of one position vary by about 20 points between budgets. `web/src/engines/analysis.ts` exports `SCORE` (the band constants), `scoreScale = 80`, `advantage(score)` (a value from -1 to 1), `scoreBand`, `scoreLoss`, `GUIDE_NODES = 4000` and `SKILL_NODES = 20000`.
+
+**Speed.** `cpp-wasm` in Node.js analyses about 1.7 million nodes per second. All 68 legal moves of a mid-game position take 82 ms at 2,000 nodes per move, 197 ms at 5,000 and 726 ms at 20,000. `GUIDE_NODES` keeps such a position near 0.16 s; `SKILL_NODES` is meant for skill estimates in the background.
+
+**Tests.** `web/src/engines/testing/analysis-suite.ts` runs against the C++ engine and both TeaVM targets; `web/src/engines/analysis.cross.test.ts` compares the engines; further tests are `WebFacadeTest` in `teavm-web/` and `cpp/wasm/test/analyse.mjs`.
 
 ## Loading and checking the race table
 

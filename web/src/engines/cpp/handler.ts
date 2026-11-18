@@ -47,6 +47,8 @@ export class CppRequestHandler {
         return this.ready().legalMoves(request.history);
       case 'choose':
         return this.ready().choose(request.history);
+      case 'analyse':
+        return this.ready().analyse(request.history, request.moves, request.nodes);
       case 'bench':
         return this.ready().bench(request.plies, request.nodes);
     }

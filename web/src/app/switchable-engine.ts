@@ -2,7 +2,7 @@
 // change the engine and the strength in the middle of a game. This wrapper forwards to the current engine and can swap it.
 // The move history is the whole game state, so the new engine needs no copy of the position: it replays the history
 // on the next call (design-notes.md, section 12, point 4).
-import type { ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engines/engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engines/engine';
 import { EngineFailure } from '../engines/protocol';
 
 const PLACEHOLDER: EngineInfo = {
@@ -58,6 +58,10 @@ export class SwitchableEngine implements Engine {
 
   async choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult> {
     return await this.engine.choose(history, signal);
+  }
+
+  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult> {
+    return await this.engine.analyse(history, moves, nodes, signal);
   }
 
   dispose(): void {
