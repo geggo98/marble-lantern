@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "source": "sternhalma.web.BenchReference on the JVM (./gradlew --no-build-cache :teavm-web:benchReference --args='--json tablebase/tables/rows2.bin <plies> <nodes>'), table rows2.bin SHA-256 d62edf38bbccb229ca055da3054a11e6daffae817d2293dbfa523ad8bb3678e3",
+  "formula": "checksum = checksum * 31 + move per ply, signed 64 bit wrap-around, start 0",
+  "entries": [
+    { "plies": 6, "nodes": 2000, "checksum": "142400977966", "totalNodes": 12000 },
+    { "plies": 40, "nodes": 20000, "checksum": "-1986550544382302149", "totalNodes": 800000 }
+  ]
+}
