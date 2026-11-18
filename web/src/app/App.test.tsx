@@ -80,6 +80,8 @@ beforeEach(async () => {
   await act(async () => {
     root.render(<App manifestLoader={async () => manifest} />);
   });
+  // the start dialog asks first; "No" lets the engine begin, as these tests expect
+  await click(document.querySelector('[data-choice="begin-no"]')!);
   await until(() => status() === 'Your move', 'the engine loads and makes its first move');
 });
 
@@ -87,6 +89,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   document.documentElement.removeAttribute('data-theme');
+  history.replaceState(null, '', location.pathname); // the games of these tests leave their address behind
 });
 
 describe('the play screen', () => {

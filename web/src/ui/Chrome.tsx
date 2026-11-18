@@ -1,11 +1,12 @@
 // App frame: header (brand, navigation, mode badge, language switch) and footer (note, source link, theme switch).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { i18n } from '../i18n/i18n';
 import { LANGUAGES } from '../i18n/keys';
 import { Icon } from './primitives';
 import type { IconName } from './primitives';
 import { useT } from './texts';
 import type { UiKey } from './texts';
+import './start-dialog.css';
 
 export type Screen = 'play' | 'bench' | 'about';
 
@@ -123,3 +124,49 @@ export function Footer(): React.JSX.Element {
 }
 
 export const REPO_URL = 'https://github.com/geggo98/marble-lantern';
+
+/**
+ * "Copy link": puts the address of the game on the clipboard. Without the clipboard API (an insecure page, a blocked
+ * permission) the button shows the address in a read-only field with the text selected, so that it can be copied by hand.
+ */
+export function CopyLink({ getUrl, disabled = false }: { getUrl: () => string; disabled?: boolean }): React.JSX.Element {
+  const { t } = useT();
+  const [state, setState] = useState<'idle' | 'copied' | 'manual'>('idle');
+  const field = useRef<HTMLInputElement | null>(null);
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    if (state === 'manual') {
+      field.current?.focus();
+      field.current?.select();
+    }
+  }, [state, url]);
+
+  const copy = async (): Promise<void> => {
+    const address = getUrl();
+    setUrl(address);
+    try {
+      await navigator.clipboard.writeText(address);
+      setState('copied');
+    } catch {
+      setState('manual'); // no clipboard: the field is the visible fallback
+    }
+  };
+
+  return (
+    <div className="ml-copylink">
+      <button type="button" className="ml-btn" disabled={disabled} onClick={() => void copy()}>
+        <Icon name="copy" />
+        <span>{t('copy_link')}</span>
+      </button>
+      <p className="ml-visually-hidden" role="status" aria-live="polite">{state === 'copied' ? t('copy_link_done') : ''}</p>
+      {state === 'copied' && <p className="ml-hint" aria-hidden="true">{t('copy_link_done')}</p>}
+      {state === 'manual' && (
+        <label className="ml-copylink__field">
+          <span>{t('copy_link_manual')}</span>
+          <input ref={field} type="text" readOnly value={url} aria-label={t('copy_link_field')} onFocus={(e) => e.currentTarget.select()} />
+        </label>
+      )}
+    </div>
+  );
+}

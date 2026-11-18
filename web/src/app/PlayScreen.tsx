@@ -6,6 +6,7 @@ import { MOVE_LIMIT, initialOwners } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import type { EngineId } from '../engines/engine';
 import { Board } from '../ui/Board';
+import { CopyLink } from '../ui/Chrome';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
 import {
@@ -24,6 +25,9 @@ export interface PlayModel {
   humanSide: Side;
   demo: boolean;
   level: number;
+  /** Copy link: only while a human game runs. */
+  canShare: boolean;
+  getUrl: () => string;
   onNewGame: () => void;
   onSwap: () => void;
   onDemo: () => void;
@@ -48,7 +52,7 @@ function describeError(
   t: ReturnType<typeof useT>['t'],
 ): { title: string; body: string; actions: AlertAction[] } {
   const retry: AlertAction = { label: t('retry'), primary: true, onClick: model.onRestart };
-  const cpp: AlertAction = { label: t('use_cpp'), onClick: () => model.onSelect('cpp-wasm') };
+  const cpp: AlertAction = { label: t('use_cpp'), primary: true, onClick: () => model.onSelect('cpp-wasm') };
   switch (error.code) {
     case 'table-checksum':
     case 'table-truncated':
@@ -59,10 +63,10 @@ function describeError(
       return {
         title: t('err_wasmgc_title'),
         body: t('err_wasmgc_body'),
-        actions: [{ label: t('use_java_js'), primary: true, onClick: () => model.onSelect('java-js') }, cpp],
+        actions: [cpp, { label: t('use_java_js'), onClick: () => model.onSelect('java-js') }],
       };
     case 'server-unreachable':
-      return { title: t('err_server_title'), body: t('err_server_body'), actions: [retry, cpp] };
+      return { title: t('err_server_title'), body: t('err_server_body'), actions: [retry, { ...cpp, primary: false }] };
     case 'no-engine':
       return { title: t('err_no_engine_title'), body: t('err_no_engine_body'), actions: [] };
     default:
@@ -177,6 +181,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           onSwap={model.onSwap}
           onDemo={model.onDemo}
         />
+        <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
         <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
         <Telemetry result={state.lastEngine} stale={state.thinking} />
         <MoveList moves={moves} styleOf={styleOf} defaultOpen={open} />
