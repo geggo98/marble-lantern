@@ -1,0 +1,23 @@
+{
+  "app.title": "Marble Lantern",
+  "app.tagline": "Ein Murmelspiel für zwei, das im Browser läuft.",
+  "mode.offline": "offline",
+  "mode.online": "online",
+  "engine.cppWasm": "C++ (WebAssembly)",
+  "engine.javaWasmGc": "Java (TeaVM, WebAssembly GC)",
+  "engine.javaJs": "Java (TeaVM, JavaScript)",
+  "engine.serverBrowser": "Server: Browser-Spieler",
+  "engine.serverBest": "Server: stärkster klassischer Spieler",
+  "engine.serverNet": "Server: neuronales Netz",
+  "engine.unsupported": "Dieser Browser kann diese Engine nicht ausführen.",
+  "engine.notShipped": "Dieser Build enthält diese Engine nicht.",
+  "error.table-checksum": "Die Endspieltabelle ist beschädigt: Die Prüfsumme stimmt nicht.",
+  "error.table-truncated": "Der Download der Endspieltabelle ist unvollständig.",
+  "error.table-trailing": "Die Endspieltabelle ist länger als erwartet.",
+  "error.table-magic": "Die Endspieltabelle hat das falsche Format.",
+  "error.wasm-gc-unsupported": "Dieser Browser hat kein WebAssembly GC. Nimm die JavaScript-Engine.",
+  "error.illegal-history": "Die Engine hat die Zugfolge abgelehnt.",
+  "error.rows1-requested": "Die Engine wollte eine Tabelle, die der Browser-Build nicht hat.",
+  "error.aborted": "Die Suche wurde gestoppt.",
+  "error.internal": "Die Engine ist ausgefallen."
+}

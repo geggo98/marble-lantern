@@ -1,0 +1,23 @@
+{
+  "app.title": "Marble Lantern",
+  "app.tagline": "A two-player marble game that runs in your browser.",
+  "mode.offline": "offline",
+  "mode.online": "online",
+  "engine.cppWasm": "C++ (WebAssembly)",
+  "engine.javaWasmGc": "Java (TeaVM, WebAssembly GC)",
+  "engine.javaJs": "Java (TeaVM, JavaScript)",
+  "engine.serverBrowser": "Server: browser player",
+  "engine.serverBest": "Server: strongest classical player",
+  "engine.serverNet": "Server: neural network player",
+  "engine.unsupported": "This browser cannot run this engine.",
+  "engine.notShipped": "This build does not include this engine.",
+  "error.table-checksum": "The race table is damaged: its checksum does not match.",
+  "error.table-truncated": "The race table download is incomplete.",
+  "error.table-trailing": "The race table file is longer than expected.",
+  "error.table-magic": "The race table file has the wrong format.",
+  "error.wasm-gc-unsupported": "This browser has no WebAssembly GC. Use the JavaScript engine.",
+  "error.illegal-history": "The engine rejected the move history.",
+  "error.rows1-requested": "The engine asked for a table that the browser build does not have.",
+  "error.aborted": "The search was stopped.",
+  "error.internal": "The engine failed."
+}
