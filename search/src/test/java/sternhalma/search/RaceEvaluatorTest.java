@@ -432,6 +432,7 @@ class RaceEvaluatorTest {
 
     @Test
     void theRegistryValidatesTheOutsideWeight() {
+        Rows1Tables.assume();
         assertFalse(((RaceEvaluator) Evaluators.byName("racelin")).estimatesOutside());
         assertTrue(((RaceEvaluator) Evaluators.byName("racelin", java.util.Map.of("wout", 1))).estimatesOutside());
         assertFalse(((RaceEvaluator) Evaluators.byName("racelin", java.util.Map.of("wout", 0))).estimatesOutside());
@@ -445,6 +446,7 @@ class RaceEvaluatorTest {
 
     @Test
     void theRegistryOffersRacelinForBothTablesAndTheContractCoversThem() {
+        Rows1Tables.assume();
         assertTrue(Evaluators.names().contains("racelin"));
         assertTrue(Evaluators.names().contains("racelin1"));
         assertFalse(Evaluators.names().contains("racelin-r1"), "the R2 fingerprint stays untouched");

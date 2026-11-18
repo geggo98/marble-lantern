@@ -1,7 +1,6 @@
 package sternhalma.engine;
 
 import java.util.Arrays;
-import java.util.SplittableRandom;
 
 import sternhalma.engine.RuleSet.BlockadeRule;
 import sternhalma.engine.RuleSet.DrawHandling;
@@ -25,7 +24,7 @@ public final class Position {
     private static final long[] SIDE_KEY = new long[3];
 
     static {
-        SplittableRandom random = new SplittableRandom(0x5E7A_11A1_0000_0001L);
+        SplitMix64 random = new SplitMix64(0x5E7A_11A1_0000_0001L);
         for (int p = 0; p < 3; p++) {
             SIDE_KEY[p] = random.nextLong();
             for (int c = 0; c < Geometry.CELLS; c++) {

@@ -153,6 +153,7 @@ class RaceBandTest {
     /** With the race table and futility on, racelin plays legal moves and wins against the plain spec's race play. */
     @Test
     void theRacelinSpecPlaysACompleteGame() {
+        Rows1Tables.assume();
         AlphaBetaPlayer a = PlayerSpec.parse(Strategies.RACELIN_SPEC + ",nodes=300,tt=12").create();
         AlphaBetaPlayer b = PlayerSpec.parse(Strategies.FUTILITY_SPEC + ",race=1,nodes=300,tt=12").create();
         GameRunner.Result result = GameRunner.play(Position.initial(RuleSet.defaults(2)), a, b);

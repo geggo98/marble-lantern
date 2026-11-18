@@ -52,6 +52,7 @@ class IncrementalEvaluationTest {
 
     @Test
     void incrementalEqualsFullOnOverAMillionPositionsUnderBothLeaveGoalValues() {
+        Rows1Tables.assume();
         long total = 0;
         for (LeaveGoal leaveGoal : LeaveGoal.values()) {
             total += run(RuleSet.defaults(2).withLeaveGoal(leaveGoal), 0xE13_1000L + leaveGoal.ordinal(),
@@ -146,6 +147,7 @@ class IncrementalEvaluationTest {
     /** The assert mode runs a whole search with every evaluation compared; the search itself is unchanged. */
     @Test
     void assertModeSearchesTheSameTreeAsTheFullEvaluation() {
+        Rows1Tables.assume();
         PlayerSpec spec = PlayerSpec.parse(Strategies.BEST_SPEC);
         Evaluator evaluator = Evaluators.byName(spec.evaluator(), spec.weights());
         Evaluator hidden = new Evaluator() {

@@ -55,11 +55,13 @@ class BestSpecFingerprintTest {
 
     @Test
     void referencePlayerR3SearchesTheRecordedTree() {
+        Rows1Tables.assume();
         assertParts(ReferencePositions.R3_SPEC, R3);
     }
 
     @Test
     void bestSpecSearchesTheRecordedTree() {
+        Rows1Tables.assume();
         assertParts(BEST_20000, BEST);
     }
 

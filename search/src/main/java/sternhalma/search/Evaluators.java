@@ -56,18 +56,14 @@ public final class Evaluators {
 
     /**
      * A {@link RaceEvaluator} over the registered evaluator {@code base} with the race table of the region
-     * {@code rows} (2: the committed rows&gt;=2 table; 1: the rows&gt;=1 table of E09, loaded from
-     * tablebase/tables/ or built into the cache on first use, like {@code racerows=1}).
+     * {@code rows} (2: the committed rows&gt;=2 table; 1: the rows&gt;=1 table of E09, from the cache, the
+     * {@code .zst} archive or a rebuild), both taken from a {@link RaceTableSource} (the evaluator role). The base
+     * evaluator is built over the same source, so a race evaluator never reads the ambient tables.
      */
-    private static Function<Map<String, Integer>, Evaluator> race(String base, int rows) {
-        return race(base, rows, RaceTableSource.DEFAULT);
-    }
-
-    /** {@link #race(String, int)} with the tables of a {@link RaceTableSource} (the evaluator role). */
     private static Function<Map<String, Integer>, Evaluator> race(String base, int rows, RaceTableSource source) {
         return weights -> {
             RaceTableSource.Table t = source.evaluator(rows);
-            return RaceEvaluator.of(byName(base), t.counts(), t.minRow(), weights);
+            return RaceEvaluator.of(byName(base, Map.of(), source), t.counts(), t.minRow(), weights);
         };
     }
 
@@ -77,7 +73,6 @@ public final class Evaluators {
 
     private static void putRace(String name, String base, int rows) {
         RACE_ENTRIES.put(name, new RaceEntry(base, rows));
-        REGISTRY.put(name, race(base, rows));
     }
 
     /** Registers an evaluator without weights; weights given in a spec are then an error. */
@@ -101,7 +96,9 @@ public final class Evaluators {
 
     /** The names of all registered evaluators; the strategy contract tests cover every one of them. */
     public static java.util.Set<String> names() {
-        return java.util.Collections.unmodifiableSet(REGISTRY.keySet());
+        java.util.Set<String> all = new java.util.TreeSet<>(REGISTRY.keySet());
+        all.addAll(RACE_ENTRIES.keySet());
+        return java.util.Collections.unmodifiableSet(all);
     }
 
     public static Evaluator byName(String name) {
@@ -136,7 +133,7 @@ public final class Evaluators {
         }
         Function<Map<String, Integer>, Evaluator> factory = REGISTRY.get(name);
         if (factory == null) {
-            throw new IllegalArgumentException("unknown evaluator '" + name + "', known: " + REGISTRY.keySet());
+            throw new IllegalArgumentException("unknown evaluator '" + name + "', known: " + names());
         }
         return factory.apply(weights);
     }

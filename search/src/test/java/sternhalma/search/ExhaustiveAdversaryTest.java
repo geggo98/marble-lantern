@@ -39,6 +39,8 @@ class ExhaustiveAdversaryTest {
 
     @Test
     void everyLineAgainstEveryVerdictEndsInThepredictedWin() throws Exception {
+        // the attacker is BEST_SPEC, which loads rows>=1; with only Git LFS pointers that is a rebuild of several minutes
+        Rows1Tables.assume();
         RuleSet rules = RuleSet.defaults(2);
         PlayerSpec spec = PlayerSpec.parse(SPEC);
         RaceTable table = RaceTable.rows2();

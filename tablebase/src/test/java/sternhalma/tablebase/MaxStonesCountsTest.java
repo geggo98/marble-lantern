@@ -69,6 +69,8 @@ class MaxStonesCountsTest {
     @Test
     void badArgumentsAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> new MaxStonesCounts(RaceTable.rows2(), 1, FALLBACK));
-        assertThrows(IllegalArgumentException.class, () -> new MaxStonesCounts(rows1(), -1, FALLBACK));
+        // the assumption stays outside the lambda: inside, its abort exception would count as the wrong exception type
+        RaceTable rows1 = rows1();
+        assertThrows(IllegalArgumentException.class, () -> new MaxStonesCounts(rows1, -1, FALLBACK));
     }
 }

@@ -43,6 +43,8 @@ class BrowserSpecTest {
 
     @Test
     void theGuardCountsRealRows1Requests() {
+        // creating the BEST player loads rows>=1; with only Git LFS pointers that is a rebuild of several minutes
+        Rows1Tables.assume();
         // proves the counter above can fail: a BEST_SPEC player asks for rows>=1 as soon as it is created
         int before = RaceTable.rows1Requests();
         PlayerSpec.parse(Strategies.BEST_SPEC + ",nodes=10").create();

@@ -172,7 +172,8 @@ public final class TableFile {
         if (!Files.isRegularFile(file) || Files.size(file) > 1024) {
             return false;
         }
-        String text = Files.readString(file, StandardCharsets.UTF_8);
+        // ISO-8859-1 never fails: a small binary file (a truncated archive) is simply not a pointer
+        String text = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
         return text.startsWith(LFS_POINTER_PREFIX);
     }
 
@@ -192,7 +193,18 @@ public final class TableFile {
      * @throws IOException if the file is not a valid table file of this version
      */
     public static Content read(Path file) throws IOException {
-        try (InputStream in = Files.newInputStream(file); DataInputStream data = new DataInputStream(in)) {
+        try (InputStream in = Files.newInputStream(file)) {
+            Content content = readUnchecked(in, file.toString());
+            if (!Arrays.equals(sha256(content.body()), content.header().bodySha256())) {
+                throw new IOException(file + " body checksum mismatch");
+            }
+            return content;
+        }
+    }
+
+    /** Like {@link #read(Path)} from a stream, without the body checksum (the caller checks it, e.g. the browser with crypto.subtle). */
+    public static Content readUnchecked(InputStream in, String file) throws IOException {
+        try (DataInputStream data = new DataInputStream(in)) {
             byte[] magic = new byte[MAGIC.length];
             data.readFully(magic);
             if (!Arrays.equals(magic, MAGIC)) {
@@ -224,9 +236,6 @@ public final class TableFile {
             data.readFully(body);
             if (data.read() != -1) {
                 throw new IOException(file + " has trailing bytes");
-            }
-            if (!Arrays.equals(sha256(body), sha)) {
-                throw new IOException(file + " body checksum mismatch");
             }
             return new Content(new Header(LeaveGoal.values()[leaveGoal], minRow, pieces, cells, states, sha), body);
         }

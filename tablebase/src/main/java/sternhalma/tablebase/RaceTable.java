@@ -18,16 +18,18 @@ import sternhalma.engine.RuleSet.LeaveGoal;
  * <li>{@link #ROWS2} (rows &gt;= 2, 28 cells, 13,123,110 states, 12.5 MB): the default table of race play,
  * committed as {@code tablebase/tables/rows2.bin} with Git LFS.</li>
  * <li>{@link #ROWS1} (rows &gt;= 1, 36 cells, 254,186,856 states, 242 MB; round-2 experiment E09): optional.
- * It is committed as {@code tablebase/tables/rows1.bin} with Git LFS because it costs several minutes to build and
- * is reused (owner decision, 2026-11-07). A clone without LFS content has only a pointer file: {@link #rows1()} then
- * rebuilds it into the cache, and {@link #rows1IfCached()} returns null. Every part of the project works without it;
- * race play uses it only when a spec says {@code racerows=1}.</li>
+ * It is committed as {@code tablebase/tables/rows1.bin.zst} (zstd, 21 MB) with Git LFS because it costs several
+ * minutes to build and is reused (owner decision, 2026-11-07; compressed 2026-11-18). {@link Rows1Archive} unpacks
+ * it into the cache with the {@code zstd} tool. A clone without LFS content has only a pointer file:
+ * {@link #rows1()} then rebuilds it into the cache, and {@link #rows1IfCached()} returns null. Every part of the
+ * project works without it; race play uses it only when a spec says {@code racerows=1}.</li>
  * </ul>
  *
  * <p><b>Where a table comes from.</b> A table is looked for in the directory named by the system property
  * {@code sternhalma.tablebase.dir}, then (committed regions only) in {@code tablebase/tables/} of the repository
  * root (found by walking up from the working directory to {@code settings.gradle.kts}), then in the cache
- * {@code tablebase/build/tables/}. A Git LFS pointer file (a clone without LFS content), a missing file, a file
+ * {@code tablebase/build/tables/}, then, for the rows>=1 region, in the archive {@code rows1.bin.zst} (unpacked into
+ * that cache). A Git LFS pointer file (a clone without LFS content), a missing file, a file
  * with a wrong checksum or of another format version is not used: the table is then rebuilt
  * ({@link RetrogradeBuilder}), written to the cache and checked against the region's recorded SHA-256 of the file the
  * builder is known to produce. A real file is used only when its own SHA-256 equals that constant, so a stale or
@@ -51,9 +53,13 @@ public final class RaceTable implements RaceCounts {
 
     public static final String ROWS1_FILE_NAME = "rows1.bin";
 
+    /** Suffix of the zstd archive of a region's file, committed with Git LFS (see {@link Region#archived()}). */
+    public static final String ARCHIVE_SUFFIX = ".zst";
+
     /**
      * SHA-256 of the complete rows&gt;=1 table file that the builder produces (recorded from two builds with
-     * different thread counts). The file is committed with Git LFS as tablebase/tables/rows1.bin; see {@link #ROWS1}.
+     * different thread counts). Only the zstd archive {@code tablebase/tables/rows1.bin.zst} is committed (Git
+     * LFS); it is unpacked into the cache. See {@link #ROWS1}.
      */
     public static final String ROWS1_SHA256 = "85850d6f47f526daf45ac5cd3a0dad8841244cb50d0d8d15a5b6a54f09d1bfd1";
 
@@ -65,8 +71,14 @@ public final class RaceTable implements RaceCounts {
      * @param sha256    SHA-256 of the file the builder produces
      * @param committed whether the file is committed under {@code tablebase/tables/} (Git LFS); an uncommitted
      *                  region is looked for and written in the cache only
+     * @param archived  whether a zstd archive {@code <fileName>.zst} may be unpacked into the cache (Git LFS)
      */
-    public record Region(int minRow, String fileName, String sha256, boolean committed) {
+    public record Region(int minRow, String fileName, String sha256, boolean committed, boolean archived) {
+
+        /** A region without an archive. */
+        public Region(int minRow, String fileName, String sha256, boolean committed) {
+            this(minRow, fileName, sha256, committed, false);
+        }
 
         /** The ranking of this region. */
         public Ranking ranking() {
@@ -75,7 +87,7 @@ public final class RaceTable implements RaceCounts {
     }
 
     public static final Region ROWS2 = new Region(MIN_ROW, FILE_NAME, SHA256, true);
-    public static final Region ROWS1 = new Region(1, ROWS1_FILE_NAME, ROWS1_SHA256, true);
+    public static final Region ROWS1 = new Region(1, ROWS1_FILE_NAME, ROWS1_SHA256, true, true);
 
     /** States above which a build prints one progress line per layer. */
     private static final long VERBOSE_BUILD_STATES = 100_000_000L;
@@ -114,6 +126,25 @@ public final class RaceTable implements RaceCounts {
     /** The ranking of the rows&gt;=2 region. */
     public static Ranking ranking() {
         return ROWS2.ranking();
+    }
+
+    /**
+     * A rows>=2 table from the bytes of a table file, without file system, threads or digest (browser build): checks
+     * magic, version, header and size, not the body checksum (the page checks the SHA-256 of the manifest).
+     */
+    public static RaceTable fromFileBytes(byte[] fileBytes) {
+        try {
+            TableFile.Content content = TableFile.readUnchecked(new java.io.ByteArrayInputStream(fileBytes), "rows2.bin");
+            Ranking ranking = ROWS2.ranking();
+            TableFile.Header h = content.header();
+            if (h.leaveGoal() != LEAVE_GOAL || h.minRow() != ROWS2.minRow || h.pieces() != Position.PIECES
+                    || !java.util.Arrays.equals(h.cells(), ranking.cells()) || h.states() != ranking.count()) {
+                throw new IllegalArgumentException("rows2.bin describes another region");
+            }
+            return new RaceTable(ROWS2, ranking, content.body());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** The shared rows&gt;=2 table; loads or builds it on first use (thread-safe). */
@@ -287,10 +318,11 @@ public final class RaceTable implements RaceCounts {
 
     /**
      * The table from the first valid file among {@code propertyDir/<file>}, {@code root/tablebase/tables/<file>}
-     * (committed regions only) and {@code root/tablebase/build/tables/<file>}; otherwise, if {@code allowBuild}, a
+     * (committed regions only) and {@code root/tablebase/build/tables/<file>}; then, for a region with an archive, the
+     * archive {@code <file>.zst} unpacked into the cache (see {@link Rows1Archive}); otherwise, if {@code allowBuild}, a
      * rebuilt table that is checked against the region's SHA-256 and cached (in {@code propertyDir}, else under
-     * {@code root/tablebase/build/tables}, else in the temporary directory; without propertyDir and root that cache is also searched when loading). Without {@code allowBuild} a missing
-     * table gives null.
+     * {@code root/tablebase/build/tables}, else in the temporary directory; without propertyDir and root that cache is
+     * also searched when loading). Without {@code allowBuild} a missing table gives null.
      */
     static RaceTable resolve(Region region, Path propertyDir, Path root, boolean allowBuild) {
         try {
@@ -308,12 +340,16 @@ public final class RaceTable implements RaceCounts {
                     return loaded;
                 }
             }
-            if (!allowBuild) {
-                return null;
-            }
             Path cache = propertyDir != null ? propertyDir
                     : root != null ? root.resolve("tablebase").resolve("build").resolve("tables")
                     : Path.of(System.getProperty("java.io.tmpdir")).resolve("sternhalma-tablebase");
+            RaceTable unpacked = fromArchive(region, propertyDir, root, cache);
+            if (unpacked != null) {
+                return unpacked;
+            }
+            if (!allowBuild) {
+                return null;
+            }
             int threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
             RaceTable built = buildChecked(region, threads, cache, region.ranking().count() >= VERBOSE_BUILD_STATES);
             try {
@@ -325,6 +361,46 @@ public final class RaceTable implements RaceCounts {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * The table from the region's archive ({@code <file>.zst} in {@code propertyDir} or in
+     * {@code root/tablebase/tables}), unpacked into {@code cache} with {@link Rows1Archive}; null if the region has no
+     * archive, no real archive file is there (absent or a Git LFS pointer) or the unpack failed. Every failure but
+     * an absent file prints one line that says why, because the caller then rebuilds (several minutes) or gives up.
+     */
+    private static RaceTable fromArchive(Region region, Path propertyDir, Path root, Path cache) throws IOException {
+        if (!region.archived) {
+            return null;
+        }
+        String archiveName = region.fileName + ARCHIVE_SUFFIX;
+        Path[] archives = {
+            propertyDir == null ? null : propertyDir.resolve(archiveName),
+            root == null ? null : root.resolve("tablebase").resolve("tables").resolve(archiveName),
+        };
+        for (Path archive : archives) {
+            if (archive == null || !Files.isRegularFile(archive)) {
+                continue;
+            }
+            if (TableFile.isLfsPointer(archive)) {
+                System.err.printf(Locale.ROOT, "[tablebase] %s is a Git LFS pointer, not an archive; not unpacked%n", archive);
+                continue;
+            }
+            try {
+                Path target = cache.resolve(region.fileName);
+                Rows1Archive.Outcome outcome = Rows1Archive.unpack(archive, target, region.sha256);
+                if (outcome == Rows1Archive.Outcome.UNPACKED) {
+                    System.err.printf(Locale.ROOT, "[tablebase] unpacked %s into %s%n", archive, target);
+                }
+                RaceTable loaded = tryLoad(region, target);
+                if (loaded != null) {
+                    return loaded;
+                }
+            } catch (IOException e) {
+                System.err.printf(Locale.ROOT, "[tablebase] ignoring the archive %s: %s%n", archive, e.getMessage());
+            }
+        }
+        return null;
     }
 
     /**

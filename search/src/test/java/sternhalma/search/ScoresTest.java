@@ -29,6 +29,7 @@ class ScoresTest {
 
     @Test
     void lastResultAndClearSearchOfThePlayer() {
+        Rows1Tables.assume();
         AlphaBetaPlayer p = PlayerSpec.parse(Strategies.BEST_SPEC + ",nodes=500,tt=12").create();
         sternhalma.engine.Position pos = sternhalma.engine.Position.initial(sternhalma.engine.RuleSet.defaults(2));
         assertEquals(null, p.lastResult());

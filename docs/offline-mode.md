@@ -25,7 +25,7 @@ The decision to ship `rows2.bin` only, with every examined alternative and the o
 - **Row.** The two-player board has rows -8 to 8 in a player's own orientation; the player starts on rows -8 to -5 and its goal corner is rows 5 to 8 (`tablebase/src/main/java/sternhalma/tablebase/Rows.java`). Row 1 is the first row past the centre line and has 8 cells.
 - **Race table.** For every configuration of one player's ten pieces inside a region, the exact number of moves to fill the goal when no other pieces are on the board and every configuration on the way stays inside the region, one byte per configuration (`RaceTable.java`, `RaceCounts.java`, both in `tablebase/src/main/java/sternhalma/tablebase/`). Configurations are numbered without keys by the combinatorial number system (`Ranking.java` in the same directory).
 - **rows2** (`tablebase/tables/rows2.bin`): region rows 2 to 8, 28 cells, 13,123,110 configurations, 13,123,286 bytes with header.
-- **rows1** (`tablebase/tables/rows1.bin`, Git LFS): region rows 1 to 8, 36 cells, 254,186,856 configurations, 254,187,064 bytes.
+- **rows1** (`tablebase/tables/rows1.bin.zst`, 21,216,784 bytes, zstd, Git LFS; unpacked by `devenv tasks run tables:unpack` into `tablebase/build/tables/rows1.bin`): region rows 1 to 8, 36 cells, 254,186,856 configurations, 254,187,064 bytes unpacked.
 - **k:** the number of the side's own stones in row 1 when a rows1 entry is read. A configuration with k = 0 lies inside rows2's region.
 - **Leaf evaluator:** the evaluation at the leaves of the alpha-beta search. `racelin1-r3` and `racelin-r3` add race arithmetic over a table to the linear evaluation `linear-r3`, whose weights were fitted in round 2 ([bestGain](search-and-evaluation.md#bestgain-e07-evallinear-r3-measured-2026-11-08); registry in `search/src/main/java/sternhalma/search/Evaluators.java`).
 - **Race play:** in a passed position (no contact left), a player with `race=1` plays the move whose resulting configuration has the smallest table count, without searching. `racerows=1` or `racerows=2` selects the table. If the table does not cover the configuration, race play follows a solitaire plan from a beam search of width 200 (the "beam plan"; [race play](endgame-and-opening.md#race-play-race1-race2)).
@@ -263,7 +263,7 @@ Two browser ports are planned: the Java engine compiled with TeaVM, and the C++ 
 
 ## How to reproduce
 
-All commands run from the repository root inside `devenv shell`. `$TABLES` is a directory that holds `rows1.bin` and `rows2.bin` with LFS content (for example `tablebase/tables`). Arena and probe runs use 4 game threads. Measurement sessions on the Mac also respect the 1-minute load limit of 4.0 ([C++ comparison plan, Amendment 2](cpp-comparison-plan.md#amendment-2-2026-11-15-lead-mac-load-limit)); node-limited Elo does not depend on the load, the CPU-ms figures do.
+All commands run from the repository root inside `devenv shell`. `$TABLES` is a directory that holds `rows1.bin` and `rows2.bin` with LFS content. Run `git lfs pull` and `devenv tasks run tables:unpack`, copy or link `tablebase/tables/rows2.bin` into `tablebase/build/tables`, and set `TABLES=tablebase/build/tables`. Arena and probe runs use 4 game threads. Measurement sessions on the Mac also respect the 1-minute load limit of 4.0 ([C++ comparison plan, Amendment 2](cpp-comparison-plan.md#amendment-2-2026-11-15-lead-mac-load-limit)); node-limited Elo does not depend on the load, the CPU-ms figures do.
 
 Build the classes and set the class path:
 
