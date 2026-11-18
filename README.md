@@ -66,6 +66,7 @@ Planned: the other modules described in [architecture](docs/architecture.md).
 - [Search and evaluation](docs/search-and-evaluation.md): heuristics, alpha-beta, multi-player search, MCTS.
 - [Endgame and opening](docs/endgame-and-opening.md): endgame database and opening book.
 - [Offline mode](docs/offline-mode.md): which race table and player the browser build ships, and what leaving out `rows1.bin` costs.
+- [ADR 0001: the browser mode ships the small race table only](docs/adr/0001-browser-mode-without-rows1.md): the decision, every examined variant with its measured result, and the open thesis l.
 - [References](docs/references.md): full entries for all citation keys.
 
 ## Roadmap

@@ -4,6 +4,8 @@
 
 All measurements were made on 2026-11-17 and 2026-11-18 on the branch `exp/offline`, on an Apple M3 Max. Sizes in MB are 10^6 bytes; where older documents ([endgame and opening](endgame-and-opening.md), [C++ comparison](cpp-comparison.md), [C++ comparison plan](cpp-comparison-plan.md)) say "242 MB" for `rows1.bin`, they mean 242 MiB, the same file.
 
+The decision to ship `rows2.bin` only, with every examined alternative and the open thesis l, is recorded in [ADR 0001: the browser mode ships the small race table only](adr/0001-browser-mode-without-rows1.md).
+
 ## Contents
 
 - [Terms](#terms)
@@ -200,7 +202,7 @@ The loss of about 56 Elo is smaller than what one doubling of the node budget bu
 
 ## Theses and verdicts
 
-The project owner stated theses a to d before the measurements; they are paraphrased here from a German original that is not in the repository. The agents who planned and analysed the measurements added e to k and set all thresholds before the runs. Options 1 to 4 are the ways of delivering rows1 to the browser that were considered before the measurements.
+The project owner stated theses a to d before the measurements; they are paraphrased here from a German original that is not in the repository. The agents who planned and analysed the measurements added e to k and set all thresholds before the runs. The owner stated thesis l on 2026-11-18, after the runs; it is untested, and its falsifiable form and the evidence that bears on it are in [ADR 0001, open theses](adr/0001-browser-mode-without-rows1.md#open-theses). Options 1 to 4 are the ways of delivering rows1 to the browser that were considered before the measurements.
 
 | | Thesis and test | Verdict |
 |---|---|---|
@@ -215,6 +217,7 @@ The project owner stated theses a to d before the measurements; they are paraphr
 | i | Race play reads the table only at the root, so only the leaf evaluator needs synchronous table access. | **Confirmed.** |
 | j | rows1 minus a cheap predictor (such as the push estimator) compresses far better than the raw bytes (target < 15 MB in zlib blocks). | **Open, pessimistic.** The order-0 entropy of the residual is about 44 MB. |
 | k | Left-right mirror symmetry halves the table. | **Confirmed.** All k: 141 MB folded against 254 MB. |
+| l | If rows1 compresses well with zstd, then a kNN (or another learned model) of similar size to the packed variant can reproduce the table exactly, with random access; zstd gives sequential access only. Confirmed for a part of rows1 if a model plus an exception list is exact on every entry, is at most the zstd -19 size of that part (27.38 MB dense, 9.83 MB for k ≤ 2 folded), reads at most one small fixed-size block per lookup, and adds < 20 % move time at the leaves (threshold of thesis h). | **Open, untested.** Evidence both ways in the ADR; the estimators are exact on only 49 to 52 % of random states. |
 
 | Option | Content | Outcome |
 |---|---|---|
@@ -254,6 +257,7 @@ Two browser ports are planned: the Java engine compiled with TeaVM, and the C++ 
 - Lookup cost of the strength pack in WebAssembly, OPFS and workers; a time-limited match in the browser (thesis h).
 - Memory limits on mobile browsers for a 90 MB table.
 - Whether a residual coding beats plain zstd on the k ≤ 2 pack (thesis j).
+- Whether a learned model with an exception list reproduces rows1 exactly, with random access, in no more bytes than zstd (thesis l; the deciding experiment is described in the ADR).
 - The rows2 loss at a human time budget (seconds per move), not at 20,000 nodes.
 - A network-player arena with rows1 against rows2 race play was not run. It is moot for shipping: the network player always used rows2.
 
