@@ -33,9 +33,11 @@ public final class PatternEstimator implements Rows1Estimator {
     }
 
     /**
-     * The corrections of the variant {@code estimate2}: {@link #fit} on 5,000,000 random states, seed 1 (the fit of
-     * {@link EstimatorReport}, which judges them on seed 2). Mean absolute error 0.535 against 0.583 for the per-k median
-     * of {@link PushEstimator}, on the same hold-out sample.
+     * The corrections of the variant {@code estimate2}: {@link #fit} on 5,000,000 random states, seed 1. The command
+     * {@code EstimatorReport} with no argument (defaults {@code --fit-samples 5000000 --samples 1000000 --seed 1}, needs
+     * both tables) prints this table as its "pattern fit" line; checked on 2026-11-18, the printed 256 values equal
+     * these. It judges them on 1,000,000 states of seed 2: mean absolute error 0.535 against 0.582 for the per-k median
+     * of {@link PushEstimator}, on the same hold-out sample. A fit on 1,000,000 states gives other values.
      */
     public static final int[] FITTED = java.util.Arrays.stream((
             "0,0,0,-1,0,-1,-1,-2,-1,-1,-1,-2,-1,-2,-2,-3,-1,-1,-1,-2,-1,-2,-2,-3,-2,-2,-2,-3,-2,-3,-3,-4,"

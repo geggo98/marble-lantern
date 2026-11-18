@@ -9,9 +9,10 @@ import java.util.Random;
  * random states. Needs both tables (property {@code sternhalma.tablebase.dir} or the cache).
  *
  * <pre>
- *   EstimatorReport [--samples 1000000] [--fit-samples 1000000] [--seed 1]
+ *   EstimatorReport [--samples 1000000] [--fit-samples 5000000] [--seed 1]
  * </pre>
  *
+ * The defaults reproduce {@link PatternEstimator#FITTED} (fit on 5,000,000 states, seed 1, judged on 1,000,000 of seed 2).
  * The corrections are fitted on one sample (seed S) and judged on another (seed S+1), so the numbers are hold-out
  * numbers. Per k (stones in row 1): states drawn, unreachable (entry 255, skipped), without an estimate, exact,
  * within 1, mean and mean absolute error, largest absolute error. Then the pair test: for random pairs (a, b) of
@@ -26,7 +27,7 @@ public final class EstimatorReport {
 
     public static void main(String[] args) {
         long samples = 1_000_000;
-        long fitSamples = 1_000_000;
+        long fitSamples = 5_000_000;
         long seed = 1;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
