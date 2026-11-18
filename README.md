@@ -65,6 +65,7 @@ Planned: the other modules described in [architecture](docs/architecture.md).
 - [Architecture](docs/architecture.md): modules, data flow and the role of TornadoVM.
 - [Search and evaluation](docs/search-and-evaluation.md): heuristics, alpha-beta, multi-player search, MCTS.
 - [Endgame and opening](docs/endgame-and-opening.md): endgame database and opening book.
+- [Offline mode](docs/offline-mode.md): which race table and player the browser build ships, and what leaving out `rows1.bin` costs.
 - [References](docs/references.md): full entries for all citation keys.
 
 ## Roadmap

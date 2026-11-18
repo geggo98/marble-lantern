@@ -375,6 +375,8 @@ The owner plans a Vaadin Hilla UI (React) with an offline mode in which the clas
 | Hardened libc++ under Emscripten, Emscripten itself, threads through `SharedArrayBuffer` | **not yet checked** |
 | Memory | the 32-bit address space (4 GB) holds the 1.3 MB LARGE weights; the race table `rows1.bin` (242 MB) is a large download and memory share per page; whether a browser accepts it is **not yet checked**. `BEST_SPEC`'s evaluator `racelin1-r3` loads rows1 (`cpp/src/search/player_spec.cpp`), so a build with `rows2.bin` (12 MB) or no table needs another evaluator or new code, with a strength loss that was **not measured** (sizes: [plan, Facts](cpp-comparison-plan.md#facts-this-plan-relies-on) and [Open questions](cpp-comparison-plan.md#open-questions)) |
 
+Update 2026-11-18: the browser player `BROWSER_SPEC` (evaluator `racelin-r3` over `rows2.bin`) now exists in Java and C++, and its strength loss is measured (about -56 Elo against `BEST_SPEC` at equal nodes); see [offline mode](offline-mode.md).
+
 No browser speed was measured. The nearest measured case is native C++ `simd` with 4 lanes on the Mac (LARGE 711.8 evals/s, SMALL 4,189.6 at batch 256, `cpp/results/mac-nn-2026-11-15.txt`); a WebAssembly figure needs its own measurement.
 
 ## Limits and open points
