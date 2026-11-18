@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Keeps the pinned GitHub Actions current. Dependabot reads the `# vX.Y.Z` comments that pinact writes.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Wait 7 days after a release before proposing it: a hijacked or broken release is usually pulled within days.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    # One combined pull request per run instead of one per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # npm dependencies of the offline UI (web/). Not Gradle: Dependabot cannot regenerate gradle/verification-metadata.xml.
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps
+      prefix-development: deps
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"

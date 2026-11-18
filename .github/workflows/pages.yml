@@ -1,0 +1,105 @@
+# Publishes the offline UI to GitHub Pages on every push to main (plan section 9.4).
+# The build job runs the whole check (engine tests, Wasm and TeaVM builds, web tests, bundle checks, benchmark smoke
+# test, browser tests) through devenv; only a green build reaches the deploy job.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: nothing in this workflow writes to the repository. Only the deploy job gets the Pages permissions.
+permissions:
+  contents: read
+
+concurrency:
+  # A deployment that is running finishes before the next one starts. Unverified on GitHub; check on the first runs.
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix (devenv binary cache, read-only)
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (moving tag; the SHA pins)
+        with:
+          name: devenv
+
+      - name: Install devenv (pinned)
+        # The devenv CLI at the commit of release v2.4.0, not a floating nixpkgs ref. The tool versions the CLI then
+        # builds come from devenv.lock. Update both together: bump this commit, then run `devenv update`.
+        run: nix profile add github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222#devenv
+
+      - name: Provide /bin/zsh for the scripts
+        # The scripts start with #!/bin/zsh; the Ubuntu runner has no zsh, devenv provides one.
+        run: devenv shell -- scripts/ci/provide-zsh.sh
+
+      - name: Read the LFS object id of rows2.bin
+        id: rows2
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh --github-output
+
+      - name: Restore rows2.bin from the cache
+        # A hit costs no Git LFS bandwidth. The key is the SHA-256 of the file, so a stale entry cannot be served.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lfs-rows2
+          key: lfs-rows2-${{ steps.rows2.outputs.oid }}
+
+      - name: Fetch rows2.bin
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh
+
+      - name: Test and build the offline UI
+        # web:ci runs the engine tests, builds, web tests, bundle checks, benchmark smoke test and browser tests.
+        # BASE_PATH is derived from REPO_NAME by scripts/web/ci.zsh (the project path of the Pages site, e.g. /marble-lantern/).
+        # ci.zsh runs every step itself; --mode single stops devenv from running the "after" tasks of web:ci first.
+        run: devenv tasks run --mode single web:ci
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: web/dist
+
+      - name: Upload browser test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-reports
+          path: |
+            web/test-results/
+            web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write # deploy-pages publishes the uploaded artifact to the Pages site
+      id-token: write # deploy-pages proves with an OIDC token that the deployment comes from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

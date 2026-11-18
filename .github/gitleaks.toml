@@ -1,0 +1,16 @@
+# Configuration of the secret scan in scripts/ci/security.zsh (`gitleaks git --config .github/gitleaks.toml`).
+title = "marble-lantern"
+
+[extend]
+useDefault = true
+
+# False positive: docs/tornado.md names the Maven artifact `...:tornado-api:7.3.1-jdk22plus`. The default rule
+# `generic-api-key` reads the version after "api:" as a key. The allowlist needs BOTH the path and the exact value,
+# so a real key in the same file, or the same version string elsewhere, is still reported. It does not depend on
+# a commit hash, so a rewrite of the history does not invalidate it.
+[[allowlists]]
+description = "Maven coordinate tornado-api:7.3.1-jdk22plus in docs/tornado.md"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^docs/tornado\.md$''']
+regexes = ['''^7\.3\.1-jdk22plus$''']

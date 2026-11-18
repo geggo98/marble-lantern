@@ -1,0 +1,184 @@
+# Tests every pull request (plan section 9.5). Nothing here publishes anything.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: nothing in this workflow writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix (devenv binary cache, read-only)
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (moving tag; the SHA pins)
+        with:
+          name: devenv
+
+      - name: Install devenv (pinned)
+        # See pages.yml: the devenv CLI at the commit of release v2.4.0.
+        run: nix profile add github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222#devenv
+
+      - name: Provide /bin/zsh for the scripts
+        # The scripts start with #!/bin/zsh; the Ubuntu runner has no zsh, devenv provides one.
+        run: devenv shell -- scripts/ci/provide-zsh.sh
+
+      - name: Read the LFS object id of rows2.bin
+        id: rows2
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh --github-output
+
+      - name: Restore rows2.bin from the cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lfs-rows2
+          key: lfs-rows2-${{ steps.rows2.outputs.oid }}
+
+      - name: Fetch rows2.bin
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh
+
+      - name: Gradle build (TornadoVM tests skip without the SDK, as on a developer machine)
+        run: devenv shell -- ./gradlew --no-build-cache build
+
+  web:
+    name: Web build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix (devenv binary cache, read-only)
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (moving tag; the SHA pins)
+        with:
+          name: devenv
+
+      - name: Install devenv (pinned)
+        # See pages.yml: the devenv CLI at the commit of release v2.4.0.
+        run: nix profile add github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222#devenv
+
+      - name: Provide /bin/zsh for the scripts
+        # The scripts start with #!/bin/zsh; the Ubuntu runner has no zsh, devenv provides one.
+        run: devenv shell -- scripts/ci/provide-zsh.sh
+
+      - name: Read the LFS object id of rows2.bin
+        id: rows2
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh --github-output
+
+      - name: Restore rows2.bin from the cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/lfs-rows2
+          key: lfs-rows2-${{ steps.rows2.outputs.oid }}
+
+      - name: Fetch rows2.bin
+        run: devenv shell -- scripts/ci/fetch-rows2.zsh
+
+      - name: Test and build the offline UI
+        # The same command as the Pages build, without upload and deploy. scripts/web/ci.zsh derives BASE_PATH from REPO_NAME.
+        # ci.zsh runs every step itself; --mode single stops devenv from running the "after" tasks of web:ci first.
+        run: devenv tasks run --mode single web:ci
+
+      - name: Upload browser test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-test-reports
+          path: |
+            web/test-results/
+            web/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  security:
+    name: Action pins, workflow analysis, secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+          fetch-depth: 0 # gitleaks scans the whole history
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix (devenv binary cache, read-only)
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17 (moving tag; the SHA pins)
+        with:
+          name: devenv
+
+      - name: Install devenv (pinned)
+        # See pages.yml: the devenv CLI at the commit of release v2.4.0.
+        run: nix profile add github:cachix/devenv/b904dcb51fe48c30db250038241507f60752f222#devenv
+
+      - name: Provide /bin/zsh for the scripts
+        run: devenv shell -- scripts/ci/provide-zsh.sh
+
+      - name: pinact, actionlint, zizmor, gitleaks
+        # pinact and zizmor resolve tags and query advisories through the GitHub API; the workflow token is read-only here.
+        run: devenv tasks run ci:security
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+
+  dependency-review:
+    # Blocks a pull request that adds a dependency with a known high or critical advisory. Only on pull requests: it
+    # compares the dependency graphs of base and head. No comment is posted (that would need pull-requests: write);
+    # the result is the job status and its summary.
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
