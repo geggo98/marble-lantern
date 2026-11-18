@@ -179,6 +179,28 @@ class RankProbeTest {
     }
 
     @Test
+    void aChangedNetworkFileChangesTheSettingsOfARunEvenUnderTheSameName(@TempDir Path dir) throws Exception {
+        Path net = dir.resolve("net.bin");
+        Files.write(net, new byte[] {1, 2, 3});
+        Map<String, String> opts = Map.of("source", "net", "net", net.toString(), "seed", "1");
+        String before = RankProbe.settings(opts).describe();
+        assertEquals(before, RankProbe.settings(opts).describe());
+        Files.write(net, new byte[] {1, 2, 4});
+        assertFalse(before.equals(RankProbe.settings(opts).describe()), "same name, other content: " + before);
+        assertThrows(IllegalArgumentException.class,
+                () -> RankProbe.settings(Map.of("source", "net", "net", dir.resolve("none.bin").toString(), "seed", "1")));
+    }
+
+    @Test
+    void manifestValuesWithSpacesPercentSignsAndNewlinesSurviveAShard(@TempDir Path dir) throws IOException {
+        Map<String, String> m = settings("best");
+        m.put("settings", "source=best;net=my net 100%.bin;player=a b\nc");
+        Path file = dir.resolve("a.rlog.gz");
+        ProbeLog.write(file, m, 0, 0, List.of(rows(0, 10)));
+        assertEquals("source=best;net=my net 100%.bin;player=a b\nc", ProbeLog.read(file).manifest().get("settings"));
+    }
+
+    @Test
     void theReportFailsOnAMissingPathAndCountsSkippedShardsInsteadOfHidingThem(@TempDir Path dir) throws Exception {
         Result missing = probe("report", dir.resolve("nope").toString());
         assertEquals(2, missing.exit(), missing.err());

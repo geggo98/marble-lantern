@@ -19,7 +19,8 @@ import java.util.zip.GZIPOutputStream;
 
 /**
  * The file format of the rank logger ({@link RankProbe}): one gzip stream per shard. The first line is the manifest,
- * {@code RLOG1 key=value key=value ...} ending in a newline; the values hold no space. After it come fixed-size
+ * {@code RLOG1 key=value key=value ...} ending in a newline; a space, newline, carriage return or percent sign in a value is written
+ * as %20, %0A, %0D or %25. After it come fixed-size
  * records of {@value #RECORD_BYTES} bytes, big endian:
  *
  * <pre>
@@ -75,6 +76,41 @@ final class ProbeLog {
                 .putShort((short) r.rows1()).putShort((short) r.rows2()).putShort((short) r.estimate()).putInt(r.count());
     }
 
+    /** Percent-encodes what would break the manifest line: space, newline, carriage return and the percent sign itself. */
+    static String escape(String v) {
+        StringBuilder sb = new StringBuilder(v.length());
+        for (char c : v.toCharArray()) {
+            switch (c) {
+                case '%' -> sb.append("%25");
+                case ' ' -> sb.append("%20");
+                case '\n' -> sb.append("%0A");
+                case '\r' -> sb.append("%0D");
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    static String unescape(String v) {
+        StringBuilder sb = new StringBuilder(v.length());
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            String code = c == '%' && i + 3 <= v.length() ? v.substring(i, i + 3) : "";
+            switch (code) {
+                case "%25" -> sb.append('%');
+                case "%20" -> sb.append(' ');
+                case "%0A" -> sb.append('\n');
+                case "%0D" -> sb.append('\r');
+                default -> {
+                    sb.append(c);
+                    continue;
+                }
+            }
+            i += 2;
+        }
+        return sb.toString();
+    }
+
     /** Writes a shard under a temporary name and renames it when it is complete. */
     static void write(Path file, Map<String, String> settings, int shard, int first, java.util.List<GameRows> games)
             throws IOException {
@@ -94,7 +130,7 @@ final class ProbeLog {
         m.put("rows", Long.toString(rows));
         m.put("lookups", Long.toString(lookups));
         StringBuilder head = new StringBuilder(MAGIC);
-        m.forEach((k, v) -> head.append(' ').append(k).append('=').append(v));
+        m.forEach((k, v) -> head.append(' ').append(k).append('=').append(escape(v)));
         head.append('\n');
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp." + ProcessHandle.current().pid());
         try (OutputStream out = new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(tmp), 1 << 16))) {
@@ -134,7 +170,7 @@ final class ProbeLog {
                 if (kv.length != 2) {
                     throw new IOException(file + ": bad manifest word " + words[i]);
                 }
-                m.put(kv[0], kv[1]);
+                m.put(kv[0], unescape(kv[1]));
             }
             byte[] body = in.readAllBytes();
             int rows = Integer.parseInt(m.getOrDefault("rows", "-1"));

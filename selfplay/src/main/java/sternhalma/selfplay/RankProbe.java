@@ -108,7 +108,7 @@ public final class RankProbe {
 
     /** The settings of a run; {@link #describe()} is stored in every shard and must match on resume. */
     record Settings(String source, String spec, String netSpec, Path net, long seed, int openingMin, int openingMax,
-            boolean shadow) {
+            boolean shadow, String netId) {
 
         Settings {
             if (!List.of("best", "net", "random").contains(source)) {
@@ -123,7 +123,7 @@ public final class RankProbe {
             return "source=" + source + ";seed=" + seed + ";opening=uniform," + openingMin + "-" + openingMax
                     + ";shadow=" + (shadow ? 1 : 0)
                     + (source.equals("best") ? ";spec=" + spec : "")
-                    + (source.equals("net") ? ";player=" + netSpec + ";net=" + net.getFileName() : "");
+                    + (source.equals("net") ? ";player=" + netSpec + ";net=" + net.getFileName() + ";netsha256=" + netId : "");
         }
     }
 
@@ -136,7 +136,19 @@ public final class RankProbe {
         String shadow = opts.getOrDefault("shadow", source.equals("best") ? "0" : "1");
         return new Settings(source, spec, netSpec, netFile == null ? null : Path.of(netFile),
                 Long.parseLong(SelfPlay.require(opts, "seed")), SelfPlay.intOpt(opts, "opening-min", 4),
-                SelfPlay.intOpt(opts, "opening-max", 10), shadow.equals("1"));
+                SelfPlay.intOpt(opts, "opening-max", 10), shadow.equals("1"), netId(netFile));
+    }
+
+    /** SHA-256 of the network file (16 hex digits), so that other content under the same name is another run; "-" if none. */
+    private static String netId(String netFile) {
+        if (netFile == null) {
+            return "-";
+        }
+        try {
+            return Gen0.sha256Hex(Files.readAllBytes(Path.of(netFile))).substring(0, 16);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("cannot read the network " + netFile + ": " + e.getMessage(), e);
+        }
     }
 
     static int runCommand(Map<String, String> opts, PrintStream err) throws IOException, InterruptedException {
