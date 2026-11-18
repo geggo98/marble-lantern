@@ -106,6 +106,36 @@ for (const device of DEVICES) {
       errors.expectNone();
     });
 
+    test('the board does not move while the engine loads, also with a wide fallback font', async ({ page }) => {
+      // Fonts differ between machines (a CI runner has other fallbacks than a Mac): stress the text with a wide monospace font.
+      await page.addInitScript(() => {
+        document.addEventListener('DOMContentLoaded', () => {
+          const style = document.createElement('style');
+          style.textContent = '*, *::before, *::after { font-family: "Courier New", Courier, monospace !important; letter-spacing: 0.04em !important; }';
+          document.head.append(style);
+        });
+      });
+      await openApp(page, 'de', '', 'ask');
+      await page.locator('[data-choice="begin-yes"]').click();
+      const svg = page.locator('svg.ml-board__svg');
+      await expect(svg).toBeVisible();
+      const track = async (): Promise<Box> => (await svg.boundingBox())!;
+      const boxes: Box[] = [await track()];
+      const loaded = waitForHumanTurn(page).then(() => true);
+      let done = false;
+      void loaded.then(() => { done = true; });
+      while (!done) {
+        boxes.push(await track());
+        await page.waitForTimeout(50);
+      }
+      await waitForHumanTurn(page);
+      boxes.push(await track());
+      for (const key of ['x', 'y', 'width', 'height'] as const) {
+        const values = boxes.map((b) => b[key]);
+        expect(Math.max(...values) - Math.min(...values), `board ${key} over the load`).toBeLessThanOrEqual(1);
+      }
+    });
+
     test('the menu opens, holds the settings, and closes by Escape, close button, backdrop and swipe', async ({ page }, info) => {
       const errors = watchPageErrors(page);
       await openApp(page, 'en');

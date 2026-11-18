@@ -68,9 +68,15 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     padding: var(--ml-space-2) var(--ml-gutter) calc(var(--ml-space-2) + env(safe-area-inset-bottom));
   }
   .ml-play__stage { display: contents; }
-  .ml-play .ml-status { grid-area: status; min-height: 2.5rem; }
+  /* Fixed heights, whatever the font: a longer text is cut off, it never makes the row taller and moves the board. */
+  .ml-play .ml-status { grid-area: status; height: 2.5rem; min-height: 0; }
+  .ml-play .ml-status__who > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ml-play .ml-status__ply { white-space: nowrap; }
   .ml-play__boardwrap { grid-area: board; position: relative; min-height: 8rem; min-width: 0; }
-  .ml-play__adv, .ml-play__adv:empty { grid-area: adv; display: block; min-height: 3rem; }
+  .ml-play__adv, .ml-play__adv:empty { grid-area: adv; display: block; height: 3.5rem; overflow: hidden; }
+  .ml-play__adv .ml-advantage__text {
+    line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  }
   .ml-play__adv .ml-advantage { margin-block: 0; }
   .ml-play__adv .ml-advantage__ends { display: none; } /* aria-hidden duplicates of the words in the text above */
   .ml-play__bar { grid-area: bar; }
@@ -109,5 +115,5 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   }
   .ml-actionbar { grid-template-columns: minmax(0, 1fr); }
   .ml-actionbar .ml-btn { flex-direction: row; gap: var(--ml-space-2); min-height: var(--ml-size-control); font-size: var(--ml-text-sm); }
-  .ml-play__adv { min-height: 0; }
+  .ml-play__adv, .ml-play__adv:empty { height: auto; min-height: 0; overflow: visible; }
 }
