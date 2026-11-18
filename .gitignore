@@ -56,3 +56,13 @@ cloud-results/
 /cpp/golden/
 /cpp/build/
 __pycache__/
+
+# Web UI (generated output)
+/web/node_modules/
+/web/dist/
+/web/public/engines/
+/web/public/tables/
+/web/test-results/
+/app/node_modules/
+/app/src/main/frontend/generated/
+/tablebase/tables/rows1.bin

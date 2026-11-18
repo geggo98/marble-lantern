@@ -1,4 +1,8 @@
 pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
     includeBuild("build-logic")
 }
 
@@ -9,7 +13,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "stern-halma"
+rootProject.name = "marble-lantern"
 
 include("engine", "search", "nn", "nn-tornado", "tablebase")
 include("selfplay")

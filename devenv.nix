@@ -7,7 +7,22 @@
   apple.sdk = null;
 
   # C++ port (cpp/): CMake, Ninja and clang-tidy from nixpkgs; the compiler stays Apple clang (stdenvNoCC, so c++ is /usr/bin/c++).
-  packages = [ pkgs.cmake pkgs.ninja pkgs.llvmPackages.clang-tools ];
+  packages = [
+    pkgs.cmake pkgs.ninja pkgs.llvmPackages.clang-tools
+    pkgs.emscripten pkgs.zstd pkgs.zsh pkgs.librsvg
+    pkgs.pinact pkgs.actionlint pkgs.zizmor pkgs.gitleaks
+  ];
+
+  languages.javascript = {
+    enable = true;
+    package = pkgs.nodejs_24;
+    npm.enable = true;
+  };
+
+  # The Nix store is read-only; emscripten needs a writable cache.
+  env.EM_CACHE = "${config.devenv.state}/em_cache";
+  env.PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+  env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
 
   languages.java = {
     enable = true;
@@ -31,6 +46,24 @@
   # The Gradle wrapper pins Gradle 9.8.2, which supports JDK 25; the nixpkgs Gradle (8.14) does not.
   tasks."agent:build" = { exec = "${config.devenv.root}/gradlew --no-build-cache build -x test"; };
   tasks."agent:test" = { exec = "${config.devenv.root}/gradlew --no-build-cache test"; };
+
+  # Web UI tasks (plan section 4). Each script is a stub until its work package replaces it.
+  tasks."tables:pack-rows1" = { exec = "${config.devenv.root}/scripts/tables/pack-rows1.zsh"; };
+  tasks."tables:unpack" = { exec = "${config.devenv.root}/scripts/tables/unpack-rows1.zsh"; };
+  tasks."web:tables" = { exec = "${config.devenv.root}/scripts/web/tables.zsh"; };
+  tasks."wasm:build" = { exec = "${config.devenv.root}/scripts/web/build-wasm.zsh"; };
+  tasks."wasm:test" = { exec = "${config.devenv.root}/scripts/web/test-wasm.zsh"; after = [ "wasm:build" "web:tables" ]; };
+  tasks."teavm:build" = { exec = "${config.devenv.root}/scripts/web/build-teavm.zsh"; };
+  tasks."web:engines" = { exec = "${config.devenv.root}/scripts/web/engines-manifest.zsh"; after = [ "wasm:build" "teavm:build" ]; };
+  tasks."web:install" = { exec = "${config.devenv.root}/scripts/web/install.zsh"; };
+  tasks."web:test" = { exec = "${config.devenv.root}/scripts/web/test.zsh"; after = [ "web:install" ]; };
+  tasks."web:build" = { exec = "${config.devenv.root}/scripts/web/build.zsh"; after = [ "web:engines" "web:tables" "web:install" ]; };
+  tasks."web:bench" = { exec = "${config.devenv.root}/scripts/web/bench.zsh"; after = [ "web:engines" "web:tables" ]; };
+  tasks."web:e2e" = { exec = "${config.devenv.root}/scripts/web/e2e.zsh"; after = [ "web:build" ]; };
+  tasks."web:ci" = { exec = "${config.devenv.root}/scripts/web/ci.zsh"; after = [ "wasm:build" "wasm:test" "teavm:build" "web:engines" "web:install" "web:test" "web:tables" "web:build" "web:bench" "web:e2e" ]; };
+  tasks."app:run" = { exec = "${config.devenv.root}/scripts/web/app-run.zsh"; };
+  tasks."app:run-tornado" = { exec = "${config.devenv.root}/scripts/web/app-run-tornado.zsh"; };
+  tasks."ci:security" = { exec = "${config.devenv.root}/scripts/ci/security.zsh"; };
 
   enterTest = ''
     java --version | grep -q '^openjdk 25'
