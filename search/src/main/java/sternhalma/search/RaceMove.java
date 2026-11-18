@@ -31,6 +31,7 @@ public final class RaceMove {
 
     private final RaceCounts table;
     private final int mode;
+    private final int minRow;
     private final Solitaire[] solitaire = new Solitaire[2];
     private LeaveGoal leaveGoal;
     private final Layout layout = Layout.of(2);
@@ -42,11 +43,20 @@ public final class RaceMove {
      * @param mode  1 always races in a passed position, 2 only while the race is not known to be lost
      */
     public RaceMove(RaceCounts table, int mode) {
+        this(table, mode, table instanceof sternhalma.tablebase.RaceTable t ? t.minRow() : -1);
+    }
+
+    /**
+     * @param minRow the first row of the region the table is meant to cover (1 or 2), or -1 if unknown; a wrapped table
+     *               (an estimate, a block-restricted one) is not a {@link RaceTable} and says it here
+     */
+    public RaceMove(RaceCounts table, int mode, int minRow) {
         if (mode != 1 && mode != 2) {
             throw new IllegalArgumentException("race mode must be 1 or 2, got " + mode);
         }
         this.table = table;
         this.mode = mode;
+        this.minRow = minRow;
     }
 
     public int mode() {
@@ -57,9 +67,9 @@ public final class RaceMove {
         return table != null;
     }
 
-    /** The minimum row of the race table's region (2 default, 1 extended), or -1 without a {@link RaceTable}. */
+    /** The minimum row of the race table's region (2 default, 1 extended), or -1 if unknown. */
     public int tableMinRow() {
-        return table instanceof sternhalma.tablebase.RaceTable t ? t.minRow() : -1;
+        return minRow;
     }
 
     /** The race table, or null for beam-only play. */

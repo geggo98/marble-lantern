@@ -3,6 +3,9 @@ package sternhalma.search;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -64,10 +67,24 @@ class BrowserSpecTest {
 
     @Test
     void theBrowserEvaluatorDiffersFromBestOnlyInTheTable() {
-        // same weights and arithmetic: on a position outside both tables' reach the values are the base value, so equal
+        assumeTrue(RaceTable.rows1IfCached() != null, "the rows>=1 table is not available (-Psternhalma.tablebase.dir)");
+        // the start position is outside both tables' reach, so every race evaluator returns its base value there
         Position start = Position.initial(ReferencePositions.rules());
         Evaluator browser = Evaluators.byName("racelin-r3");
+        Evaluator best = Evaluators.byName("racelin1-r3");
         Evaluator linear = Evaluators.byName("linear-r3");
         assertEquals(linear.evaluate(start), browser.evaluate(start));
+        assertEquals(linear.evaluate(start), best.evaluate(start));
+        // positions of a played game, up to the race: there the table decides, and rows>=1 and rows>=2 give other values.
+        // racelin-r3 is BEST's evaluator over the rows>=2 table, and it is not the one over rows>=1.
+        Evaluator bestOverRows2 = Evaluators.byName("racelin1-r3", Map.of(), RaceTableSource.of("rows2"));
+        Position pos = Position.initial(ReferencePositions.rules());
+        int differing = 0;
+        for (int move : RaceTableSourceTest.game(Strategies.BEST_SPEC, RaceTableSource.DEFAULT)) {
+            pos.make(move);
+            assertEquals(bestOverRows2.evaluate(pos), browser.evaluate(pos), "ply " + pos.ply());
+            differing += best.evaluate(pos) != browser.evaluate(pos) ? 1 : 0;
+        }
+        assertTrue(differing > 0, "no position of the game separates the rows>=1 from the rows>=2 evaluator");
     }
 }

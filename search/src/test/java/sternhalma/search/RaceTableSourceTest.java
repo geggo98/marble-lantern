@@ -101,13 +101,42 @@ class RaceTableSourceTest {
         RowOneBlocks.write(file, all, "every block");
         assertEquals(game(Strategies.BEST_SPEC, RaceTableSource.DEFAULT),
                 game(Strategies.BEST_SPEC, RaceTableSource.of("blocks:" + file)));
-        // a set with a single block is legal and changes the game only through the table values
+        // the values, not only the moves: sampled configurations of the rows>=1 table
+        RaceTable rows1 = RaceTable.rows1();
+        RaceTable rows2 = RaceTable.rows2();
+        java.util.Random random = new java.util.Random(77);
+        List<int[]> cells = new ArrayList<>();
+        for (int i = 0; i < 4000; i++) {
+            cells.add(rows1.rankingOf().unrank(Math.floorMod(random.nextLong(), rows1.states())));
+        }
+        int block = RowOneBlocks.blockOf(rows1.rankingOf().rank(cells.get(0)));
         BitSet one = new BitSet();
-        one.set(0);
-        Path single = dir.resolve("one.txt");
-        RowOneBlocks.write(single, one, "block 0");
-        List<Integer> restricted = game(Strategies.BEST_SPEC, RaceTableSource.of("blocks:" + single));
-        assertTrue(restricted.size() > 0);
+        one.set(block);
+        BitSet none = new BitSet();
+        Path singleFile = dir.resolve("one.txt");
+        RowOneBlocks.write(singleFile, one, "one block");
+        // a block file with no block is refused when it is read, so the empty set is built directly
+        RowOneBlocks.write(dir.resolve("none.txt"), none, "no block");
+        assertThrows(java.io.UncheckedIOException.class,
+                () -> RaceTableSource.of("blocks:" + dir.resolve("none.txt")).evaluator(1));
+        var full = RaceTableSource.of("blocks:" + file).evaluator(1).counts();
+        var single = RaceTableSource.of("blocks:" + singleFile).evaluator(1).counts();
+        var empty = new sternhalma.tablebase.BlockRestrictedCounts(rows1, rows2, none);
+        int inBlock = 0;
+        int valuesDiffer = 0;
+        for (int[] c : cells) {
+            boolean served = RowOneBlocks.blockOf(rows1.rankingOf().rank(c)) == block;
+            int exact = rows1.count(c);
+            assertEquals(exact, full.count(c), "a full set serves every entry");
+            assertEquals(rows2.count(c), empty.count(c), "an empty set is the rows>=2 table");
+            assertEquals(served ? exact : rows2.count(c), single.count(c), "a single block serves only its own entries");
+            inBlock += served ? 1 : 0;
+            valuesDiffer += exact != rows2.count(c) ? 1 : 0;
+        }
+        assertTrue(inBlock >= 1, "the chosen block is read by at least one sample");
+        assertTrue(valuesDiffer > 100, "rows>=1 and rows>=2 must differ on the samples, else the test proves nothing: " + valuesDiffer);
+        // the game stays playable with a single block
+        assertTrue(game(Strategies.BEST_SPEC, RaceTableSource.of("blocks:" + singleFile)).size() > 0);
     }
 
     @Test
@@ -195,21 +224,42 @@ class RaceTableSourceTest {
     @Test
     void estimate2UsesThePatternCorrectionAndNeverReadsRows1() {
         needRows1();
+        // the sample cells need the rows>=1 ranking; the check starts after they exist, so it counts only what the variant asks for
         RaceTable rows1 = RaceTable.rows1();
+        java.util.Random random = new java.util.Random(31);
+        List<int[]> cells = new ArrayList<>();
+        for (int i = 0; i < 5000; i++) {
+            cells.add(rows1.rankingOf().unrank(Math.floorMod(random.nextLong(), rows1.states())));
+        }
+        int before = RaceTable.rows1Requests();
         var counts = RaceTableSource.of("estimate2").evaluator(1).counts();
         var reference = new sternhalma.tablebase.PatternEstimator(RaceTable.rows2(),
                 sternhalma.tablebase.PatternEstimator.FITTED);
         var plain = RaceTableSource.of("estimate").evaluator(1).counts();
-        java.util.Random random = new java.util.Random(31);
         int differs = 0;
-        for (int i = 0; i < 5000; i++) {
-            int[] cells = rows1.rankingOf().unrank(Math.floorMod(random.nextLong(), rows1.states()));
-            assertEquals(reference.estimate(cells), counts.count(cells));
-            differs += counts.count(cells) != plain.count(cells) ? 1 : 0;
+        for (int[] c : cells) {
+            assertEquals(reference.estimate(c), counts.count(c));
+            differs += counts.count(c) != plain.count(c) ? 1 : 0;
         }
+        assertTrue(game(Strategies.BEST_SPEC, RaceTableSource.of("estimate2")).size() > 0);
+        assertEquals(before, RaceTable.rows1Requests(), "estimate2 asked for the rows>=1 table");
         assertTrue(differs > 500, "estimate2 must differ from the per-k estimate, differs " + differs);
         assertEquals(256, sternhalma.tablebase.PatternEstimator.FITTED.length);
         assertThrows(IllegalArgumentException.class, () -> RaceTableSource.of("estimate2:1"));
+    }
+
+    @Test
+    void theTextOfAVariantAndThePlayerLabelNameWhatIsPlayed() {
+        needRows1();
+        assertEquals("maxk:2", RaceTableSource.Variant.parse("maxk:2").toString());
+        assertEquals("estimate [0, 0, 0, 0, 0, 0, 0, 0, 0]", RaceTableSource.Variant.parse("estimate").toString());
+        String error = assertThrows(IllegalArgumentException.class, () -> RaceTableSource.Variant.parse("rows3")).getMessage();
+        assertTrue(error.contains("estimate2"), error);
+        // under a variant source the label still says that the player races over the rows>=1 region
+        String name = PlayerSpec.parse(Strategies.BEST_SPEC + ",nodes=10").create(RaceTableSource.of("estimate2")).name();
+        assertTrue(name.contains("racerows=1"), name);
+        String browser = PlayerSpec.parse(Strategies.BEST_SPEC + ",nodes=10").create(RaceTableSource.of("rows2")).name();
+        assertTrue(!browser.contains("racerows=1"), browser);
     }
 
     @Test

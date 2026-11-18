@@ -229,7 +229,7 @@ public interface RaceTableSource {
                     return new Variant(text, "maxk", null, new int[PushEstimator.CLASSES], n, fallback.equals("estimate"));
                 }
                 default -> throw new IllegalArgumentException("unknown race variant '" + text
-                        + "', expected exact, rows2, blocks:FILE, estimate[:c0,...,c8] or maxk:N[:estimate|rows2]");
+                        + "', expected exact, rows2, blocks:FILE, estimate[:c0,...,c8], estimate2 or maxk:N[:estimate|rows2]");
             }
         }
 
@@ -261,7 +261,7 @@ public interface RaceTableSource {
 
         @Override
         public String toString() {
-            return text + (corrections == null ? "" : " " + Arrays.toString(corrections));
+            return text + (kind.equals("estimate") ? " " + Arrays.toString(corrections) : "");
         }
     }
 }

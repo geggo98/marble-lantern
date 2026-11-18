@@ -157,8 +157,10 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
      */
     public AlphaBetaPlayer create(RaceTableSource source) {
         String label = weights.isEmpty() ? evaluator : evaluator + weights;
+        RaceTableSource.Table raceTableOfSource = race != 0 && raceTable ? source.racePlay(raceRows) : null;
         RaceMove raceMove = race == 0 ? null
-                : new RaceMove(raceTable ? source.racePlay(raceRows).counts() : null, race);
+                : new RaceMove(raceTableOfSource == null ? null : raceTableOfSource.counts(), race,
+                        raceTableOfSource == null ? -1 : raceTableOfSource.minRow());
         return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights, source), depth, millis, nodes, tableBits, label,
                 options, raceMove);
     }
