@@ -9,7 +9,7 @@
   # C++ port (cpp/): CMake, Ninja and clang-tidy from nixpkgs; the compiler stays Apple clang (stdenvNoCC, so c++ is /usr/bin/c++).
   packages = [
     pkgs.cmake pkgs.ninja pkgs.llvmPackages.clang-tools
-    pkgs.emscripten pkgs.zstd pkgs.zsh pkgs.librsvg
+    pkgs.emscripten pkgs.zstd pkgs.zsh pkgs.librsvg pkgs.uv
     pkgs.pinact pkgs.actionlint pkgs.zizmor pkgs.gitleaks
   ];
 
