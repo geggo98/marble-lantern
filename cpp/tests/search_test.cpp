@@ -741,7 +741,17 @@ SH_TEST(browser_spec_parses_and_uses_the_rows2_table_only) {
     const int before = RaceEvaluator::rows1_requests();
     const auto player = browser.create();
     const auto eval = browser.make_evaluator();
-    if (player) CHECK(((*player)->race()) != nullptr);
+    if (!player || !eval) {
+        // a missing rows >= 2 table is not a pass: with STERNHALMA_GOLDEN_REQUIRED=1 the test fails, else it is skipped
+        const std::string error = !player ? player.error() : eval.error();
+        if (golden::required()) {
+            CHECK(player.has_value() && eval.has_value());
+        } else {
+            ::sh::test::skip(error);
+        }
+        return;
+    }
+    CHECK((*player)->race() != nullptr);
     CHECK_EQ(RaceEvaluator::rows1_requests(), before);
     // the guard can fail: BEST_SPEC asks for rows1 as soon as its evaluator is built (also when the file is missing)
     const auto best_eval = parse_ok(fingerprint::kBestSpec).make_evaluator();
