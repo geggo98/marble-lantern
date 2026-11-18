@@ -16,7 +16,8 @@
 # A is BEST_SPEC with the given race variants, B is BEST_SPEC with the exact tables, both at the same node budget, so the
 # match measures what the variant costs in strength. Resumable by name: a complete result (it has a RESULT line) is not
 # played again; the file is written under a temporary name and renamed, so no incomplete file carries the final name.
-# Exit codes: 0 = result exists (played now or before), 1 = the match failed, 2 = wrong call.
+# A result with another header (VARIANT, --play, --nodes, --threads) is refused with exit 2; --force plays again.
+# Exit codes: 0 = result exists (played now or before), 1 = the match failed, 2 = wrong call, 128+N = signal N ended the match.
 set -eu
 root=${0:A:h:h:h}
 cd "$root"
@@ -48,6 +49,15 @@ fi
 
 outdir=build/offline/arena
 result=$outdir/$name-s$seed-p$pairs.txt
+header="name=$name variant_eval=$variant variant_play=$play nodes=$nodes pairs=$pairs seed=$seed threads=$threads"
+if (( ! force )) && [[ -f $result ]]; then
+  have=$(head -n 1 "$result")
+  if [[ $have != "$header" ]]; then
+    echo "existing result $result was played with other parameters; use --force to play again or another NAME" >&2
+    echo "  existing header: $have" >&2; echo "  this call:       $header" >&2
+    exit 2
+  fi
+fi
 if (( ! force )) && [[ -f $result ]] && perl -ne '$f = 1 if /^RESULT /; END { exit($f ? 0 : 1) }' "$result"; then
   echo "complete result exists, not played again: $result"
   perl -ne 'print if /^RESULT /' "$result"
@@ -70,13 +80,14 @@ start=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
 echo "arena $name: A=BEST($nodes nodes) race eval=$variant play=$play vs B=BEST($nodes nodes) exact, $pairs pairs, seed $seed, $threads threads" >&2
 rc=0
 {
-  echo "name=$name variant_eval=$variant variant_play=$play nodes=$nodes pairs=$pairs seed=$seed threads=$threads"
+  echo "$header"
   java -Xmx4g --add-modules jdk.incubator.vector "-Dsternhalma.tablebase.dir=$table_dir" -cp "$cp" sternhalma.search.Arena \
     --a "$best" --b "$best" --pairs "$pairs" --seed "$seed" --threads "$threads" \
     --a-race-eval "$variant" --a-race-play "$play"
 } > $tmp || rc=$?
 end=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
 if (( rc != 0 )); then
+  (( rc >= 128 )) && exit $rc   # SIGINT/SIGTERM of the Java process: pass the signal exit code on
   echo "arena failed (exit $rc); no result written" >&2; exit 1
 fi
 perl -ne '$f = 1 if /^RESULT /; END { exit($f ? 0 : 1) }' $tmp || { echo "no RESULT line in the output; no result written" >&2; exit 1; }
