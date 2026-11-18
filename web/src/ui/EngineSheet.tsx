@@ -32,6 +32,8 @@ const kb = (bytes: number, n: (v: number) => string): string => `${n(Math.round(
 export function EngineSheet(props: SheetProps): React.JSX.Element {
   const { t, n } = useT();
   const first = props.choices.find((c) => c.info.id === props.currentId && c.available) ?? props.choices.find((c) => c.available);
+  /** The engine the session starts with: the first available one in registry order (ADR 0003). */
+  const defaultId = props.choices.find((c) => c.available)?.info.id ?? null;
   const [engine, setEngine] = useState<EngineId | null>(first?.info.id ?? null);
   const [level, setLevel] = useState(props.level);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -125,7 +127,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                       </span>
                     )
                   )}
-                  {id === 'cpp-wasm' && <Tag solid>{t('default')}</Tag>}
+                  {id === defaultId && <Tag solid>{t('default')}</Tag>}
                 </span>
                 {!c.available && (
                   <p className="ml-option__reason">

@@ -4,7 +4,7 @@
 Its main purpose is to show Java on the GPU with TornadoVM and in the browser with TeaVM: batched network inference for self-play and network training run as TornadoVM kernels on the GPU, and the classical player runs in the browser as TeaVM output.
 Everything else (rules engine, opening book, user interface) stays deliberately simple.
 The Java code is split into Gradle modules; a CPU reference implementation checks every GPU kernel.
-Outside Java, a C++ port of the engine (`cpp/`) serves as a performance comparison and as the default browser engine, and the browser UI is TypeScript and React (`web/`).
+Outside Java, a C++ port of the engine (`cpp/`) serves as a performance comparison and as the browser engine for browsers without Wasm GC, WebAssembly with garbage collection, which the default Java engine needs ([ADR 0003](adr/0003-teavm-default-engine.md)), and the browser UI is TypeScript and React (`web/`).
 Implementation started with the rules engine and a two-player alpha-beta baseline, before any network code (*project decision*, see [implementation order](#implementation-order)).
 
 > **Status.** This document describes the approved plan and marks what exists.
@@ -313,7 +313,7 @@ The repository contains only `.env.example` with placeholders.
 The web UI exists; [web UI](web-ui.md) describes it. In short:
 
 - One React code base in `web/src/`, built twice: as a static offline site (GitHub Pages) and as the online mode in the Gradle module `app` (Spring Boot with Vaadin Hilla).
-- Offline, the engine runs in the browser: the C++ port compiled to WebAssembly (default) or the Java engine compiled by TeaVM ([ADR 0002](adr/0002-browser-engines.md)). It plays `BROWSER_SPEC`, which needs only the small race table ([ADR 0001](adr/0001-browser-mode-without-rows1.md)).
+- Offline, the engine runs in the browser: the Java engine compiled by TeaVM to Wasm GC (default), or the C++ port compiled to WebAssembly as the fallback for browsers without Wasm GC ([ADR 0002](adr/0002-browser-engines.md), [ADR 0003](adr/0003-teavm-default-engine.md)). It plays `BROWSER_SPEC`, which needs only the small race table ([ADR 0001](adr/0001-browser-mode-without-rows1.md)).
 - Online, the server adds `BEST_SPEC` and the network player. The network player can evaluate on the GPU with TornadoVM; without it, it uses the CPU path.
 - The board is SVG. The player picks the engine and the strength (a node budget per move).
 
@@ -327,7 +327,7 @@ All entries are *project decisions*; a citation inside an entry supports only th
 1. **Java only.**
    Reason: the project is a TornadoVM showcase, and TornadoVM runs Java.
    Rejected: Rust compiled to WASM, and JAX for training. Only language-neutral ideas were kept: standard network operations, safetensors weights, a neutral self-play data format, leaf batching, train large and distil.
-   Later additions outside the critical path: a C++ port of the engine for a performance comparison ([C++ comparison](cpp-comparison.md)), which is also the default browser engine ([ADR 0002](adr/0002-browser-engines.md)), and the TypeScript browser UI.
+   Later additions outside the critical path: a C++ port of the engine for a performance comparison ([C++ comparison](cpp-comparison.md)), which is also the browser engine for browsers without Wasm GC ([ADR 0003](adr/0003-teavm-default-engine.md)), and the TypeScript browser UI.
 2. **One MCTS engine with a neural network for two and three players.**
    Reason: one search covers both player counts, and alpha-beta works for two players only (*reported*, see [search and evaluation](search-and-evaluation.md)).
    Rejected as the main engine: alpha-beta for two players plus Max^n, Paranoid or Best Reply Search for three players [Sturtevant2003], [SchaddWinands2011].

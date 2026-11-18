@@ -2,11 +2,28 @@
 // is new, and the engine card proves which engine gave it.
 import { expect, test } from '@playwright/test';
 import type { EngineId } from './helpers';
-import { openApp, pickEngine, playOneExchange, watchPageErrors, waitForHumanTurn } from './helpers';
+import { hasWasmGc, openApp, pickEngine, playOneExchange, watchPageErrors, waitForHumanTurn } from './helpers';
+
+// ADR 0003: TeaVM Wasm GC is the default engine; a browser without Wasm GC starts with C++ (the faster fallback).
+test('the default engine is Java on Wasm GC, or C++ in a browser without Wasm GC, and it plays', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en');
+  const expected = (await hasWasmGc(page)) ? 'WebAssembly GC' : 'C++';
+  await expect(page.locator('.ml-engine .ml-card__title')).toContainText(expected);
+  await playOneExchange(page);
+  await page.locator('.ml-engine button[aria-haspopup="dialog"]').click();
+  const dialog = page.getByRole('dialog');
+  const badged = dialog.locator('.ml-option', { has: page.locator('.ml-tag--solid') });
+  await expect(badged).toHaveCount(1);
+  await expect(badged).toHaveAttribute('data-engine', expected === 'C++' ? 'cpp-wasm' : 'java-wasmgc');
+  errors.expectNone();
+});
 
 test('cpp-wasm loads and plays one engine move', async ({ page }) => {
   const errors = watchPageErrors(page);
   await openApp(page, 'en');
+  await waitForHumanTurn(page);
+  await pickEngine(page, 'cpp-wasm' satisfies EngineId);
   await expect(page.locator('.ml-engine .ml-card__title')).toContainText('C++');
   const telemetry = await playOneExchange(page);
   // telemetry holds nodes, time, depth and source of the last engine move

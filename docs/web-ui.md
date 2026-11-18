@@ -3,22 +3,24 @@
 **TL;DR:** The browser UI of Marble Lantern is one React code base in `web/src/` that is built twice.
 The **offline mode** is a static site (Vite build in `web/dist/`, published on GitHub Pages): the engine, the race table and the page all run in the browser, with the engine in a Web Worker.
 The **online mode** is a Vaadin Hilla app (Gradle module `app`) that serves the same UI and adds engines that run on the server.
-Three browser engines play the same moves: C++ compiled to WebAssembly (the default), and Java compiled by TeaVM to WebAssembly GC or to JavaScript.
+Three browser engines play the same moves: Java compiled by TeaVM to WebAssembly GC (the default), C++ compiled to WebAssembly (the fallback for browsers without Wasm GC), and Java compiled by TeaVM to JavaScript.
 All engines implement one TypeScript `Engine` interface, and the browser engines speak one worker message protocol.
-The reasons for the default engine are in [ADR 0002](adr/0002-browser-engines.md); the speed comparison is in [web benchmark](web-benchmark.md).
+The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons for the default engine are in [ADR 0003](adr/0003-teavm-default-engine.md), and the speed comparison is in [web benchmark](web-benchmark.md).
+The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
 
 ## Contents
 
 1. [Terms](#terms)
 2. [The two modes](#the-two-modes)
-3. [The engines](#the-engines)
-4. [The engine interface](#the-engine-interface)
-5. [The worker protocol](#the-worker-protocol)
-6. [Analysis API](#analysis-api)
-7. [Loading and checking the race table](#loading-and-checking-the-race-table)
-8. [Build, run and test](#build-run-and-test)
-9. [Continuous integration](#continuous-integration)
-10. [Known limits](#known-limits)
+3. [Game URL](#game-url)
+4. [The engines](#the-engines)
+5. [The engine interface](#the-engine-interface)
+6. [The worker protocol](#the-worker-protocol)
+7. [Analysis API](#analysis-api)
+8. [Loading and checking the race table](#loading-and-checking-the-race-table)
+9. [Build, run and test](#build-run-and-test)
+10. [Continuous integration](#continuous-integration)
+11. [Known limits](#known-limits)
 
 ## Terms
 
@@ -75,12 +77,82 @@ In the online mode, `app/build.gradle.kts` copies `web/public/engines/` and `web
 
 Generated and not in Git: `web/public/engines/`, `web/public/tables/`, `web/dist/`, `web/node_modules/`. Committed although generated: `web/src/board/cells.generated.json` (from `scripts/web/export-board.zsh`) and the npm lock files.
 
+## Game URL
+
+The current game lives in the fragment of the page address, the part after `#`. A browser never sends the fragment to a server, so the game stays private. A fragment also works on GitHub Pages, a static host without server-side routing. The "Copy link" button copies the address, so a game can be shared as a link.
+
+Code: `web/src/app/game-url.ts` (encode, decode and parse, pure functions without DOM or engine), `web/src/app/game-nav.ts` (`NavigationPort`, a thin wrapper around `history` and `location` that tests replace with a fake, and `GameUrlSync`, which writes the game into the address), `web/src/app/App.tsx` (the flow before and during a game), `web/src/ui/StartDialog.tsx` (the dialog before a game).
+
+### Format
+
+```text
+#g=v1.<payload>&h=<side>&l=<level>
+```
+
+- `g=v1.` is the version prefix.
+- `h=0` or `h=1` is the side the human plays. Side 0 (Blue in the UI) moves first; side 1 is Amber.
+- `l=<n>` is the strength level, an index 0 to 4 into the node budgets 1,000, 5,000, 20,000, 100,000 and 500,000.
+
+`h` and `l` are optional for the parser; the app always writes both. An empty game at the default strength is `#g=v1.&h=0&l=2`.
+
+The payload holds the moves from the start position. Each move is 14 bits: 7 bits for the from-cell and 7 bits for the to-cell, cells 0 to 120. The moves form one big-endian bit stream, zero-padded to whole bytes and encoded as base64url without padding (alphabet `A-Z`, `a-z`, `0-9`, `-`, `_`). 4 moves take 7 bytes, 5 moves take 9 bytes.
+
+Size, measured by the unit test `web/src/app/game-url.test.ts`: 100 plies give 175 bytes and a payload of 234 characters. The move limit of a game is 200 plies (`MOVE_LIMIT` in `web/src/game/board-state.ts`, see [rules](rules.md)); that gives 350 bytes and 467 characters, and a fragment of 481 characters with the prefix and both fields. A limit of 1,000 plies would give 1,750 bytes and 2,334 characters by the same arithmetic (calculated, not measured); this shows the cost if the limit were raised. A game at the move limit is short enough to paste into a chat message.
+
+### Routes
+
+`#/bench` and `#/about` open the benchmark and the about screen; these routes are unchanged by the game fragment. Any other fragment that is not a game fragment shows the play screen. When the user goes back from another screen to the play screen during a game, the app writes the current game into the address again.
+
+### History
+
+The app writes one history entry per full turn:
+
+| Event | History call |
+|---|---|
+| The human moves | `pushState`: a new entry with the position after the human's move |
+| The engine's answer arrives | `replaceState`: the same entry now holds the answer too |
+| Undo, new game | `pushState` |
+| Only the strength changes | `replaceState` |
+| The human swaps sides | a new game, so `pushState`; `replaceState` if no move was played yet |
+| The first state of a page | `replaceState`, no extra entry |
+| Engine-versus-engine demo (two engines play each other; the play screen button "Engine vs. engine") | nothing |
+
+Back loads the previous entry: it cancels a running search (the engine terminates its Web Worker and starts a new one, see [the engine interface](#the-engine-interface)) and loads that position without a dialog. Forward does the same in the other direction. The app marks its own entries in `history.state`. An address that the user typed or pasted has no marker, so it opens the "Continue this game?" dialog instead.
+
+Origin: a decision of the project owner. Rationale: with one entry per ply, Back would first show the position in which the engine is to move. The engine would answer at once, so Back would seem to do nothing or to fight the player. The player thinks in turns, and with one entry per turn Back means "take back my last move and the engine's answer". Limit: the rule assumes one human against one engine; the demo writes no entries at all.
+
+### Strict parsing
+
+The parser is strict. It requires:
+
+- the version prefix `g=v1.`
+- a payload whose length is a whole number of moves, with zero padding bits
+- only the base64url alphabet, in canonical form: no padding characters and no non-zero spare bits
+- every cell between 0 and 120
+- at most 200 moves
+- `h` 0 or 1, `l` a number of one or two digits between 0 and 4; the two fields may come in either order, and either may be missing
+- no unknown fields and no repeated fields
+
+Anything else is a broken link, which the app reports and never repairs. Rationale: a repaired link could show a game that nobody sent, and the canonical payload rule makes each game's move list have exactly one text. Limit: the optional fields are less strict; `l=01` is read as level 1.
+
+The parser does not check whether the moves are legal; the engine does. `legalMoves(history)` rejects an illegal history with the error code `illegal-history` ([worker protocol](#the-worker-protocol)). The app asks the engine as soon as the engine is ready, while the dialog is still open, and again when the player continues the game. A broken link or an illegal history shows a plain message with the choice "Start a new game". A bad link never crashes the app.
+
+### Start dialog
+
+A page without a game link asks "Do you want to begin?". "Yes" lets the human play side 0 and move first; "No" lets the engine begin. A page opened with a game link, or a link pasted into the address bar while a game runs, opens "Continue this game?". It shows the ply of the position and the side to move, and offers to continue as the side to move, to continue as the other side, or to start a new game. While a game runs, it also offers to keep the current game; Escape does the same. The engine loads in the background while the dialog is open.
+
+The dialog builds a `GameSetup { seats: [Seat, Seat] }` (`web/src/game/setup.ts`). A seat is `human`, `engine` or `network`. Today there are exactly two seats, and the UI offers only `human` and `engine`; more players and network players are planned.
+
+### Copy link
+
+The button calls `navigator.clipboard.writeText`, which browsers offer only in a secure context (HTTPS or `localhost`). If that call fails or is missing, the button shows a read-only text field with the address selected, for copying by hand. The button is disabled during the engine-versus-engine demo and while the dialog is open.
+
 ## The engines
 
 | Engine id | Language, compiler | Shipped files | Size raw (gzip) | Browser needs |
 |---|---|---|---|---|
-| `cpp-wasm` (default) | C++, Emscripten 6.0.9 | `engines/cpp/engine-cpp.js`, `engine-cpp.wasm` | 284,072 bytes (107,823) | WebAssembly; no threads, no `SharedArrayBuffer` |
-| `java-wasmgc` | Java, TeaVM 0.16.0, Wasm GC target | `engines/java/engine-java.wasm`, `engine-java.wasm-runtime.js` | 570,792 bytes (197,505) | Wasm GC and the final version of WebAssembly exception handling, which TeaVM's output uses: Chrome 137, Firefox 131, Safari 18.4 according to MDN |
+| `cpp-wasm` (fallback without Wasm GC) | C++, Emscripten 6.0.9 | `engines/cpp/engine-cpp.js`, `engine-cpp.wasm` | 284,072 bytes (107,823) | WebAssembly; no threads, no `SharedArrayBuffer` |
+| `java-wasmgc` (default) | Java, TeaVM 0.16.0, Wasm GC target | `engines/java/engine-java.wasm`, `engine-java.wasm-runtime.js` | 570,792 bytes (197,505) | Wasm GC and the final version of WebAssembly exception handling, which TeaVM's output uses: Chrome 137, Firefox 131, Safari 18.4 according to MDN |
 | `java-js` | Java, TeaVM 0.16.0, JavaScript target | `engines/java/engine-java.js` | 320,624 bytes (117,745) | any current browser |
 | `server:browser` | Java on the server | none | | online mode |
 | `server:best` | Java on the server, `BEST_SPEC` | none | | online mode, and the server has `rows1.bin` |
@@ -90,7 +162,7 @@ The sizes come from `web/public/engines/engines.json` of the build of 2026-11-18
 
 All three browser engines and `server:browser` play `BROWSER_SPEC` with the node budget appended (`BROWSER_SPEC,nodes=N`). The full player specification is fixed inside each engine, not in the UI, because a different transposition-table size changes the search and with it the moves.
 
-`web/src/engines/registry.ts` checks for Wasm GC with `WebAssembly.validate` on a 13-byte module that declares one struct type. If the check fails, the engine picker shows `java-wasmgc` as unavailable and `java-js` stays selectable.
+`web/src/engines/registry.ts` checks for Wasm GC with `WebAssembly.validate` on a 13-byte module that declares one struct type. If the check fails, the engine picker shows `java-wasmgc` as unavailable and the session starts with `cpp-wasm`; `java-js` stays selectable. The session starts with the first available engine in the order `java-wasmgc`, `cpp-wasm`, `java-js` ([ADR 0003](adr/0003-teavm-default-engine.md)).
 
 No network player runs in the browser: the C++ port has no Monte Carlo tree search, and the TeaVM build of it was never run.
 
@@ -270,7 +342,7 @@ CI runs neither the native C++ tests (the Linux devenv shell has no host C++ com
 
 ## Known limits
 
-- **Safari and Wasm GC.** MDN lists Safari 18.4 for the Wasm GC features TeaVM uses; caniuse lists no Safari version. Nobody has tested a real Safari. The registry falls back to `java-js` when the feature check fails.
+- **Safari and Wasm GC.** MDN lists Safari 18.4 for the Wasm GC features TeaVM uses; caniuse lists no Safari version. Nobody has tested a real Safari. When the feature check fails, the session starts with `cpp-wasm` instead.
 - **No benchmark in the browser.** As of 2026-11-18, the benchmark screen of the app is not connected to the benchmark code and shows that the benchmark is not part of the build. The separate benchmark page `web/bench/index.html` is not part of the Vite build, and under the Vite development server it fails to load the C++ engine. The benchmark in Node.js (`devenv tasks run web:bench`) works. Details in [web benchmark](web-benchmark.md#what-the-benchmark-does-not-measure).
 - **Node for the Hilla build.** The Vaadin Gradle plugin downloads its own Node.js (24.22.2) into `~/.vaadin` for the production front-end build. No plugin option to use the Node.js of devenv was found.
 - **TornadoVM in the online mode** was run once, on 2026-11-18 on an Apple M3 Max: the server selected the Metal device and `server:net` answered a move with a small test weights file. Its playing strength in the online mode was not measured.

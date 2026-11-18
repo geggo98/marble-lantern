@@ -7,8 +7,18 @@ export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js';
 
 export const LANGUAGE_KEY = 'ml.language';
 
-/** Opens the page in the given language (the UI reads the stored choice before the browser language). */
-export async function openApp(page: Page, language: 'en' | 'de' = 'en', hash = ''): Promise<void> {
+/**
+ * Opens the page in the given language (the UI reads the stored choice before the browser language).
+ * A page without a game link asks "Do you want to begin?" first; `begin` answers it: 'human' (the default) lets the
+ * human move first, 'engine' lets the engine begin, 'ask' leaves the dialog open. Routes (#/bench, #/about) and game
+ * links have no such question, so nothing is answered for them.
+ */
+export async function openApp(
+  page: Page,
+  language: 'en' | 'de' = 'en',
+  hash = '',
+  begin: 'human' | 'engine' | 'ask' = 'human',
+): Promise<void> {
   await page.addInitScript(
     ([key, value]) => {
       try {
@@ -20,6 +30,17 @@ export async function openApp(page: Page, language: 'en' | 'de' = 'en', hash = '
     [LANGUAGE_KEY, language],
   );
   await page.goto(hash);
+  if (begin !== 'ask' && !hash.startsWith('#/') && !hash.startsWith('#g=')) {
+    await page.locator(`[data-choice="begin-${begin === 'human' ? 'yes' : 'no'}"]`).click();
+  }
+}
+
+/** True if this browser runs WebAssembly with GC (the same probe as the app's). */
+export async function hasWasmGc(page: Page): Promise<boolean> {
+  return await page.evaluate(() => {
+    const probe = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x03, 0x01, 0x5f, 0x00]);
+    return WebAssembly.validate(probe);
+  });
 }
 
 /** Collects uncaught page errors; call `.expectNone()` at the end of a test. */

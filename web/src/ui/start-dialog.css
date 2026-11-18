@@ -1,0 +1,14 @@
+/* The start dialog reuses the overlay and sheet of the engine sheet; only the stacked buttons are new. */
+.ml-start { display: grid; gap: var(--ml-space-3); align-content: start; }
+.ml-start__actions { display: grid; gap: var(--ml-space-2); }
+.ml-start__actions .ml-btn { width: 100%; justify-content: center; }
+.ml-copylink { display: grid; gap: var(--ml-space-2); }
+.ml-copylink__field { display: grid; gap: var(--ml-space-1); font-size: var(--ml-text-sm); }
+.ml-copylink__field input {
+  width: 100%; min-width: 0; padding: var(--ml-space-2); border: 1px solid var(--ml-color-line-strong);
+  border-radius: var(--ml-radius-md); background: var(--ml-color-surface, transparent); color: var(--ml-color-ink);
+  font: inherit; font-family: var(--ml-font-mono, monospace);
+}
+@media (forced-colors: active) {
+  .ml-copylink__field input { border-color: CanvasText; }
+}
