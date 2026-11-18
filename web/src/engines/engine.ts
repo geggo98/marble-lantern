@@ -61,6 +61,8 @@ export interface BenchResult {
   /** Wall time of each choose call in ms. */
   ms: number[];
   rows1Requests: number;
+  /** Memory sizes the adapter can read cheaply: Wasm linear memory (C++) and the JS heap (Chrome). Null where unavailable. */
+  memory?: { wasmBytes: number | null; jsHeapBytes: number | null };
 }
 
 export interface Engine {

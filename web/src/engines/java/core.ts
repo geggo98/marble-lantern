@@ -4,6 +4,7 @@
 // The facade exports string-only methods that never throw (see Web.java): the reply is "ok <fields>" or
 // "error <code> <message>". The move history is the game state and crosses the boundary as "1,2,3".
 import type { BenchResult, ChooseResult, GameSetup } from '../engine';
+import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
 
@@ -96,6 +97,7 @@ export class JavaCore {
     const f = fields(this.m.bench(plies, nodes));
     const result: BenchResult = { moves: numbers(f[0]), nodes: numbers(f[1]), ms: numbers(f[2]), rows1Requests: Number(f[3]) };
     if (result.rows1Requests > 0) throw new EngineFailure('rows1-requested', `${result.rows1Requests} request(s) for rows1.bin (ADR 0001)`);
+    result.memory = sampleMemory(null); // no linear memory to read: the JS target uses the JS heap, Wasm GC its own GC heap
     return result;
   }
 

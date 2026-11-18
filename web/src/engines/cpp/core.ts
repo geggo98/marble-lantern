@@ -4,6 +4,7 @@
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
 import type { BenchResult, ChooseResult, GameSetup } from '../engine';
+import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
 
@@ -149,6 +150,7 @@ export class CppCore {
       result.ms.push(r.ms);
       result.rows1Requests = r.rows1Requests;
     }
+    result.memory = sampleMemory(this.m.HEAPU8.byteLength); // read after the game: the heap may have grown
     return result;
   }
 
