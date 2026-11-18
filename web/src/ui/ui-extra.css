@@ -1,0 +1,23 @@
+/* Additions to the component styles of design/mockup.html: what the mock draws with its own frame.
+   The overlay of the engine sheet, the hit circles of the cells, the logo image in the header. */
+.ml-brand__mark { object-fit: contain; }
+.ml-hit circle { cursor: pointer; pointer-events: all; }
+.ml-hit circle[aria-disabled="true"] { cursor: default; }
+.ml-overlay {
+  position: fixed; inset: 0; z-index: 20; display: grid; align-items: end; justify-items: center;
+  background: var(--ml-color-scrim);
+  animation: ml-fade var(--ml-dur-base) var(--ml-ease);
+}
+.ml-overlay .ml-sheet {
+  width: 100%; max-height: 92dvh; overflow-y: auto;
+  animation: ml-rise var(--ml-dur-base) var(--ml-ease);
+  font: var(--ml-weight-regular) var(--ml-text-md)/var(--ml-leading-body) var(--ml-font-ui);
+  color: var(--ml-color-ink);
+}
+@media (min-width: 40rem) {
+  .ml-overlay { align-items: center; padding: var(--ml-space-4); }
+  .ml-overlay .ml-sheet { max-width: 35rem; border-radius: var(--ml-radius-lg); padding: var(--ml-space-5); animation: ml-fade var(--ml-dur-base) var(--ml-ease); }
+  .ml-overlay .ml-sheet__grip { display: none; }
+}
+@keyframes ml-fade { from { opacity: 0; } }
+@keyframes ml-rise { from { transform: translateY(100%); } }
