@@ -1,16 +1,16 @@
 # Architecture
 
-**TL;DR:** The project is an AlphaZero-style AI for Chinese Checkers (German: Stern-Halma), written entirely in Java 25.
-Its main purpose is to show TornadoVM: batched network inference for self-play and network training run as TornadoVM kernels on the GPU, and so do the BFS layers of an optional small endgame database.
+**TL;DR:** Marble Lantern is an AlphaZero-style AI for Chinese Checkers (German: Sternhalma), written in Java 25.
+Its main purpose is to show Java on the GPU with TornadoVM and in the browser with TeaVM: batched network inference for self-play and network training run as TornadoVM kernels on the GPU, and the classical player runs in the browser as TeaVM output.
 Everything else (rules engine, opening book, user interface) stays deliberately simple.
-The code is split into eight Gradle modules; a CPU reference implementation checks every GPU kernel.
-Implementation starts with the rules engine and a two-player alpha-beta baseline, before any network code (*project decision*, see [implementation order](#implementation-order)).
+The Java code is split into Gradle modules; a CPU reference implementation checks every GPU kernel.
+Outside Java, a C++ port of the engine (`cpp/`) serves as a performance comparison and as the default browser engine, and the browser UI is TypeScript and React (`web/`).
+Implementation started with the rules engine and a two-player alpha-beta baseline, before any network code (*project decision*, see [implementation order](#implementation-order)).
 
-> **Status.** This document describes the approved plan.
-> The development environment, the TornadoVM installation and the Gradle build exist.
-> The modules `engine` and `search` (alpha-beta baseline) are implemented and tested.
-> The module `tablebase` exists with its CPU part: the rows ≥ 2 race table and the race module's interface (round-2 experiment E03, see [endgame and opening](endgame-and-opening.md#the-race-module)) and the optional rows ≥ 1 table built on demand (E09); its GPU part does not exist yet.
-> The other modules described below do not exist yet.
+> **Status.** This document describes the approved plan and marks what exists.
+> The modules `engine`, `search`, `nn`, `nn-tornado`, `tablebase`, `selfplay`, `teavm-web` and `app` exist; `book` and `bench` do not.
+> The module `tablebase` has its CPU part only: the rows ≥ 2 race table and the race module's interface (round-2 experiment E03, see [endgame and opening](endgame-and-opening.md#the-race-module)) and the optional rows ≥ 1 table (E09).
+> The [status table](#status) lists each part.
 
 How to read the claims in this document:
 
@@ -19,6 +19,20 @@ How to read the claims in this document:
 | *Established* | Supported by a cited source, for example [Sturtevant2023]. See [references](references.md). |
 | *Reported* | Relayed from the project owner's literature survey. Not re-verified. |
 | *Project decision* | A choice made for this project. It can change. |
+| *Project reasoning* | A conclusion the project derives itself, without a source. |
+| *Proposed* | An idea that is neither decided nor scheduled. |
+
+## Terms
+
+- **Approved plan:** the owner's implementation plan from before the repository existed. It is not stored in the repository; this document records the parts that matter.
+- **Race table:** for every configuration of one side's ten pieces inside a region of the board, the exact number of moves to fill the goal corner when no other pieces are on the board. "Rows ≥ 2" and "rows ≥ 1" name the region: the rows from row 2 or row 1 (counted from the centre line towards the goal) to the goal corner. The files are `rows2.bin` (13 MB) and `rows1.bin` (254 MB); see [endgame and opening](endgame-and-opening.md#the-race-module).
+- **Race play, race arithmetic:** in a position where the two sides no longer touch, choosing the move by the race table without search (race play), or adding race-table counts to the evaluation at the leaves of the search (race arithmetic).
+- **S1:** the adjudication criterion that ends a self-play game early once the race table proves its result ([endgame and opening, the criterion S1](endgame-and-opening.md#the-criterion-s1-adjudication)).
+- **Round 1, round 2, experiments E00 to E09:** the project improved the classical player in rounds of numbered experiments. The experiments of round 2 are defined in [baseline round 2 plan](baseline-round2-plan.md); "round-1 BEST" is the strongest player before round 2.
+- **Blocks 2a to 2h:** the work steps of the network training; [training](training.md) has one "As implemented" section per block.
+- **`BEST_SPEC`, `BROWSER_SPEC`:** player specifications in `search/src/main/java/sternhalma/search/Strategies.java`. `BEST_SPEC` is the strongest classical alpha-beta player and reads `rows1.bin`; `BROWSER_SPEC` is the same player reading only `rows2.bin`, for the browser ([ADR 0001](adr/0001-browser-mode-without-rows1.md)).
+- **Evaluator names** such as `racelin1-r3` and `linear-r3`: registry names of leaf evaluations, listed in [search and evaluation](search-and-evaluation.md). `bestGain` is one feature of the linear evaluation: the largest one-move distance gain of a side (experiment E07).
+- **Fingerprint:** a checksum over the moves (and node counts or scores) of fixed positions or games, pinned in a test, so that any change of the search shows as a changed number.
 
 ## Goals and non-goals
 
@@ -34,9 +48,9 @@ Non-goals (*project decision*):
 - Strongly solving any variant, and building large tablebases. The project trains a neural network instead; the development machine has too little RAM for strong solving. The project uses [Sturtevant2019] only to verify its rules and, optionally later, as a test oracle.
   For context: the largest variant that [Sturtevant2019, §5] strongly solves is the 6 × 6 board with 6 pieces per player; the paper had not yet validated it with a second solver, and the author's publications page later reports that a different solver verified it [SturtevantPubs]. The paper calls 7 × 7 with 6 pieces "the largest game that can likely be strongly solved on hardware that we have readily accessible" (*established*). The full 121-cell board with 10 pieces per player is larger still.
   The paper gives 1.73 × 10^24 states for one common board size [Sturtevant2019, §1].
-- A polished user interface. The web app is optional.
+- A polished user interface. The [web UI](web-ui.md) is a demo surface for the engines.
 - A general-purpose deep-learning framework. The network uses a small set of standard operations, and the project implements only those.
-- Languages other than Java on the critical path.
+- Languages other than Java on the critical path. The C++ port and the TypeScript UI are not on it: the AI, its training and the TornadoVM kernels are Java.
 
 ## Module map
 
@@ -44,27 +58,35 @@ Non-goals (*project decision*):
 graph TD
     engine["engine<br/>board, rules, moves"]
     nn["nn<br/>network: CPU reference + TornadoVM"]
-    search["search<br/>alpha-beta baseline, MCTS (PUCT)"]
+    search["search<br/>alpha-beta baseline, MCTS"]
     selfplay["selfplay<br/>self-play, training"]
     book["book<br/>opening book"]
     tablebase["tablebase<br/>endgame database"]
     bench["bench<br/>JMH benchmarks"]
-    app["app (optional)<br/>Spring Boot + Vaadin"]
+    nntornado["nn-tornado<br/>TornadoVM network"]
+    teavm["teavm-web<br/>browser facade for TeaVM"]
+    app["app<br/>Hilla web app, server engines"]
 
     nn --> engine
+    nntornado --> nn
     search --> engine
     search --> nn
     search --> tablebase
     selfplay --> search
     selfplay --> nn
+    selfplay --> nntornado
     selfplay --> tablebase
     book --> engine
     tablebase --> engine
     bench --> nn
+    teavm --> search
+    teavm --> tablebase
     app --> search
-    app --> book
     app --> tablebase
+    app --> nntornado
 ```
+
+`book` and `bench` do not exist yet.
 
 An arrow points from a module to a module it depends on.
 The dependency edges are a *project decision* and can change during implementation.
@@ -73,17 +95,20 @@ The alpha-beta baseline in `search` uses `engine` and, for the race module of ro
 | Module | Responsibility | Depends on |
 |---|---|---|
 | `engine` | Board geometry, rule set, move generation, Zobrist hashing, symmetries. Plain Java. Every rule-dependent method takes an immutable `RuleSet` record (see [rules](rules.md)). A small-board mode is proposed (see [below](#ruleset-and-small-board-mode)). | nothing |
-| `nn` | Network definition, CPU reference with `jdk.incubator.vector`, TornadoVM kernels for forward and backward pass, safetensors reader and writer. | `engine` (neighbour table), TornadoVM |
+| `nn` | Network definition, CPU reference with `jdk.incubator.vector`, safetensors reader and writer. | `engine` (neighbour table) |
+| `nn-tornado` | TornadoVM kernels for the forward and backward pass (`TornadoNetwork`); see [TornadoVM](tornado.md). Its tests need the SDK and are skipped without it. | `nn`, TornadoVM |
 | `search` | First: alpha-beta for two players with iterative deepening, transposition table and the single-agent distance heuristic. The race module (`Solitaire`, `RaceMove`, `RaceAdjudication`, see [endgame and opening](endgame-and-opening.md#the-race-module)). Monte Carlo tree search with PUCT, virtual loss and leaf batching for two players (`Mcts`, `MctsPlayer`, `MctsSpec`; exists since block 2g). Simulation and time budgets. Strength levels. | `engine`; `tablebase` (interface `RaceCounts`, `RaceTable`) for the race module; `nn` for MCTS only (`api`, because `Mcts` takes a `ForwardPass`) |
-| `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. Exists (round 2, E05): the classical self-play data tool with layered adjudication, control games, opening sampler and sample files ([training](training.md#self-play-data-tool-round-2-e05)). | `search`; `tablebase` (race table for S1); `nn` (`Orientation` for canonical cells) |
+| `selfplay` | Batched self-play runner, training-data format, trainer command-line tool, gating matches. Exists (round 2, E05): the classical self-play data tool with layered adjudication, control games, opening sampler and sample files ([training](training.md#self-play-data-tool-round-2-e05)). | `search`; `tablebase` (race table for S1); `nn` (`Orientation` for canonical cells); `nn-tornado` (training on the GPU) |
 | `book` | Opening book built from self-play games. | `engine`, self-play data |
 | `tablebase` | Single-player endgame database. Exists (CPU): ranking, layered retrograde BFS generic in the region, the table file format, the rows ≥ 2 race table (`RaceTable`, Git LFS) and the optional rows ≥ 1 table (254 M states, built on demand into `tablebase/build/tables/`, never committed, checked against a checksum constant; E09) with `TableValidation`. Planned: BFS layers as a TornadoVM kernel for larger regions. | `engine`; TornadoVM later |
 | `bench` | JMH benchmarks: evaluations per second per backend and batch size. | `nn` |
-| `app` | Optional web app: play against the AI, get move suggestions. | `search`, `book`, `tablebase` |
+| `teavm-web` | The facade `sternhalma.web.Web` that TeaVM compiles to the browser engines `java-wasmgc` and `java-js`; `BenchReference`, the JVM reference of the [web benchmark](web-benchmark.md). | `engine`, `search`, `tablebase` |
+| `app` | The online mode of the [web UI](web-ui.md): a Vaadin Hilla app that serves the browser UI and runs the server engines (`BROWSER_SPEC`, `BEST_SPEC`, the network player). Planned: move suggestions. | `engine`, `search`, `tablebase`, `nn`, `nn-tornado` (run time only) |
 
-The build will use the Gradle Kotlin DSL.
-A convention plugin in `build-logic/` will hold the shared Gradle settings, and `gradle/libs.versions.toml` will hold the dependency versions.
-Neither file exists yet.
+Two parts are not Gradle modules: `cpp/` is the C++ port of the engine, search and network ([C++ comparison](cpp-comparison.md)), which also builds the browser engine `cpp-wasm`; `web/` is the React UI of the [web UI](web-ui.md).
+
+The build uses the Gradle Kotlin DSL.
+The convention plugin in `build-logic/` holds the shared Gradle settings, and `gradle/libs.versions.toml` holds the dependency versions.
 
 ## Implementation order
 
@@ -95,12 +120,12 @@ The modules are built in this order (*project decision*):
 4. `nn` CPU reference with the safetensors reader and writer.
 5. TornadoVM kernels and the `bench` benchmark.
 6. MCTS with the network in `search`.
-7. Self-play and training, then `tablebase`, `book`, the APIs, the optional `app` and the cloud runs.
+7. Self-play and training, then `tablebase`, `book`, the Advisor API (move suggestions) and the Opponent API (strength levels), the optional `app` and the cloud runs.
 
 Steps 1 and 3 are additions to the approved implementation plan.
 The plan puts all of `search` after `nn` and the kernels; the owner requested the alpha-beta baseline as an earlier step, before the network (2026-11-07).
 MCTS keeps its place from the plan.
-The [roadmap in the README](../README.md#roadmap) lists the same order as numbered milestones.
+The [roadmap](#roadmap) lists the same order as numbered milestones.
 
 ## RuleSet and small-board mode
 
@@ -204,7 +229,7 @@ The script `scripts/setup-tornado.sh` installs the pinned release instead.
 
 ### Install TornadoVM
 
-The installation steps are in the [quick start](../README.md#quick-start).
+The installation steps are in [getting started](#getting-started).
 The task `setup:tornado` works as follows:
 
 - The script downloads the archive into a temporary directory in `tornado-sdk/` and compares its SHA-256 with the pinned value.
@@ -250,7 +275,7 @@ flowchart TD
 - **Parallel games.** Many games run at the same time on virtual threads.
   This keeps the GPU batches full.
 - **Gating.** A new network replaces the old one only if it wins more than half of a match against it.
-- **Implementation.** `Loop` in module `selfplay` (`scripts/loop.sh`) runs the loop on the CPU: self-play with PUCT MCTS, training of a candidate, the gate (with a non-regression clause against `BEST_SPEC`) and a strength record per generation, resumable and abortable at any point ([training](training.md#as-implemented-block-2h)).
+- **Implementation.** `Loop` in module `selfplay` (`scripts/loop.sh`) runs the loop on the CPU: self-play with MCTS using the PUCT selection rule, training of a candidate, the gate (with a non-regression clause against `BEST_SPEC`) and a strength record per generation, resumable and abortable at any point ([training](training.md#as-implemented-block-2h)).
 - **Downstream products.** The opening book comes from the games of late generations.
   The endgame database replaces the value head in the race endgame, where no contact between the armies remains.
   See [endgame and opening](endgame-and-opening.md).
@@ -283,15 +308,16 @@ Every such job follows the same conventions (*project decision*):
 Cloud credentials and account details live only in the gitignored `.env` file.
 The repository contains only `.env.example` with placeholders.
 
-## Optional web app
+## Web UI
 
-The `app` module is optional and comes last (*project decision*):
+The web UI exists; [web UI](web-ui.md) describes it. In short:
 
-- Spring Boot with Vaadin Flow.
-- The board is an SVG component. You play against the AI and choose its level with a slider.
-- A "suggest move" button calls the `Advisor` API. It returns the top-k moves, each with visit share, value and principal variation.
-- A live evaluation bar per player. Before you commit a move, the app shows how the move changes your value.
-- The engine runs in the same process. TornadoVM is optional; without it, the app uses the CPU reference.
+- One React code base in `web/src/`, built twice: as a static offline site (GitHub Pages) and as the online mode in the Gradle module `app` (Spring Boot with Vaadin Hilla).
+- Offline, the engine runs in the browser: the C++ port compiled to WebAssembly (default) or the Java engine compiled by TeaVM ([ADR 0002](adr/0002-browser-engines.md)). It plays `BROWSER_SPEC`, which needs only the small race table ([ADR 0001](adr/0001-browser-mode-without-rows1.md)).
+- Online, the server adds `BEST_SPEC` and the network player. The network player can evaluate on the GPU with TornadoVM; without it, it uses the CPU path.
+- The board is SVG. The player picks the engine and the strength (a node budget per move).
+
+Planned and not built: a "suggest move" button backed by an `Advisor` API (top-k moves with visit share, value and principal variation), and a live evaluation bar per player.
 
 ## Key decisions
 
@@ -301,6 +327,7 @@ All entries are *project decisions*; a citation inside an entry supports only th
 1. **Java only.**
    Reason: the project is a TornadoVM showcase, and TornadoVM runs Java.
    Rejected: Rust compiled to WASM, and JAX for training. Only language-neutral ideas were kept: standard network operations, safetensors weights, a neutral self-play data format, leaf batching, train large and distil.
+   Later additions outside the critical path: a C++ port of the engine for a performance comparison ([C++ comparison](cpp-comparison.md)), which is also the default browser engine ([ADR 0002](adr/0002-browser-engines.md)), and the TypeScript browser UI.
 2. **One MCTS engine with a neural network for two and three players.**
    Reason: one search covers both player counts, and alpha-beta works for two players only (*reported*, see [search and evaluation](search-and-evaluation.md)).
    Rejected as the main engine: alpha-beta for two players plus Max^n, Paranoid or Best Reply Search for three players [Sturtevant2003], [SchaddWinands2011].
@@ -339,3 +366,66 @@ All entries are *project decisions*; a citation inside an entry supports only th
 11. **Pinned TornadoVM release installed by a script.**
     Reason: TornadoVM is not in nixpkgs; a pinned version with a SHA-256 check is reproducible.
     Rejected: an unpinned "latest" download.
+
+## Getting started
+
+Prerequisites: [devenv](https://devenv.sh), [Git LFS](https://git-lfs.com), and an Apple Silicon Mac or a Linux amd64 machine.
+The commands for the web UI are in [web UI, build, run and test](web-ui.md#build-run-and-test).
+
+1. Copy the example settings. Do not commit `.env`.
+   ```sh
+   cp .env.example .env
+   ```
+2. Check `TORNADO_BACKEND` in `.env`. The example sets `metal`. On Linux, set `cuda` (`ptx` is accepted as an alias) or `opencl`, because the Linux archives have no Metal backend. Without the variable, the setup script uses `metal` on macOS and `cuda` on Linux.
+3. Download and verify the TornadoVM SDK once. A second run skips a verified install.
+   ```sh
+   devenv tasks run setup:tornado
+   ```
+4. Start the shell and check that TornadoVM finds a device.
+   ```sh
+   devenv shell
+   tornado --devices
+   ```
+
+Build and test with the Gradle wrapper. Use `--no-build-cache` while the build changes:
+```sh
+devenv shell -- ./gradlew --no-build-cache build
+```
+The tasks `devenv tasks run agent:build` and `devenv tasks run agent:test` do the same. Without the TornadoVM SDK the build still passes; the TornadoVM tests are skipped.
+
+## Status
+
+| Part | State |
+|---|---|
+| devenv environment (JDK 25, Gradle, `.env`), TornadoVM 7.3.1 SDK download with SHA-256 check | done |
+| Rules document, decisions of 2026-11-07 | done |
+| Gradle build (wrapper 9.8.2, dependency verification), `engine` module | done |
+| `search` module: alpha-beta baseline, learned linear evaluation, search enhancements, arena (the match tool that plays paired games between two players, see [search and evaluation](search-and-evaluation.md#arena-cpu-column-cost-adjustment-sprt)), strategy contract tests (properties every registered player must pass, see [testing](testing.md#the-strategy-contract)), MCTS | done; round 2 integrated on 2026-11-08: `Strategies.BEST_SPEC` is `racelin1-r3` (race arithmetic over the bestGain evaluation) with futility pruning and race play, and scores 0.95 against the round-1 BEST at equal CPU time ([integration](search-and-evaluation.md#integration-of-round-2-measured-2026-11-08)) |
+| `nn` module: network design, safetensors, encoder, CPU reference, Vector API path | done |
+| `nn-tornado` module: forward pass, and for training the forward pass, losses, backward pass of the heads and optimiser on the device | done ([TornadoVM](tornado.md)) |
+| `selfplay` module: classical self-play data tool (adjudication, control games, sample files; `scripts/selfplay.sh`) | done for classical engines (round 2, E05); generation-0 training (`scripts/gen0.sh`), PUCT self-play and the CPU training loop with gating and a strength record (`scripts/loop.sh`, block 2h) done |
+| `tablebase` module: rows ≥ 2 and rows ≥ 1 race tables (Git LFS; `rows1.bin` as `rows1.bin.zst`), race play, S1 adjudication, race arithmetic as a leaf value | done (round 2, E03, E08, E09); GPU build not started |
+| C++ port and comparison | done ([C++ comparison](cpp-comparison.md)) |
+| Web UI: offline mode with three browser engines, online mode in `app`, benchmark, browser tests, CI and GitHub Pages workflows | done ([web UI](web-ui.md)) |
+| `book`, `bench` | not started |
+
+On the development Mac, `tornado --devices` lists one Metal device.
+
+## Roadmap
+
+Each milestone got or gets one commit. Milestones 3 and 5 are additions to the implementation plan; milestone 5 follows the owner decision of 2026-11-07 to build alpha-beta before the network. The [status table](#status) shows how far each one is.
+
+1. Git repository and `.gitignore`.
+2. devenv environment and TornadoVM setup.
+3. Rules in [rules](rules.md).
+4. Gradle scaffold and `engine` with tests: move counts computed by our generator, symmetry tests, property tests.
+5. Alpha-beta baseline for two players in `search`, with the single-agent distance heuristic.
+6. `nn` CPU reference and safetensors reader and writer.
+7. TornadoVM kernels and the `bench` benchmark.
+8. `search`: MCTS with PUCT and leaf batching.
+9. Local self-play and training loop with gating against the previous network.
+10. Optional experiment, `tablebase`: single-player retrograde BFS for the last 4 to 5 pieces, BFS layers as a TornadoVM kernel.
+11. `book`: opening book from late self-play generations.
+12. Advisor API (move suggestions) and Opponent API (strength levels).
+13. `app`: the web UI, built with Vaadin Hilla and React instead of the originally planned Vaadin Flow ([web UI](web-ui.md)).
+14. Self-play in the cloud on NVIDIA GPUs (CUDA backend; [cloud](cloud.md)).
