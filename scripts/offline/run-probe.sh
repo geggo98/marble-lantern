@@ -21,6 +21,8 @@
 # resumable: starting the script again with the same options continues where it stopped. Progress: DIR/<source>.log.
 # Estimate: the smoke rate includes the table load, so the estimate is on the high side for long runs; a net or random
 # source with few passed positions can be much faster per game than best.
+# A restart does not repeat the smoke run when shards of the real run exist. The runner prints one "status SOURCE exit=N" line
+# per source (also at the end of DIR/<source>.log) and exits with the worst code.
 set -eu
 root=${0:A:h:h:h}
 cd "$root"
@@ -92,8 +94,14 @@ fi
 ./gradlew --no-build-cache -q :selfplay:classes
 mkdir -p "$out"
 
-# 1. smoke run: prices the real run
-if (( smoke > 0 )); then
+# 1. smoke run: prices the real run; not repeated when a real run left shards (a restart continues it, the price is known)
+have_shards=0
+for s in $list; do
+  [[ -n $(print -l $out/$s/*.rlog.gz(N[1])) ]] && have_shards=1
+done
+if (( smoke > 0 && have_shards )); then
+  echo "smoke skipped: shards of the real run exist in $out; this start continues it"
+elif (( smoke > 0 )); then
   echo "smoke run: $smoke games per source, $threads threads"
   total=0
   for s in $list; do
@@ -116,16 +124,24 @@ fi
 
 # 2. the real run, sources one after the other, resumable
 runner=$out/run-all.zsh
+# written under a temporary name and renamed: a detached runner of an earlier start may be reading the old file right now
 {
   echo '#!/bin/zsh'
+  echo 'set -e'
   echo 'cd '${(q)root}
+  echo 'worst=0'
   for s in $list; do
     source_args $s 2>/dev/null || continue
     echo "echo \"== $s \$(date)\" >> ${(q)out}/$s.log"
-    echo "${(j: :)${(q)jv[@]}} sternhalma.selfplay.RankProbe run --out ${(q)out}/$s --source $s --games $games --seed $seed --threads $threads --shard 10 --progress 30 ${(j: :)${(q)reply[@]}} 2>> ${(q)out}/$s.log"
+    echo "rc=0"
+    echo "${(j: :)${(q)jv[@]}} sternhalma.selfplay.RankProbe run --out ${(q)out}/$s --source $s --games $games --seed $seed --threads $threads --shard 10 --progress 30 ${(j: :)${(q)reply[@]}} 2>> ${(q)out}/$s.log || rc=\$?"
+    echo "line=\"status $s exit=\$rc \$(date)\"; echo \"\$line\" >> ${(q)out}/$s.log; echo \"\$line\""
+    echo "if (( rc > worst )); then worst=\$rc; fi"
   done
-} > "$runner"
-chmod +x "$runner"
+  echo 'exit $worst'
+} > "$runner.tmp.$$"
+chmod +x "$runner.tmp.$$"
+mv "$runner.tmp.$$" "$runner"
 if (( detach )); then
   python3 - "$runner" "$out/run-all.log" <<'PY'
 import os, sys
