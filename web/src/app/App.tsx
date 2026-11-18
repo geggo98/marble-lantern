@@ -271,6 +271,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   const model: PlayModel = {
     game,
     session,
+    analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal),
     humanSide,
     demo,
     level,

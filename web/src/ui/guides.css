@@ -1,0 +1,51 @@
+/* Move guides: board marks, settings, legend, advantage bar. Colours come from the --ml-guide-* tokens (tokens.css).
+   Colour is never the only carrier: every band has its own glyph and ring style (guides/marks.ts). No animation. */
+.ml-guide--much-better { --g: var(--ml-guide-much-better); }
+.ml-guide--better { --g: var(--ml-guide-better); }
+.ml-guide--equal { --g: var(--ml-guide-equal); }
+.ml-guide--worse { --g: var(--ml-guide-worse); }
+.ml-guide--much-worse { --g: var(--ml-guide-much-worse); }
+
+.ml-guides, .ml-targets .ml-guide { pointer-events: none; }
+.ml-guide__ring { fill: none; stroke: var(--g); }
+/* the glyph carries a halo in the socket colour, so that it keeps its 3:1 whatever lies behind it */
+.ml-guide__glyph { fill: var(--g); stroke: var(--ml-board-socket); stroke-width: 0.9; paint-order: stroke; }
+.ml-guide__badge { fill: var(--ml-board-socket); stroke: var(--g); stroke-width: 1.4; }
+.ml-guide__socket { fill: var(--ml-board-socket); }
+
+/* settings card */
+.ml-guides-card { display: grid; gap: var(--ml-space-2); }
+.ml-guides-card__toggle { display: flex; align-items: center; gap: var(--ml-space-3); min-height: var(--ml-size-control); cursor: pointer; font-weight: var(--ml-weight-medium); }
+.ml-guides-card__toggle input { inline-size: 1.4rem; block-size: 1.4rem; accent-color: var(--ml-color-primary); flex: none; }
+.ml-guides-card__toggle input:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-guides-card__hint, .ml-guides-card__status { margin: 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-guides-card__legend summary { cursor: pointer; min-height: var(--ml-size-control); display: flex; align-items: center; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
+.ml-guides-card__legend summary:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-guide-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ml-space-2); font-size: var(--ml-text-sm); }
+.ml-guide-legend li { display: grid; grid-template-columns: 2rem 1fr; align-items: center; gap: var(--ml-space-2); }
+.ml-guide-legend__glyph { inline-size: 2rem; block-size: 2rem; }
+.ml-guide-legend__piece { color: var(--ml-color-ink-muted); }
+.ml-guides-card__note { margin: var(--ml-space-2) 0 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+
+/* advantage bar */
+.ml-advantage { display: grid; gap: var(--ml-space-1); margin-block: var(--ml-space-2); }
+.ml-advantage__text { margin: 0; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
+.ml-advantage__text span { color: var(--ml-color-ink-muted); font-weight: var(--ml-weight-regular); }
+.ml-advantage__track {
+  position: relative; block-size: 0.75rem; border-radius: var(--ml-radius-pill);
+  background: var(--ml-color-surface-sunken); border: var(--ml-border) solid var(--ml-color-line-strong); overflow: hidden;
+}
+.ml-advantage__fill { position: absolute; inset-block: 0; }
+.ml-advantage__fill--you { background: var(--ml-guide-better); }
+.ml-advantage__fill--engine { background: var(--ml-guide-worse); }
+.ml-advantage__centre { position: absolute; inset-block: 0; inset-inline-start: 50%; inline-size: 2px; background: var(--ml-color-ink); transform: translateX(-1px); }
+.ml-advantage__ends { display: flex; justify-content: space-between; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-advantage.is-stale .ml-advantage__fill { opacity: 0.55; }
+
+@media (forced-colors: active) {
+  .ml-guide__glyph { fill: CanvasText; stroke: Canvas; }
+  .ml-guide__badge, .ml-guide__socket { fill: Canvas; }
+  .ml-guide__ring, .ml-guide__badge { stroke: CanvasText; }
+  .ml-advantage__fill { background: Highlight; forced-color-adjust: none; }
+  .ml-advantage__fill--engine { background: GrayText; }
+}

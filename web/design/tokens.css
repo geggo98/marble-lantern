@@ -41,6 +41,15 @@
   --ml-board-select: #1f1b16;        /* ring around the selected piece */
   --ml-board-target: #1f1b16;        /* reachable-cell marker */
 
+  /* ---------- colour: move guides (diverging blue to orange, safe for red-green colour blindness) ----------
+     Five discrete bands. Each is a mark colour that reaches 3:1 against the socket, the plate and its glow; the guide
+     marks (shape and ring style) carry the band as well, colour is never the only carrier. Checked by guides/tokens.test.ts. */
+  --ml-guide-much-better: #0a3d91;
+  --ml-guide-better: #2563c9;
+  --ml-guide-equal: #4a4339;
+  --ml-guide-worse: #b4470d;
+  --ml-guide-much-worse: #8f2a00;
+
   /* ---------- colour: side A (plain marble, amber) ---------- */
   --ml-piece-a: #e39a0b;
   --ml-piece-a-hi: #ffd476;
@@ -142,6 +151,12 @@
     --ml-board-select: #f2ebdf;
     --ml-board-target: #f2ebdf;
 
+    --ml-guide-much-better: #8ec1ff;
+    --ml-guide-better: #5aa0f5;
+    --ml-guide-equal: #d8d0c2;
+    --ml-guide-worse: #ffa05c;
+    --ml-guide-much-worse: #ff7a45;
+
     --ml-piece-a: #f0aa1f;
     --ml-piece-a-hi: #ffe19a;
     --ml-piece-a-lo: #b87400;
@@ -187,6 +202,12 @@
   --ml-board-select: #f2ebdf;
   --ml-board-target: #f2ebdf;
 
+  --ml-guide-much-better: #8ec1ff;
+  --ml-guide-better: #5aa0f5;
+  --ml-guide-equal: #d8d0c2;
+  --ml-guide-worse: #ffa05c;
+  --ml-guide-much-worse: #ff7a45;
+
   --ml-piece-a: #f0aa1f;
   --ml-piece-a-hi: #ffe19a;
   --ml-piece-a-lo: #b87400;
@@ -210,5 +231,16 @@
     --ml-dur-base: 0ms;
     --ml-dur-hop: 0ms;
     --ml-dur-think: 0ms;
+  }
+}
+
+/* Forced colours: the user agent picks the palette; the guide marks and ring styles keep the bands apart. */
+@media (forced-colors: active) {
+  :root {
+    --ml-guide-much-better: CanvasText;
+    --ml-guide-better: CanvasText;
+    --ml-guide-equal: CanvasText;
+    --ml-guide-worse: CanvasText;
+    --ml-guide-much-worse: CanvasText;
   }
 }

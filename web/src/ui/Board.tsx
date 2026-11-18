@@ -4,15 +4,28 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CELLS, GOAL_CELLS } from '../board/cells';
 import { jumpPath } from '../board/path';
 import type { Side } from '../game/board-state';
+import { makeMove } from '../engines/engine';
 import {
   cellName, cellPoint, cycle, movableCells, navigate, reading, resolveTap, targetsOf, VIEW_BOX,
 } from './board-model';
 import type { ArrowKey, MoveDescription, Point, TapAction } from './board-model';
+import { GuideGlyphPath, GuideRing, bandTextKey, pieceTextKey } from './GuideGlyph';
+import type { Band } from '../guides/bands';
 import { prefersReducedMotion } from './primitives';
 import type { SideStyle } from './primitives';
 import { useT } from './texts';
 
+/** Move guides: the bands the board draws. Without them the board looks and works as before. */
+export interface BoardGuides {
+  /** Band of the best move of each movable piece, by cell. */
+  pieces: ReadonlyMap<number, Band>;
+  /** Band of each move, by move code (from | to << 8); read for the targets of the selected piece. */
+  moves: ReadonlyMap<number, Band>;
+}
+
 export interface BoardProps {
+  /** Optional move guides; shown only while `interactive`. */
+  guides?: BoardGuides | null;
   owner: Int8Array;
   legal: readonly number[];
   /** True while the human may move. Otherwise the board is inert. */
@@ -227,11 +240,22 @@ export function Board(props: BoardProps): React.JSX.Element {
   const points = (cells: readonly number[]): string =>
     cells.map((c) => `${pos(c).x.toFixed(1)},${pos(c).y.toFixed(1)}`).join(' ');
 
+  const guides = interactive ? (props.guides ?? null) : null;
+  const targetBand = (cell: number): Band | undefined =>
+    guides && selected !== null ? guides.moves.get(makeMove(selected, cell)) : undefined;
+  const pieceGuide = (cell: number): Band | undefined => (guides && movable.includes(cell) ? guides.pieces.get(cell) : undefined);
+
   const label = (cell: number): string => {
     const o = owner[cell] ?? -1;
     const parts = [cellName(cell), o < 0 ? t('cell_empty') : props.sideLabel(o as Side)];
     if (cell === selected) parts.push(t('cell_selected'));
-    else if (targets.includes(cell)) parts.push(t('cell_target'));
+    else if (targets.includes(cell)) {
+      parts.push(t('cell_target'));
+      const band = targetBand(cell);
+      if (band) parts.push(t(bandTextKey(band)));
+    }
+    const piece = pieceGuide(cell);
+    if (piece) parts.push(t(pieceTextKey(piece)));
     return parts.join(', ');
   };
 
@@ -288,12 +312,22 @@ export function Board(props: BoardProps): React.JSX.Element {
           </g>
         )}
         <g className="ml-targets">
-          {targets.map((c) => (
-            <g key={c}>
-              <circle className="ml-target__ring" cx={pos(c).x} cy={pos(c).y} r={11.5} />
-              <circle className="ml-target__dot" cx={pos(c).x} cy={pos(c).y} r={4.5} />
-            </g>
-          ))}
+          {targets.map((c) => {
+            const band = targetBand(c);
+            return (
+              <g key={c}>
+                <circle className="ml-target__ring" cx={pos(c).x} cy={pos(c).y} r={11.5} />
+                {band ? (
+                  <g className={`ml-guide ml-guide--${band}`} data-guide="target" data-band={band} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
+                    <GuideRing band={band} r={14.5} />
+                    <GuideGlyphPath band={band} />
+                  </g>
+                ) : (
+                  <circle className="ml-target__dot" cx={pos(c).x} cy={pos(c).y} r={4.5} />
+                )}
+              </g>
+            );
+          })}
         </g>
         {previewPath && <polyline className="ml-preview__line" points={points(previewPath)} />}
         {halo.map((c) => (
@@ -314,6 +348,25 @@ export function Board(props: BoardProps): React.JSX.Element {
             );
           })}
         </g>
+        {guides && (
+          <g className="ml-guides">
+            {movable.map((c) => {
+              const band = guides.pieces.get(c);
+              if (!band) return null;
+              return (
+                <g key={c} className={`ml-guide ml-guide--${band}`} data-guide="piece" data-band={band} data-cell-of={c} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
+                  <GuideRing band={band} r={16.8} />
+                  <g transform="translate(12 -12)">
+                    <circle className="ml-guide__badge" r={8.2} />
+                    <g transform="scale(0.95)">
+                      <GuideGlyphPath band={band} />
+                    </g>
+                  </g>
+                </g>
+              );
+            })}
+          </g>
+        )}
         {previewCell !== null && selected !== null && (
           <g className="ml-preview__ghost">
             <use
