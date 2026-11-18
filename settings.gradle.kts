@@ -18,3 +18,4 @@ rootProject.name = "marble-lantern"
 include("engine", "search", "nn", "nn-tornado", "tablebase")
 include("selfplay")
 include("teavm-web")
+include("app")
