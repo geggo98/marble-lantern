@@ -9,14 +9,15 @@
 """Packs the rows>=2 race table for the offline browser build.
 
 usage: pack-tables.py <rows2.bin> [--out DIR]          pack (default DIR: <repo>/build/offline)
-       pack-tables.py --verify <rows2.bin> [--out DIR]  pack nothing; round-trip DIR/rows2.bin.gz against the manifest
+       pack-tables.py --verify [<rows2.bin>] [--out DIR]  pack nothing; round-trip DIR/rows2.bin.gz against the manifest
 
 Pack: reads the table, checks its SHA-256 against the constant SHA256 in RaceTable.java (a different file is an error,
 exit 1), writes DIR/rows2.bin.gz (gzip -9, mtime 0, so the same input gives the same bytes) and DIR/rows2.manifest.json.
 The manifest keys come first and the compressed data is a separate file, so a truncated manifest is detectable:
   {"v":1,"alg":"gzip","rawBytes":N,"sha256":"<of the raw file>","gzBytes":M,"file":"rows2.bin.gz"}
 Verify: gunzips the file, checks gzBytes, rawBytes and the SHA-256 of the result against the manifest, and the
-manifest SHA-256 against RaceTable.java again. Exit 0 = all equal, 1 = a difference, 2 = wrong call.
+manifest SHA-256 against RaceTable.java again. With <rows2.bin> it also checks that this file has the SHA-256 of the packed
+data, so a packed file of another table is a difference. Exit 0 = all equal, 1 = a difference, 2 = wrong call (usage is printed).
 Files are written under a temporary name and renamed, so a name that exists is complete.
 """
 import gzip
@@ -64,7 +65,7 @@ def pack(src: Path, out: Path) -> int:
     return 0
 
 
-def verify(out: Path) -> int:
+def verify(out: Path, src: "Path | None" = None) -> int:
     manifest = json.loads((out / MANIFEST_NAME).read_text(encoding="ascii"))
     keys = list(manifest)
     if keys != ["v", "alg", "rawBytes", "sha256", "gzBytes", "file"] or manifest["v"] != 1 or manifest["alg"] != "gzip":
@@ -86,6 +87,10 @@ def verify(out: Path) -> int:
         problems.append(f"sha256 {sha} != manifest {manifest['sha256']}")
     if manifest["sha256"] != expected_sha():
         problems.append("manifest sha256 differs from RaceTable.java")
+    if src is not None:
+        src_sha = hashlib.sha256(src.read_bytes()).hexdigest()
+        if src_sha != sha:
+            problems.append(f"{src} has sha256 {src_sha}, the packed data {sha}")
     for p in problems:
         print("verify: " + p, file=sys.stderr)
     if problems:
@@ -105,7 +110,10 @@ def main(argv) -> int:
         out = Path(args[i + 1])
         del args[i:i + 2]
     if args and args[0] == "--verify":
-        return verify(out) if len(args) in (1, 2) else 2
+        if len(args) not in (1, 2):
+            print(__doc__, file=sys.stderr)
+            return 2
+        return verify(out, Path(args[1]) if len(args) == 2 else None)
     if len(args) != 1:
         print(__doc__, file=sys.stderr)
         return 2
