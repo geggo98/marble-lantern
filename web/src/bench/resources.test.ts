@@ -104,7 +104,7 @@ describe('formatting', () => {
     expect(formatRatio(0.98765)).toBe('0.99');
   });
   it('gives every n/a code a reason text', () => {
-    for (const c of ['no-cpu-api', 'no-rss-api', 'jvm-via-gradle', 'wasm-gc-heap', 'no-js-heap-api', 'not-isolated'] as const) {
+    for (const c of ['no-cpu-api', 'no-rss-api', 'jvm-via-gradle', 'wasm-gc-heap', 'no-js-heap-api', 'not-isolated', 'no-ua-memory-api'] as const) {
       expect(naText(c).length).toBeGreaterThan(20);
     }
   });

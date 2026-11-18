@@ -145,9 +145,12 @@ if (values.jvm) all.push(jvmReport());
 const loadAfter = loadavg();
 const fmt = (l: number[]): string => l.map((v) => v.toFixed(2)).join(' ');
 
-const warnings = all.flatMap((r) =>
-  loadWarnings({ cores: cpus().length, loadAverage1: Math.max(loadBefore[0]!, loadAfter[0]!), cpuToWall: r.resources?.cpuToWall ?? null, spread: r.spread })
-    .map((w) => `${r.id}: ${w}`));
+// The load average is a property of the machine: warn once. CPU/wall and spread belong to one engine.
+const machine = loadWarnings({ cores: cpus().length, loadAverage1: Math.max(loadBefore[0]!, loadAfter[0]!), cpuToWall: null, spread: null });
+const warnings = [
+  ...machine,
+  ...all.flatMap((r) => loadWarnings({ cores: cpus().length, loadAverage1: null, cpuToWall: r.resources?.cpuToWall ?? null, spread: r.spread }).map((w) => `${r.id}: ${w}`)),
+];
 const environment = {
   runner: 'node', node: process.version, platform: `${process.platform} ${process.arch}`, cpu: cpus()[0]?.model ?? 'unknown', cpus: cpus().length,
   loadAverageBefore: fmt(loadBefore), loadAverageAfter: fmt(loadAfter), warnings, processModel: 'one child process per engine', date: new Date().toISOString(),

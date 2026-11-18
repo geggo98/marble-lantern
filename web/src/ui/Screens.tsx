@@ -3,6 +3,8 @@ import { useRef, useState } from 'react';
 import { Icon } from './primitives';
 import { REPO_URL, hrefFor } from './Chrome';
 import { useT } from './texts';
+import type { MemoryKind, NaCode } from '../bench/resources';
+import type { MessageKey } from '../i18n/keys';
 
 /** One engine's row of the result table. The benchmark code (WP10) fills it; this screen only shows it. */
 export interface BenchRow {
@@ -17,6 +19,13 @@ export interface BenchRow {
   binaryBytes: number;
   binaryGzipBytes: number | null;
   rows1Requests: number;
+  /** CPU time of the timed games in ms; null (with the reason in cpuNa) where the platform cannot measure it. */
+  cpuMs: number | null;
+  cpuNa: NaCode | null;
+  /** Peak memory in bytes, what it is, or the reason it is missing. */
+  memoryBytes: number | null;
+  memoryKind: MemoryKind | null;
+  memoryNa: NaCode | null;
 }
 
 export interface BenchReportView {
@@ -39,6 +48,33 @@ export interface BenchProgress {
 
 export interface BenchRunner {
   run(onProgress: (p: BenchProgress) => void, signal: AbortSignal): Promise<BenchReportView>;
+}
+
+const NA_KEY: Record<NaCode, MessageKey> = {
+  'no-cpu-api': 'bench_na_no_cpu_api',
+  'no-rss-api': 'bench_na_no_rss_api',
+  'jvm-via-gradle': 'bench_na_jvm_via_gradle',
+  'wasm-gc-heap': 'bench_na_wasm_gc_heap',
+  'no-js-heap-api': 'bench_na_no_js_heap_api',
+  'not-isolated': 'bench_na_not_isolated',
+  'no-ua-memory-api': 'bench_na_no_ua_memory_api',
+};
+const KIND_KEY: Record<MemoryKind, MessageKey> = {
+  'process-rss': 'bench_mem_process_rss',
+  'wasm-linear-memory': 'bench_mem_wasm_linear_memory',
+  'js-heap-sampled': 'bench_mem_js_heap_sampled',
+};
+
+/** The footnotes under the table: why a figure is n/a and what each memory figure is, each with the engines it applies to. */
+export function benchNotes(rows: readonly BenchRow[]): Array<{ key: MessageKey; engines: string[] }> {
+  const notes = new Map<MessageKey, string[]>();
+  const add = (key: MessageKey, engine: string): void => { notes.set(key, [...(notes.get(key) ?? []), engine]); };
+  for (const r of rows) {
+    if (r.cpuNa) add(NA_KEY[r.cpuNa], r.engineLabel);
+    if (r.memoryNa) add(NA_KEY[r.memoryNa], r.engineLabel);
+    if (r.memoryKind) add(KIND_KEY[r.memoryKind], r.engineLabel);
+  }
+  return [...notes].map(([key, engines]) => ({ key, engines }));
 }
 
 export function BenchScreen({ runner }: { runner: BenchRunner | null }): React.JSX.Element {
@@ -124,7 +160,7 @@ export function BenchScreen({ runner }: { runner: BenchRunner | null }): React.J
               <caption className="ml-visually-hidden">{t('bench_caption')}</caption>
               <thead>
                 <tr>
-                  {(['col_engine', 'col_fingerprint', 'col_nps', 'col_ms_move', 'col_spread', 'col_load', 'col_size', 'col_rows1'] as const).map((k) => (
+                  {(['col_engine', 'col_fingerprint', 'col_nps', 'col_ms_move', 'col_spread', 'col_cpu', 'col_memory', 'col_load', 'col_size', 'col_rows1'] as const).map((k) => (
                     <th key={k} scope="col">{t(k)}</th>
                   ))}
                 </tr>
@@ -142,6 +178,16 @@ export function BenchScreen({ runner }: { runner: BenchRunner | null }): React.J
                     </td>
                     <td data-label={t('col_ms_move')}>{n(Math.round(r.msPerMove * 10) / 10)}</td>
                     <td data-label={t('col_spread')}>{n(Math.round(r.spread * 100) / 100)}</td>
+                    <td data-label={t('col_cpu')}>
+                      {r.cpuMs === null ? <span title={r.cpuNa ? t(NA_KEY[r.cpuNa]) : undefined}>{t('na')}</span> : n(Math.round(r.cpuMs))}
+                    </td>
+                    <td data-label={t('col_memory')}>
+                      {r.memoryBytes === null ? (
+                        <span title={r.memoryNa ? t(NA_KEY[r.memoryNa]) : undefined}>{t('na')}</span>
+                      ) : (
+                        <span title={r.memoryKind ? t(KIND_KEY[r.memoryKind]) : undefined}>{n(Math.round((r.memoryBytes / (1024 * 1024)) * 10) / 10)}</span>
+                      )}
+                    </td>
                     <td data-label={t('col_load')}>{n(Math.round(r.loadMs))}</td>
                     <td data-label={t('col_size')}>
                       {n(Math.round(r.binaryBytes / 1000))} KB / {r.binaryGzipBytes ? `${n(Math.round(r.binaryGzipBytes / 1000))} KB` : '—'}
@@ -151,6 +197,16 @@ export function BenchScreen({ runner }: { runner: BenchRunner | null }): React.J
                 ))}
               </tbody>
             </table>
+          </section>
+          <section className="ml-bench__notes" aria-labelledby="bench-notes-title">
+            <p className="ml-kicker" id="bench-notes-title">{t('bench_notes_title')}</p>
+            <ul>
+              {benchNotes(report.rows).map((note) => (
+                <li key={note.key}>
+                  <strong>{note.engines.join(', ')}:</strong> {t(note.key)}
+                </li>
+              ))}
+            </ul>
           </section>
           <p className="ml-env">{report.environment}</p>
           <div className="ml-bench__actions">

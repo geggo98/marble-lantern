@@ -3,7 +3,7 @@
 // never an estimate.
 
 /** Why a figure is not available. The UI maps each code to a text; `naText` is the English text for the terminal and docs. */
-export type NaCode = 'no-cpu-api' | 'no-rss-api' | 'jvm-via-gradle' | 'wasm-gc-heap' | 'no-js-heap-api' | 'not-isolated';
+export type NaCode = 'no-cpu-api' | 'no-rss-api' | 'jvm-via-gradle' | 'wasm-gc-heap' | 'no-js-heap-api' | 'not-isolated' | 'no-ua-memory-api';
 
 /** What the "peak memory" figure is. The three are different things and must not be compared with each other blindly. */
 export type MemoryKind = 'process-rss' | 'wasm-linear-memory' | 'js-heap-sampled';
@@ -35,8 +35,9 @@ const NA_TEXT: Record<NaCode, string> = {
   'no-rss-api': 'this runtime has no API for the resident memory of the process',
   'jvm-via-gradle': 'the JVM row runs through Gradle; its process also holds Gradle and the compiler, so its CPU time and memory would not describe the engine',
   'wasm-gc-heap': 'Wasm GC objects live in the browser garbage-collected heap, which no page API reports for a worker',
-  'no-js-heap-api': 'this browser does not offer performance.memory (Chrome only)',
+  'no-js-heap-api': 'performance.memory is not offered inside a worker (absent in Chromium workers, measured 2026-11-18)',
   'not-isolated': 'performance.measureUserAgentSpecificMemory needs a cross-origin isolated page, which this host does not serve',
+  'no-ua-memory-api': 'this browser has no performance.measureUserAgentSpecificMemory (Chrome only), or it refused the call',
 };
 
 export const naText = (code: NaCode): string => NA_TEXT[code];
