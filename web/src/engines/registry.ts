@@ -54,8 +54,8 @@ export function clearEngines(): void {
   definitions.clear();
 }
 
-/** The default engine of the offline mode comes first; the rest keep registration order. */
-const ORDER: EngineId[] = ['cpp-wasm', 'java-wasmgc', 'java-js'];
+/** The default engine of the offline mode comes first, then the fallback chain (ADR 0003); the rest keep registration order. */
+const ORDER: EngineId[] = ['java-wasmgc', 'cpp-wasm', 'java-js'];
 
 export function listDefinitions(): EngineDefinition[] {
   const all = [...definitions.values()];

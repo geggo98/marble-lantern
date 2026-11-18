@@ -30,7 +30,10 @@ export interface SessionDeps {
   nodes: () => number;
 }
 
-/** The first available engine in registry order: cpp-wasm, then the Java engines, then the server engines. */
+/**
+ * The first available engine in registry order: java-wasmgc (ADR 0003), then cpp-wasm (the fallback without Wasm GC,
+ * because it is faster than java-js), then java-js, then the server engines.
+ */
 export function defaultChoice(choices: readonly EngineChoice[]): EngineChoice | null {
   return choices.find((c) => c.available) ?? null;
 }

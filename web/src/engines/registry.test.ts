@@ -31,11 +31,11 @@ describe('wasmGcSupported', () => {
 });
 
 describe('registry', () => {
-  it('lists the C++ engine first, then Java Wasm GC, then Java JS, whatever the registration order', () => {
+  it('lists Java Wasm GC first, then the C++ engine, then Java JS, whatever the registration order', () => {
     registerEngine(def('java-js', 'js'));
     registerEngine(def('java-wasmgc', 'wasm-gc'));
     registerEngine(def('cpp-wasm', 'wasm'));
-    expect(listDefinitions().map((d) => d.id)).toEqual(['cpp-wasm', 'java-wasmgc', 'java-js']);
+    expect(listDefinitions().map((d) => d.id)).toEqual(['java-wasmgc', 'cpp-wasm', 'java-js']);
   });
 
   it('marks an engine unavailable when the browser lacks the feature, and one the build did not ship', () => {

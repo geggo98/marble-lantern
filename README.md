@@ -23,6 +23,7 @@ The TornadoVM SDK setup is in [architecture, getting started](docs/architecture.
 
 - [Web UI](docs/web-ui.md): offline and online mode, the browser engines, how to build and test them.
 - [Web benchmark](docs/web-benchmark.md): the browser engines compared on identical work.
-- [ADR 0002](docs/adr/0002-browser-engines.md): why C++ compiled to WebAssembly is the default browser engine.
+- [ADR 0002](docs/adr/0002-browser-engines.md): the three browser engines (C++ and two TeaVM builds of Java) and their measurements.
+- [ADR 0003](docs/adr/0003-teavm-default-engine.md): why Java compiled by TeaVM to Wasm GC is the default browser engine, with C++ as the fallback for browsers without Wasm GC.
 - [Architecture](docs/architecture.md): modules, status, roadmap and TornadoVM setup.
 - [Rules](docs/rules.md), [search and evaluation](docs/search-and-evaluation.md), [TornadoVM](docs/tornado.md), [offline mode](docs/offline-mode.md) and the other files in `docs/`.

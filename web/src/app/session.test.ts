@@ -10,6 +10,7 @@ const file = { path: 'engines/x.wasm', bytes: 10, gzipBytes: 5, sha256: '0'.repe
 const manifest: EnginesManifest = {
   v: 1, version: 't',
   engines: {
+    'java-wasmgc': { files: [file], binaryBytes: 30, binaryGzipBytes: 12 },
     'cpp-wasm': { files: [file], binaryBytes: 10, binaryGzipBytes: 5 },
     'java-js': { files: [file], binaryBytes: 20, binaryGzipBytes: 9 },
   },
@@ -31,10 +32,11 @@ class StubEngine implements Engine {
 }
 
 const made: StubEngine[] = [];
-function def(id: 'cpp-wasm' | 'java-js', failures: Error[] = []): EngineDefinition {
+function def(id: 'cpp-wasm' | 'java-wasmgc' | 'java-js', failures: Error[] = [], available = true): EngineDefinition {
   return {
-    id, labelKey: 'engine.cppWasm', runtime: id === 'cpp-wasm' ? 'wasm' : 'js', language: id === 'cpp-wasm' ? 'C++' : 'Java',
-    isAvailable: () => true,
+    id, labelKey: 'engine.cppWasm', runtime: id === 'cpp-wasm' ? 'wasm' : id === 'java-wasmgc' ? 'wasm-gc' : 'js',
+    language: id === 'cpp-wasm' ? 'C++' : 'Java',
+    isAvailable: () => available,
     create: (context) => {
       const e = new StubEngine(context.info, failures.shift());
       made.push(e);
@@ -93,6 +95,33 @@ describe('EngineSession', () => {
     const broken = new EngineSession(deps(new SwitchableEngine(), async () => { throw new Error('engines.json: HTTP 404'); }));
     expect(await broken.start()).toBe(false);
     expect(broken.getState()).toMatchObject({ phase: 'failed', error: { code: 'internal', message: 'engines.json: HTTP 404' } });
+  });
+
+  it('starts with TeaVM Wasm GC when the browser has Wasm GC (ADR 0003)', async () => {
+    registerEngine(def('cpp-wasm'));
+    registerEngine(def('java-js'));
+    registerEngine(def('java-wasmgc'));
+    const session = new EngineSession(deps(new SwitchableEngine()));
+    expect(await session.start()).toBe(true);
+    expect(session.getState().current?.info.id).toBe('java-wasmgc');
+  });
+
+  it('falls back to C++ (faster), not to Java JS, in a browser without Wasm GC', async () => {
+    registerEngine(def('java-js'));
+    registerEngine(def('java-wasmgc', [], false)); // wasmGcSupported() is false there
+    registerEngine(def('cpp-wasm'));
+    const session = new EngineSession(deps(new SwitchableEngine()));
+    expect(await session.start()).toBe(true);
+    expect(session.getState().current?.info.id).toBe('cpp-wasm');
+  });
+
+  it('falls back to Java JS when only that engine runs', async () => {
+    registerEngine(def('java-wasmgc', [], false));
+    registerEngine(def('cpp-wasm', [], false));
+    registerEngine(def('java-js'));
+    const session = new EngineSession(deps(new SwitchableEngine()));
+    expect(await session.start()).toBe(true);
+    expect(session.getState().current?.info.id).toBe('java-js');
   });
 
   it('refuses to select an engine that is not available', async () => {

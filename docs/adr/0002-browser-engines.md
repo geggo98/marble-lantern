@@ -1,11 +1,13 @@
 # ADR 0002: C++ compiled to WebAssembly is the default browser engine; TeaVM is optional
 
-- **Status:** accepted
+- **Status:** accepted (default engine superseded by [ADR 0003](0003-teavm-default-engine.md))
 - **Date:** 2026-11-18
 - **Decided by:** the project owner; the measurements below confirm it
 - **Code:** `cpp/src/wasm/`, `teavm-web/`, `web/src/engines/`; details in [web UI](../web-ui.md)
 
 **TL;DR:** The offline browser build offers three engines that play identical moves. The default is the C++ port compiled to WebAssembly with Emscripten, because it is the fastest (1.88 million nodes per second in Node.js, 1.95 times TeaVM's Wasm GC build), the smallest download (105 KiB gzip) and runs in every current browser. The Java engine compiled by TeaVM stays selectable in two forms, Wasm GC and JavaScript, because showing Java in the browser is a purpose of the project. The Wasm GC form needs a recent browser; the JavaScript form runs everywhere but is 7.1 times slower than the default.
+
+> **Superseded in part.** [ADR 0003](0003-teavm-default-engine.md) makes `java-wasmgc` the default and `cpp-wasm` the first fallback for browsers without Wasm GC. The choice of C++ as the default below no longer applies; the three engines, their identical moves, the measurements and the Wasm GC check stay valid.
 
 ## Terms
 
