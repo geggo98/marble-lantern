@@ -4,6 +4,8 @@
 # Run through `devenv tasks run web:bench --input args="<options>"` (or BENCH_ARGS=...), or call this script directly. Options go to web/bench/run-node.ts:
 #   --plies N --nodes N --runs N --engines a,b --public DIR --expected FILE --json FILE --jvm
 # Defaults: 40 plies, 20000 nodes, 5 runs (the full run, about 30 seconds).
+# Each engine runs in its own child process (web/bench/child.ts); the table has CPU time and peak RSS next to nodes/s, and the
+# runner prints a WARNING when the load average, the CPU/wall ratio or the spread says the machine was busy.
 #
 # Exit: 0 = every fingerprint is ok, 1 = mismatch, unchecked fingerprint or error, 2 = wrong call, 130/143 = stopped.
 # Runs take seconds to a minute, so there is no lock, no resume and no status file: a run is cheap to repeat, and an

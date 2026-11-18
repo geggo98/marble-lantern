@@ -4,6 +4,8 @@
 // One game: `plies` plies from the start position, both sides `nodes` per move, one player per side for the whole game.
 // The time is the sum of the engine's own `choose` timings. The fingerprint is (checksum, total nodes).
 import type { BenchResult, LoadReport } from '../engines/engine';
+import { formatCpu, formatMemory, formatRatio } from './resources';
+import type { Resources } from './resources';
 
 /** What the benchmark needs from an engine. `bench` plays one whole game. */
 export interface BenchTarget {
@@ -37,6 +39,8 @@ export interface GameStat {
   /** ms of every choose call, in ply order. */
   msPerMove: number[];
   rows1Requests: number;
+  /** Memory sizes the engine reported after the game (see BenchResult.memory). */
+  memory?: { wasmBytes: number | null; jsHeapBytes: number | null };
 }
 
 export type FingerprintStatus = 'ok' | 'mismatch' | 'unchecked';
@@ -60,6 +64,8 @@ export interface EngineReport {
   msPerMove: number;
   /** max/min of the nodes per second of the runs; null with fewer than two runs. */
   spread: number | null;
+  /** CPU time and memory of the engine's self-play phase; absent in results of older runners (shown as n/a). */
+  resources?: Resources;
 }
 
 export interface BenchSpec {
@@ -100,6 +106,7 @@ export function toGameStat(result: BenchResult, plies: number): GameStat {
     nodesPerSecond: ms > 0 ? totalNodes / (ms / 1000) : NaN,
     msPerMove: [...result.ms],
     rows1Requests: result.rows1Requests,
+    ...(result.memory ? { memory: result.memory } : {}),
   };
 }
 
@@ -213,7 +220,7 @@ export function fingerprintText(r: EngineReport): string {
 
 /** The one-row-per-engine table. Plain text with aligned columns, the same in the terminal and on the page. */
 export function formatTable(reports: readonly EngineReport[]): string {
-  const header = ['engine', 'check', 'rows1', 'nodes/s', 'ms/move', 'spread', 'load ms', 'size KiB (gzip)'];
+  const header = ['engine', 'check', 'rows1', 'nodes/s', 'ms/move', 'spread', 'cpu ms', 'cpu/wall', 'peak MiB', 'load ms', 'size KiB (gzip)'];
   const rows = reports.map((r) => [
     r.id,
     r.status === 'ok' ? 'fingerprint=ok' : r.status === 'unchecked' ? 'fingerprint=unchecked' : 'fingerprint=MISMATCH',
@@ -221,11 +228,14 @@ export function formatTable(reports: readonly EngineReport[]): string {
     fixed(r.nodesPerSecond),
     fixed(r.msPerMove, 2),
     r.spread === null ? 'n/a' : `${r.spread.toFixed(3)}${r.spread > NOISY_SPREAD ? ' noisy' : ''}`,
+    formatCpu(r.resources?.cpuMs ?? null),
+    formatRatio(r.resources?.cpuToWall ?? null),
+    formatMemory(r.resources?.peakMemoryBytes ?? null),
     r.load ? fixed(r.load.totalMs) : 'n/a',
     r.binaryBytes > 0 ? `${kb(r.binaryBytes)} (${kb(r.binaryGzipBytes)})` : 'n/a',
   ]);
   const width = header.map((h, c) => Math.max(h.length, ...rows.map((row) => row[c]!.length)));
-  const line = (cells: string[]): string => cells.map((cell, c) => (c < 2 || c === 7 ? cell.padEnd(width[c]!) : cell.padStart(width[c]!))).join('  ').trimEnd();
+  const line = (cells: string[]): string => cells.map((cell, c) => (c < 2 || c === header.length - 1 ? cell.padEnd(width[c]!) : cell.padStart(width[c]!))).join('  ').trimEnd();
   return [line(header), ...rows.map(line)].join('\n');
 }
 

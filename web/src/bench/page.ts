@@ -4,26 +4,17 @@
 import '../../design/tokens.css';
 import expectedText from '../../bench/expected.json?raw';
 import type { LoadReport } from '../engines/engine';
-import { loadEnginesManifest, wasmGcSupported } from '../engines/registry';
+import { loadEnginesManifest } from '../engines/registry';
 import type { EnginesManifest } from '../engines/registry';
+import { META, makeWorker } from './browser-engines';
+import { browserReport, userAgentMemory } from './browser-report';
 import { formatLoads, formatTable, parseExpected, parseSpec, runBenchmark, toJson } from './core';
+import { formatNotes } from './resources';
 import type { EngineReport } from './core';
 import { WorkerTarget } from './worker-target';
 
 const baseUrl = import.meta.env.BASE_URL;
 const expected = parseExpected(expectedText);
-
-// Literal `new Worker(new URL(...))` calls: Vite only bundles workers it can see in this form.
-const makeWorker: Record<string, () => Worker> = {
-  'cpp-wasm': () => new Worker(new URL('../engines/cpp/worker.ts', import.meta.url), { type: 'module' }),
-  'java-wasmgc': () => new Worker(new URL('../engines/java/worker.ts', import.meta.url), { type: 'module' }),
-  'java-js': () => new Worker(new URL('../engines/java/worker.ts', import.meta.url), { type: 'module' }),
-};
-const META: Record<string, { runtime: string; language: string; available: () => boolean }> = {
-  'cpp-wasm': { runtime: 'wasm', language: 'C++', available: () => typeof WebAssembly === 'object' },
-  'java-wasmgc': { runtime: 'wasm-gc', language: 'Java', available: wasmGcSupported },
-  'java-js': { runtime: 'js', language: 'Java', available: () => true },
-};
 
 const root = document.getElementById('bench')!;
 root.style.cssText = 'max-width:60rem;margin:0 auto;padding:1rem 16px 3rem;font:16px/1.5 var(--ml-font-ui);color:var(--ml-color-ink);';
@@ -91,14 +82,20 @@ async function run(form: FormData): Promise<void> {
     }
     const total = ids.length * spec.runs;
     let done = 0;
-    const reports: EngineReport[] | null = await runBenchmark(targets, spec, expected, {
+    const raw: EngineReport[] | null = await runBenchmark(targets, spec, expected, {
       loads,
       onGame: ({ engine, run: n, runs }) => setStatus(`Game ${++done} of ${total} (${engine}, run ${n} of ${runs}).`, 'running'),
     });
-    if (!reports) return;
-    const environment = { runner: 'browser', userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency, secureContext: window.isSecureContext, date: new Date().toISOString() };
+    if (!raw) return;
+    const reports = raw.map((r) => browserReport(r, r.id === 'java-wasmgc'));
+    const page = await userAgentMemory(window, performance as unknown as Parameters<typeof userAgentMemory>[1]);
+    const environment = {
+      runner: 'browser', userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency, secureContext: window.isSecureContext,
+      crossOriginIsolated: window.crossOriginIsolated, userAgentMemoryBytes: page.bytes, userAgentMemoryNa: page.na, date: new Date().toISOString(),
+    };
+    const pageMemory = page.bytes === null ? 'n/a (see the notes)' : `${(page.bytes / (1024 * 1024)).toFixed(1)} MiB`;
     $<HTMLElement>('table').textContent = formatTable(reports);
-    $<HTMLElement>('loads').textContent = `${formatLoads(reports)}\n\n${environment.userAgent}, ${environment.hardwareConcurrency} logical cores`;
+    $<HTMLElement>('loads').textContent = `${formatNotes(reports)}\n\n${formatLoads(reports)}\n\n${environment.userAgent}, ${environment.hardwareConcurrency} logical cores; memory of the whole page (measureUserAgentSpecificMemory): ${pageMemory}`;
     for (const id of ['table', 'loads', 'copy']) $<HTMLElement>(id).hidden = false;
     lastJson = toJson(reports, spec, environment);
     const bad = reports.filter((r) => r.status !== 'ok' || r.rows1Requests > 0);

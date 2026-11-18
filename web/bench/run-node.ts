@@ -1,5 +1,6 @@
-// The node runner of the benchmark (plan section 8): loads the engine adapters' cores directly, without a worker,
-// and plays the benchmark game on each. Run it through `devenv tasks run web:bench -- <options>`.
+// The node runner of the benchmark (plan section 8). It starts one child process per engine (bench/child.ts), so that the
+// peak RSS of a child belongs to one engine, and collects the results: fingerprint, nodes/s, wall time, CPU time, memory.
+// Run it through `devenv tasks run web:bench --input args="<options>"`.
 //
 //   --plies N     plies per game               (default 40)
 //   --nodes N     node budget per move         (default 20000)
@@ -10,28 +11,23 @@
 //   --json F      also write the result as JSON to F
 //   --jvm         add a JVM row from BenchReference (runs Gradle, takes a minute)
 // Exit: 0 = every fingerprint is ok, 1 = a mismatch, an unchecked fingerprint or an error, 2 = wrong call, 130/143 = stopped.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { cpus, loadavg } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { gunzipSync } from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import type { LoadReport } from '../src/engines/engine';
-import { CppCore } from '../src/engines/cpp/core';
-import type { CppModuleFactory } from '../src/engines/cpp/core';
-import { JavaCore } from '../src/engines/java/core';
-import { loadJavaModuleInNode } from '../src/engines/java/node';
 import type { EnginesManifest } from '../src/engines/registry';
-import { parseManifest, verifyTable } from '../src/engines/tables';
 import {
-  NOISY_SPREAD, formatLoads, formatTable, fingerprintText, parseExpected, parseSpec, runBenchmark, summarize, toJson, findExpected,
+  NOISY_SPREAD, formatLoads, formatTable, fingerprintText, parseExpected, parseSpec, summarize, toJson, findExpected,
 } from '../src/bench/core';
 import type { BenchSpec, BenchTarget, EngineReport, Expected, GameStat } from '../src/bench/core';
+import { decodeChild, reportFromChild } from '../src/bench/child-protocol';
+import { formatNotes, loadWarnings, unavailableResources } from '../src/bench/resources';
 
 const webDir = fileURLToPath(new URL('..', import.meta.url));
 const repoDir = join(webDir, '..');
-const now = (): number => performance.now();
 
 const USAGE = 'usage: run-node.ts [--plies N] [--nodes N] [--runs N] [--engines a,b] [--public DIR] [--expected FILE] [--json FILE] [--jvm]';
 function die(message: string, code: number): never {
@@ -60,9 +56,10 @@ try {
 }
 const publicDir = values.public as string;
 
-// ---- stop flag: the handler only sets it, the benchmark looks between games ----
+// ---- stop flag: the handler only sets it and passes the signal on to the running child ----
 let stopSignal: string | null = null;
-for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stopSignal = s; });
+let running: ChildProcess | null = null;
+for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => { stopSignal = s; running?.kill(s); });
 
 // ---- inputs ----
 const readJson = (path: string): unknown => {
@@ -84,58 +81,28 @@ const wanted = values.engines ? (values.engines as string).split(',').filter(Boo
 for (const id of wanted) if (!(id in manifest.engines)) die(`engine ${id} is not in engines.json (has: ${Object.keys(manifest.engines).join(', ')})`, 2);
 if (wanted.length === 0 && !values.jvm) die('no engine selected', 2);
 
-// ---- loading, timed like the worker's LoadReport ----
-interface Loaded { target: BenchTarget; load: LoadReport }
+// ---- one child per engine ----
+interface ChildExit { code: number | null; signal: NodeJS.Signals | null; stdout: string }
 
-async function loadEngine(id: string): Promise<Loaded> {
-  const entry = manifest.engines[id as keyof typeof manifest.engines]!;
-  const file = (suffix: string): string | undefined => entry.files.find((f) => f.path.endsWith(suffix))?.path;
-  const abs = (path: string | undefined): string => join(publicDir, path ?? die(`engine ${id} lacks a file`, 1));
-  const t0 = now();
+function runChild(id: string): Promise<ChildExit> {
+  const args = [
+    '--import', join(webDir, 'bench', 'register.mjs'), join(webDir, 'bench', 'child.ts'),
+    '--engine', id, '--plies', String(spec.plies), '--nodes', String(spec.nodes), '--runs', String(spec.runs), '--public', publicDir,
+  ];
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { cwd: webDir, stdio: ['ignore', 'pipe', 'inherit'] });
+    running = child;
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.on('error', reject);
+    child.on('close', (code, signal) => { running = null; resolve({ code, signal, stdout }); });
+  });
+}
 
-  // The table like the page gets it: gzip, inflate, length, magic and SHA-256 against the manifest.
-  const tablesDir = join(publicDir, 'tables');
-  const tFetch = now();
-  const tm = parseManifest(readFileSync(join(tablesDir, 'rows2.manifest.json'), 'utf8'));
-  const gz = readFileSync(join(tablesDir, tm.file));
-  const fetchMs = now() - tFetch;
-  const tInflate = now();
-  const raw = new Uint8Array(gunzipSync(gz));
-  const inflateMs = now() - tInflate;
-  const tVerify = now();
-  await verifyTable(raw, tm, globalThis.crypto.subtle);
-  const verifyMs = now() - tVerify;
-
-  const tInst = now();
-  let install: (verify: boolean) => number;
-  let play: BenchTarget['bench'];
-  if (id === 'cpp-wasm') {
-    const factory = ((await import(/* @vite-ignore */ pathToFileURL(abs(file('.js'))).href)) as { default: CppModuleFactory }).default;
-    const core = await CppCore.create(factory);
-    install = (verify) => core.installTable(raw, verify);
-    play = (plies, nodes) => core.bench(plies, nodes);
-  } else if (id === 'java-wasmgc' || id === 'java-js') {
-    const assets = id === 'java-js'
-      ? { target: 'js' as const, main: abs(file('engine-java.js')) }
-      : { target: 'wasm-gc' as const, main: abs(file('.wasm')), runtime: abs(file('-runtime.js')) };
-    const core = JavaCore.create(await loadJavaModuleInNode(assets));
-    install = (verify) => core.installTable(raw, verify);
-    play = (plies, nodes) => core.bench(plies, nodes);
-  } else {
-    return die(`the node runner cannot load engine ${id}`, 2);
-  }
-  const instantiateMs = now() - tInst;
-  const tableInstallMs = install(false); // already verified above, like the page does with crypto.subtle
-  const load: LoadReport = { fetchMs, inflateMs, verifyMs, instantiateMs, tableInstallMs, totalMs: now() - t0, tableVerifiedBy: 'subtle-sha256' };
-  const runtime = id === 'cpp-wasm' ? 'wasm' : id === 'java-wasmgc' ? 'wasm-gc' : 'js';
-  return {
-    load,
-    target: {
-      id,
-      info: { runtime, language: id === 'cpp-wasm' ? 'C++' : 'Java', binaryBytes: entry.binaryBytes, binaryGzipBytes: entry.binaryGzipBytes, version: manifest.version },
-      bench: play,
-    },
-  };
+/** The result is the last line that starts a JSON object: an engine may print other text on stdout before it. */
+function resultLine(stdout: string): string | undefined {
+  return stdout.split('\n').reverse().find((l) => l.startsWith('{"v":1'));
 }
 
 // ---- JVM baseline ----
@@ -154,49 +121,47 @@ function jvmReport(): EngineReport {
     rows1Requests: Number(m[4]),
   };
   const target: BenchTarget = { id: 'jvm', info: { runtime: 'jvm', language: 'Java', binaryBytes: 0, binaryGzipBytes: 0, version: manifest.version }, bench: () => { throw new Error('not used'); } };
-  return summarize(target, null, [stat], findExpected(expected, spec));
+  return { ...summarize(target, null, [stat], findExpected(expected, spec)), resources: unavailableResources('jvm-via-gradle', 'jvm-via-gradle') };
 }
 
 // ---- main ----
-const stamp = (): string => `${loadavg().map((v) => v.toFixed(2)).join(' ')}`;
-const loadBefore = stamp();
-const loaded: Loaded[] = [];
-for (const id of wanted) {
-  process.stderr.write(`bench: loading ${id}\n`);
-  loaded.push(await loadEngine(id));
+const loadBefore = loadavg();
+const all: EngineReport[] = [];
+const t0 = performance.now();
+for (const [i, id] of wanted.entries()) {
+  if (stopSignal) break;
+  process.stderr.write(`bench: engine ${i + 1}/${wanted.length}: ${id} in its own process (elapsed ${Math.round((performance.now() - t0) / 1000)}s)\n`);
+  const exit = await runChild(id);
+  if (stopSignal) break;
+  const line = resultLine(exit.stdout);
+  if (exit.code !== 0 || !line) die(`the child for ${id} failed (exit ${exit.code ?? exit.signal}); see its messages above`, 1);
+  all.push(reportFromChild(decodeChild(line), spec, expected));
 }
-
-const total = loaded.length * spec.runs;
-let done = 0;
-const t0 = now();
-const reports = loaded.length === 0 ? [] : await runBenchmark(loaded.map((l) => l.target), spec, expected, {
-  loads: new Map(loaded.map((l) => [l.target.id, l.load])),
-  shouldStop: () => stopSignal !== null,
-  onGame: ({ engine, run, runs, stat }) => {
-    done++;
-    const el = (now() - t0) / 1000;
-    const eta = done > 0 ? ((total - done) * el) / done : NaN; // every game is real work: no skips in this runner
-    process.stderr.write(`${done}/${total}  ${engine} run ${run}/${runs}  ${Math.round(stat.nodesPerSecond)} nodes/s  ETA ${Number.isFinite(eta) ? Math.round(eta) : '?'}s  elapsed ${Math.round(el)}s\n`);
-  },
-});
-if (reports === null) {
-  process.stderr.write(`bench: stopped by ${stopSignal}; ${done}/${total} games done, result discarded\n`);
+if (stopSignal) {
+  process.stderr.write(`bench: stopped by ${stopSignal}; ${all.length}/${wanted.length} engines done, result discarded\n`);
   process.exit(stopSignal === 'SIGINT' ? 130 : 143);
 }
-const all = [...(reports ?? [])];
 if (values.jvm) all.push(jvmReport());
-const loadAfter = stamp();
+const loadAfter = loadavg();
+const fmt = (l: number[]): string => l.map((v) => v.toFixed(2)).join(' ');
 
+// The load average is a property of the machine: warn once. CPU/wall and spread belong to one engine.
+const machine = loadWarnings({ cores: cpus().length, loadAverage1: Math.max(loadBefore[0]!, loadAfter[0]!), cpuToWall: null, spread: null });
+const warnings = [
+  ...machine,
+  ...all.flatMap((r) => loadWarnings({ cores: cpus().length, loadAverage1: null, cpuToWall: r.resources?.cpuToWall ?? null, spread: r.spread }).map((w) => `${r.id}: ${w}`)),
+];
 const environment = {
   runner: 'node', node: process.version, platform: `${process.platform} ${process.arch}`, cpu: cpus()[0]?.model ?? 'unknown', cpus: cpus().length,
-  loadAverageBefore: loadBefore, loadAverageAfter: loadAfter, date: new Date().toISOString(),
+  loadAverageBefore: fmt(loadBefore), loadAverageAfter: fmt(loadAfter), warnings, processModel: 'one child process per engine', date: new Date().toISOString(),
 };
-process.stdout.write(`${formatTable(all)}\n\n${formatLoads(all)}\n\n`);
-process.stdout.write(`${spec.plies} plies, ${spec.nodes} nodes per move, ${spec.runs} timed run(s) after a 2-ply warm-up; ${environment.node} on ${environment.cpu} (${environment.cpus} cores), load average ${loadBefore} before, ${loadAfter} after\n`);
-for (const r of all) if (r.status !== "ok") process.stdout.write(`${r.id}: fingerprint ${fingerprintText(r)}\n`);
-if (all.some((r) => r.spread !== null && r.spread > NOISY_SPREAD)) {
-  process.stdout.write(`note: a spread above ${NOISY_SPREAD} means the machine was busy; repeat before quoting nodes/s (the fingerprint is not affected).\n`);
-}
+process.stdout.write(`${formatTable(all)}\n\n${formatNotes(all)}\n\n${formatLoads(all)}\n\n`);
+process.stdout.write(`${spec.plies} plies, ${spec.nodes} nodes per move, ${spec.runs} timed run(s) after a 2-ply warm-up; ${environment.node} on ${environment.cpu} (${environment.cpus} cores), load average ${environment.loadAverageBefore} before, ${environment.loadAverageAfter} after\n`);
+process.stdout.write('cpu ms and cpu/wall: user + system CPU of the engine process over its timed games, wall time measured around the same games; peak MiB: see the notes above.\n');
+for (const r of all) if (r.status !== 'ok') process.stdout.write(`${r.id}: fingerprint ${fingerprintText(r)}\n`);
+for (const w of warnings) process.stdout.write(`WARNING: ${w}\n`);
+if (warnings.length) process.stdout.write('WARNING: the figures above are not quiet-machine figures; the fingerprint is not affected.\n');
+else if (all.some((r) => r.spread !== null && r.spread > NOISY_SPREAD)) process.stdout.write('note: noisy spread; repeat before quoting nodes/s.\n');
 
 if (values.json) {
   const tmp = `${values.json}.tmp.${process.pid}`;
