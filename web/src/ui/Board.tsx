@@ -384,7 +384,9 @@ export function Board(props: BoardProps): React.JSX.Element {
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onPointerCancel={endDrag}
-        onLostPointerCapture={endDrag}
+        // lostpointercapture bubbles: a touch is captured by the cell it started on, and handing the capture to the board
+        // raises it on that cell. Only the board's own loss ends a drag.
+        onLostPointerCapture={(e) => e.target === e.currentTarget && endDrag()}
         onContextMenu={(e) => e.preventDefault()}
         onPointerLeave={() => !press.current?.dragging && setPreviewTarget(null)}
         style={{ ['--ml-boost' as string]: boost }}

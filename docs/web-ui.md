@@ -18,10 +18,11 @@ The address of the page holds the current game, so a game can be shared as a lin
 6. [The worker protocol](#the-worker-protocol)
 7. [Analysis API](#analysis-api)
 8. [Skill estimate](#skill-estimate)
-9. [Loading and checking the race table](#loading-and-checking-the-race-table)
-10. [Build, run and test](#build-run-and-test)
-11. [Continuous integration](#continuous-integration)
-12. [Known limits](#known-limits)
+9. [Small screens and touch](#small-screens-and-touch)
+10. [Loading and checking the race table](#loading-and-checking-the-race-table)
+11. [Build, run and test](#build-run-and-test)
+12. [Continuous integration](#continuous-integration)
+13. [Known limits](#known-limits)
 
 ## Terms
 
@@ -313,6 +314,41 @@ The standard error treats the moves as independent, which they are not (moves of
 - The data come from one engine build. A change to the search or the evaluation makes `calibration.json` stale; run the script again.
 
 **Tests.** `web/src/skill/*.test.ts` cover the statistic, the interval, the mapping, clamping, the minimum-moves rule, isotonic smoothing, the level encoding and the tracker (with a controllable fake engine). `web/src/app/App.skill.test.tsx` runs the app with the fake engine. `web/src/skill/skill.real.test.ts` plays a simulated player on the real C++ engine: the best mover gets the strongest end of the ladder, the random mover the weakest (skipped when the engine build is missing). `web/e2e/skill.spec.ts` runs the whole flow in a browser.
+
+## Small screens and touch
+
+The play screen has two presentations of one set of content. The breakpoint is 60 rem (960 px at the default font size). `useWide()` in `web/src/ui/useMedia.ts` reads it for React, and `web/src/ui/mobile.css` repeats it as `max-width: 59.99rem` for the layout.
+
+**Wide screens (60 rem and up).** Board on the left, side column on the right, as before. The side column holds the notice, the four buttons, the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
+
+**Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: swap sides, engine demo, move guides, copy link, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
+
+- **Portrait.** Header (one row from 320 px; the mode badge keeps only its icon below 26 rem), status bar, board, advantage bar, bottom bar. The page is exactly as high as the viewport (`100dvh`) and does not scroll; the footer is hidden on this screen because the menu holds its content.
+- **Landscape phones** (height up to 32 rem). The header is one row. The board stands on the left. A column 12 to 17 rem wide holds the status bar, the advantage bar and the three actions, stacked.
+- **No layout shift.** The board is an SVG that fills a grid cell and scales with `preserveAspectRatio` meet. Loading, result and error cards lie over the lower part of the board (`.ml-play__notice`) and take no room. The slot of the advantage bar is reserved as soon as the move guides are on.
+- **Safe areas.** `viewport-fit=cover` in `index.html`; the app, the footer and the sheets add `env(safe-area-inset-*)` as padding.
+
+**The menu** (`Menu.tsx`). A button with `aria-haspopup="dialog"`, `aria-expanded` and `aria-controls`; the sheet is a `role="dialog"` with `aria-modal`. It uses `useDialog` (`useDialog.ts`), the same hook as the start dialog: focus moves in, Tab and Shift+Tab stay inside, Escape closes, focus returns to the button. `useDialog` also makes every other child of `document.body` inert while the sheet is open. The sheet closes with Escape, the close button, a tap on the backdrop, or a swipe down on its top edge (a pull of 96 px, or 24 px at 0.5 px/ms or faster; `shouldDismissSwipe` in `touch-model.ts`). The engine sheet opens above the menu; Escape closes the engine sheet first. With `prefers-reduced-motion` the sheet has no animation. The reason for the focus return through a ref instead of `document.activeElement`: Safari does not focus a button that is tapped, so the active element at that moment is the page body.
+
+**Touch input on the board** (`Board.tsx`, `touch-model.ts`).
+
+- **Tap and tap** as before. The hit circle of each cell is at least 44 CSS px wide (`hitRadiusUnits`): on a 320 px board the drawn cell is about 20 px, the hit circle 44 px, so neighbouring circles overlap. The nearest cell centre decides, not the topmost circle.
+- **Drag and drop** with Pointer Events. A press on a movable piece followed by a move of more than 6 px picks the piece up and selects it. The piece follows the pointer; the nearest legal target within 22 px of the pointer is highlighted. Release there plays the move. Release anywhere else cancels the drop and leaves the piece selected. `pointercancel` cancels without a move. The click that follows a drag is ignored. This works with finger, pen and mouse.
+- **Gestures.** `touch-action: none` and `user-select: none` apply to the board only, and its `contextmenu` event is cancelled, so a long press opens no menu. The rest of the page uses `touch-action: manipulation` (no double-tap zoom; pinch zoom stays).
+- **Vibration.** A short `navigator.vibrate` on select, move and illegal target, wrapped in `try/catch`. Safari on iOS has no `vibrate`; nothing depends on it.
+- **No hover.** The mouse preview of a target is an addition; every action works without it.
+- **Keyboard and screen reader** are unchanged: one tab stop, arrow keys, Enter and Space, Escape.
+- **Marks at small sizes.** Below 0.9 px per board unit (a board narrower than about 420 px) the select ring, the target rings and dots, and the guide badges grow by up to 1.5 times (`markBoost`, CSS variable `--ml-boost`). Colour is still never the only carrier: each band has its own glyph.
+
+**Targets.** Buttons, links, the language and theme switches, the sliders and the switch labels are at least 44 px high and wide on small screens. `web/e2e/mobile.spec.ts` measures this.
+
+**Tests.** `touch-model.test.ts` (mapping, snapping, swipe rule, sizes), `Menu.test.tsx` (open, close, focus, Escape, backdrop, swipe, inert), `Board.touch.test.tsx` (tap, drag, snap, cancel, jitter, vibrate, long press, keyboard), `App.mobile.test.tsx` (the play screen with the matchMedia of a phone). `web/e2e/mobile.spec.ts` runs four emulated devices in Chromium and WebKit (320 x 568, 390 x 844, 844 x 390, 820 x 1180) against the real engine: no horizontal scroll, all targets at least 44 px, no board shift while the engine loads, the menu, a move by tap and by drag, and screenshots (directory from `SHOT_DIR`, default `test-results/screens`). Firefox has no mobile emulation in Playwright, so the spec skips it.
+
+**Limits.**
+
+- Playwright's WebKit is not Safari, and an emulated device is not a real one: nobody has tried the screen on a real iPhone or Android phone. The safe-area insets are zero in emulation.
+- The result card covers the lower part of the board on a small screen. The final position is still visible above it, but the card has no close button.
+- Dragging is tested with the mouse in both browsers and with real touch events through the DevTools protocol in Chromium only.
 
 ## Loading and checking the race table
 

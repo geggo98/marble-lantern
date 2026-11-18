@@ -225,7 +225,12 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           />
           {!wide && notice && <div className="ml-play__notice">{notice}</div>}
         </div>
-        {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
+        {guidesOn && !demo && (
+          // the slot keeps its place on a small screen while the first analysis runs: the board does not jump
+          <div className="ml-play__adv">
+            {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
+          </div>
+        )}
         <p className="ml-visually-hidden" role="status" aria-live="polite">
           {last ? t('announce_move', { side: who(last.side), from: cellName(last.from), to: cellName(last.to) }) : ''}
         </p>

@@ -163,6 +163,18 @@ describe('drag and drop', () => {
     expect(host.querySelector('.is-dragging')).toBeNull();
   });
 
+  it('keeps the drag when the implicit capture of a touch moves from the cell to the board (lostpointercapture bubbles up)', async () => {
+    await pointer('pointerdown', client(from));
+    await pointer('pointermove', client(from, 0, 20));
+    await act(async () => {
+      cell(from).dispatchEvent(new MouseEvent('lostpointercapture', { bubbles: true }));
+    });
+    expect(host.querySelector('.is-dragging')).not.toBeNull();
+    await pointer('pointermove', client(target));
+    await pointer('pointerup', client(target));
+    expect(moves).toEqual([makeMove(from, target)]);
+  });
+
   it('a trembling finger (under 6 px) is a tap, not a drag', async () => {
     await pointer('pointerdown', client(from));
     await pointer('pointermove', client(from, 3, 3));

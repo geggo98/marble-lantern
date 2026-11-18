@@ -3,7 +3,7 @@
 // It also closes on a tap on the backdrop, on the close button, and on a swipe down on its top edge.
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Icon } from './primitives';
+import { Icon, prefersReducedMotion } from './primitives';
 import { useT } from './texts';
 import { shouldDismissSwipe } from './touch-model';
 import { useDialog } from './useDialog';
@@ -58,7 +58,7 @@ export function Menu(props: {
   const move = (dy: number, animate: boolean): void => {
     const el = ref.current;
     if (!el) return;
-    el.style.transition = animate ? 'transform 160ms ease-out' : 'none';
+    el.style.transition = animate && !prefersReducedMotion() ? 'transform 160ms ease-out' : 'none';
     el.style.transform = dy > 0 ? `translateY(${dy}px)` : '';
   };
   const onDown = (event: React.PointerEvent<HTMLElement>): void => {

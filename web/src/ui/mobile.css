@@ -1,1 +1,113 @@
-/* Small screens and touch (work package F). See docs/web-ui.md, section "Small screens and touch". */
+/* Small screens and touch. See docs/web-ui.md, section "Small screens and touch".
+   "Small" means narrower than 60rem, the same breakpoint as useWide() in useMedia.ts (max-width 59.99rem).
+   Wide screens keep the layout of ui.css. */
+
+/* An empty slot for the advantage bar takes no room on a wide screen. */
+.ml-play__adv:empty { display: none; }
+
+/* ===== touch, all sizes ===== */
+/* No double-tap zoom anywhere (pinch zoom stays); the board turns every gesture off for itself, see below. */
+body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+/* Notch and rounded corners: viewport-fit=cover lets the page reach under them, the app keeps its content out. */
+.ml-app {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-top: env(safe-area-inset-top);
+}
+.ml-footer { padding-bottom: calc(var(--ml-space-4) + env(safe-area-inset-bottom)); }
+.ml-overlay .ml-sheet { padding-bottom: calc(var(--ml-space-5) + env(safe-area-inset-bottom)); }
+.ml-overlay .ml-menu { padding-bottom: 0; }
+
+/* The board: drag and drop needs the pointer events, so the browser must not scroll, zoom or select from here. */
+.ml-board__svg {
+  touch-action: none;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+/* Marks grow on a small board (--ml-boost, 1 to 1.5, set by Board.tsx from the size of the board). */
+.ml-select { stroke-width: calc(3 * var(--ml-boost, 1)); }
+.ml-target__ring { stroke-width: calc(2.2 * var(--ml-boost, 1)); }
+.ml-preview__line { stroke-width: calc(2.5 * var(--ml-boost, 1)); }
+.ml-pieces .is-dragging { pointer-events: none; filter: drop-shadow(0 3px 3px rgb(0 0 0 / 0.35)); }
+
+/* ===== the menu sheet ===== */
+.ml-menu { display: flex; flex-direction: column; gap: var(--ml-space-2); overflow: hidden; }
+.ml-menu__grab { display: grid; gap: var(--ml-space-2); touch-action: none; cursor: grab; flex: none; }
+.ml-menu__body {
+  display: grid; gap: var(--ml-space-3); align-content: start;
+  overflow-y: auto; overscroll-behavior: contain; min-height: 0;
+  padding-bottom: calc(var(--ml-space-5) + env(safe-area-inset-bottom));
+}
+.ml-menu__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ml-space-3); color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
+.ml-menu__foot a { display: inline-flex; align-items: center; min-height: var(--ml-size-control); }
+@media (prefers-reduced-motion: reduce) {
+  .ml-overlay, .ml-overlay .ml-sheet { animation: none; }
+}
+@media (forced-colors: active) {
+  .ml-menu { border: 1px solid CanvasText; }
+  .ml-sheet__grip { background: CanvasText; }
+}
+
+/* ===== small screens ===== */
+@media (max-width: 59.99rem) {
+  /* touch targets: 44 px, also the segmented switches and the stand-alone links */
+  .ml-seg__opt { min-width: var(--ml-size-control); min-height: var(--ml-size-control); }
+  .ml-footer a, .ml-menu__foot a { display: inline-flex; align-items: center; min-height: var(--ml-size-control); }
+  .ml-header { padding-inline: max(var(--ml-gutter), 0px); }
+  .ml-header__tools { gap: var(--ml-space-1); }
+
+  /* the play screen fills the viewport: header, status, board, bar; the footer content moves into the menu */
+  .ml-app[data-screen="play"] { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  .ml-app[data-screen="play"] .ml-header { flex: none; }
+  .ml-app[data-screen="play"] .ml-footer { display: none; }
+  .ml-play {
+    flex: 1; min-height: 0; width: 100%; max-width: 52rem; margin-inline: auto;
+    display: grid; gap: var(--ml-space-2);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "status" "board" "adv" "bar";
+    padding: var(--ml-space-2) var(--ml-gutter) calc(var(--ml-space-2) + env(safe-area-inset-bottom));
+  }
+  .ml-play__stage { display: contents; }
+  .ml-play .ml-status { grid-area: status; min-height: 2.5rem; }
+  .ml-play__boardwrap { grid-area: board; position: relative; min-height: 8rem; min-width: 0; }
+  .ml-play__adv, .ml-play__adv:empty { grid-area: adv; display: block; min-height: 3rem; }
+  .ml-play__adv .ml-advantage { margin-block: 0; }
+  .ml-play__adv .ml-advantage__ends { display: none; } /* aria-hidden duplicates of the words in the text above */
+  .ml-play__bar { grid-area: bar; }
+  .ml-play__boardwrap .ml-board { margin-inline: 0; width: 100%; height: 100%; max-width: none; min-width: 0; }
+  .ml-play__boardwrap .ml-board__svg { width: 100%; height: 100%; }
+  .ml-play__boardwrap .ml-hint { position: absolute; inset-inline: var(--ml-space-2); bottom: var(--ml-space-2); z-index: 2; }
+  /* loading, result and errors lie over the lower part of the board: nothing moves when they come and go */
+  .ml-play__notice { position: absolute; inset-inline: 0; bottom: 0; z-index: 3; max-height: 70%; overflow-y: auto; }
+
+  .ml-actionbar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ml-space-2); }
+  .ml-actionbar .ml-btn { flex-direction: column; gap: 2px; min-height: 3.5rem; padding: 0.25rem; font-size: var(--ml-text-xs); }
+}
+
+/* a very narrow header: the mode badge keeps its icon, its words are for screen readers */
+@media (max-width: 26rem) {
+  .ml-badge__text {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .ml-badge { padding: 0 0.5rem; }
+  /* brand, badge and the two language buttons (44 px each) share one row at 320 px */
+  .ml-brand { font-size: 0.9375rem; gap: var(--ml-space-1); }
+  .ml-brand__mark { width: 1.5rem; height: 1.5rem; }
+  .ml-header { column-gap: var(--ml-space-1); }
+}
+
+/* ===== landscape phones: board left, slim column right, one-row header ===== */
+@media (max-width: 59.99rem) and (orientation: landscape) and (max-height: 32rem) {
+  .ml-header { flex-wrap: nowrap; padding-block: 0; gap: var(--ml-space-3); }
+  .ml-nav { order: 0; flex: 0 1 auto; gap: var(--ml-space-1); }
+  .ml-nav__link { flex: none; padding: 0 var(--ml-space-3); }
+  .ml-play {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 17rem);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "board status" "board adv" "board ." "board bar";
+    column-gap: var(--ml-space-3); max-width: none;
+  }
+  .ml-actionbar { grid-template-columns: minmax(0, 1fr); }
+  .ml-actionbar .ml-btn { flex-direction: row; gap: var(--ml-space-2); min-height: var(--ml-size-control); font-size: var(--ml-text-sm); }
+  .ml-play__adv { min-height: 0; }
+}

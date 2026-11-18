@@ -44,7 +44,7 @@ export function Header({ screen, online }: { screen: Screen; online: boolean }):
       <div className="ml-header__tools">
         <span className={online ? 'ml-badge ml-badge--online' : 'ml-badge'}>
           <Icon name={online ? 'online' : 'offline'} />
-          {online ? t('mode.online') : t('mode.offline')}
+          <span className="ml-badge__text">{online ? t('mode.online') : t('mode.offline')}</span>
         </span>
         <div className="ml-seg" role="group" aria-label={t('language')}>
           {LANGUAGES.map((l) => (
