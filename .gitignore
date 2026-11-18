@@ -66,3 +66,7 @@ __pycache__/
 /app/node_modules/
 /app/src/main/frontend/generated/
 /tablebase/tables/rows1.bin
+
+# Vaadin/Hilla generated output
+/app/src/main/bundles/
+/app/vite.generated.ts
