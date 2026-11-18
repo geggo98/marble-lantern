@@ -179,6 +179,46 @@ class RankProbeTest {
     }
 
     @Test
+    void theReportFailsOnAMissingPathAndCountsSkippedShardsInsteadOfHidingThem(@TempDir Path dir) throws Exception {
+        Result missing = probe("report", dir.resolve("nope").toString());
+        assertEquals(2, missing.exit(), missing.err());
+        assertTrue(missing.err().contains("no such file or directory"), missing.err());
+        ProbeLog.write(dir.resolve("good.rlog.gz"), settings("a"), 0, 0, List.of(rows(0, 50, row(0, 10, 0, 1, 1, 4))));
+        Files.write(dir.resolve("bad.rlog.gz"), new byte[] {1, 2, 3});
+        Result partial = probe("report", dir.toString());
+        assertEquals(1, partial.exit(), "a skipped shard is a failure, not a clean report");
+        assertTrue(partial.out().contains("1 of 2 files read, 1 SKIPPED"), partial.out());
+        assertTrue(partial.err().contains("skipped"), partial.err());
+        Path onlyBad = Files.createDirectory(dir.resolve("onlybad"));
+        Files.write(onlyBad.resolve("bad.rlog.gz"), new byte[] {1, 2, 3});
+        Result none = probe("report", onlyBad.toString());
+        assertEquals(1, none.exit());
+        assertTrue(none.out().contains("NO READABLE SHARDS"), none.out());
+    }
+
+    @Test
+    void theReportCountsAShardGivenTwiceOnceAndRejectsMixedSettingsAndCopiedShards(@TempDir Path dir) throws Exception {
+        Path a = Files.createDirectory(dir.resolve("a"));
+        Path file = a.resolve("a-0.rlog.gz");
+        ProbeLog.write(file, settings("a"), 0, 0, List.of(rows(0, 50, row(0, 10, 0, 1, 1, 4))));
+        Result twice = probe("report", a.toString(), file.toString(), a.resolve(".").resolve("a-0.rlog.gz").toString());
+        assertEquals(0, twice.exit(), twice.err());
+        assertTrue(twice.out().contains("1 shards, 1 games, 50 plies, 1 records, 4 lookups"), twice.out());
+        Path copy = Files.createDirectory(dir.resolve("copy"));
+        Files.copy(file, copy.resolve("a-0.rlog.gz"));
+        Result dup = probe("report", a.toString(), copy.toString());
+        assertEquals(2, dup.exit(), dup.out());
+        assertTrue(dup.err().contains("same games twice"), dup.err());
+        Map<String, String> other = settings("a");
+        other.put("settings", "source=a;seed=2;synthetic");
+        Path b = Files.createDirectory(dir.resolve("b"));
+        ProbeLog.write(b.resolve("a-1.rlog.gz"), other, 1, 5, List.of(rows(5, 50, row(5, 10, 0, 1, 1, 4))));
+        Result mixed = probe("report", a.toString(), b.toString());
+        assertEquals(2, mixed.exit(), mixed.out());
+        assertTrue(mixed.err().contains("different settings"), mixed.err());
+    }
+
+    @Test
     void theReportCurveHoldOutAndKHistogramAreRightOnAKnownLog(@TempDir Path dir) throws Exception {
         // source "a": even games 0 and 2 read blocks 1 and 2 (9:1), odd games 1 and 3 read block 1 (8) and block 3 (2).
         // Phases: ply 10 is band 0, ply 120 is band 2 (width 50). k: 1 in role 0 (leaf), 3 in role 1 (raceplay).

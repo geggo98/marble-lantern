@@ -7,9 +7,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
@@ -88,32 +92,56 @@ final class ProbeReport {
         for (String b : opts.getOrDefault("budgets", "1,2,5,10,20").split(",")) {
             budgets.add(Double.parseDouble(b));
         }
-        List<Path> files = new ArrayList<>();
+        // a file named twice (directly, through its directory, or by another spelling of its path) is read once
+        Set<Path> unique = new LinkedHashSet<>();
         for (String d : dirs) {
             Path p = Path.of(d);
+            if (!Files.exists(p)) {
+                throw new IllegalArgumentException("no such file or directory: " + d);
+            }
             if (Files.isDirectory(p)) {
                 try (Stream<Path> s = Files.list(p)) {
-                    files.addAll(s.filter(f -> f.getFileName().toString().endsWith(".rlog.gz")).sorted().toList());
+                    for (Path f : s.filter(f -> f.getFileName().toString().endsWith(".rlog.gz")).sorted().toList()) {
+                        unique.add(f.toRealPath());
+                    }
                 }
             } else {
-                files.add(p);
+                unique.add(p.toRealPath());
             }
         }
+        List<Path> files = new ArrayList<>(unique);
         out.println("rank log report: " + files.size() + " files, phase width " + phaseWidth + " plies");
         if (files.isEmpty()) {
             out.println("NO INPUT FILES: no conclusion possible");
             return 1;
         }
         Map<String, Stats> bySource = new TreeMap<>();
+        Map<String, String> settingsOf = new HashMap<>(); // source -> the settings text of its shards
+        Set<String> seenShards = new HashSet<>(); // source + first game id: a copied shard would count its games twice
+        int read = 0;
+        int skipped = 0;
         for (Path f : files) {
             ProbeLog.Shard shard;
             try {
                 shard = ProbeLog.read(f);
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 err.println("skipped " + f + ": " + e.getMessage());
+                skipped++;
                 continue;
             }
-            Stats st = bySource.computeIfAbsent(shard.manifest().getOrDefault("source", "?"), Stats::new);
+            String source = shard.manifest().getOrDefault("source", "?");
+            String settingsText = shard.manifest().getOrDefault("settings", "?");
+            String known = settingsOf.putIfAbsent(source, settingsText);
+            if (known != null && !known.equals(settingsText)) {
+                throw new IllegalArgumentException("source " + source + " has shards with different settings (" + known
+                        + " and " + settingsText + ", the second in " + f + "); report such runs separately");
+            }
+            if (!seenShards.add(source + "/" + shard.manifest().get("first"))) {
+                throw new IllegalArgumentException("source " + source + ": " + f + " holds the same games twice (game "
+                        + shard.manifest().get("first") + " is in another file already)");
+            }
+            read++;
+            Stats st = bySource.computeIfAbsent(source, Stats::new);
             st.shards++;
             st.games += Long.parseLong(shard.manifest().get("games"));
             st.plies += Long.parseLong(shard.manifest().get("plies"));
@@ -122,6 +150,12 @@ final class ProbeReport {
             // games without any record still count towards the convergence checkpoints
             shard.forEach(r -> collect(st, r, phaseWidth));
             checkpoint(st, firstGame + games);
+        }
+        out.println(read + " of " + files.size() + " files read"
+                + (skipped > 0 ? ", " + skipped + " SKIPPED (unreadable: the figures below are incomplete)" : ""));
+        if (read == 0) {
+            out.println("NO READABLE SHARDS: no conclusion possible");
+            return 1;
         }
         for (Stats st : bySource.values()) {
             print(st, out, phaseWidth);
@@ -140,7 +174,7 @@ final class ProbeReport {
                     + " lookups in " + from.games + " games");
             out.println("wrote " + set.cardinality() + " blocks to " + emit);
         }
-        return 0;
+        return skipped > 0 ? 1 : 0;
     }
 
     private static void collect(Stats st, ProbeLog.Row r, int phaseWidth) {
