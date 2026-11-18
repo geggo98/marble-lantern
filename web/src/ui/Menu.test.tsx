@@ -99,6 +99,23 @@ describe('Menu', () => {
     expect(document.activeElement).toBe(trigger());
   });
 
+  it('closes on Escape when focus is not inside (Safari does not focus a tapped checkbox or button)', async () => {
+    await open();
+    (document.activeElement as HTMLElement).blur();
+    await press(document.body, 'Escape');
+    expect(dialog()).toBeNull();
+  });
+
+  it('Escape does not close the menu while another dialog stands above it', async () => {
+    await open();
+    const above = document.createElement('section');
+    above.setAttribute('role', 'dialog');
+    document.body.appendChild(above);
+    await press(document.body, 'Escape');
+    expect(dialog()).not.toBeNull();
+    above.remove();
+  });
+
   it('returns focus only after the page is no longer inert (a browser refuses focus on an inert element)', async () => {
     const original = HTMLElement.prototype.focus;
     HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions): void {

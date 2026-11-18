@@ -56,6 +56,20 @@ export function useDialog<T extends HTMLElement>({ onEscape, focusKey, isolate =
     };
   }, []);
 
+  // Escape also counts when focus is outside the dialog: Safari does not focus a button or checkbox that is tapped, so after
+  // a tap in the dialog the key events go to the body. Only the topmost dialog answers.
+  useEffect(() => {
+    if (!onEscape) return undefined;
+    const listener = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs[dialogs.length - 1] !== ref.current) return;
+      onEscape();
+    };
+    document.addEventListener('keydown', listener);
+    return () => document.removeEventListener('keydown', listener);
+  });
+
   const onKeyDown = (event: React.KeyboardEvent): void => {
     if (event.key === 'Escape' && onEscape) {
       event.stopPropagation();

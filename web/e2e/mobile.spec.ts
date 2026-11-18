@@ -221,7 +221,7 @@ for (const device of DEVICES) {
       const to = await centre(dot);
       await page.touchscreen.tap(from.x, from.y);
       const client = await page.context().newCDPSession(page);
-      const touch = async (type: string, x: number, y: number): Promise<void> => {
+      const touch = async (type: 'touchStart' | 'touchMove' | 'touchEnd', x: number, y: number): Promise<void> => {
         await client.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
       };
       await touch('touchStart', from.x, from.y);
