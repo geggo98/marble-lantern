@@ -35,7 +35,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   /** The engine the session starts with: the first available one in registry order (ADR 0003). */
   const defaultId = props.choices.find((c) => c.available)?.info.id ?? null;
   const [engine, setEngine] = useState<EngineId | null>(first?.info.id ?? null);
-  const [level, setLevel] = useState(props.level);
+  const [level, setLevel] = useState(props.level < NODE_LEVELS.length ? props.level : DEFAULT_LEVEL);
   const dialogRef = useRef<HTMLElement | null>(null);
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
 

@@ -12,6 +12,7 @@ export const NODE_LEVELS = [1000, 5000, 20000, 100000, 500000] as const;
 export const DEFAULT_LEVEL = 2;
 
 export function levelKey(level: number): TextKey {
+  if (level >= NODE_LEVELS.length) return 'level_custom'; // a custom node budget (skill/level.ts)
   return `level_${level + 1}` as TextKey;
 }
 
@@ -96,7 +97,7 @@ export function EngineCard(props: {
       </div>
       <p className="ml-engine__level">
         <span>{t(levelKey(props.level))}</span>
-        <strong>{n(NODE_LEVELS[props.level] ?? 0)}</strong>
+        <strong>{n(NODE_LEVELS[props.level] ?? props.level)}</strong>
         <span>{t('nodes_per_move')}</span>
       </p>
       <button type="button" className="ml-btn" aria-haspopup="dialog" onClick={props.onChange}>

@@ -17,10 +17,11 @@ The address of the page holds the current game, so a game can be shared as a lin
 5. [The engine interface](#the-engine-interface)
 6. [The worker protocol](#the-worker-protocol)
 7. [Analysis API](#analysis-api)
-8. [Loading and checking the race table](#loading-and-checking-the-race-table)
-9. [Build, run and test](#build-run-and-test)
-10. [Continuous integration](#continuous-integration)
-11. [Known limits](#known-limits)
+8. [Skill estimate](#skill-estimate)
+9. [Loading and checking the race table](#loading-and-checking-the-race-table)
+10. [Build, run and test](#build-run-and-test)
+11. [Continuous integration](#continuous-integration)
+12. [Known limits](#known-limits)
 
 ## Terms
 
@@ -67,6 +68,7 @@ In the online mode, `app/build.gradle.kts` copies `web/public/engines/` and `web
 | `web/src/board/` | board geometry `cells.generated.json` (121 cells with id and axial coordinates `q`, `r`) and `path.ts` (jump path for the move animation) |
 | `web/src/game/` | game state: move history, side to move, undo, new game |
 | `web/src/ui/`, `web/src/app/` | screens and components |
+| `web/src/skill/` | skill estimate: statistic, calibration, level encoding, background tracker (see [Skill estimate](#skill-estimate)) |
 | `web/src/i18n/` | German and English texts |
 | `web/src/bench/`, `web/bench/` | benchmark (see [web benchmark](web-benchmark.md)) |
 | `web/e2e/` | Playwright browser tests |
@@ -91,7 +93,7 @@ Code: `web/src/app/game-url.ts` (encode, decode and parse, pure functions withou
 
 - `g=v1.` is the version prefix.
 - `h=0` or `h=1` is the side the human plays. Side 0 (Blue in the UI) moves first; side 1 is Amber.
-- `l=<n>` is the strength level, an index 0 to 4 into the node budgets 1,000, 5,000, 20,000, 100,000 and 500,000.
+- `l=<n>` is the strength level. A number 0 to 4 is an index into the node budgets 1,000, 5,000, 20,000, 100,000 and 500,000. A number 10 to 5,000,000 is a custom node budget itself, which the button "Match engine to my strength" sets (see [Skill estimate](#skill-estimate)); `l=7300` means 7,300 nodes per move. The numbers 5 to 9 and everything else are invalid.
 
 `h` and `l` are optional for the parser; the app always writes both. An empty game at the default strength is `#g=v1.&h=0&l=2`.
 
@@ -255,6 +257,62 @@ In the ordinary band, a logistic fit gives the probability that the side to move
 **Speed.** `cpp-wasm` in Node.js analyses about 1.7 million nodes per second. All 68 legal moves of a mid-game position take 82 ms at 2,000 nodes per move, 197 ms at 5,000 and 726 ms at 20,000. `GUIDE_NODES` keeps such a position near 0.16 s; `SKILL_NODES` is meant for skill estimates in the background.
 
 **Tests.** `web/src/engines/testing/analysis-suite.ts` runs against the C++ engine and both TeaVM targets; `web/src/engines/analysis.cross.test.ts` compares the engines; further tests are `WebFacadeTest` in `teavm-web/` and `cpp/wasm/test/analyse.mjs`.
+
+## Skill estimate
+
+**TL;DR:** While the human plays, the app scores each of the human's moves against the best move of the same position. From these losses it estimates a node budget that plays about as well, and one button sets the engine to it. The estimate is rough, and it is valid only for this scoring.
+
+**What is measured.** After each human move, the position before that move is analysed with `Engine.analyse(history, null, SKILL_NODES)` (all legal moves, 20,000 nodes each, see [Analysis API](#analysis-api)). The loss of the move is `scoreLoss(best score, score of the move played)`, in score points (about 30 points per step towards the goal corner). The statistic of a set of moves is the mean of the losses, each capped at `LOSS_CAP = 200` points (`web/src/skill/stats.ts`). The median is shown in the data but not used for the mapping.
+
+- *Why a capped mean.* A good player plays the best move most of the time, so the median is 0 for a wide range of strengths and cannot tell them apart (in the table below it is 0 from 1,000 nodes on). The plain mean fails the other way: race and mate scores reach 1,000,000 points, so one blunder into a lost position would be the whole statistic. The cap limits one move to 200 points, one move of race arithmetic and a swing of about 92 % in win probability.
+- *Minimum.* No estimate is shown below 8 analysed moves (`MIN_MOVES`). The card shows "N of 8 moves analysed" until then. With 8 moves the interval is wide; the card always shows the number of moves the estimate rests on.
+- *Interval.* The card shows an 80 % interval: a seeded percentile bootstrap of the mean of the capped losses (400 resamples), mapped through the same function. It shows the sampling noise of the player's moves only. It does not include the noise of the calibration.
+
+**When it runs.** `web/src/skill/tracker.ts` (`SkillTracker`, framework-free) runs one analysis at a time, newest human move first, in the background of the engine worker.
+
+- It starts only while the engine is not thinking and it is the human's turn, after the legal moves of the position are loaded, and after the game has been quiet for 800 ms. One worker handles one request at a time and an analysis takes about a second. Without the quiet period, an analysis started right after the engine's move delayed the legal-move request of the next turn (found in the browser test). A player who moves faster than 800 ms after the engine's reply never waits for an analysis; one who moves while an analysis runs waits for it, up to about one second, before the engine starts its search.
+- It aborts the running analysis when the engine starts to think, when the history no longer contains the analysed position (undo, new game, a loaded game), and when the engine loads or is replaced. The adapter then restarts its worker, as for any abort. A result that arrives after an abort is dropped.
+- Results are cached by position and move. Undo, Back and an engine switch do not repeat finished work. The cache is valid across engines because all browser engines return identical analysis scores.
+- The human's moves of a loaded game link are analysed in the same way, newest first. The card shows "Analysing your moves: n of N".
+- A server engine rejects `analyse` with the code `unsupported`. The tracker then stops, and the card says that this engine cannot analyse moves. Choosing another engine tries again. Any other error stops the tracker and the card says so; the next engine switch resets it.
+
+**Calibration.** The mapping from the statistic to a node budget comes from measurements, not from a model. `scripts/web/calibrate-skill.zsh` (code in `scripts/web/calibrate-skill.mts`; run it inside `devenv shell`, after `devenv tasks run web:engines web:tables`) lets the C++ engine at each budget of a ladder play whole games against itself. The first 4 plies are random legal moves, seeded with 1000 to 1015, the same 16 seeds for every budget. For every engine move after the opening, the script measures the loss with the same analysis as the app (`analyse` at `SKILL_NODES`, same engine code). `web/src/skill/calibration.json` holds the result with the seeds, the number of games and moves, the engine version, the date and the definition of the statistic.
+
+Result (16 games per budget, both sides measured, committed on 2026-11-18, engine version `3ac176f`):
+
+| Budget (nodes) | Moves | Statistic ± standard error | Median | After smoothing |
+|---|---|---|---|---|
+| 50 | 1,448 | 19.5 ± 0.7 | 7 | 19.5 |
+| 100 | 1,489 | 19.0 ± 0.7 | 6 | 19.0 |
+| 200 | 1,642 | 18.7 ± 0.6 | 9 | 18.7 |
+| 500 | 1,540 | 16.2 ± 0.6 | 5 | 16.2 |
+| 1,000 | 1,452 | 13.8 ± 0.6 | 0 | 13.9 |
+| 2,000 | 1,553 | 14.0 ± 0.6 | 2 | 13.9 |
+| 5,000 | 1,451 | 10.6 ± 0.5 | 0 | 10.6 |
+| 10,000 | 1,416 | 10.1 ± 0.5 | 0 | 10.1 |
+| 20,000 | 1,533 | 8.7 ± 0.5 | 0 | 8.7 |
+| 50,000 | 1,447 | 7.0 ± 0.5 | 0 | 8.0 |
+| 100,000 | 1,479 | 6.7 ± 0.4 | 0 | 8.0 |
+| 200,000 | 1,532 | 7.8 ± 0.4 | 0 | 8.0 |
+| 500,000 | 1,463 | 10.3 ± 0.6 | 0 | 8.0 |
+
+The standard error treats the moves as independent, which they are not (moves of one game share a position type), so it is optimistic.
+
+- *Monotonicity.* The raw ladder is not monotone: 3 of 12 neighbouring pairs increase with the budget (1,000 to 2,000, 100,000 to 200,000, 200,000 to 500,000). The first increase (0.2 points) is within the standard error. The other two are larger than the combined standard error (1.2 points against about 0.6, and 2.5 against about 0.7), and the last shows the effect: 500,000 nodes lose more against the 20,000-node analysis than 100,000 nodes do. A search with much more budget than the analysis sees better moves than the analysis can confirm, so "agreement with a 20,000-node search" stops measuring strength there. The app therefore uses the isotonic fit (pool-adjacent-violators, weighted by the number of moves), which never increases with the budget. The column "After smoothing" shows it.
+- *The strong end.* From 50,000 nodes on, the smoothed ladder is flat. `resolvedUpTo` in the file (50,000) is the first budget within one standard error of that plateau, and the mapping uses only rungs up to it. A player whose statistic is as low as that or lower gets "at least 50,000 nodes" (the card says the real value may be higher). Levels 4 and 5 (100,000 and 500,000 nodes) cannot be told apart from level 3 and above by this method. A higher `SKILL_NODES` would move that limit up and make the background analysis proportionally slower.
+- *The weak end.* The engine at 10 and 20 nodes gave the same results as at 50 nodes (all 16 games gave the same number of moves and the same statistic), so 50 nodes is the weakest setting. Its statistic, 19.5, is far below that of a random mover: a test on the real engine measured 86.4 for 12 random moves (seed 2). A player who loses more than 19.5 points per move on average is weaker than anything the engine can be set to; the card then says "weaker than anything measured", and the button sets 50 nodes.
+- *The mapping* (`nodesForStat` in `web/src/skill/calibration.ts`) is piecewise linear between ladder points on log(nodes) and clamped at both ends. On a plateau it returns the middle of the plateau on the log scale. The card describes the result relative to the five levels ("between level 2 and level 3"), rounds it to two significant figures and shows the interval in nodes. Levels are counted from 1 as in the engine card.
+
+**The button.** "Match engine to my strength" sets a custom level: `level` is then a node budget of 10 to 5,000,000 instead of an index 0 to 4 (`web/src/skill/level.ts`). The engine card shows "Custom" and the budget, and the game URL carries the budget in `l=` (see [Game URL](#game-url)). The game stays: `onApply` in `App.tsx` makes a new engine game with the new budget, and the engine replays the history on its next search. "Reset to level" goes back to the last preset level. The engine dialog shows the default level while a custom level is active; applying it replaces the custom level.
+
+**Limits.**
+
+- Few moves mean a wide interval; 8 moves are a minimum, not a good sample. Games differ in how hard the positions are, and the statistic does not correct for that.
+- The estimate says how much your moves lose against this program's own evaluation at 20,000 nodes. It is not a rating, says nothing about other players, and is not comparable with Elo. Different engines give the same numbers, because the analysis scores are identical in all browser engines; the estimate does not depend on which engine you play against.
+- The calibration measures engines playing against themselves. A human may lose points in other ways than an engine with a small budget does, so the same statistic can mean a different strength for a human. The mapping is only an approximation of "the engine that loses as much as you do".
+- The data come from one engine build. A change to the search or the evaluation makes `calibration.json` stale; run the script again.
+
+**Tests.** `web/src/skill/*.test.ts` cover the statistic, the interval, the mapping, clamping, the minimum-moves rule, isotonic smoothing, the level encoding and the tracker (with a controllable fake engine). `web/src/app/App.skill.test.tsx` runs the app with the fake engine. `web/src/skill/skill.real.test.ts` plays a simulated player on the real C++ engine: the best mover gets the strongest end of the ladder, the random mover the weakest (skipped when the engine build is missing). `web/e2e/skill.spec.ts` runs the whole flow in a browser.
 
 ## Loading and checking the race table
 

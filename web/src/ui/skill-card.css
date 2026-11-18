@@ -1,0 +1,8 @@
+/* The skill card (SkillCard.tsx). Colours come from the shared tokens; nothing here carries meaning by colour. */
+.ml-skill { display: grid; gap: var(--ml-space-2); }
+.ml-skill__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--ml-space-2); }
+.ml-skill__label { color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
+.ml-skill__value strong { font: var(--ml-weight-medium) var(--ml-text-md)/1.3 var(--ml-font-display); }
+.ml-skill__note { color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); line-height: 1.4; }
+.ml-skill__fine { font-size: var(--ml-text-xs); }
+.ml-skill__actions { display: flex; flex-wrap: wrap; gap: var(--ml-space-2); }

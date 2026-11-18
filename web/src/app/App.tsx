@@ -21,6 +21,8 @@ import type { EnginesManifest } from '../engines/registry';
 import { Footer, Header } from '../ui/Chrome';
 import type { Screen } from '../ui/Chrome';
 import { DEFAULT_LEVEL, NODE_LEVELS } from '../ui/Panels';
+import { isPresetLevel, nodesOfLevel } from '../skill/level';
+import { SkillTracker } from '../skill/tracker';
 import { Sprite } from '../ui/primitives';
 import { AboutScreen, BenchScreen } from '../ui/Screens';
 import type { BenchRunner } from '../ui/Screens';
@@ -86,6 +88,8 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   /** The side the human played last; stays while a demo runs, so that "new game" returns to it. */
   const lastHuman = useRef<Side>(1);
   const levelRef = useRef(levelOf(setup, DEFAULT_LEVEL));
+  /** The last preset level: where "Reset to level" of the skill card goes back to. */
+  const presetLevel = useRef(DEFAULT_LEVEL);
   const started = useRef(false);
   const booted = useRef(false);
   const plan = useRef<Plan | null>(null);
@@ -97,6 +101,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   const applySetup = (next: GameSetup): void => {
     setupRef.current = next;
     levelRef.current = levelOf(next, DEFAULT_LEVEL);
+    if (isPresetLevel(levelRef.current)) presetLevel.current = levelRef.current;
     const human = humanSideOf(next);
     if (human !== null) lastHuman.current = human;
     setSetupState(next);
@@ -112,13 +117,20 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
       engine,
       baseUrl,
       loadManifest: manifestLoader ?? (() => loadManifest(baseUrl)),
-      nodes: () => NODE_LEVELS[levelRef.current] ?? nodes,
+      nodes: () => nodesOfLevel(levelRef.current),
     });
     const sync = new GameUrlSync(nav);
-    return { engine, game, session, sync };
+    // skill estimate (docs/web-ui.md, "Skill estimate"): measures the human's moves in the background
+    const tracker = new SkillTracker({
+      engine,
+      game,
+      humanSide: () => humanSideOf(setupRef.current),
+      isReady: () => session.getState().phase === 'ready',
+    });
+    return { engine, game, session, sync, tracker };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one instance for the life of the page
   }, []);
-  const { engine, game, session, sync } = parts;
+  const { engine, game, session, sync, tracker } = parts;
   const sessionState = useSyncExternalStore(session.subscribe, session.getState);
 
   const snapshot = (): UrlSnapshot => ({ moves: game.state.history, humanSide: lastHuman.current, level: levelRef.current });
@@ -142,7 +154,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
     sync.adopt({ moves: link.moves, humanSide, level });
     if (same && humanSide === lastHuman.current && level === levelRef.current && !isDemo(setupRef.current)) return;
     applySetup(humanVsEngine(humanSide, level));
-    engine.setNodes(NODE_LEVELS[level] ?? NODE_LEVELS[DEFAULT_LEVEL]);
+    engine.setNodes(nodesOfLevel(level));
     void game.loadGame(link.moves, { humanSide }).catch(() => setFlow({ kind: 'broken', reason: 'moves' }));
   };
 
@@ -178,6 +190,26 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, [nav]);
+
+  // The skill tracker follows the game; an engine that is loading, failing or replaced drops its running analysis.
+  useEffect(() => {
+    const detach = tracker.attach();
+    let engineId = session.getState().current?.info.id;
+    const off = session.subscribe(() => {
+      const s = session.getState();
+      if (s.phase !== 'ready') tracker.abort();
+      if (s.current?.info.id !== engineId) {
+        engineId = s.current?.info.id;
+        tracker.reset(); // another engine may support analysis
+      }
+      tracker.pump();
+    });
+    return () => {
+      detach();
+      off();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // One history entry per turn: write the position to the URL whenever the history of the game changes.
   useEffect(() => {
@@ -230,7 +262,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
   /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
   const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current): void => {
     applySetup(humanVsEngine(humanSide, level));
-    engine.setNodes(NODE_LEVELS[level] ?? NODE_LEVELS[DEFAULT_LEVEL]);
+    engine.setNodes(nodesOfLevel(level));
     setFlow({ kind: 'playing' });
     if (moves) {
       // The entry that holds the link becomes an entry of this game, so that Back can return to it without a dialog.
@@ -275,13 +307,17 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
     humanSide,
     demo,
     level,
+    tracker,
+    presetLevel: presetLevel.current,
     canShare: playing && !demo,
     getUrl: () => nav.href,
     onNewGame: () => {
+      tracker.abort();
       applySetup(humanVsEngine(lastHuman.current, levelRef.current));
       void game.newGame({ mode: 'human-vs-engine', humanSide: lastHuman.current });
     },
     onSwap: () => {
+      tracker.abort();
       const next: Side = lastHuman.current === 1 ? 0 : 1;
       applySetup(humanVsEngine(next, levelRef.current));
       void game.newGame({ mode: 'human-vs-engine', humanSide: next });
@@ -297,20 +333,25 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
         await game.runEngineVsEngine();
       })();
     },
-    onUndo: () => void game.undo(),
+    onUndo: () => {
+      tracker.abort();
+      void game.undo();
+    },
     onApply: (id: EngineId, nextLevel: number) => {
       void (async () => {
         game.cancel();
+        tracker.abort();
         await whenIdle(game);
         applySetup(withLevel(setupRef.current, nextLevel));
-        engine.setNodes(NODE_LEVELS[nextLevel] ?? NODE_LEVELS[DEFAULT_LEVEL]);
+        engine.setNodes(nodesOfLevel(nextLevel));
         if (playing && !isDemo(setupRef.current)) sync.observe(snapshot()); // the strength is part of the address
         if (id !== session.getState().current?.info.id || session.getState().phase !== 'ready') {
           if (await session.select(id)) await afterReady();
         } else {
-          await engine.newGame({ nodes: [NODE_LEVELS[nextLevel] ?? 0, NODE_LEVELS[nextLevel] ?? 0] });
+          await engine.newGame({ nodes: [nodesOfLevel(nextLevel), nodesOfLevel(nextLevel)] });
           await afterReady();
         }
+        tracker.pump();
       })();
     },
     onRestart: () => {
