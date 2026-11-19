@@ -64,6 +64,28 @@ tasks.register<JavaExec>("vectorBenchmark") {
     providers.gradleProperty("vectorSeconds").orNull?.let { args("--seconds", it) }
 }
 
+// Input and reference file of the network benchmark in the browser (scripts/bench-net-wasm.zsh), not a test.
+// Run: ./gradlew --no-build-cache :nn:wasmBenchExport --args='<net.safetensors> <out.safetensors> [positions] [seed]'
+tasks.register<JavaExec>("wasmBenchExport") {
+    group = "verification"
+    description = "Writes the golden inputs and the scalar reference outputs of a net for the browser benchmark."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.WasmBenchExport")
+    workingDir = rootDir
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+
+// How much storing the weights as float16 changes the outputs of a net (not a test).
+// Run: ./gradlew --no-build-cache :nn:halfPrecisionStudy --args='<net.safetensors> [positions] [seed]'
+tasks.register<JavaExec>("halfPrecisionStudy") {
+    group = "verification"
+    description = "Compares a net with its F32-F16-F32 round trip: logits, values, arg-max move agreement, policy KL."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("sternhalma.nn.HalfPrecisionStudy")
+    workingDir = rootDir
+    jvmArgs("--add-modules", "jdk.incubator.vector")
+}
+
 // Golden files of the C++ network port (docs/cpp-comparison-plan.md, WP8): weights, 1,024 encoded inputs, reference outputs of
 // the scalar and the Vector API network, hand-checkable cases and MANIFEST.tsv in cpp/golden. With -Psternhalma.golden.real=true
 // it also writes the reference for the real LARGE weights ($STERNHALMA_DATA_DIR/loop4/gen-0011). -Psternhalma.golden.out=DIR

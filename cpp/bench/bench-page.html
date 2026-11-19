@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nn bench</title>
+</head>
+<body>
+<script type="module">
+import { SCHEDULE, VARIANT_IMPLS, cppImpls, loadReference, runImpl, teavmImpl } from '/driver/bench-driver.mjs';
+
+// The page has no Node API: no CPU time and no load average (the runner adds the load average of the host).
+window.runJob = async (origin, job, quick) => {
+  if (quick) Object.assign(SCHEDULE, { warmupSeconds: 0.1, warmupCalls: 2, roundSeconds: 0.1, rounds: 3 });
+  const [netBytes, refBytes] = await Promise.all([
+    fetch(`${origin}/net`).then(async (r) => new Uint8Array(await r.arrayBuffer())),
+    fetch(`${origin}/ref`).then(async (r) => new Uint8Array(await r.arrayBuffer())),
+  ]);
+  const ref = loadReference(refBytes);
+  const emit = (row) => window.nbEmit(row);
+  if (job.kind === 'cpp') {
+    const t0 = performance.now();
+    const { default: createNb } = await import(`${origin}/cpp/wasm-${job.variant}/nn_bench.mjs`);
+    const mod = await createNb();
+    const t1 = performance.now();
+    const impls = cppImpls(mod, netBytes, ref, `cpp-${job.variant}`, VARIANT_IMPLS[job.variant]);
+    emit({ event: 'load', impl: `cpp-${job.variant}`, instantiate_ms: +(t1 - t0).toFixed(1), load_ms: +(performance.now() - t1).toFixed(1), lanes: mod._nb_lanes() });
+    for (const impl of impls) runImpl(impl, ref, {}, emit);
+  } else {
+    const t0 = performance.now();
+    let exports;
+    if (job.target === 'js') {
+      exports = await import(`${origin}/teavm/js/nn-bench-java.js`);
+    } else {
+      if (!globalThis.TeaVM?.wasmGC) await import(`${origin}/teavm/wasm-gc/nn-bench-java.wasm-runtime.js`);
+      exports = (await globalThis.TeaVM.wasmGC.load(`${origin}/teavm/wasm-gc/nn-bench-java.wasm`)).exports;
+    }
+    const t1 = performance.now();
+    const impl = teavmImpl(exports, netBytes, ref, `teavm-${job.target === 'js' ? 'js' : 'wasmgc'}`);
+    emit({ event: 'load', impl: impl.name, instantiate_ms: +(t1 - t0).toFixed(1), load_ms: +(performance.now() - t1).toFixed(1) });
+    runImpl(impl, ref, {}, emit);
+  }
+};
+</script>
+</body>
+</html>
