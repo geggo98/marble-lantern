@@ -1,10 +1,10 @@
 // The play screen: status bar, board, notices (loading, result, error), controls, engine card, figures, move list.
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { GOAL_CELLS } from '../board/cells';
 import type { GameController } from '../game/game';
-import { initialOwners } from '../game/board-state';
+import { goalCells, initialOwners } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { isDefault, moveLimit, variantKey } from '../game/variant';
+import type { Player } from '../game/variant';
 import type { EngineId } from '../engines/engine';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
@@ -19,10 +19,11 @@ import { useWide } from '../ui/useMedia';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
 import {
-  AlertCard, Controls, EngineCard, LoadingCard, MoveList, ResultCard, StatusBar, Telemetry,
+  AlertCard, Controls, EngineCard, LoadingCard, MoveList, ResultCard, SeatsCard, StatusBar, Telemetry,
 } from '../ui/Panels';
 import type { AlertAction } from '../ui/Panels';
 import type { SideStyle } from '../ui/primitives';
+import { seatNameKey, seatViews } from '../ui/seat-view';
 import { useT } from '../ui/texts';
 import type { TextKey } from '../ui/texts';
 import { SkillCard } from '../ui/SkillCard';
@@ -94,13 +95,17 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const [sheet, setSheet] = useState(false);
   const wide = useWide();
   const [menu, setMenu] = useState(false);
+  const [closedResult, setClosedResult] = useState<string | null>(null);
   const menuButton = useRef<HTMLButtonElement | null>(null);
 
   const ready = s.phase === 'ready';
-  const aSide: Side = demo ? 1 : humanSide;
-  const rotated = aSide === 0;
-  const styleOf = (side: number): SideStyle => (side === aSide ? 'a' : 'b');
   const variant = state.variant;
+  const three = variant.players === 3;
+  // marble, name and cues of every seat (ui/seat-view.ts); two players keep the classic amber and blue
+  const views = useMemo(() => seatViews(state.seats, demo), [state.seats, demo]);
+  const styleOf = (side: number): SideStyle => views[side]?.style ?? 'b';
+  const aSide: Player = (views.find((v) => v.style === 'a')?.seat ?? 1) as Player;
+  const rotated = !three && aSide === 0; // the person at the top corner sees the board turned; three players never turn it
   // the analysis behind the move guides and the skill estimate exists for two players only
   const analysable = variant.players === 2;
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
@@ -113,27 +118,43 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     history: state.history,
   });
   const boardGuides = useMemo(() => (guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guides.view]);
-  const sideLabel = (side: Side): string =>
-    demo ? t(styleOf(side) === 'a' ? 'cell_side_a' : 'cell_side_b') : t(side === humanSide ? 'cell_own' : 'cell_other');
-  const who = (side: Side): string => (demo ? t(styleOf(side) === 'a' ? 'side_a' : 'side_b') : t(side === humanSide ? 'side_you' : 'side_engine'));
+  const seatName = (side: number): string => {
+    const v = views[side];
+    return v ? t(seatNameKey(v), { n: v.number }) : '';
+  };
+  const sideLabel = (side: number): string => {
+    const v = views[side];
+    if (three && v) {
+      if (demo) return t(`cell_side_${v.style}` as 'cell_side_a');
+      return t(v.you ? 'cell_seat_you' : v.kind === 'engine' ? 'cell_seat_engine' : 'cell_seat', { n: v.number });
+    }
+    return demo ? t(styleOf(side) === 'a' ? 'cell_side_a' : 'cell_side_b') : t(side === humanSide ? 'cell_own' : 'cell_other');
+  };
+  const who = (side: number): string => {
+    if (three) return demo ? t(`side_${styleOf(side)}` as 'side_a') : seatName(side);
+    return demo ? t(styleOf(side) === 'a' ? 'side_a' : 'side_b') : t(side === humanSide ? 'side_you' : 'side_engine');
+  };
 
-  const moves = useMemo(() => describeHistory(state.history, initialOwners()), [state.history]);
+  const moves = useMemo(() => describeHistory(state.history, initialOwners(variant)), [state.history, variant]);
   const last = moves[moves.length - 1] ?? null;
 
-  // status bar
+  // status bar: whose turn, in the marble of that seat; an engine seat that is searching pulses
   let statusText = t('status_loading');
   let statusStyle: SideStyle = styleOf(state.sideToMove);
   if (ready) {
+    const mover = state.sideToMove;
     if (state.outcome) statusText = t('status_over');
+    else if (three) statusText = views[mover]?.you && !state.thinking ? t('turn_you') : t(state.thinking ? 'thinking_seat' : 'turn_seat', { player: who(mover) });
     else if (state.thinking) statusText = t('engine_thinking');
-    else statusText = !demo && state.seats[state.sideToMove] === 'human' ? t('turn_you') : t('turn_engine');
+    else statusText = !demo && state.seats[mover] === 'human' ? t('turn_you') : t('turn_engine');
   }
   if (state.outcome?.kind === 'win') statusStyle = styleOf(state.outcome.winner);
 
-  // notice slot: one place for loading, result and errors
+  // notice slot: one place for loading, result and errors; a result on a small screen can be closed (it lies over the board)
   const sessionError = s.phase === 'failed' ? s.error : null;
   const gameError = state.error ? { code: (state.error as { code?: string }).code ?? 'internal', message: state.error.message } : null;
   const error = sessionError ?? gameError;
+  const resultKey = state.outcome ? `${state.outcome.kind}@${state.history.length}` : null;
   let notice: React.JSX.Element | null = null;
   if (error) {
     const d = describeError(error, model, t);
@@ -141,28 +162,49 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   } else if (s.phase === 'loading' || s.phase === 'discovering') {
     const label = s.current ? t(s.current.info.labelKey as TextKey) : t('status_loading');
     notice = <LoadingCard engineLabel={label} progress={s.progress} />;
-  } else if (state.outcome) {
+  } else if (state.outcome && closedResult !== resultKey) {
     const o = state.outcome;
+    const onClose = !wide ? () => setClosedResult(resultKey) : undefined;
     if (o.kind === 'win') {
-      const headline = demo ? t('result_win_side', { side: who(o.winner as Side) }) : t(o.winner === humanSide ? 'result_win_you' : 'result_win_engine');
-      notice = <ResultCard winner={styleOf(o.winner)} headline={headline} plies={state.history.length} />;
+      const winnerView = views[o.winner];
+      const headline = demo
+        ? t('result_win_side', { side: who(o.winner) })
+        : three
+          ? winnerView?.you ? t('result_win_you') : t('result_win_seat', { player: seatName(o.winner) })
+          : t(o.winner === humanSide ? 'result_win_you' : 'result_win_engine');
+      notice = <ResultCard winner={styleOf(o.winner)} headline={headline} plies={state.history.length} onClose={onClose} />;
     } else if (o.kind === 'move-limit') {
-      const rows = ([aSide, aSide === 0 ? 1 : 0] as Side[]).map((side) => {
-        const value = approximateDistance(state.owner, side);
-        const other = approximateDistance(state.owner, side === 0 ? 1 : 0);
-        return { style: styleOf(side), label: who(side), value, ahead: value < other };
-      });
+      const goals = goalCells(variant);
+      const order = three ? state.seats.map((_, i) => i) : [aSide, aSide === 0 ? 1 : 0];
+      const values = new Map(order.map((seat) => [seat, approximateDistance(state.owner, seat, goals)]));
+      const best = Math.min(...values.values());
+      const leaders = [...values.values()].filter((v) => v === best).length;
+      const rows = order
+        .map((seat) => {
+          const value = values.get(seat)!;
+          const others = order.filter((x) => x !== seat).map((x) => values.get(x)!);
+          return { style: styleOf(seat), label: who(seat), value, ahead: three ? value === best && leaders === 1 : value < others[0]! };
+        })
+        .sort((x, y) => (three ? x.value - y.value : 0));
       notice = (
-        <ResultCard winner={null} headline={t('result_limit')} note={t('result_limit_note')} plies={moveLimit(variant)} distances={rows} />
+        <ResultCard
+          winner={null}
+          headline={t('result_limit')}
+          note={t('result_limit_note')}
+          plies={moveLimit(variant)}
+          distances={rows}
+          leadText={three ? t('closest') : undefined}
+          onClose={onClose}
+        />
       );
     } else {
-      notice = <ResultCard winner={null} headline={t('result_nomoves')} plies={state.history.length} />;
+      notice = <ResultCard winner={null} headline={t('result_nomoves')} plies={state.history.length} onClose={onClose} />;
     }
   }
 
   const halo =
     state.outcome?.kind === 'win'
-      ? (GOAL_CELLS[state.outcome.winner as Side] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Side }).winner)
+      ? (goalCells(variant)[state.outcome.winner] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Player }).winner)
       : [];
 
   const controls = (part: 'all' | 'secondary'): React.JSX.Element => (
@@ -181,6 +223,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // One source of content, two presentations: the side column of a wide screen and the menu of a small one.
   const cards = (
     <>
+      {three && <SeatsCard seats={views.map((v) => ({ style: v.style, name: seatName(v.seat), onMove: !state.outcome && state.sideToMove === v.seat }))} hotSeat={state.seats.filter((k) => k === 'human').length === 2} />}
       {analysable && (
         <GuideSettings
           enabled={guidesOn}
@@ -202,7 +245,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         />
       )}
       <Telemetry result={state.lastEngine} stale={state.thinking} />
-      <MoveList moves={moves} styleOf={styleOf} defaultOpen={wide} />
+      <MoveList moves={moves} styleOf={styleOf} defaultOpen={wide} perRow={variant.players} />
     </>
   );
 
@@ -223,12 +266,14 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             interactive={humanTurn}
             inert={!humanTurn}
             guides={boardGuides}
-            aSide={aSide}
+            aSide={aSide as Side}
             rotated={rotated}
             plies={state.history.length}
             last={last}
             halo={halo}
             sideLabel={sideLabel}
+            seatStyle={styleOf}
+            goals={goalCells(variant).map((cells, seat) => ({ cells, style: styleOf(seat) }))}
             onMove={(move) => {
               guides.noteMove(move);
               void game.play(move).catch(() => undefined);

@@ -22,7 +22,7 @@ test('a page without a game link asks "Do you want to begin?" and starts nothing
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
-  await expect(dialog(page).locator('button:focus')).toHaveCount(1); // focus stays inside
+  await expect(dialog(page).locator(':focus')).toHaveCount(1); // focus stays inside (a radio or a button)
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toBeVisible(); // there is no game to go back to
   await dialog(page).locator('[data-choice="begin-yes"]').click();

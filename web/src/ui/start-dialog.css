@@ -12,3 +12,24 @@
 @media (forced-colors: active) {
   .ml-copylink__field input { border-color: CanvasText; }
 }
+
+/* Game choices: radio groups that look like buttons. The native radio covers the whole label, so the target is the label. */
+.ml-start__choices { display: grid; gap: var(--ml-space-3); }
+.ml-start__group > legend { color: var(--ml-color-ink-muted); }
+.ml-start__seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--ml-space-2); }
+.ml-start__list { display: grid; gap: var(--ml-space-2); }
+.ml-start__opt {
+  position: relative; display: flex; align-items: center; justify-content: center; min-height: var(--ml-size-control);
+  padding: 0.5rem 0.75rem; border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-md);
+  background: var(--ml-color-surface); color: var(--ml-color-ink); cursor: pointer;
+  font: var(--ml-weight-medium) var(--ml-text-sm)/1.25 var(--ml-font-ui);
+}
+.ml-start__list .ml-start__opt { justify-content: flex-start; text-align: start; }
+.ml-start__opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.ml-start__opt[data-checked] { background: var(--ml-color-primary); border-color: var(--ml-color-primary); color: var(--ml-color-on-primary); }
+.ml-start__opt:focus-within { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-start__desc { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
+.ml-start__question { margin: var(--ml-space-1) 0 0; font-weight: var(--ml-weight-medium); }
+@media (forced-colors: active) {
+  .ml-start__opt[data-checked] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
+}

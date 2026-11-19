@@ -82,6 +82,7 @@ async function mount(nav: FakeNavigation, initialSetup?: GameSetup): Promise<voi
 }
 
 afterEach(async () => {
+  localStorage.removeItem('ml.start-choice'); // the start dialog remembers its last choice
   await act(async () => root.unmount());
   host.remove();
 });
@@ -150,7 +151,7 @@ describe('three players through the start hook', () => {
   it('hot-seat: two humans take turns, the engine answers after the second, and there is no swap button', async () => {
     const nav = new FakeNavigation('');
     await mount(nav, hotSeatVsEngine(2));
-    await until(() => plies() === 0 && status() === 'Your move', 'hot-seat game runs');
+    await until(() => plies() === 0 && status() === 'Player 1 to move', 'hot-seat game runs');
     expect(buttonTexts()).not.toContain('Swap sides');
     expect(buttonTexts()).toContain('New game');
   });
@@ -165,15 +166,19 @@ describe('three players through the start hook', () => {
     await until(() => plies() === 2 && status() === 'Your move', 'the engine of seat 1 played; seat 2 is the human');
   });
 
-  it('"New game" restarts the same variant without the dialog', async () => {
+  it('"New game" opens the start dialog, which starts the game that is chosen there', async () => {
     const nav = new FakeNavigation('');
     await mount(nav, humanVsTwoEngines(1, 2));
     await until(() => plies() === 1 && status() === 'Your move', 'started');
     await humanMove();
     await until(() => plies() === 4, 'one round');
     await click(all('button').find((b) => b.textContent === 'New game')!);
+    expect(dialog()).not.toBeNull();
+    await click(q('[data-choice="mode-engines"]')!);
+    await click(q('[data-choice="human-seat-2"]')!);
+    await click(q('[data-choice="begin-start"]')!);
     expect(dialog()).toBeNull();
-    await until(() => plies() === 1 && status() === 'Your move', 'a new game of the same seats');
+    await until(() => plies() === 1 && status() === 'Your move', 'a new game: the human is on seat 2');
     expect(nav.hash).toContain('&p=3&s=ehe');
   });
 });
@@ -184,7 +189,7 @@ describe('game links with variants', () => {
     const nav = new FakeNavigation(`#g=v1.${encodeMoves(moves)}&l=2&p=3&s=hhe`);
     await mount(nav);
     expect(dialog()).toBeNull();
-    await until(() => plies() === 3 && status() === 'Your move', 'the linked position; seat 0 is a human');
+    await until(() => plies() === 3 && status() === 'Player 1 to move', 'the linked position; seat 0 is a human');
     expect(buttonTexts()).not.toContain('Swap sides'); // hot-seat
     expect(nav.hash).toContain('&p=3&s=hhe');
   });

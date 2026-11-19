@@ -120,16 +120,17 @@ describe('the start dialog', () => {
     expect(dialog()).not.toBeNull();
   });
 
-  it('puts the focus on the first button, keeps Tab inside, and does not close on Escape', async () => {
+  it('puts the focus on the primary button, keeps Tab inside at both ends, and does not close on Escape', async () => {
     await mount(new FakeNavigation(''));
     const yes = choice('begin-yes');
     const no = choice('begin-no');
     expect(document.activeElement).toBe(yes);
     no.focus();
     const forward = await key(no, 'Tab');
-    expect(forward.defaultPrevented).toBe(true); // wraps to the first button instead of leaving the dialog
-    yes.focus();
-    const backward = await key(yes, 'Tab', { shiftKey: true });
+    expect(forward.defaultPrevented).toBe(true); // wraps to the first stop instead of leaving the dialog
+    const firstStop = choice('jump-adjacent'); // the checked radio of the first group (unchecked radios are no Tab stops)
+    firstStop.focus();
+    const backward = await key(firstStop, 'Tab', { shiftKey: true });
     expect(backward.defaultPrevented).toBe(true);
     await key(yes, 'Escape');
     expect(dialog()).not.toBeNull(); // nothing to go back to: the question stays

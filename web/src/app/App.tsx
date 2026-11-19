@@ -15,8 +15,9 @@ import { GameController } from '../game/game';
 import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withHumanSeat, withLevel } from '../game/setup';
-import { DEFAULT_VARIANT, isDefault } from '../game/variant';
+import { DEFAULT_VARIANT } from '../game/variant';
 import type { Player } from '../game/variant';
+import { loadChoice, saveChoice, setupOfChoice } from './start-choice';
 import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
 import type { GameSetup } from '../game/setup';
 import type { EngineId } from '../engines/engine';
@@ -46,9 +47,8 @@ export interface AppProps {
   /** Tests pass a fake history; the default is the browser's. */
   navigation?: NavigationPort;
   /**
-   * Development and test hook for the game variants (the start dialog for them comes later): when set, the app starts this game
-   * as soon as an engine is ready, without the "Do you want to begin?" dialog. A game link in the address (with `&j=long`, or
-   * `&p=3&s=<seats>`) takes precedence. "New game" restarts the same setup for a variant; the standard game asks as before.
+   * Development and test hook: when set, the app starts this game as soon as an engine is ready, without the start dialog.
+   * A game link in the address (with `&j=long`, or `&p=3&s=<seats>`) takes precedence. "New game" opens the start dialog.
    */
   initialSetup?: GameSetup;
 }
@@ -371,12 +371,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     getUrl: () => nav.href,
     onNewGame: () => {
       tracker.abort();
-      // a game variant starts again with the same seats (its own start dialog comes later)
-      if (!isDefault(variantOf(setupRef.current)) && !isDemo(setupRef.current)) {
-        startSetup(setupRef.current);
-        return;
-      }
-      // ask who begins again, like at the start; Escape or "keep my game" returns to the game that runs
+      // ask for the game again, like at the start; Escape or "keep my game" returns to the game that runs
       setFlow({ kind: 'begin' });
     },
     onSwap: () => {
@@ -434,12 +429,20 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
 
   let dialogModel: StartDialogModel | null = null;
   if (flow.kind === 'begin') {
-    dialogModel = { kind: 'begin', onChoose: (humanBegins) => startGame(humanBegins ? 0 : 1) };
+    dialogModel = {
+      kind: 'begin',
+      initial: loadChoice(),
+      onStart: (choice, humanBegins) => {
+        saveChoice(choice);
+        startSetup(setupOfChoice(choice, humanBegins, levelRef.current));
+      },
+    };
   } else if (flow.kind === 'link') {
     const { link } = flow;
     dialogModel = {
       kind: 'link',
       ply: link.moves.length,
+      jump: variantOfLink(link).jump,
       sideToMove: sideToMove(link.moves.length),
       preferred: link.humanSide,
       onContinueAs: (side) => startGame(side, link.moves, link.level, variantOfLink(link).jump),

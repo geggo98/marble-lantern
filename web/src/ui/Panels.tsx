@@ -152,11 +152,14 @@ export function MoveList(props: {
   moves: readonly MoveDescription[];
   styleOf: (side: number) => SideStyle;
   defaultOpen: boolean;
+  /** Moves per row: one round of the game (2 or 3 players). */
+  perRow?: number;
 }): React.JSX.Element {
+  const per = props.perRow ?? 2;
   const { t } = useT();
   const rows: MoveDescription[][] = [];
   props.moves.forEach((m, i) => {
-    if (i % 2 === 0) rows.push([m]);
+    if (i % per === 0) rows.push([m]);
     else rows[rows.length - 1]!.push(m);
   });
   const lastIndex = props.moves.length - 1;
@@ -171,7 +174,7 @@ export function MoveList(props: {
           <li key={r} className="ml-moves__row">
             <span className="ml-moves__no">{r + 1}.</span>
             {row.map((m, c) => (
-              <span key={c} className="ml-moves__move" {...(r * 2 + c === lastIndex ? { 'aria-current': 'true' as const } : {})}>
+              <span key={c} className="ml-moves__move" {...(r * per + c === lastIndex ? { 'aria-current': 'true' as const } : {})}>
                 <Swatch style={props.styleOf(m.side)} />
                 {notation(m).split(/([›»])/).map((part, i) =>
                   part === '»' ? (
@@ -182,7 +185,7 @@ export function MoveList(props: {
                 )}
               </span>
             ))}
-            {row.length === 1 && <span />}
+            {row.length === 1 && per === 2 && <span />}
           </li>
         ))}
       </ol>
@@ -244,6 +247,10 @@ export function ResultCard(props: {
   plies: number;
   distances?: { style: SideStyle; label: string; value: number; ahead: boolean }[];
   note?: string;
+  /** The marker of the leading row (default: "ahead"; three players: "closest"). */
+  leadText?: string | undefined;
+  /** Present on a small screen, where the card lies over the board: a close button. */
+  onClose?: (() => void) | undefined;
 }): React.JSX.Element {
   const { t, n } = useT();
   return (
@@ -252,6 +259,11 @@ export function ResultCard(props: {
         {props.winner && <Swatch style={props.winner} />}
         <span>{props.headline}</span>
       </h2>
+      {props.onClose && (
+        <button type="button" className="ml-btn ml-btn--icon ml-btn--quiet ml-result__close" aria-label={t('result_close')} data-result-close onClick={props.onClose}>
+          <Icon name="close" />
+        </button>
+      )}
       <p className="ml-result__meta">
         {props.note ?? t('result_after')} <span className="ml-data">{n(props.plies)}</span> {t('plies')}
       </p>
@@ -262,7 +274,7 @@ export function ResultCard(props: {
               <Swatch style={d.style} />
               <span>
                 {d.label}
-                {d.ahead ? ` · ${t('ahead')}` : ''}
+                {d.ahead ? ` · ${props.leadText ?? t('ahead')}` : ''}
               </span>
               <span className="ml-score__value">{n(d.value)}</span>
             </div>
@@ -295,6 +307,29 @@ export function AlertCard(props: { title: string; body: string; code: string; ac
           ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+/** The seats of a three-player game: marble, name and whose turn it is. */
+export function SeatsCard(props: {
+  seats: readonly { style: SideStyle; name: string; onMove: boolean }[];
+  hotSeat: boolean;
+}): React.JSX.Element {
+  const { t } = useT();
+  return (
+    <section className="ml-card ml-seats" aria-label={t('seats_heading')}>
+      <p className="ml-kicker">{t('seats_heading')}</p>
+      <ul className="ml-seats__list">
+        {props.seats.map((seat) => (
+          <li key={seat.name} className="ml-seats__row" {...(seat.onMove ? { 'aria-current': 'true' as const, 'data-on-move': '' } : {})}>
+            <Swatch style={seat.style} />
+            <span>{seat.name}</span>
+            {seat.onMove && <Tag solid>{t('seat_on_move')}</Tag>}
+          </li>
+        ))}
+      </ul>
+      {props.hotSeat && <p className="ml-hint">{t('hotseat_note')}</p>}
     </section>
   );
 }

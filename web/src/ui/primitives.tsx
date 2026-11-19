@@ -22,7 +22,8 @@ export function Icon({ name }: { name: IconName }): React.JSX.Element {
   );
 }
 
-export type SideStyle = 'a' | 'b';
+/** The marble of a side: A plain amber, B blue with a ring, C pearl with a diamond (the third seat of a three-player game). */
+export type SideStyle = 'a' | 'b' | 'c';
 
 /** Every place that shows a side shows the marble itself, never a bare colour patch. */
 export function Swatch({ style }: { style: SideStyle }): React.JSX.Element {
