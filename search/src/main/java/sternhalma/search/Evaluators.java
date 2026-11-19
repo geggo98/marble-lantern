@@ -101,6 +101,14 @@ public final class Evaluators {
         return java.util.Collections.unmodifiableSet(all);
     }
 
+    /**
+     * Whether the evaluator reads a race table (the {@code racelin*} evaluators, registered or by prefix). Those
+     * tables count single jumps only, so such an evaluator is wrong for {@code jump=long}.
+     */
+    static boolean usesRaceTable(String name) {
+        return RACE_ENTRIES.containsKey(name) || name.startsWith(RACELIN_PREFIX) || name.startsWith(RACELIN1_PREFIX);
+    }
+
     public static Evaluator byName(String name) {
         return byName(name, Map.of());
     }

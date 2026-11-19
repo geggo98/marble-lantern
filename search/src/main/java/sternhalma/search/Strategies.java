@@ -86,6 +86,15 @@ public final class Strategies {
     public static final String BROWSER_SPEC =
             "ab:eval=racelin-r3," + OPTIONS + ",fut=1,futk=20,fut2=1,race=1,racerows=2";
 
+    /**
+     * The browser player for the Halma long hop ({@code jump=long}, docs/rules.md "Jump rule"): {@link #BROWSER_SPEC}
+     * without race play and with {@code eval=linear-r3}, the base evaluator of the browser's {@code racelin-r3}. The
+     * race table and the race arithmetic count single jumps only, so neither may play long-hop games. A weaker player
+     * than the browser spec: the evaluator's jump features still count single jumps, and the futility margins were
+     * tuned for them. Not in {@link #registered()}: the strategy contract plays the default rules.
+     */
+    public static final String BROWSER_LONG_SPEC = "ab:eval=linear-r3," + OPTIONS + ",fut=1,futk=20,fut2=1,jump=long";
+
     private Strategies() {
     }
 

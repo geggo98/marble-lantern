@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
+import sternhalma.engine.RuleSet.JumpRule;
 import sternhalma.tablebase.RaceTable;
 
 /**
@@ -28,21 +29,46 @@ import sternhalma.tablebase.RaceTable;
  * ({@link RaceTable#rows1()}, built into the cache on first use when absent) instead of the default rows&gt;=2 table
  * ({@code racerows=2}). Two players only; with three players the search decides.
  *
+ * <p>Jump rule: {@code jump=adjacent} (default) or {@code jump=long} names the rule of the games the player plays
+ * ({@link JumpRule}; the position carries the real rule, and the player refuses a position of another rule). The race
+ * table, the race arithmetic of the {@code racelin*} evaluators and the solitaire beam are computed for single jumps
+ * only, so {@code jump=long} is rejected together with {@code race=1}, {@code race=2} and a race evaluator. The other
+ * evaluators stay usable but weaker: their jump features count single jumps, the distance table counts steps
+ * (docs/rules.md, "Jump rule").
+ *
  * @param race      0 off, 1 or 2 the race mode
  * @param raceTable whether race play may use a race table
  * @param raceRows  the region of the race table: 2 (default, committed) or 1 (extended, optional)
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
-        SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable, int raceRows) {
+        SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable, int raceRows,
+        JumpRule jumpRule) {
 
     public PlayerSpec {
         weights = Map.copyOf(weights);
+        java.util.Objects.requireNonNull(jumpRule, "jumpRule");
         if (race < 0 || race > 2) {
             throw new IllegalArgumentException("race must be 0, 1 or 2, got " + race);
         }
         if (raceRows != 1 && raceRows != 2) {
             throw new IllegalArgumentException("racerows must be 1 or 2, got " + raceRows);
         }
+        if (jumpRule == JumpRule.LONG) {
+            if (race != 0) {
+                throw new IllegalArgumentException("jump=long cannot be combined with race=" + race
+                        + ": the race table and the solitaire beam are computed for single jumps");
+            }
+            if (Evaluators.usesRaceTable(evaluator)) {
+                throw new IllegalArgumentException("jump=long cannot be combined with eval=" + evaluator
+                        + ": it reads the race table, which is computed for single jumps (use its base evaluator)");
+            }
+        }
+    }
+
+    public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
+            SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable, int raceRows) {
+        this(text, evaluator, nodes, depth, millis, tableBits, options, weights, race, raceTable, raceRows,
+                JumpRule.ADJACENT);
     }
 
     public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
@@ -99,6 +125,7 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
         int race = intOption(options.remove("race"));
         String raceTable = options.remove("racetable");
         boolean useTable = raceTable == null || flag(raceTable, "racetable");
+        String jump = options.remove("jump");
         String raceRows = options.remove("racerows");
         if (raceRows != null && (race == 0 || !useTable)) {
             throw new IllegalArgumentException("racerows needs race=1 or race=2 with the table enabled");
@@ -126,7 +153,18 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 weights,
                 race,
                 useTable,
-                raceRows == null ? RaceTable.MIN_ROW : Integer.parseInt(raceRows));
+                raceRows == null ? RaceTable.MIN_ROW : Integer.parseInt(raceRows),
+                parseJump(jump));
+    }
+
+    private static JumpRule parseJump(String value) {
+        if (value == null || value.equals("adjacent")) {
+            return JumpRule.ADJACENT;
+        }
+        if (value.equals("long")) {
+            return JumpRule.LONG;
+        }
+        throw new IllegalArgumentException("jump must be adjacent or long, got '" + value + "'");
     }
 
     private static boolean flag(String value, String key) {
@@ -162,6 +200,6 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 : new RaceMove(raceTableOfSource == null ? null : raceTableOfSource.counts(), race,
                         raceTableOfSource == null ? -1 : raceTableOfSource.minRow());
         return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights, source), depth, millis, nodes, tableBits, label,
-                options, raceMove);
+                options, raceMove, jumpRule);
     }
 }
