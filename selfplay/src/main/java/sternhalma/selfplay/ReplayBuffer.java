@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.SplittableRandom;
 import java.util.stream.Stream;
 
+import sternhalma.engine.RuleSet;
 import sternhalma.nn.BatchSampler;
 import sternhalma.nn.BatchSource;
 import sternhalma.nn.HexGrid;
@@ -53,18 +54,56 @@ public final class ReplayBuffer implements BatchSource {
     }
 
     /** The samples of one file, validated, in compact form. */
-    private record Block(int generation, int size, byte[] cells, short[] ply, short[] moveLimit, int[] moveOffsets,
-            byte[] moveFrom, byte[] moveTo, float[] moveTarget, float[] value, float[] policyWeight,
-            float[] valueWeight, double[] entropy,
-            byte[] result) {
+    private record Block(int generation, int size, int players, RuleSet.JumpRule jumpRule, byte[] cells, short[] ply,
+            short[] moveLimit, int[] moveOffsets, byte[] moveFrom, byte[] moveTo, float[] moveTarget, float[] value,
+            float[] policyWeight, float[] valueWeight, double[] entropy, byte[] winner) {
+
+        Variant variant() {
+            return Variant.of(players, jumpRule);
+        }
     }
 
+    /**
+     * How a mixed buffer draws a batch over its variants: {@link #EQUAL} gives each variant that is present the same
+     * share of every batch, {@link #NATURAL} draws uniformly from all samples, so a variant has the share it has in
+     * the data.
+     */
+    public enum Strata {
+        EQUAL, NATURAL;
+
+        /** The name of the command line option, {@code equal} or {@code natural}. */
+        public String id() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        public static Strata ofId(String id) {
+            for (Strata s : values()) {
+                if (s.id().equals(id)) {
+                    return s;
+                }
+            }
+            throw new IllegalArgumentException("--strata must be equal or natural, got " + id);
+        }
+    }
+
+    /**
+     * The weight of the value loss of a two-player sample in a mixed buffer. The loss is the mean over the three
+     * value outputs; a two-player sample has two real targets and a dummy one (0), so its gradient is 2/3 of the
+     * two-player gradient of a net with two outputs. The factor 3/2 restores it. It is part of the batch
+     * ({@link TrainingBatch#valueWeight()}) and multiplies the weight of the file; the loss code does not know it.
+     */
+    public static final float TWO_PLAYER_VALUE_WEIGHT = 1.5f;
+
     private final int players;
+    private final boolean mixed;
+    private final Strata strata;
     private final int window;
     private final boolean augment;
     private final PlaneSet planes;
     private final List<Block> blocks = new ArrayList<>();
     private int[] starts = {0};
+    /** Global sample indices of each variant, ascending; filled after every addition. */
+    private int[][] byVariant = new int[Variant.values().length][0];
     private int lastGeneration = -1;
 
     /**
@@ -81,6 +120,27 @@ public final class ReplayBuffer implements BatchSource {
      *               sample at batch build time, never stored
      */
     public ReplayBuffer(int players, int window, boolean augment, PlaneSet planes) {
+        this(players, false, Strata.NATURAL, window, augment, planes);
+    }
+
+    /**
+     * A buffer of all four variants for a network of the plane set {@code classic1v} (docs/training.md,
+     * "Mixed-variant training (shared net)"). It accepts files of two and of three players, with either jump rule,
+     * keeps the rules of each file, and builds batches with three value columns: a two-player sample has the dummy
+     * target 0 in the third column and the value weight {@link #TWO_PLAYER_VALUE_WEIGHT} times that of its file.
+     * Mirroring applies to two-player samples only.
+     *
+     * @param planes must be a plane set with {@link PlaneSet#variants()}
+     * @param strata how {@link #batch} divides a batch over the variants that are present
+     */
+    public static ReplayBuffer mixed(int window, boolean augment, PlaneSet planes, Strata strata) {
+        if (!planes.variants()) {
+            throw new IllegalArgumentException("a mixed buffer needs the plane set classic1v, got " + planes.id());
+        }
+        return new ReplayBuffer(3, true, Objects.requireNonNull(strata, "strata"), window, augment, planes);
+    }
+
+    private ReplayBuffer(int players, boolean mixed, Strata strata, int window, boolean augment, PlaneSet planes) {
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
@@ -88,8 +148,10 @@ public final class ReplayBuffer implements BatchSource {
             throw new IllegalArgumentException("window must be >= 1, got " + window);
         }
         this.players = players;
+        this.mixed = mixed;
+        this.strata = strata;
         this.window = window;
-        this.augment = augment && players == 2;
+        this.augment = augment && (players == 2 || mixed);
         this.planes = java.util.Objects.requireNonNull(planes, "planes");
     }
 
@@ -123,7 +185,52 @@ public final class ReplayBuffer implements BatchSource {
         int b = Arrays.binarySearch(starts, 0, blocks.size() + 1, index);
         b = b >= 0 ? b : -b - 2;
         Block block = blocks.get(b);
-        return block.result == null ? 0 : block.result[index - starts[b]];
+        if (block.winner == null || block.players != 2) {
+            return 0;
+        }
+        int w = block.winner[index - starts[b]];
+        return w < 0 ? 0 : w == 0 ? 1 : -1;
+    }
+
+    /**
+     * The relative player (0 = mover) who has the single highest game value in the game of sample {@code index}, or
+     * -1 if the file had no game tensors or the top value is shared.
+     *
+     * @throws IllegalArgumentException if the index is outside the buffer
+     */
+    public int winner(int index) {
+        if (index < 0 || index >= size()) {
+            throw new IllegalArgumentException("index " + index + " outside 0 to " + (size() - 1));
+        }
+        int b = Arrays.binarySearch(starts, 0, blocks.size() + 1, index);
+        b = b >= 0 ? b : -b - 2;
+        Block block = blocks.get(b);
+        return block.winner == null ? -1 : block.winner[index - starts[b]];
+    }
+
+    /** The variant of sample {@code index} (a strict buffer has one). */
+    public Variant variantOf(int index) {
+        if (index < 0 || index >= size()) {
+            throw new IllegalArgumentException("index " + index + " outside 0 to " + (size() - 1));
+        }
+        int b = Arrays.binarySearch(starts, 0, blocks.size() + 1, index);
+        return blocks.get(b >= 0 ? b : -b - 2).variant();
+    }
+
+    /** The variants that have samples in the buffer, in {@link Variant} order. */
+    public List<Variant> variants() {
+        List<Variant> result = new ArrayList<>();
+        for (Variant v : Variant.values()) {
+            if (byVariant[v.ordinal()].length > 0) {
+                result.add(v);
+            }
+        }
+        return result;
+    }
+
+    /** The buffer indices of the samples of one variant, ascending (a copy). */
+    public int[] indicesOf(Variant variant) {
+        return byVariant[variant.ordinal()].clone();
     }
 
     /** Samples in the buffer. */
@@ -228,7 +335,28 @@ public final class ReplayBuffer implements BatchSource {
         for (int i = 0; i < blocks.size(); i++) {
             starts[i + 1] = starts[i] + blocks.get(i).size;
         }
+        indexVariants();
         return new Loaded(generation, read, samples, skipped, quarantined);
+    }
+
+    private void indexVariants() {
+        int[] counts = new int[Variant.values().length];
+        for (Block b : blocks) {
+            counts[b.variant().ordinal()] += b.size;
+        }
+        int[][] result = new int[counts.length][];
+        for (int v = 0; v < counts.length; v++) {
+            result[v] = new int[counts[v]];
+        }
+        int[] fill = new int[counts.length];
+        for (int i = 0; i < blocks.size(); i++) {
+            Block b = blocks.get(i);
+            int v = b.variant().ordinal();
+            for (int s = 0; s < b.size; s++) {
+                result[v][fill[v]++] = starts[i] + s;
+            }
+        }
+        byVariant = result;
     }
 
     private static int size(List<Block> blocks) {
@@ -251,15 +379,39 @@ public final class ReplayBuffer implements BatchSource {
         if (size() == 0) {
             throw new IllegalStateException("the replay buffer is empty");
         }
-        int[] indices = BatchSampler.indices(runSeed, generation, step, size(), batchSize);
+        int[] indices = mixed && strata == Strata.EQUAL && variants().size() > 1
+                ? stratifiedIndices(runSeed, generation, step, batchSize)
+                : BatchSampler.indices(runSeed, generation, step, size(), batchSize);
         boolean[] mirror = new boolean[batchSize];
         if (augment) {
             SplittableRandom coins = new SplittableRandom(BatchSampler.mix(runSeed ^ MIRROR_SALT, generation, step));
             for (int i = 0; i < batchSize; i++) {
-                mirror[i] = coins.nextBoolean();
+                mirror[i] = coins.nextBoolean() && (!mixed || variantOf(indices[i]).players() == 2);
             }
         }
         return batchOf(indices, mirror);
+    }
+
+    /**
+     * Slot i of the batch belongs to the (i + step)-th of the k variants present, so every variant gets
+     * {@code batchSize / k} slots, the remainder rotating with the step; inside a variant the sample is uniform with
+     * replacement. The draws come from the seeded stream of {@link BatchSampler#mix}.
+     */
+    private int[] stratifiedIndices(long runSeed, int generation, long step, int batchSize) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("batchSize must be >= 1, got " + batchSize);
+        }
+        if (generation < 0 || step < 0) {
+            throw new IllegalArgumentException("generation and step must be >= 0, got " + generation + ", " + step);
+        }
+        List<Variant> present = variants();
+        SplittableRandom random = new SplittableRandom(BatchSampler.mix(runSeed, generation, step));
+        int[] indices = new int[batchSize];
+        for (int i = 0; i < batchSize; i++) {
+            int[] pool = byVariant[present.get((int) ((i + step) % present.size())).ordinal()];
+            indices[i] = pool[random.nextInt(pool.length)];
+        }
+        return indices;
     }
 
     /**
@@ -298,8 +450,11 @@ public final class ReplayBuffer implements BatchSource {
         for (int i = 0; i < n; i++) {
             Block b = blocks.get(blockOf[i]);
             int s = indices[i] - starts[blockOf[i]];
-            SampleExpander.expand(planes, players, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s], mirror[i], input,
-                    i * inputSize);
+            if (mirror[i] && b.players != 2) {
+                throw new IllegalArgumentException("the mirror is defined for two players only");
+            }
+            SampleExpander.expand(planes, b.players, b.jumpRule, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s],
+                    mirror[i], input, i * inputSize);
             int first = b.moveOffsets[s];
             int count = b.moveOffsets[s + 1] - first;
             for (int m = 0; m < count; m++) {
@@ -309,9 +464,10 @@ public final class ReplayBuffer implements BatchSource {
                 to[offsets[i] + m] = mirror[i] ? SampleExpander.mirrorCell(t) : t;
             }
             System.arraycopy(b.moveTarget, first, target, offsets[i], count);
-            System.arraycopy(b.value, s * players, value, i * players, players);
+            // a two-player sample of a mixed buffer: the third column stays 0 (the dummy target)
+            System.arraycopy(b.value, s * b.players, value, i * players, b.players);
             wp[i] = b.policyWeight[s];
-            wv[i] = b.valueWeight[s];
+            wv[i] = mixed && b.players == 2 ? b.valueWeight[s] * TWO_PLAYER_VALUE_WEIGHT : b.valueWeight[s];
             entropy[i] = b.entropy[s];
         }
         return new TrainingBatch(n, players, input, offsets, from, to, target, value, wp, wv, entropy);
@@ -329,17 +485,20 @@ public final class ReplayBuffer implements BatchSource {
         if (declared == null || !declared.matches("[0-9]+")) {
             throw new IOException("metadata players is " + declared);
         }
-        if (Integer.parseInt(declared) != players) {
-            throw new IllegalArgumentException("file has " + declared + " players, the buffer " + players);
+        int filePlayers = Integer.parseInt(declared);
+        if (mixed ? filePlayers != 2 && filePlayers != 3 : filePlayers != players) {
+            throw new IllegalArgumentException("file has " + declared + " players, the buffer "
+                    + (mixed ? "2 or 3" : Integer.toString(players)));
         }
         try {
-            return validated(generation, c);
+            RuleSet rules = GameShard.rules(meta);
+            return validated(generation, c, filePlayers, rules.jumpRule());
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException e) {
             throw new IOException("invalid sample file: " + e.getMessage(), e);
         }
     }
 
-    private Block validated(int generation, Contents c) throws IOException {
+    private Block validated(int generation, Contents c, int players, RuleSet.JumpRule jumpRule) throws IOException {
         short[] ply = c.tensor("ply").i16();
         int n = ply.length;
         byte[] cells = c.tensor("cells").u8();
@@ -420,7 +579,8 @@ public final class ReplayBuffer implements BatchSource {
             }
             entropy[s] = ReferenceLoss.entropy(normalised, first, end);
         }
-        return new Block(generation, n, cells, ply, limit, offsets, from, to, normalised, value, wp, wv, entropy, null);
+        return new Block(generation, n, players, jumpRule, cells, ply, limit, offsets, from, to, normalised, value, wp,
+                wv, entropy, null);
     }
 
     /**
@@ -445,10 +605,11 @@ public final class ReplayBuffer implements BatchSource {
         int[] id = c.tensor("game_id").i32();
         float[] gameValues = c.tensor("game_values").f32();
         int games = id.length;
+        int players = block.players;
         if (game.length != block.size || gameValues.length != (long) players * games) {
             throw new IOException("game tensors do not fit " + block.size + " samples and " + games + " games");
         }
-        byte[] result = new byte[block.size];
+        byte[] winner = new byte[block.size];
         boolean[] keep = new boolean[block.size];
         boolean[] accepted = new boolean[games];
         for (int g = 0; g < games; g++) {
@@ -461,19 +622,26 @@ public final class ReplayBuffer implements BatchSource {
             }
             keep[s] = accepted[game[s]];
             kept += keep[s] ? 1 : 0;
-            if (players == 2) {
-                // two players alternate from player 0, so the mover of ply p is p mod 2
-                int mover = block.ply[s] & 1;
-                double diff = (double) gameValues[2 * game[s] + mover] - gameValues[2 * game[s] + 1 - mover];
-                result[s] = (byte) Math.signum(diff);
+            // the players move in turn from player 0, so the mover of ply p is p mod players; the winner is the
+            // relative player with the single highest game value (-1 if the top value is shared)
+            int mover = block.ply[s] % players;
+            int best = -1;
+            boolean tie = false;
+            for (int i = 0; i < players; i++) {
+                double v = gameValues[players * game[s] + (mover + i) % players];
+                double top = best < 0 ? Double.NEGATIVE_INFINITY : gameValues[players * game[s] + (mover + best) % players];
+                if (v > top) {
+                    best = i;
+                    tie = false;
+                } else if (v == top) {
+                    tie = true;
+                }
             }
+            winner[s] = (byte) (tie ? -1 : best);
         }
-        if (players != 2) {
-            result = null;
-        }
-        Block withResult = new Block(block.generation, block.size, block.cells, block.ply, block.moveLimit,
-                block.moveOffsets, block.moveFrom, block.moveTo, block.moveTarget, block.value, block.policyWeight,
-                block.valueWeight, block.entropy, result);
+        Block withResult = new Block(block.generation, block.size, block.players, block.jumpRule, block.cells,
+                block.ply, block.moveLimit, block.moveOffsets, block.moveFrom, block.moveTo, block.moveTarget,
+                block.value, block.policyWeight, block.valueWeight, block.entropy, winner);
         if (kept == block.size) {
             return withResult;
         }
@@ -482,7 +650,7 @@ public final class ReplayBuffer implements BatchSource {
 
     /** The samples of {@code b} with {@code keep[s]}, in order. */
     private static Block subset(Block b, boolean[] keep, int kept) {
-        int pl = b.value.length / b.size;
+        int pl = b.players;
         byte[] cells = new byte[kept * HexGrid.CELLS];
         short[] ply = new short[kept];
         short[] limit = new short[kept];
@@ -491,7 +659,7 @@ public final class ReplayBuffer implements BatchSource {
         float[] wp = new float[kept];
         float[] wv = new float[kept];
         double[] entropy = new double[kept];
-        byte[] result = b.result == null ? null : new byte[kept];
+        byte[] winner = b.winner == null ? null : new byte[kept];
         int moves = 0;
         for (int s = 0; s < b.size; s++) {
             if (keep[s]) {
@@ -521,13 +689,13 @@ public final class ReplayBuffer implements BatchSource {
             wp[k] = b.policyWeight[s];
             wv[k] = b.valueWeight[s];
             entropy[k] = b.entropy[s];
-            if (result != null) {
-                result[k] = b.result[s];
+            if (winner != null) {
+                winner[k] = b.winner[s];
             }
             k++;
         }
-        return new Block(b.generation, kept, cells, ply, limit, offsets, from, to, target, value, wp, wv, entropy,
-                result);
+        return new Block(b.generation, kept, b.players, b.jumpRule, cells, ply, limit, offsets, from, to, target,
+                value, wp, wv, entropy, winner);
     }
 
     @Override

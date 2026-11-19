@@ -48,8 +48,8 @@ import sternhalma.search.Strategies;
  * estimates (docs/training.md, "Bootstrap" and "As implemented (block 2e)").
  *
  * <pre>
- *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
- *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--value-coefficient 1]
+ *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes|classic1v]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
+ *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--strata equal|natural] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
  *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
  *                     [--elo-pairs 50] [--elo-seed 1] [--elo-threads 1] [--monitor 1|0]
@@ -60,7 +60,9 @@ import sternhalma.search.Strategies;
  *   Gen0 monitor-report RUN
  * </pre>
  *
- * <p>DATA is a directory of {@code samples-*.safetensors} from {@code selfplay run --teacher-depth D}. The games are
+ * <p>DATA is a directory of {@code samples-*.safetensors} from {@code selfplay run --teacher-depth D}, or a
+ * directory without such files whose subdirectories have them (one subdirectory per variant, for
+ * {@code --planes classic1v}; docs/training.md, "Mixed-variant training (shared net)"). The games are
  * split by game id into training and held-out games ({@link #heldOut}); the held-out samples are used by the proxies
  * only. The run directory:
  * <pre>
@@ -104,7 +106,15 @@ public final class Gen0 {
      */
     record Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
             double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
-            String planes, String trainer) {
+            String planes, String trainer, String strata) {
+
+        /** A configuration with equal strata (every run before the mixed-variant training). */
+        Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
+                double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
+                String planes, String trainer) {
+            this(preset, seed, steps, batch, microbatch, lr, warmup, valueCoefficient, augment, holdout, dataSha256,
+                    dataFiles, planes, trainer, "equal");
+        }
 
         /** A configuration with the CPU trainer (every run before block B10). */
         Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
@@ -125,10 +135,19 @@ public final class Gen0 {
             return PlaneSet.ofId(planes);
         }
 
+        ReplayBuffer.Strata strataKind() {
+            return ReplayBuffer.Strata.ofId(strata);
+        }
+
+        /** Only the plane set classic1v has a shared net over several variants: its value head has three outputs. */
+        int players() {
+            return planeSet().variants() ? 3 : 2;
+        }
+
         NetworkConfig network() {
             NetworkConfig size = switch (preset) {
-                case "small" -> NetworkConfig.small(2);
-                case "tiny" -> NetworkConfig.tiny(2);
+                case "small" -> NetworkConfig.small(players());
+                case "tiny" -> NetworkConfig.tiny(players());
                 default -> throw new IllegalArgumentException("--preset must be small or tiny, got " + preset);
             };
             return size.withPlanes(planeSet());
@@ -143,9 +162,12 @@ public final class Gen0 {
             f.put("format", FORMAT);
             f.put("version", 1);
             f.put("preset", preset);
-            f.put("players", 2);
+            f.put("players", players());
             if (planeSet() != PlaneSet.PLAIN) {
                 f.put("planes", planes); // omitted for plain planes, so that the run.json of older runs stays valid
+            }
+            if (planeSet().variants()) {
+                f.put("strata", strata); // only for the shared net, so that the run.json of older runs stays valid
             }
             f.put("seed", seed);
             f.put("steps", steps);
@@ -334,15 +356,50 @@ public final class Gen0 {
      * once with the held-out games (never mirrored). Every game is in exactly one of the two.
      */
     static Split split(List<Path> files, double holdout, boolean augment, PlaneSet planes) throws IOException {
-        ReplayBuffer train = new ReplayBuffer(2, Integer.MAX_VALUE, augment, planes);
-        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, planes);
+        return split(files, holdout, augment, planes, ReplayBuffer.Strata.EQUAL);
+    }
+
+    /**
+     * As {@link #split(List, double, boolean, PlaneSet)}. With the plane set classic1v the buffers are mixed buffers
+     * (two and three players, both jump rules, {@code strata} for the training batches); the held-out buffer is
+     * evaluated per variant, so its strata do not matter.
+     */
+    static Split split(List<Path> files, double holdout, boolean augment, PlaneSet planes,
+            ReplayBuffer.Strata strata) throws IOException {
+        ReplayBuffer train = buffer(augment, planes, strata);
+        ReplayBuffer held = buffer(false, planes, strata);
         ReplayBuffer.Loaded loaded = train.addGeneration(GENERATION, files, (m, id) -> !heldOut(m, id, holdout));
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         return new Split(train, held, loaded.skipped());
     }
 
+    private static ReplayBuffer buffer(boolean augment, PlaneSet planes, ReplayBuffer.Strata strata) {
+        return planes.variants() ? ReplayBuffer.mixed(Integer.MAX_VALUE, augment, planes, strata)
+                : new ReplayBuffer(2, Integer.MAX_VALUE, augment, planes);
+    }
+
+    /**
+     * The sample files of a data directory: {@code samples-*.safetensors} in the directory itself, and, if it has
+     * none, in its direct subdirectories (one per variant, for example {@code data/2p-adjacent}), subdirectory by
+     * subdirectory in name order. Hidden directories are skipped.
+     */
     static List<Path> dataFiles(Path data) throws IOException {
+        List<Path> own = samplesIn(data);
+        if (!own.isEmpty()) {
+            return own;
+        }
+        List<Path> all = new java.util.ArrayList<>();
         try (Stream<Path> s = Files.list(data)) {
+            for (Path sub : s.filter(Files::isDirectory).filter(d -> !d.getFileName().toString().startsWith("."))
+                    .sorted().toList()) {
+                all.addAll(samplesIn(sub));
+            }
+        }
+        return all;
+    }
+
+    private static List<Path> samplesIn(Path dir) throws IOException {
+        try (Stream<Path> s = Files.list(dir)) {
             return s.filter(f -> f.getFileName().toString().matches("samples-.*\\.safetensors")).sorted().toList();
         }
     }
@@ -350,8 +407,11 @@ public final class Gen0 {
     /** SHA-256 over {@code name:size} of the data files: the data is fixed by its shards, which never change. */
     static String dataFingerprint(List<Path> files) throws IOException {
         StringBuilder sb = new StringBuilder();
+        boolean oneDirectory = files.stream().map(Path::getParent).distinct().count() <= 1;
         for (Path f : files) {
-            sb.append(f.getFileName()).append(':').append(Files.size(f)).append('\n');
+            // shards of different variants have the same names, so with several directories the directory is named
+            sb.append(oneDirectory ? "" : f.getParent().getFileName() + "/").append(f.getFileName()).append(':')
+                    .append(Files.size(f)).append('\n');
         }
         return sha256Hex(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
@@ -471,7 +531,8 @@ public final class Gen0 {
                 integer(opts, "batch", 64), integer(opts, "microbatch", 16), dbl(opts, "lr", 1e-3),
                 integer(opts, "warmup", 200), dbl(opts, "value-coefficient", 1.0), flag(opts, "augment", true),
                 dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size(), str(opts, "planes", "plain"),
-                trainerKind(opts, err));
+                trainerKind(opts, err), str(opts, "strata", "equal"));
+        cfg.strataKind();
         cfg.network();
         cfg.schedule();
         if (!cfg.trainer().equals("cpu") && !cfg.trainer().equals("gpu")) {
@@ -535,7 +596,7 @@ public final class Gen0 {
         // phase 2: load the data and split it
         Split split;
         try {
-            split = split(files, cfg.holdout(), cfg.augment(), cfg.planeSet());
+            split = split(files, cfg.holdout(), cfg.augment(), cfg.planeSet(), cfg.strataKind());
         } catch (IllegalArgumentException e) {
             err.println("gen0: the data does not fit: " + e.getMessage());
             return EXIT_ERROR;
@@ -794,6 +855,35 @@ public final class Gen0 {
             err.printf(Locale.ROOT, "gen 0 proxies at step %d (%d held-out samples): policy KL %.3f, top-1 %.1f%%,"
                     + " value loss %.3f, winner %.1f%% of %d (yardstick 78.8%%)%n", step, m.samples(), m.klPolicy(),
                     100 * m.top1(), m.valueLoss(), 100 * m.winnerAccuracy(), m.winnerSamples());
+            if (cfg.planeSet().variants()) {
+                perVariant(step);
+            }
+        }
+
+        /** The proxies of each variant on its own held-out samples: one monitor event and one line per variant. */
+        private void perVariant(long step) throws IOException {
+            java.util.Map<Variant, HeldOutMetrics.Metrics> byVariant = new java.util.LinkedHashMap<>();
+            add(monitor.measure(RunMonitor.Category.STRENGTH, RunMonitor.PROXY, false, step,
+                    () -> byVariant.putAll(HeldOutMetrics.evaluateByVariant(new Network(parameters), heldOut,
+                            cad.evalSamples(), cad.threads()))));
+            for (java.util.Map.Entry<Variant, HeldOutMetrics.Metrics> e : byVariant.entrySet()) {
+                HeldOutMetrics.Metrics m = e.getValue();
+                Map<String, Object> f = new LinkedHashMap<>();
+                f.put("kind", RunMonitor.PROXY);
+                f.put("step", step);
+                f.put("variant", e.getKey().label());
+                f.put("samples", m.samples());
+                f.put("kl", m.klPolicy());
+                f.put("top1", m.top1());
+                f.put("value_loss", m.valueLoss());
+                f.put("winner_samples", m.winnerSamples());
+                f.put("winner_accuracy", m.winnerAccuracy());
+                monitor.event("metric", f);
+                err.printf(Locale.ROOT, "gen 0 proxies at step %d, %s (%d held-out samples): policy KL %.3f, top-1 %.1f%%,"
+                        + " value loss %.3f, winner %.1f%% of %d (chance %.0f%%)%n", step, e.getKey().label(),
+                        m.samples(), m.klPolicy(), 100 * m.top1(), m.valueLoss(), 100 * m.winnerAccuracy(),
+                        m.winnerSamples(), 100.0 / e.getKey().players());
+            }
         }
 
         private void elo(long step) throws IOException {
@@ -969,7 +1059,8 @@ public final class Gen0 {
             return EXIT_ERROR;
         }
         double holdout = Double.parseDouble(cfg.get("holdout"));
-        ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, net.parameters().config().planes());
+        PlaneSet heldPlanes = net.parameters().config().planes();
+        ReplayBuffer held = buffer(false, heldPlanes, ReplayBuffer.Strata.NATURAL);
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         if (held.size() == 0) {
             err.println("gen0 proxies: the split leaves no held-out sample");
@@ -981,6 +1072,16 @@ public final class Gen0 {
                 + " value loss %.3f, winner %.1f%% +- %.1f of %d (yardstick 78.8%%)%n", net.step(), m.samples(),
                 held.size(), m.klPolicy(), 100 * m.top1(), m.valueLoss(), 100 * m.winnerAccuracy(), 100 * se,
                 m.winnerSamples());
+        if (heldPlanes.variants()) {
+            for (java.util.Map.Entry<Variant, HeldOutMetrics.Metrics> e : HeldOutMetrics
+                    .evaluateByVariant(new Network(net.parameters()), held, samples, threads).entrySet()) {
+                HeldOutMetrics.Metrics v = e.getValue();
+                out.printf(Locale.ROOT, "  %s: %d samples: policy KL %.3f, top-1 %.1f%%, value loss %.3f,"
+                        + " winner %.1f%% of %d (chance %.0f%%)%n", e.getKey().label(), v.samples(), v.klPolicy(),
+                        100 * v.top1(), v.valueLoss(), 100 * v.winnerAccuracy(), v.winnerSamples(),
+                        100.0 / e.getKey().players());
+            }
+        }
         return EXIT_OK;
     }
 
