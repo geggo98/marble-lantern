@@ -100,6 +100,18 @@ export function withLevel(setup: GameSetup, level: number): GameSetup {
   return { ...setup, seats: setup.seats.map((s): Seat => (s.kind === 'engine' ? { ...s, level } : s)) };
 }
 
+/** The same game with the person on `seat` and engines on every other seat (the level of the setup). */
+export function withHumanSeat(setup: GameSetup, seat: Player, fallbackLevel = 0): GameSetup {
+  const level = levelOf(setup, fallbackLevel);
+  return { ...setup, seats: setup.seats.map((_, i): Seat => (i === seat ? { kind: 'human' } : { kind: 'engine', level })) };
+}
+
+/** The same game with an engine on every seat: a demo. */
+export function withAllEngines(setup: GameSetup, fallbackLevel = 0): GameSetup {
+  const level = levelOf(setup, fallbackLevel);
+  return { ...setup, seats: setup.seats.map((): Seat => ({ kind: 'engine', level })) };
+}
+
 /** The seats in the form the controller takes (`human` or `engine`); throws for a seat it cannot play. */
 export function controllerSeats(setup: GameSetup): ControllerSeat[] {
   return setup.seats.map((s) => {

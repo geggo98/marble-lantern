@@ -46,6 +46,8 @@ export interface ControlsProps {
   onUndo: () => void;
   onSwap: () => void;
   onDemo: () => void;
+  /** The swap button is offered (default true): not with two human seats (hot-seat). */
+  canSwap?: boolean;
   /** 'secondary': only swap sides and the demo; undo and new game stand in the bottom bar of a small screen. */
   part?: 'all' | 'secondary';
 }
@@ -66,10 +68,12 @@ export function Controls(props: ControlsProps): React.JSX.Element {
           </button>
         </>
       )}
-      <button type="button" className="ml-btn" disabled={props.disabled || props.demoRunning} onClick={props.onSwap}>
-        <Icon name="swap" />
-        <span>{t('swap_sides')}</span>
-      </button>
+      {props.canSwap !== false && (
+        <button type="button" className="ml-btn" disabled={props.disabled || props.demoRunning} onClick={props.onSwap}>
+          <Icon name="swap" />
+          <span>{t('swap_sides')}</span>
+        </button>
+      )}
       <button type="button" className="ml-btn" disabled={props.disabled && !props.demoRunning} onClick={props.onDemo}>
         <Icon name="play" />
         <span>{props.demoRunning ? t('demo_stop') : t('demo')}</span>

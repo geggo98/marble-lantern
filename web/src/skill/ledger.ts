@@ -10,8 +10,10 @@ export const LEDGER_MAX = 1000;
 export interface LedgerData {
   /** Measuring is paused (another person plays): nothing is analysed and nothing is recorded. */
   paused: boolean;
-  /** [position hash, raw loss], oldest first. */
+  /** [position hash, raw loss], oldest first. Games with the adjacent jump rule; every entry written before the game variants is of this kind. */
   entries: [string, number][];
+  /** The same for two-player games with the long hop. Missing (not an empty list) in files that have none. */
+  long?: [string, number][];
 }
 
 export interface LedgerStore {
@@ -37,25 +39,36 @@ export const EMPTY_LEDGER: LedgerData = { paused: false, entries: [] };
 export function parseLedger(text: string | null): LedgerData {
   if (!text) return { paused: false, entries: [] };
   try {
-    const v = JSON.parse(text) as { v?: unknown; paused?: unknown; entries?: unknown };
+    const v = JSON.parse(text) as { v?: unknown; paused?: unknown; entries?: unknown; long?: unknown };
     if (v.v !== 1 || typeof v.paused !== 'boolean' || !Array.isArray(v.entries)) return { paused: false, entries: [] };
-    const entries: [string, number][] = [];
-    for (const e of v.entries.slice(-LEDGER_MAX)) {
-      if (!Array.isArray(e) || e.length !== 2) return { paused: false, entries: [] };
-      const [h, loss] = e as [unknown, unknown];
-      if (typeof h !== 'string' || !/^[0-9a-f]{16}$/.test(h) || typeof loss !== 'number' || !Number.isFinite(loss) || loss < 0) {
-        return { paused: false, entries: [] };
-      }
-      entries.push([h, loss]);
-    }
-    return { paused: v.paused, entries };
+    const entries = parseEntries(v.entries);
+    const long = v.long === undefined ? undefined : Array.isArray(v.long) ? parseEntries(v.long) : null;
+    if (entries === null || long === null) return { paused: false, entries: [] };
+    return { paused: v.paused, entries, ...(long ? { long } : {}) };
   } catch {
     return { paused: false, entries: [] };
   }
 }
 
+/** The checked entries, or null when one of them is not a [16 hex characters, loss >= 0] pair. */
+function parseEntries(list: unknown[]): [string, number][] | null {
+  const entries: [string, number][] = [];
+  for (const e of list.slice(-LEDGER_MAX)) {
+    if (!Array.isArray(e) || e.length !== 2) return null;
+    const [h, loss] = e as [unknown, unknown];
+    if (typeof h !== 'string' || !/^[0-9a-f]{16}$/.test(h) || typeof loss !== 'number' || !Number.isFinite(loss) || loss < 0) return null;
+    entries.push([h, loss]);
+  }
+  return entries;
+}
+
 export function serializeLedger(data: LedgerData): string {
-  return JSON.stringify({ v: 1, paused: data.paused, entries: data.entries.slice(-LEDGER_MAX) });
+  return JSON.stringify({
+    v: 1,
+    paused: data.paused,
+    entries: data.entries.slice(-LEDGER_MAX),
+    ...(data.long && data.long.length > 0 ? { long: data.long.slice(-LEDGER_MAX) } : {}),
+  });
 }
 
 /** The store of the page: localStorage when it works, memory otherwise. */
@@ -71,10 +84,10 @@ export function browserLedgerStore(storage: () => Storage | null = () => globalT
       } catch {
         /* blocked: keep the memory copy */
       }
-      return { paused: memory.paused, entries: [...memory.entries] };
+      return { paused: memory.paused, entries: [...memory.entries], ...(memory.long ? { long: [...memory.long] } : {}) };
     },
     save(data) {
-      memory = { paused: data.paused, entries: data.entries.slice(-LEDGER_MAX) };
+      memory = { paused: data.paused, entries: data.entries.slice(-LEDGER_MAX), ...(data.long ? { long: data.long.slice(-LEDGER_MAX) } : {}) };
       try {
         storage()?.setItem(LEDGER_KEY, serializeLedger(memory));
       } catch {

@@ -232,6 +232,7 @@
   "skill_edge_weak": "Deine Züge sind schwächer als alles Gemessene; deine tatsächliche Stärke kann niedriger sein.",
   "skill_edge_strong": "Deine Züge sind stärker als alles Gemessene; deine tatsächliche Stärke kann höher sein.",
   "skill_disclaimer": "Eine grobe Schätzung: Sie misst, um wie viel schlechter dieses Programm deine Züge bewertet als den besten Zug. Sie ist keine Wertungszahl und lässt sich nicht mit anderen Spielern vergleichen.",
+  "skill_uncalibrated": "Diese Schätzung nutzt die Kalibrierung des Standardspiels. Für lange Sprünge ist sie nur ein grober Anhaltspunkt.",
   "skill_match": "Engine auf meine Stärke einstellen",
   "skill_reset": "Zurück zur festen Stufe",
   "skill_matched": "Die Engine spielt jetzt mit etwa {nodes} Knoten pro Zug.",

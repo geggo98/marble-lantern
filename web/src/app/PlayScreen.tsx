@@ -2,8 +2,9 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GOAL_CELLS } from '../board/cells';
 import type { GameController } from '../game/game';
-import { MOVE_LIMIT, initialOwners } from '../game/board-state';
+import { initialOwners } from '../game/board-state';
 import type { Side } from '../game/board-state';
+import { isDefault, moveLimit, variantKey } from '../game/variant';
 import type { EngineId } from '../engines/engine';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
@@ -99,10 +100,17 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const aSide: Side = demo ? 1 : humanSide;
   const rotated = aSide === 0;
   const styleOf = (side: number): SideStyle => (side === aSide ? 'a' : 'b');
-  const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.sideToMove === humanSide;
+  const variant = state.variant;
+  // the analysis behind the move guides and the skill estimate exists for two players only
+  const analysable = variant.players === 2;
+  const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
   const [guidesOn, setGuidesOn] = useState(loadGuidesPreference);
   const guides = useGuides({
-    analyse: model.analyse, scope: s.current?.info.id ?? null, enabled: guidesOn && !demo, humanTurn, history: state.history,
+    analyse: model.analyse,
+    scope: s.current ? s.current.info.id + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null,
+    enabled: guidesOn && !demo && analysable,
+    humanTurn,
+    history: state.history,
   });
   const boardGuides = useMemo(() => (guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guides.view]);
   const sideLabel = (side: Side): string =>
@@ -118,7 +126,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   if (ready) {
     if (state.outcome) statusText = t('status_over');
     else if (state.thinking) statusText = t('engine_thinking');
-    else statusText = !demo && state.sideToMove === humanSide ? t('turn_you') : t('turn_engine');
+    else statusText = !demo && state.seats[state.sideToMove] === 'human' ? t('turn_you') : t('turn_engine');
   }
   if (state.outcome?.kind === 'win') statusStyle = styleOf(state.outcome.winner);
 
@@ -145,7 +153,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         return { style: styleOf(side), label: who(side), value, ahead: value < other };
       });
       notice = (
-        <ResultCard winner={null} headline={t('result_limit')} note={t('result_limit_note')} plies={MOVE_LIMIT} distances={rows} />
+        <ResultCard winner={null} headline={t('result_limit')} note={t('result_limit_note')} plies={moveLimit(variant)} distances={rows} />
       );
     } else {
       notice = <ResultCard winner={null} headline={t('result_nomoves')} plies={state.history.length} />;
@@ -160,6 +168,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const controls = (part: 'all' | 'secondary'): React.JSX.Element => (
     <Controls
       part={part}
+      canSwap={state.canSwap}
       disabled={!ready}
       canUndo={state.history.length > 0}
       demoRunning={model.demo && (state.thinking || (!state.outcome && ready && game.isEngineTurn()))}
@@ -172,17 +181,19 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // One source of content, two presentations: the side column of a wide screen and the menu of a small one.
   const cards = (
     <>
-      <GuideSettings
-        enabled={guidesOn}
-        status={guides.status}
-        onChange={(on) => {
-          setGuidesOn(on);
-          saveGuidesPreference(on);
-        }}
-      />
+      {analysable && (
+        <GuideSettings
+          enabled={guidesOn}
+          status={guides.status}
+          onChange={(on) => {
+            setGuidesOn(on);
+            saveGuidesPreference(on);
+          }}
+        />
+      )}
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
       <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
-      {!demo && s.current && (
+      {!demo && analysable && s.current && (
         <SkillCard
           tracker={model.tracker}
           level={model.level}
@@ -203,7 +214,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           style={statusStyle}
           text={statusText}
           ply={state.history.length}
-          limit={MOVE_LIMIT}
+          limit={moveLimit(variant)}
         />
         <div className="ml-play__boardwrap">
           <Board
@@ -225,7 +236,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           />
           {!wide && notice && <div className="ml-play__notice">{notice}</div>}
         </div>
-        {guidesOn && !demo && (
+        {guidesOn && !demo && analysable && (
           // the slot keeps its place on a small screen while the first analysis runs: the board does not jump
           <div className="ml-play__adv">
             {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}

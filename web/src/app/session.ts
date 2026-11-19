@@ -4,6 +4,8 @@ import type { Engine, EngineId, Progress } from '../engines/engine';
 import { createEngine, describeEngines } from '../engines/registry';
 import type { EngineChoice, EnginesManifest } from '../engines/registry';
 import type { SwitchableEngine } from './switchable-engine';
+import { DEFAULT_VARIANT, isDefault } from '../game/variant';
+import type { Variant } from '../game/variant';
 
 export type SessionPhase = 'discovering' | 'loading' | 'ready' | 'failed';
 
@@ -28,6 +30,8 @@ export interface SessionDeps {
   loadManifest: () => Promise<EnginesManifest>;
   /** The nodes per move of both sides, at the time an engine is swapped in. */
   nodes: () => number;
+  /** The game variant of the game that is on (default: adjacent jumps, two players). An engine that cannot play it is not offered. */
+  variant?: () => Variant;
 }
 
 /**
@@ -75,7 +79,7 @@ export class EngineSession {
       this.set({ phase: 'failed', error: toSessionError(e) });
       return false;
     }
-    const choices = describeEngines(this.manifest);
+    const choices = describeEngines(this.manifest, this.variant());
     this.set({ choices });
     const first = defaultChoice(choices);
     if (!first) {
@@ -83,6 +87,29 @@ export class EngineSession {
       return false;
     }
     return this.load(first);
+  }
+
+  private variant(): Variant {
+    return this.deps.variant?.() ?? DEFAULT_VARIANT;
+  }
+
+  /**
+   * The game variant changed: lists the engines again for it. If the engine in use cannot play the variant (the server engines play
+   * the standard game only), the first engine that can is loaded; the promise then resolves true when that engine is ready. Returns
+   * null when nothing has to be loaded.
+   */
+  setVariant(): Promise<boolean> | null {
+    if (!this.manifest) return null; // start() has not run yet; it reads the variant itself
+    const choices = describeEngines(this.manifest, this.variant());
+    this.set({ choices });
+    const current = this.state.current;
+    if (current && choices.find((c) => c.info.id === current.info.id)?.available) return null;
+    const next = defaultChoice(choices);
+    if (!next) {
+      this.set({ phase: 'failed', error: { code: 'no-engine', message: 'no engine can play this game variant' } });
+      return Promise.resolve(false);
+    }
+    return this.load(next);
   }
 
   /** Switches to another engine; the game goes on with it. Resolves true when it is ready. */
@@ -114,7 +141,8 @@ export class EngineSession {
         return false;
       }
       const nodes = this.deps.nodes();
-      await this.deps.engine.use(engine, { nodes: [nodes, nodes] });
+      const variant = this.variant();
+      await this.deps.engine.use(engine, { nodes: [nodes, nodes], ...(isDefault(variant) ? {} : { variant }) });
       this.set({ phase: 'ready', progress: null });
       return true;
     } catch (e) {

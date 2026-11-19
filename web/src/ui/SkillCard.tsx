@@ -2,8 +2,9 @@
 // Self-contained: it needs a tracker, the calibration and the current level, and reports two actions. It does not know the
 // play screen, so it can move into a menu later. Method and limits: docs/web-ui.md, section "Skill estimate".
 import { useMemo, useSyncExternalStore } from 'react';
-import { estimateSkill } from '../skill/calibration';
-import type { Calibration, SkillEstimate } from '../skill/calibration';
+import type { Calibration } from '../skill/calibration';
+import { estimateForVariant } from '../skill/estimate';
+import type { VariantEstimate } from '../skill/estimate';
 import { CALIBRATION } from '../skill/data';
 import { describeLevel } from '../skill/describe';
 import type { LevelDescription } from '../skill/describe';
@@ -35,7 +36,10 @@ export function roundNodes(nodes: number): number {
 export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALIBRATION }: SkillCardProps): React.JSX.Element {
   const { t, n } = useT();
   const state = useSyncExternalStore(tracker.subscribe, tracker.getState);
-  const estimate: SkillEstimate = useMemo(() => estimateSkill(state.ledger, calibration), [state.ledger, calibration]);
+  const estimate: VariantEstimate | null = useMemo(
+    () => estimateForVariant(state.ledger, calibration, state.variant),
+    [state.ledger, calibration, state.variant],
+  );
 
   const words = (d: LevelDescription): string => {
     switch (d.kind) {
@@ -45,6 +49,9 @@ export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALI
       case 'above': return t('skill_above');
     }
   };
+
+  // three players have no analysis and no estimate: the card has nothing to say
+  if (!estimate) return <></>;
 
   let body: React.JSX.Element;
   if (state.paused) {
@@ -70,6 +77,7 @@ export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALI
         </p>
         {estimate.clamp && <p className="ml-skill__note">{t(estimate.clamp === 'weak' ? 'skill_edge_weak' : 'skill_edge_strong')}</p>}
         <p className="ml-skill__note" data-testid="skill-moves">{t('skill_based_on', { n: estimate.n })}</p>
+        {!estimate.calibrated && <p className="ml-skill__note" data-testid="skill-uncalibrated">{t('skill_uncalibrated')}</p>}
       </>
     );
   }

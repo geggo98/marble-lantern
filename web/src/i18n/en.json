@@ -232,6 +232,7 @@
   "skill_edge_weak": "Your moves are weaker than anything measured; your real strength may be lower.",
   "skill_edge_strong": "Your moves are stronger than anything measured; your real strength may be higher.",
   "skill_disclaimer": "A rough estimate: it measures how much worse this program scores your moves than the best move. It is not a rating and cannot be compared with other players.",
+  "skill_uncalibrated": "This estimate uses the calibration of the standard game. For long jumps it is only a rough guide.",
   "skill_match": "Match engine to my strength",
   "skill_reset": "Back to preset level",
   "skill_matched": "The engine now plays with about {nodes} nodes per move.",

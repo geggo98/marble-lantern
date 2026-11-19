@@ -12,11 +12,14 @@ import type { AnalysisResult, Engine } from '../engines/engine';
 import { SKILL_NODES, scoreLoss } from '../engines/analysis';
 import type { GameState } from '../game/game';
 import type { Side } from '../game/board-state';
+import { DEFAULT_VARIANT } from '../game/variant';
+import type { JumpRule, Variant } from '../game/variant';
+import { skillCalibrated, skillEnabled } from './estimate';
 import { LEDGER_MAX, hashKey } from './ledger';
 import type { LedgerStore } from './ledger';
 
 export interface TrackedGame {
-  readonly state: Pick<GameState, 'history' | 'thinking' | 'outcome' | 'legal'>;
+  readonly state: Pick<GameState, 'history' | 'thinking' | 'outcome' | 'legal'> & { variant?: Variant };
   subscribe(listener: (state: GameState) => void): () => void;
   isEngineTurn(): boolean;
 }
@@ -46,17 +49,26 @@ export interface TrackerState {
   total: number;
   /** Raw (uncapped) losses of the analysed human moves of the current game, oldest first. */
   losses: readonly number[];
-  /** Raw losses of ALL measured human moves kept in the ledger, over all games on this device, oldest first. */
+  /** Raw losses of ALL measured human moves of the jump rule of the current variant that are kept in the ledger, over all games on this device, oldest first. Empty when `enabled` is false. */
   ledger: readonly number[];
   /** Measuring is paused: nothing is analysed or recorded. */
   paused: boolean;
+  /** The variant of the game that is on. The ledger and the estimate belong to its jump rule. */
+  variant: Variant;
+  /** Moves are measured in this variant: two players. Three players have no analysis, so no skill estimate. */
+  enabled: boolean;
+  /** The calibration was measured for this variant (adjacent jumps, two players). False for the long hop: the estimate is a rough guide. */
+  calibrated: boolean;
 }
 
-const EMPTY: TrackerState = { status: 'idle', done: 0, total: 0, losses: [], ledger: [], paused: false };
+const EMPTY: TrackerState = {
+  status: 'idle', done: 0, total: 0, losses: [], ledger: [], paused: false, variant: DEFAULT_VARIANT, enabled: true, calibrated: true,
+};
 
 export class SkillTracker {
   private readonly deps: TrackerDeps;
-  private readonly cache = new Map<string, number>();
+  /** Measured losses by position hash, one map per jump rule: a loss belongs to the rule it was measured under. Three players have none. */
+  private readonly caches: Record<JumpRule, Map<string, number>> = { adjacent: new Map(), long: new Map() };
   private running: { controller: AbortController; prefix: readonly number[] } | null = null;
   private failure: 'unsupported' | 'error' | null = null;
   private current: TrackerState = EMPTY;
@@ -73,9 +85,20 @@ export class SkillTracker {
     const stored = deps.store?.load();
     if (stored) {
       this.paused = stored.paused;
-      for (const [k, loss] of stored.entries) this.cache.set(k, loss);
+      for (const [k, loss] of stored.entries) this.caches.adjacent.set(k, loss);
+      for (const [k, loss] of stored.long ?? []) this.caches.long.set(k, loss);
       this.current = { ...EMPTY, ledger: [...this.cache.values()], paused: this.paused };
     }
+  }
+
+  /** The variant of the game that is on. */
+  private get variant(): Variant {
+    return this.deps.game.state.variant ?? DEFAULT_VARIANT;
+  }
+
+  /** The ledger of the jump rule of the current variant. */
+  private get cache(): Map<string, number> {
+    return this.caches[this.variant.jump];
   }
 
   getState = (): TrackerState => this.current;
@@ -134,19 +157,25 @@ export class SkillTracker {
   /** Deletes the whole ledger and starts counting at the current position (moves played so far stay out). */
   clear(): void {
     this.abort();
-    this.cache.clear();
+    this.caches.adjacent.clear();
+    this.caches.long.clear();
     this.floor = this.deps.game.state.history.length;
     this.persist();
     this.refresh();
   }
 
   private persist(): void {
-    this.deps.store?.save({ paused: this.paused, entries: [...this.cache.entries()] });
+    this.deps.store?.save({
+      paused: this.paused,
+      entries: [...this.caches.adjacent.entries()],
+      ...(this.caches.long.size > 0 ? { long: [...this.caches.long.entries()] } : {}),
+    });
   }
 
-  private remember(key: string, loss: number): void {
-    this.cache.set(key, loss);
-    while (this.cache.size > LEDGER_MAX) this.cache.delete(this.cache.keys().next().value as string);
+  private remember(jump: JumpRule, key: string, loss: number): void {
+    const cache = this.caches[jump];
+    cache.set(key, loss);
+    while (cache.size > LEDGER_MAX) cache.delete(cache.keys().next().value as string);
     this.persist();
   }
 
@@ -155,6 +184,8 @@ export class SkillTracker {
     this.refresh();
     const { game, engine } = this.deps;
     if (this.paused || this.running || this.failure || !this.deps.isReady() || game.state.thinking) return;
+    const variant = this.variant;
+    if (!skillEnabled(variant)) return; // three players: no analysis, nothing to measure
     if (game.isEngineTurn()) return;
     // the legal moves of the position must be loaded, or the analysis would delay that request
     if (game.state.legal.length === 0 && !game.state.outcome) return;
@@ -174,13 +205,13 @@ export class SkillTracker {
     const mine = { controller, prefix: game.state.history.slice(0, next.index + 1) };
     this.running = mine;
     this.refresh();
-    engine.analyse(prefix, null, this.deps.nodes ?? SKILL_NODES, controller.signal).then(
+    engine.analyse(prefix, null, this.deps.nodes ?? SKILL_NODES, controller.signal, variant).then(
       (analysis) => {
         if (this.running !== mine) return; // aborted: drop the result
         this.running = null;
         const loss = lossOf(analysis, next.move);
         if (loss === null) this.failure = 'error';
-        else this.remember(next.key, loss);
+        else this.remember(variant.jump, next.key, loss);
         this.pump();
       },
       (e: unknown) => {
@@ -205,7 +236,7 @@ export class SkillTracker {
   private humanMoves(): { index: number; move: number; key: string }[] {
     const side = this.deps.humanSide();
     const { history } = this.deps.game.state;
-    if (side === null) return [];
+    if (side === null || !skillEnabled(this.variant)) return [];
     const out: { index: number; move: number; key: string }[] = [];
     const from = Math.min(this.floor, history.length);
     for (let i = from + ((((side - from) % 2) + 2) % 2); i < history.length; i += 2) out.push({ index: i, move: history[i]!, key: hashKey(history.slice(0, i + 1).join(',')) });
@@ -213,13 +244,18 @@ export class SkillTracker {
   }
 
   private refresh(): void {
+    const variant = this.variant;
     const moves = this.paused ? [] : this.humanMoves();
     const losses = moves.flatMap((m) => (this.cache.has(m.key) ? [this.cache.get(m.key)!] : []));
     const status = this.failure ?? (this.running ? 'analysing' : 'idle');
     const old = this.current;
-    const ledger = [...this.cache.values()];
-    if (old.paused === this.paused && old.ledger.length === ledger.length && old.ledger.every((l, i) => l === ledger[i]) && old.status === status && old.done === losses.length && old.total === moves.length && old.losses.length === losses.length && old.losses.every((l, i) => l === losses[i])) return;
-    this.current = { status, done: losses.length, total: moves.length, losses, ledger, paused: this.paused };
+    const enabled = skillEnabled(variant);
+    const ledger = enabled ? [...this.cache.values()] : [];
+    const same = old.variant.jump === variant.jump && old.variant.players === variant.players;
+    if (same && old.paused === this.paused && old.ledger.length === ledger.length && old.ledger.every((l, i) => l === ledger[i]) && old.status === status && old.done === losses.length && old.total === moves.length && old.losses.length === losses.length && old.losses.every((l, i) => l === losses[i])) return;
+    this.current = {
+      status, done: losses.length, total: moves.length, losses, ledger, paused: this.paused, variant, enabled, calibrated: skillCalibrated(variant),
+    };
     for (const l of this.listeners) l();
   }
 }

@@ -9,12 +9,15 @@ import { loadManifest } from './adapters';
 import { SwitchableEngine } from './switchable-engine';
 import { GameUrlSync, browserNavigation, isOwnEntry } from './game-nav';
 import type { NavEvent, NavigationPort, UrlSnapshot } from './game-nav';
-import { formatGameFragment, parseHash } from './game-url';
+import { formatGameFragment, parseHash, variantOfLink } from './game-url';
 import type { GameLink } from './game-url';
 import { GameController } from '../game/game';
 import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { humanSideOf, humanVsEngine, engineVsEngine, isDemo, levelOf, withLevel } from '../game/setup';
+import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withHumanSeat, withLevel } from '../game/setup';
+import { DEFAULT_VARIANT, isDefault } from '../game/variant';
+import type { Player } from '../game/variant';
+import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
 import type { GameSetup } from '../game/setup';
 import type { EngineId } from '../engines/engine';
 import type { EnginesManifest } from '../engines/registry';
@@ -42,6 +45,12 @@ export interface AppProps {
   ledgerStore?: LedgerStore;
   /** Tests pass a fake history; the default is the browser's. */
   navigation?: NavigationPort;
+  /**
+   * Development and test hook for the game variants (the start dialog for them comes later): when set, the app starts this game
+   * as soon as an engine is ready, without the "Do you want to begin?" dialog. A game link in the address (with `&j=long`, or
+   * `&p=3&s=<seats>`) takes precedence. "New game" restarts the same setup for a variant; the standard game asks as before.
+   */
+  initialSetup?: GameSetup;
 }
 
 /** What stands before the game. */
@@ -52,7 +61,7 @@ type Flow =
   | { kind: 'playing' };
 
 interface Plan {
-  humanSide: Side;
+  setup: GameSetup;
   /** Absent for a new game. */
   moves?: readonly number[];
 }
@@ -61,6 +70,11 @@ function screenFromHash(hash: string): Screen {
   const parsed = parseHash(hash);
   return parsed.kind === 'screen' ? parsed.screen : 'play';
 }
+
+/** The controller's options for a setup: who plays each seat, and the variant. */
+const controllerOptions = (setup: GameSetup) => ({ seats: controllerSeats(setup), variant: variantOf(setup) });
+
+const variantKeyOf = (setup: GameSetup): string => `${variantOf(setup).jump}-${variantOf(setup).players}`;
 
 function flowFromHash(hash: string): Flow {
   const parsed = parseHash(hash);
@@ -82,15 +96,27 @@ function whenIdle(game: GameController): Promise<void> {
   });
 }
 
-export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore }: AppProps): React.JSX.Element {
+/** A link for three players names its seats, so it needs no dialog: the app continues it at once. */
+const continuesAtOnce = (link: GameLink): boolean => (link.variant?.players ?? 2) === 3;
+
+export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup }: AppProps): React.JSX.Element {
   const nav = useMemo(() => navigation ?? browserNavigation(), [navigation]);
   const [screen, setScreen] = useState<Screen>(() => screenFromHash(nav.hash));
-  const [flow, setFlowState] = useState<Flow>(() => flowFromHash(nav.hash));
-  const [setup, setSetupState] = useState<GameSetup>(() => humanVsEngine(1, DEFAULT_LEVEL));
+  const [flow, setFlowState] = useState<Flow>(() => {
+    const parsed = parseHash(nav.hash);
+    if (parsed.kind === 'game' && continuesAtOnce(parsed.link)) return { kind: 'playing' };
+    if (initialSetup && parsed.kind !== 'game' && parsed.kind !== 'broken') return { kind: 'playing' };
+    return flowFromHash(nav.hash);
+  });
+  const [setup, setSetupState] = useState<GameSetup>(() => {
+    const parsed = parseHash(nav.hash);
+    if (parsed.kind === 'game' && isVariantLink(parsed.link)) return setupFromLink(parsed.link, { humanSide: 1, level: DEFAULT_LEVEL });
+    return initialSetup ?? humanVsEngine(1, DEFAULT_LEVEL);
+  });
   const flowRef = useRef(flow);
   const setupRef = useRef(setup);
   /** The side the human played last; stays while a demo runs, so that "new game" returns to it. */
-  const lastHuman = useRef<Side>(1);
+  const lastHuman = useRef<Side>(humanSideOf(setup) ?? 1);
   const levelRef = useRef(levelOf(setup, DEFAULT_LEVEL));
   /** The last preset level: where "Back to preset level" of the skill card goes back to. */
   const presetLevel = useRef(DEFAULT_LEVEL);
@@ -122,6 +148,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       baseUrl,
       loadManifest: manifestLoader ?? (() => loadManifest(baseUrl)),
       nodes: () => nodesOfLevel(levelRef.current),
+      variant: () => variantOf(setupRef.current),
     });
     const sync = new GameUrlSync(nav);
     // skill estimate (docs/web-ui.md, "Skill estimate"): measures the human's moves in the background
@@ -138,7 +165,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   const { engine, game, session, sync, tracker } = parts;
   const sessionState = useSyncExternalStore(session.subscribe, session.getState);
 
-  const snapshot = (): UrlSnapshot => ({ moves: game.state.history, humanSide: lastHuman.current, level: levelRef.current });
+  const snapshot = (): UrlSnapshot => snapshotOf(game.state.history, setupRef.current, lastHuman.current, levelRef.current);
 
   // A page opened with a game link: the URL shows that game already.
   const adoptedLink = useRef(false);
@@ -146,21 +173,27 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     adoptedLink.current = true;
     const parsed = parseHash(nav.hash);
     if (parsed.kind === 'game') {
-      sync.adopt({ moves: parsed.link.moves, humanSide: parsed.link.humanSide ?? 1, level: parsed.link.level ?? DEFAULT_LEVEL });
+      sync.adopt(snapshotOfLink(parsed.link, { humanSide: 1, level: DEFAULT_LEVEL }));
     }
   }
 
   /** Loads the position of a history entry that this app wrote (Back, Forward). No dialog: it is the user's own game. */
   const travel = (link: GameLink): void => {
-    const humanSide = link.humanSide ?? lastHuman.current;
-    const level = link.level ?? levelRef.current;
+    const fallback = { humanSide: lastHuman.current, level: levelRef.current };
+    const next = setupFromLink(link, fallback);
+    const level = levelOf(next, levelRef.current);
     const current = game.state.history;
     const same = current.length === link.moves.length && link.moves.every((m, i) => m === current[i]);
-    sync.adopt({ moves: link.moves, humanSide, level });
-    if (same && humanSide === lastHuman.current && level === levelRef.current && !isDemo(setupRef.current)) return;
-    applySetup(humanVsEngine(humanSide, level));
+    sync.adopt(snapshotOfLink(link, fallback));
+    const sameSeats = controllerSeats(next).join() === controllerSeats(setupRef.current).join();
+    if (same && sameSeats && level === levelRef.current && variantKeyOf(next) === variantKeyOf(setupRef.current) && !isDemo(setupRef.current)) return;
+    applySetup(next);
     engine.setNodes(nodesOfLevel(level));
-    void game.loadGame(link.moves, { humanSide }).catch(() => setFlow({ kind: 'broken', reason: 'moves' }));
+    void (async () => {
+      const switching = session.setVariant(); // the engine in use may not play the variant of that entry
+      if (switching && !(await switching)) return;
+      await game.loadGame(link.moves, controllerOptions(next));
+    })().catch(() => setFlow({ kind: 'broken', reason: 'moves' }));
   };
 
   const onNav = (event: NavEvent): void => {
@@ -182,7 +215,11 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       return;
     }
     // a pasted link, or the first state of a page that waits for its dialog
-    sync.adopt({ moves: parsed.link.moves, humanSide: parsed.link.humanSide ?? 1, level: parsed.link.level ?? DEFAULT_LEVEL });
+    sync.adopt(snapshotOfLink(parsed.link, { humanSide: 1, level: DEFAULT_LEVEL }));
+    if (continuesAtOnce(parsed.link)) {
+      startSetup(setupFromLink(parsed.link, { humanSide: lastHuman.current, level: levelRef.current }), parsed.link.moves);
+      return;
+    }
     setFlow({ kind: 'link', link: parsed.link });
   };
   const onNavRef = useRef(onNav);
@@ -233,14 +270,14 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     started.current = true;
     if (p.moves) {
       try {
-        await game.loadGame(p.moves, { humanSide: p.humanSide });
+        await game.loadGame(p.moves, controllerOptions(p.setup));
       } catch {
         started.current = startedBefore;
         setFlow({ kind: 'broken', reason: 'moves' });
       }
       return;
     }
-    await game.newGame({ mode: 'human-vs-engine', humanSide: p.humanSide });
+    await game.newGame(controllerOptions(p.setup));
   };
 
   /** After an engine is ready: run the plan the dialog made, or let the engine continue a game that waits for it. */
@@ -260,24 +297,39 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
+    const parsed = parseHash(nav.hash);
+    if (parsed.kind === 'game' && continuesAtOnce(parsed.link)) {
+      plan.current = { setup: setupRef.current, moves: parsed.link.moves };
+      tracker.startAt(parsed.link.moves.length);
+    } else if (initialSetup && parsed.kind !== 'game' && parsed.kind !== 'broken') {
+      plan.current = { setup: initialSetup };
+    }
     void session.start().then(async (ok) => { if (ok) await afterReady(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
-  const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current): void => {
+  /** Starts the game of `next`, new or (with `moves`) continuing a link, once an engine that plays its variant is ready. */
+  const startSetup = (next: GameSetup, moves?: readonly number[]): void => {
     if (moves) tracker.startAt(moves.length); // the moves of a link were not necessarily played by this person
-    applySetup(humanVsEngine(humanSide, level));
+    const level = levelOf(next, levelRef.current);
+    applySetup(next);
     engine.setNodes(nodesOfLevel(level));
     setFlow({ kind: 'playing' });
     if (moves) {
       // The entry that holds the link becomes an entry of this game, so that Back can return to it without a dialog.
-      const landing = { moves, humanSide, level };
+      const landing = snapshotOf(moves, next, lastHuman.current, level);
       sync.adopt(landing);
       nav.replace(formatGameFragment(landing));
     }
-    plan.current = moves ? { humanSide, moves } : { humanSide };
-    if (session.getState().phase === 'ready') void afterReady();
+    plan.current = moves ? { setup: next, moves } : { setup: next };
+    const switching = session.setVariant(); // the engine in use may not play this variant
+    if (switching) void switching.then(async (ok) => { if (ok) await afterReady(); });
+    else if (session.getState().phase === 'ready') void afterReady();
+  };
+
+  /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
+  const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current, jump = variantOf(setupRef.current).jump): void => {
+    startSetup(humanVsEngine(humanSide, level, jump), moves);
   };
 
   /** Escape or "keep my game": the dialog closes and the address shows the running game again. */
@@ -292,7 +344,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   useEffect(() => {
     if (flow.kind !== 'link' || sessionState.phase !== 'ready') return;
     let alive = true;
-    engine.legalMoves(flow.link.moves).catch((e: unknown) => {
+    engine.legalMoves(flow.link.moves, flow.link.variant).catch((e: unknown) => {
       if (alive && (e as { code?: unknown } | null)?.code === 'illegal-history') setFlow({ kind: 'broken', reason: 'moves' });
     });
     return () => {
@@ -309,7 +361,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   const model: PlayModel = {
     game,
     session,
-    analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal),
+    analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal, variantOf(setupRef.current)),
     humanSide,
     demo,
     level,
@@ -318,14 +370,23 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     canShare: playing && !demo,
     getUrl: () => nav.href,
     onNewGame: () => {
-      // ask who begins again, like at the start; Escape or "keep my game" returns to the game that runs
       tracker.abort();
+      // a game variant starts again with the same seats (its own start dialog comes later)
+      if (!isDefault(variantOf(setupRef.current)) && !isDemo(setupRef.current)) {
+        startSetup(setupRef.current);
+        return;
+      }
+      // ask who begins again, like at the start; Escape or "keep my game" returns to the game that runs
       setFlow({ kind: 'begin' });
     },
     onSwap: () => {
+      if (!game.state.canSwap) return; // hot-seat: two humans share the board, nothing to swap
       tracker.abort();
-      const next: Side = lastHuman.current === 1 ? 0 : 1;
-      applySetup(humanVsEngine(next, levelRef.current));
+      const current = humanSeatOf(setupRef.current);
+      const players = variantOf(setupRef.current).players;
+      // two players: the other side; three players: the next seat, the board stays
+      const next = (current === null ? lastHuman.current : players === 2 ? (current === 1 ? 0 : 1) : (current + 1) % players) as Player;
+      applySetup(withHumanSeat(setupRef.current, next, levelRef.current));
       tracker.startAt(game.state.history.length); // the moves so far were not all the person's
       if (playing) sync.observe(snapshot()); // the address shows the new side, same position
       void game.swapSides(next);
@@ -335,9 +396,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         game.cancel();
         return;
       }
-      applySetup(engineVsEngine(levelRef.current));
+      const demoSetup = withAllEngines(setupRef.current, levelRef.current);
+      applySetup(demoSetup);
       void (async () => {
-        await game.newGame({ mode: 'engine-vs-engine' });
+        await game.newGame(controllerOptions(demoSetup));
         await game.runEngineVsEngine();
       })();
     },
@@ -356,7 +418,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         if (id !== session.getState().current?.info.id || session.getState().phase !== 'ready') {
           if (await session.select(id)) await afterReady();
         } else {
-          await engine.newGame({ nodes: [nodesOfLevel(nextLevel), nodesOfLevel(nextLevel)] });
+          await engine.newGame({ nodes: [nodesOfLevel(nextLevel), nodesOfLevel(nextLevel)], variant: variantOf(setupRef.current) });
           await afterReady();
         }
         tracker.pump();
@@ -380,10 +442,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       ply: link.moves.length,
       sideToMove: sideToMove(link.moves.length),
       preferred: link.humanSide,
-      onContinueAs: (side) => startGame(side, link.moves, link.level),
+      onContinueAs: (side) => startGame(side, link.moves, link.level, variantOfLink(link).jump),
       onNew: () => {
         // the linked game stays reachable with Back: its entry becomes an entry of this page
-        const landing = { moves: link.moves, humanSide: link.humanSide ?? lastHuman.current, level: link.level ?? levelRef.current };
+        const landing = snapshotOfLink(link, { humanSide: lastHuman.current, level: levelRef.current });
         sync.adopt(landing);
         nav.replace(formatGameFragment(landing));
         setFlow({ kind: 'begin' });
