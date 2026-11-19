@@ -74,15 +74,55 @@ export async function playHumanMove(page: Page): Promise<void> {
   await target.click({ force: true });
 }
 
-/** Opens the engine dialog, picks an engine and the lowest strength (1,000 nodes), applies. */
-export async function pickEngine(page: Page, id: EngineId): Promise<void> {
+/** Opens the engine dialog from the engine card; on a small screen the card lives in the menu, which opens first. */
+export async function openEngineSheet(page: Page): Promise<Locator> {
+  const menuButton = page.locator('.ml-play__bar [aria-controls]');
+  if (await menuButton.isVisible()) await menuButton.click();
   await page.locator('.ml-engine button[aria-haspopup="dialog"]').click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('[data-engine]') });
   await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/**
+ * Opens the engine dialog, picks an engine and the lowest strength, applies. A classical engine: the slider at 1,000 nodes. A net
+ * engine: 50 simulations, and `model` (a model id, null for None) when given; without `model` the model stays as it is.
+ */
+export async function pickEngine(page: Page, id: EngineId, model?: string | null): Promise<void> {
+  const dialog = await openEngineSheet(page);
   await dialog.locator(`[data-engine="${id}"]`).click();
-  await dialog.locator('input[type="range"]').fill('0');
+  if (id === 'net-wasm' || id === 'net-webgpu') {
+    if (model !== undefined) await dialog.locator(`[data-model="${model ?? 'none'}"] input`).check();
+    await dialog.locator('[data-sims="50"] input').check();
+  } else {
+    await dialog.locator('input[type="range"]').fill('0');
+  }
   await dialog.locator('.ml-sheet__actions .ml-btn--primary').click();
   await expect(dialog).toBeHidden();
+}
+
+/** Runs `fn` with the side cards (engine card, telemetry) reachable: on a small screen they live in the menu, which is opened and closed around it. */
+export async function withCards<T>(page: Page, fn: () => Promise<T>): Promise<T> {
+  const menuButton = page.locator('.ml-play__bar [aria-controls]');
+  const small = await menuButton.isVisible();
+  if (small) await menuButton.click();
+  try {
+    return await fn();
+  } finally {
+    if (small) {
+      const close = page.locator('[data-menu-close]');
+      if (await close.isVisible()) await close.click();
+    }
+  }
+}
+
+/** Plays a human move and waits for the engine's reply (the ply counter); does not read the telemetry, which is in the menu on a phone. */
+export async function playExchange(page: Page): Promise<void> {
+  await waitForHumanTurn(page);
+  const before = await plyOf(page);
+  await playHumanMove(page);
+  await expect.poll(() => plyOf(page)).toBe(before + 2);
+  await waitForHumanTurn(page);
 }
 
 /**
