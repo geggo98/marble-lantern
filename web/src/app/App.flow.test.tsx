@@ -123,10 +123,10 @@ describe('the start dialog', () => {
   it('puts the focus on the primary button, keeps Tab inside at both ends, and does not close on Escape', async () => {
     await mount(new FakeNavigation(''));
     const yes = choice('begin-yes');
-    const no = choice('begin-no');
+    const lastStop = q<HTMLElement>('.ml-start [data-language="de"]')!; // the language toggle is the last stop of the dialog
     expect(document.activeElement).toBe(yes);
-    no.focus();
-    const forward = await key(no, 'Tab');
+    lastStop.focus();
+    const forward = await key(lastStop, 'Tab');
     expect(forward.defaultPrevented).toBe(true); // wraps to the first stop instead of leaving the dialog
     const firstStop = choice('jump-adjacent'); // the checked radio of the first group (unchecked radios are no Tab stops)
     firstStop.focus();

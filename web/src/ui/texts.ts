@@ -1,9 +1,9 @@
 // UI texts of the screens. English placeholders until WP12 writes the final texts and moves the keys into
 // web/src/i18n/{en,de}.json. Every key here is a working name from design/design-notes.md, section 11.
-// Lookup order: the language's UI catalog (none yet for German), the English UI catalog, then the base catalog of
-// src/i18n (app.title, engine.*, error.*, mode.*), then the key itself.
+// Lookup order: for German the catalog of src/i18n first; then the English working texts of this file; then the base
+// catalog of src/i18n (app.title, engine.*, error.*, mode.*), English as the last fallback, then the key itself.
 import { useSyncExternalStore } from 'react';
-import { i18n } from '../i18n/i18n';
+import { catalogs, i18n } from '../i18n/i18n';
 import type { MessageKey } from '../i18n/keys';
 
 export const uiEn = {
@@ -144,15 +144,18 @@ export type UiKey = keyof typeof uiEn;
 export type TextKey = UiKey | MessageKey;
 export type Translate = (key: TextKey, values?: Record<string, string | number>) => string;
 
-const uiCatalogs: Partial<Record<string, Partial<Record<UiKey, string>>>> = { en: uiEn };
-
 function fill(text: string, values?: Record<string, string | number>): string {
   if (!values) return text;
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 
 export function translate(key: TextKey, values?: Record<string, string | number>): string {
-  const own = (uiCatalogs[i18n.current]?.[key as UiKey] ?? uiEn[key as UiKey]) as string | undefined;
+  // The working texts of this file are English: they answer for English only (12 of them word things differently from
+  // en.json; this file keeps winning there so that the English UI does not change). Another language answers from its own
+  // catalog first, or its texts would lose against the English working texts.
+  const active = i18n.current === 'en' ? undefined : (catalogs[i18n.current] as Record<string, string>)[key];
+  if (active !== undefined) return fill(active, values);
+  const own = uiEn[key as UiKey] as string | undefined;
   if (own !== undefined) return fill(own, values);
   return i18n.t(key as MessageKey, values);
 }

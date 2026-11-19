@@ -10,6 +10,7 @@ import type { GameMode, StartChoice } from '../app/start-choice';
 import { useNetSelection } from '../app/net-selection';
 import type { NetSelectionStore } from '../app/net-selection';
 import { NetWarnings } from './net-warnings';
+import { DialogLanguageRow } from './LanguageToggle';
 import { useT } from './texts';
 import { useDialog } from './useDialog';
 import './start-dialog.css';
@@ -132,6 +133,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} variant={{ jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 }} />}
         {model.kind === 'link' && model.net && model.variant && <StartNetWarning store={model.net} variant={model.variant} />}
         <div className="ml-start__actions">{actions}</div>
+        <DialogLanguageRow />
       </section>
     </div>,
     document.body,
