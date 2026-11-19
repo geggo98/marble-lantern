@@ -1,6 +1,6 @@
 // The rule switches of docs/rules.md (Java: RuleSet), restricted to what the port supports: two or three players and a goal that may
-// not be left (LeaveGoal::Forbidden, the project default). Every other value of players (not 2 or 3), leave_goal, blocking_states and
-// ranking is refused by create(), as the Java class refuses the values that the rules document reserves. The switches that
+// not be left (LeaveGoal::Forbidden, the project default). Every other value of players (not 2 or 3), leave_goal and blocking_states
+// is refused by create(), as the Java class refuses the values that the rules document reserves. The switches that
 // the search benchmarks never change (move limit, blockade rule, suicide moves, repetition, draw handling) stay switchable,
 // because the engine tests exercise them.
 #pragma once
@@ -63,6 +63,11 @@ public:
     std::expected<RuleSet, std::string> with_suicide_moves(SuicideMoves value) const;
     std::expected<RuleSet, std::string> with_draw_handling(DrawHandling value) const;
     std::expected<RuleSet, std::string> with_jump_rule(JumpRule value) const;
+    std::expected<RuleSet, std::string> with_ranking(Ranking value) const;
+
+    // Whether a player who fills the goal leaves the game while the others play on for the lower ranks (FullRanking with three
+    // players; with two players the switch has no effect). Java: RuleSet.playsOnAfterWin.
+    bool plays_on_after_win() const { return spec_.ranking == Ranking::FullRanking && spec_.players > 2; }
 
     friend bool operator==(const RuleSet&, const RuleSet&) = default;
 

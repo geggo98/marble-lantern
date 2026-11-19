@@ -77,6 +77,7 @@ public final class WebCore {
     private ThreePlayerPlayer[] players3;
     private int gamePlayers = 2;
     private RuleSet.JumpRule gameRule = RuleSet.JumpRule.ADJACENT;
+    private RuleSet.Ranking gameRanking = RuleSet.Ranking.FIRST_WINNER_ONLY;
     private RuleSet.JumpRule analysisRule;
 
     /**
@@ -107,12 +108,31 @@ public final class WebCore {
         throw new WebFailure("internal", "players must be 2 or 3, got '" + text + "'");
     }
 
+    /**
+     * The ranking rule of a facade argument: null, empty or {@code first} is {@link RuleSet.Ranking#FIRST_WINNER_ONLY},
+     * {@code full} is {@link RuleSet.Ranking#FULL_RANKING}; anything else fails with {@code internal}. With two players
+     * the two values play the same game.
+     */
+    public static RuleSet.Ranking parseRanking(String text) {
+        if (text == null || text.isEmpty() || text.equals("first")) {
+            return RuleSet.Ranking.FIRST_WINNER_ONLY;
+        }
+        if (text.equals("full")) {
+            return RuleSet.Ranking.FULL_RANKING;
+        }
+        throw new WebFailure("internal", "ranking must be first or full, got '" + text + "'");
+    }
+
     private static RuleSet rules(RuleSet.JumpRule jump) {
         return rules(jump, 2);
     }
 
     private static RuleSet rules(RuleSet.JumpRule jump, int playerCount) {
-        return RuleSet.defaults(playerCount).withJumpRule(jump);
+        return rules(jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    private static RuleSet rules(RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        return RuleSet.defaults(playerCount).withJumpRule(jump).withRanking(ranking);
     }
 
     /**
@@ -169,6 +189,11 @@ public final class WebCore {
      * it works with and without {@link #setTable}.
      */
     public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump) {
+        newGame(nodes0, nodes1, jump, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /** {@link #newGame(int, int, RuleSet.JumpRule)} with a ranking rule; for two players it has no effect on play. */
+    public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
         if (nodes0 <= 0 || nodes1 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1);
         }
@@ -176,6 +201,7 @@ public final class WebCore {
         players3 = null;
         gamePlayers = 2;
         gameRule = jump;
+        gameRanking = ranking;
     }
 
     /**
@@ -183,6 +209,11 @@ public final class WebCore {
      * transposition table. Needs no table; {@link #setTable} is not required and a table that is installed is ignored.
      */
     public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump) {
+        newGame3(nodes0, nodes1, nodes2, jump, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /** {@link #newGame3(int, int, int, RuleSet.JumpRule)} with a ranking rule: {@code FULL_RANKING} plays on for the lower ranks. */
+    public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
         if (nodes0 <= 0 || nodes1 <= 0 || nodes2 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1 + ", " + nodes2);
         }
@@ -190,6 +221,7 @@ public final class WebCore {
         players = null;
         gamePlayers = 3;
         gameRule = jump;
+        gameRanking = ranking;
     }
 
     private static ThreePlayerPlayer player3(int nodes, RuleSet.JumpRule jump) {
@@ -209,7 +241,15 @@ public final class WebCore {
 
     /** {@link #legalMoves(int[], RuleSet.JumpRule)} for 2 or 3 players. */
     public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        Position position = replay(history, jump, playerCount);
+        return legalMoves(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /**
+     * {@link #legalMoves(int[], RuleSet.JumpRule, int)} with a ranking rule. With {@code FULL_RANKING} and three players
+     * a finished player is skipped: the moves are those of the next player who has not finished.
+     */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        Position position = replay(history, jump, playerCount, ranking);
         return position.outcome() != null ? new int[0] : position.legalMoves();
     }
 
@@ -219,12 +259,25 @@ public final class WebCore {
      * score the game by distance, which gives no winner ({@code winner() == -1}); the facade reports that as a draw.
      */
     public Outcome outcome(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        Position position = replay(history, jump, playerCount);
+        return state(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY).outcome();
+    }
+
+    /**
+     * The state of a game: the {@link Outcome} ({@code null} while the game goes on) and the set of players that have
+     * finished, as bits (bit p for player p). The set is 0 unless {@code ranking} is {@code FULL_RANKING} with three
+     * players. The outcome of such a game always carries the complete ranking.
+     */
+    public record State(Outcome outcome, int finishedMask) {
+    }
+
+    /** {@link #outcome(int[], RuleSet.JumpRule, int)} with a ranking rule, and the finished set. */
+    public State state(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        Position position = replay(history, jump, playerCount, ranking);
         Outcome outcome = position.outcome();
         if (outcome == null && position.generate(new int[Position.MAX_MOVES]) == 0) {
-            return position.noMovesOutcome();
+            outcome = position.noMovesOutcome();
         }
-        return outcome;
+        return new State(outcome, position.finishedMask());
     }
 
     /** Searches the position after {@code history} with the player of the side to move. */
@@ -246,20 +299,27 @@ public final class WebCore {
      * like the rule. For 3 players the search is {@link ThreePlayerPlayer}; its result has {@code raceMove} false.
      */
     public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        Position position = replay(history, jump, playerCount);
+        return choose(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /** {@link #choose(int[], RuleSet.JumpRule, int)} with a ranking rule, which must be the one of the current game. */
+    public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        Position position = replay(history, jump, playerCount, ranking);
         if (position.outcome() != null || position.generate(new int[Position.MAX_MOVES]) == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
         }
         if (players == null && players3 == null) {
             if (playerCount == 3) {
-                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump);
+                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump, ranking);
             } else {
-                newGame(DEFAULT_NODES, DEFAULT_NODES, jump);
+                newGame(DEFAULT_NODES, DEFAULT_NODES, jump, ranking);
             }
         } else if (gamePlayers != playerCount) {
             throw new WebFailure("internal", "the game has " + gamePlayers + " players, not " + playerCount + "; call newGame first");
         } else if (gameRule != jump) {
             throw new WebFailure("internal", "the game plays the " + gameRule + " rule, not " + jump + "; call newGame first");
+        } else if (gameRanking != ranking) {
+            throw new WebFailure("internal", "the game plays " + gameRanking + ", not " + ranking + "; call newGame first");
         }
         if (playerCount == 3) {
             return choose3(players3[position.sideToMove()], position);
@@ -315,10 +375,22 @@ public final class WebCore {
      * Needs no table.
      */
     public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount) {
+        return analyse(history, moves, nodes, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /**
+     * {@link #analyse(int[], int[], int, RuleSet.JumpRule, int)} with a ranking rule; for two players it changes nothing.
+     * With {@code FULL_RANKING} and three players the position may be in the continued phase (a player has finished):
+     * the moves are those of the players still in play, and the scores follow the search of the continued phase (first
+     * place {@code 1000000 - h}, second place {@code 500000 - h}, last place {@code -(1000000 - h)}, with the same one-ply
+     * shift as for mate scores). A game that is over fails with {@code illegal-history}.
+     */
+    public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount,
+            RuleSet.Ranking ranking) {
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
-        Position position = replay(history, jump, playerCount);
+        Position position = replay(history, jump, playerCount, ranking);
         int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
         if (legal.length == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -384,7 +456,18 @@ public final class WebCore {
      * {@link ThreePlayerPlayer#evaluation}). No search, no table; a finished game is evaluated like any position.
      */
     public int[] evaluate3(int[] history, RuleSet.JumpRule jump) {
-        Position position = replay(history, jump, 3);
+        return evaluate3(history, jump, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /**
+     * {@link #evaluate3(int[], RuleSet.JumpRule)} with a ranking rule. With {@code FULL_RANKING} the seat of a player
+     * that has finished carries a rank constant instead of an evaluation: {@code 1000000} for first place,
+     * {@code 500000} for second place and {@code -1000000} for the player that is left last once the ranking is
+     * complete (the search's mate, second-place and loss scores at height 0). The seats of the players still in play hold the evaluation against
+     * the active opponents (see {@link ThreePlayerPlayer#evaluation}).
+     */
+    public int[] evaluate3(int[] history, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
+        Position position = replay(history, jump, 3, ranking);
         if (analysisPlayer3 == null || analysisRule3 != jump) {
             analysisPlayer3 = player3(analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES, jump);
             analysisNodes3 = analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES;
@@ -408,13 +491,21 @@ public final class WebCore {
 
     /** {@link #bench(int, int, RuleSet.JumpRule)} for 2 or 3 players; three players need no table. */
     public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount) {
+        return bench(plies, nodes, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    /**
+     * {@link #bench(int, int, RuleSet.JumpRule, int)} with a ranking rule. With {@code FULL_RANKING} the self-play goes
+     * on after the first finisher until the ranking is complete or the plies are used up.
+     */
+    public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
         if (plies <= 0 || nodes <= 0) {
             throw new WebFailure("internal", "plies and nodes must be positive: " + plies + ", " + nodes);
         }
         AlphaBetaPlayer[] pair = playerCount == 3 ? null : new AlphaBetaPlayer[] {player(nodes, jump), player(nodes, jump)};
         ThreePlayerPlayer[] trio = playerCount == 3
                 ? new ThreePlayerPlayer[] {player3(nodes, jump), player3(nodes, jump), player3(nodes, jump)} : null;
-        Position position = Position.initial(rules(jump, playerCount));
+        Position position = Position.initial(rules(jump, playerCount, ranking));
         List<Choice> played = new ArrayList<>();
         for (int ply = 0; ply < plies; ply++) {
             if (position.outcome() != null) {
@@ -448,7 +539,11 @@ public final class WebCore {
     }
 
     private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        Position position = Position.initial(rules(jump, playerCount));
+        return replay(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+    }
+
+    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        Position position = Position.initial(rules(jump, playerCount, ranking));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             if (!contains(position.legalMoves(), move)) {

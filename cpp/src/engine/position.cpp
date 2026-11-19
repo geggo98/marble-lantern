@@ -1,6 +1,7 @@
 #include "position.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <exception>
 #include <utility>
 
@@ -18,12 +19,14 @@ constexpr int kNoCorner = -2;
 struct Keys {
     std::array<std::array<std::uint64_t, kCells>, 3> piece{};
     std::array<std::uint64_t, 3> side{};
+    std::array<std::uint64_t, 3> finished{};  // drawn after all other keys, so the older hashes stay as they were
     Keys() {
         SplittableRandom random(0x5E7A11A100000001ULL);
         for (int p = 0; p < 3; ++p) {
             side[sz(p)] = random.next_long();
             for (int c = 0; c < kCells; ++c) piece[sz(p)][sz(c)] = random.next_long();
         }
+        for (int p = 0; p < 3; ++p) finished[sz(p)] = random.next_long();
     }
 };
 
@@ -36,9 +39,10 @@ std::uint64_t bit_of(int cell) { return std::uint64_t{1} << (cell & 63); }  // J
 
 std::uint64_t Position::side_key(int player) { return kKeys.side[sz(player)]; }
 std::uint64_t Position::piece_key(int player, int cell) { return kKeys.piece[sz(player)][sz(cell)]; }
+std::uint64_t Position::finished_key(int player) { return kKeys.finished[sz(player)]; }
 
 Position::Position(const RuleSet& rules)
-    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), hash_(kKeys.side[0]), moves_(65), hashes_(65) {
+    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), play_on_(rules.plays_on_after_win()), hash_(kKeys.side[0]), moves_(65), hashes_(65), movers_(65), masks_before_(65) {
     owner_.fill(-1);
 }
 
@@ -67,6 +71,11 @@ Position Position::copy() const {
     c.hash_ = hash_;
     c.moves_ = moves_;
     c.hashes_ = hashes_;
+    c.movers_ = movers_;
+    c.masks_before_ = masks_before_;
+    c.finished_mask_ = finished_mask_;
+    c.finishers_ = finishers_;
+    c.finished_count_ = finished_count_;
     return c;
 }
 
@@ -99,9 +108,52 @@ std::expected<void, std::string> Position::put(int player, int q, int r) {
 std::expected<void, std::string> Position::set_side_to_move(int player) {
     if (ply_ > 0) return std::unexpected("setup is only allowed before the first move (ply " + std::to_string(ply_) + ")");
     if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0.." + std::to_string(rules_.players() - 1));
+    if (is_finished(player)) return std::unexpected("player " + std::to_string(player) + " has finished and cannot be to move");
     hash_ ^= kKeys.side[sz(side_)] ^ kKeys.side[sz(player)];
     side_ = player;
     return {};
+}
+
+std::expected<void, std::string> Position::finish(int player) {
+    if (ply_ > 0) return std::unexpected("setup is only allowed before the first move (ply " + std::to_string(ply_) + ")");
+    if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0.." + std::to_string(rules_.players() - 1));
+    if (!play_on_) return std::unexpected(std::string("finished players need ranking=FULL_RANKING with three players"));
+    if (is_finished(player) || finished_count_ >= rules_.players() - 1) {
+        return std::unexpected("player " + std::to_string(player) + " cannot finish now");
+    }
+    mark_finished(player);
+    if (side_ == player) {
+        const int next = next_active(player);
+        hash_ ^= kKeys.side[sz(player)] ^ kKeys.side[sz(next)];
+        side_ = next;
+    }
+    return {};
+}
+
+void Position::mark_finished(int player) {
+    finished_mask_ |= 1 << player;
+    finishers_[sz(finished_count_++)] = player;
+    hash_ ^= kKeys.finished[sz(player)];
+}
+
+// The next player after p, in turn order, who has not finished; p if there is none.
+int Position::next_active(int p) const {
+    const int players = rules_.players();
+    for (int i = 1; i <= players; ++i) {
+        const int q = (p + i) % players;
+        if ((finished_mask_ & (1 << q)) == 0) return q;
+    }
+    return p;
+}
+
+// After a move of p: every active player whose goal is now filled finishes with the next free rank, in turn order starting after p.
+// The last active player is not marked: it takes the last rank when the game is over.
+void Position::record_finishers(int p) {
+    const int players = rules_.players();
+    for (int i = 1; i <= players; ++i) {
+        const int q = (p + i) % players;
+        if (finished_count_ < players - 1 && !is_finished(q) && has_won(q)) mark_finished(q);
+    }
 }
 
 // Inserts a cell into the sorted piece list of a player (setup only).
@@ -159,16 +211,21 @@ void Position::make(int move) {
     if (sz(ply_ + 1) >= hashes_.size()) {
         hashes_.resize(hashes_.size() * 2);
         moves_.resize(moves_.size() * 2);
+        movers_.resize(movers_.size() * 2);
+        masks_before_.resize(masks_before_.size() * 2);
     }
     hashes_[sz(ply_)] = hash_;
     moves_[sz(ply_)] = move;
+    movers_[sz(ply_)] = p;
+    masks_before_[sz(ply_)] = finished_mask_;
     owner_[sz(from)] = -1;
     owner_[sz(to)] = static_cast<std::int8_t>(p);
     hash_ ^= kKeys.piece[sz(p)][sz(from)] ^ kKeys.piece[sz(p)][sz(to)];
     update_goal_counts(p, from, -1);
     update_goal_counts(p, to, +1);
     move_piece(p, from, to);
-    const int next = (p + 1) % rules_.players();
+    if (play_on_) record_finishers(p);
+    const int next = next_active(p);
     hash_ ^= kKeys.side[sz(p)] ^ kKeys.side[sz(next)];
     side_ = next;
     ++ply_;
@@ -181,7 +238,9 @@ void Position::unmake() {
     const int move = moves_[sz(ply_)];
     const int from = Move::from(move);
     const int to = Move::to(move);
-    const int p = (side_ + rules_.players() - 1) % rules_.players();
+    const int p = movers_[sz(ply_)];
+    finished_mask_ = masks_before_[sz(ply_)];
+    finished_count_ = std::popcount(static_cast<unsigned>(finished_mask_));
     owner_[sz(to)] = -1;
     owner_[sz(from)] = static_cast<std::int8_t>(p);
     update_goal_counts(p, to, -1);
@@ -233,7 +292,7 @@ int Position::generate(std::span<int, kMaxMoves> out) {
 
 bool Position::opponent_goal_nearly_full(int p) const {
     for (int q = 0; q < rules_.players(); ++q) {
-        if (q != p && goal_occupied_[sz(q)] >= kCornerSize - 1) return true;
+        if (q != p && !is_finished(q) && goal_occupied_[sz(q)] >= kCornerSize - 1) return true;
     }
     return false;
 }
@@ -339,7 +398,7 @@ bool Position::hands_opponent_the_win(int p, int from, int to) const {
     const int from_goal = layout().goal_player_of_cell(from);
     const int to_goal = layout().goal_player_of_cell(to);
     for (int q = 0; q < rules_.players(); ++q) {
-        if (q == p) continue;
+        if (q == p || is_finished(q)) continue;
         const int occupied = goal_occupied_[sz(q)] - (from_goal == q ? 1 : 0) + (to_goal == q ? 1 : 0);
         if (is_win(occupied, goal_own_[sz(q)])) return true;
     }
@@ -355,6 +414,7 @@ bool Position::is_win(int occupied, int own) const {
 }
 
 std::optional<Outcome> Position::outcome() const {
+    if (play_on_) return play_on_outcome(false);
     const int players = rules_.players();
     for (int i = 0; i < players; ++i) {
         const int q = (side_ + i) % players;  // starts with the player who did not just move
@@ -367,7 +427,86 @@ std::optional<Outcome> Position::outcome() const {
     return std::nullopt;
 }
 
-Outcome Position::no_moves_outcome() const { return Outcome::no_winner(Outcome::Reason::NoMoves, draw_values(), rules_.players()); }
+Outcome Position::no_moves_outcome() const {
+    if (play_on_) return *play_on_outcome(true);
+    return Outcome::no_winner(Outcome::Reason::NoMoves, draw_values(), rules_.players());
+}
+
+namespace {
+// The value of rank r (0 = first): 1 for the first, -1 for the last, evenly spaced.
+double rank_value(int r, int players) { return static_cast<double>(players - 1 - 2 * r) / (players - 1); }
+}  // namespace
+
+// outcome() (or no_moves_outcome() with no_moves) for FullRanking with three players. The game is over when one active player is left,
+// which takes the last rank; then the reason is Win. Otherwise the checks of outcome() apply, and the finished players keep their ranks.
+std::optional<Outcome> Position::play_on_outcome(bool no_moves) const {
+    const int players = rules_.players();
+    if (finished_count_ >= players - 1) {
+        std::array<int, 3> order{};
+        std::array<double, 3> values{};
+        for (int i = 0; i < finished_count_; ++i) order[sz(i)] = finishers_[sz(i)];
+        order[sz(finished_count_)] = next_active(finishers_[sz(finished_count_ - 1)]);
+        for (int r = 0; r < players; ++r) values[sz(order[sz(r)])] = rank_value(r, players);
+        return Outcome::ranked(Outcome::Reason::Win, order, values, players);
+    }
+    Outcome::Reason reason;
+    if (no_moves) {
+        reason = Outcome::Reason::NoMoves;
+    } else if (rules_.repetition() == RuleSet::Repetition::RepetitionIsDraw && is_repeated()) {
+        reason = Outcome::Reason::Repetition;
+    } else if (ply_ >= rules_.move_limit()) {
+        reason = Outcome::Reason::MoveLimit;
+    } else {
+        return std::nullopt;
+    }
+    return unfinished_outcome(reason);
+}
+
+// The end without a complete ranking: the finished players keep their ranks and values; the others share the remaining rank values,
+// evenly with Draw, or by the distance score of draw_values() with ScoreByDistance. Their order is by distance sum, the smaller sum
+// first, ties by player number.
+Outcome Position::unfinished_outcome(Outcome::Reason reason) const {
+    const int players = rules_.players();
+    const int open = players - finished_count_;
+    std::array<int, 3> rest{};
+    std::array<int, 3> sums{};
+    int n = 0;
+    for (int q = 0; q < players; ++q) {
+        sums[sz(q)] = distance_sum(q);
+        if (!is_finished(q)) {
+            int i = n++;
+            while (i > 0 && sums[sz(rest[sz(i - 1)])] > sums[sz(q)]) {
+                rest[sz(i)] = rest[sz(i - 1)];
+                --i;
+            }
+            rest[sz(i)] = q;
+        }
+    }
+    std::array<int, 3> order{};
+    for (int i = 0; i < finished_count_; ++i) order[sz(i)] = finishers_[sz(i)];
+    for (int i = 0; i < open; ++i) order[sz(finished_count_ + i)] = rest[sz(i)];
+    std::array<double, 3> values{};
+    double slots = 0;
+    for (int r = 0; r < players; ++r) {
+        if (r < finished_count_) {
+            values[sz(order[sz(r)])] = rank_value(r, players);
+        } else {
+            slots += rank_value(r, players);
+        }
+    }
+    const double share = slots / open;
+    double mean = 0;
+    int max_distance = 0;
+    for (int i = 0; i < open; ++i) mean += sums[sz(rest[sz(i)])];
+    for (int q = 0; q < players; ++q) max_distance = std::max(max_distance, layout().max_distance(q));
+    mean /= open;
+    const double scale = static_cast<double>(kPieces) * max_distance;
+    for (int i = 0; i < open; ++i) {
+        const int q = rest[sz(i)];
+        values[sz(q)] = rules_.draw_handling() == RuleSet::DrawHandling::Draw ? share : share + (mean - sums[sz(q)]) / scale;
+    }
+    return Outcome::ranked(reason, order, values, players);
+}
 
 bool Position::is_repeated() const {
     for (int k = 0; k < ply_; ++k) {

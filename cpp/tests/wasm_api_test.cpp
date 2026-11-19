@@ -16,6 +16,10 @@ const char* shw_error();
 int shw_player_new(int nodes, int jump);
 int shw_game_new(int jump);
 int shw_game_new2(int jump, int players);
+int shw_game_new3(int jump, int players, int ranking);
+int shw_ranking_rule();
+int shw_rank(int i);
+int shw_finished_mask();
 int shw_players();
 int shw_player_new3(int nodes, int jump);
 int shw_ply();
@@ -174,6 +178,41 @@ SH_TEST(three_engine_seats_play_a_full_game_of_each_rule) {
         CHECK_EQ(shw_race_moves(player), 0.0);
         shw_player_clear(player);
         CHECK_EQ(shw_has_result(player), 0);
+    }
+}
+
+SH_TEST(full_ranking_game_through_the_c_api) {
+    CHECK_EQ(shw_game_new3(0, 3, 2), -1);
+    CHECK(std::string(shw_error()).find("ranking must be") != std::string::npos);
+    CHECK_EQ(shw_game_new3(0, 3, 0), 0);
+    CHECK_EQ(shw_ranking_rule(), 0);
+    CHECK_EQ(shw_game_new3(1, 2, 1), 0);  // two players: accepted, no effect
+    CHECK_EQ(shw_ranking_rule(), 1);
+    CHECK_EQ(shw_players(), 2);
+    for (const int jump : {0, 1}) {
+        const int player = shw_player_new3(150, jump);
+        CHECK(player >= 0);
+        CHECK_EQ(shw_game_new3(jump, 3, 1), 0);
+        CHECK_EQ(shw_ranking_rule(), 1);
+        CHECK_EQ(shw_finished_mask(), 0);
+        CHECK_EQ(shw_rank(0), -1);
+        int ply = 0;
+        while (shw_outcome() == -1 && ply < 400) {
+            const int mask = shw_finished_mask();
+            CHECK_EQ(mask >> shw_side_to_move() & 1, 0);  // a finished player is never to move
+            if (mask != 0) CHECK(shw_rank(0) >= 0 && (mask >> shw_rank(0) & 1) == 1);
+            const int move = shw_choose(player);
+            CHECK(move >= 0);
+            CHECK_EQ(shw_play(move), 0);
+            ++ply;
+        }
+        if (shw_outcome() > 0) {  // a complete ranking: three different players, the winner first
+            const int a = shw_rank(0);
+            const int b = shw_rank(1);
+            const int c = shw_rank(2);
+            CHECK_EQ(shw_outcome(), 1 + a);
+            CHECK(a >= 0 && b >= 0 && c >= 0 && a != b && a != c && b != c);
+        }
     }
 }
 

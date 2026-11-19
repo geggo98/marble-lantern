@@ -366,6 +366,12 @@ export class GameController {
         this.patch({ legal: [], outcome: { kind: 'win', winner: verdict.winner } });
         return;
       }
+      // Full ranking is an engine-level field so far (the URL and the controller do not carry it): a finished ranking is
+      // reported as the win of its first seat until the controller shows ranks.
+      if (verdict.kind === 'ranking') {
+        this.patch({ legal: [], outcome: { kind: 'win', winner: verdict.ranking[0] } });
+        return;
+      }
       const legal = await this.engine.legalMoves(state.history, this.variant);
       if (generation !== this.generation) return;
       if (legal.length === 0) this.patch({ legal, outcome: { kind: 'no-moves', side: state.sideToMove } });

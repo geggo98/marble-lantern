@@ -15,9 +15,6 @@ std::expected<RuleSet, std::string> RuleSet::create(const Spec& spec) {
     if (spec.blocking_states == BlockingStates::Illegal) {
         return std::unexpected(std::string("blockingStates=ILLEGAL needs an exact definition of 'unreachable' for 10 pieces (docs/rules.md)"));
     }
-    if (spec.ranking == Ranking::FullRanking) {
-        return std::unexpected(std::string("ranking=FULL_RANKING is reserved and not implemented"));
-    }
     return RuleSet(spec);
 }
 
@@ -60,6 +57,12 @@ std::expected<RuleSet, std::string> RuleSet::with_suicide_moves(SuicideMoves val
 std::expected<RuleSet, std::string> RuleSet::with_draw_handling(DrawHandling value) const {
     Spec s = spec_;
     s.draw_handling = value;
+    return create(s);
+}
+
+std::expected<RuleSet, std::string> RuleSet::with_ranking(Ranking value) const {
+    Spec s = spec_;
+    s.ranking = value;
     return create(s);
 }
 

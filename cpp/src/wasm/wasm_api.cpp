@@ -120,21 +120,31 @@ SHW_API void shw_player_clear(int id) {
     if (s.two) s.two->clear_search(); else s.three->clear_search();
 }
 
+// Starts a new game from the start position with a ranking rule: ranking = 0 ends the game at the first winner (RuleSet FIRST_WINNER_ONLY),
+// 1 plays on for the lower ranks (FULL_RANKING: a three-player game; for two players it changes nothing). Other values of ranking, jump or
+// players give -1. shw_game_new2(jump, players) is shw_game_new3(jump, players, 0).
 // Starts a new game from the start position. jump = 0: the adjacent jump rule, 1: the Halma long hop; players = 2 (200 plies) or 3 (clockwise
 // play order top, lower right, lower left; 300 plies). Returns 0, or -1 for another value of jump or players (the game is then unchanged;
 // shw_error() tells which).
-SHW_API int shw_game_new2(int jump, int players) {
+SHW_API int shw_game_new3(int jump, int players, int ranking) {
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
     if (players != 2 && players != 3) { g_error = "players must be 2 or 3, got " + std::to_string(players); return -1; }
-    const auto rules = sh::RuleSet::defaults(players).with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent);
+    if (ranking != 0 && ranking != 1) { g_error = "ranking must be 0 (first winner only) or 1 (full ranking), got " + std::to_string(ranking); return -1; }
+    const auto rules = sh::RuleSet::defaults(players)
+                           .with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent)
+                           .and_then([ranking](const sh::RuleSet& r) { return r.with_ranking(ranking == 1 ? sh::RuleSet::Ranking::FullRanking : sh::RuleSet::Ranking::FirstWinnerOnly); });
+    if (!rules) { g_error = rules.error(); return -1; }
     g_pos.emplace(sh::Position::initial(*rules));
     return 0;
 }
+SHW_API int shw_game_new2(int jump, int players) { return shw_game_new3(jump, players, 0); }
 // The two-player game: shw_game_new2(jump, 2). A call without an argument from JavaScript passes jump = 0.
 SHW_API int shw_game_new(int jump) { return shw_game_new2(jump, 2); }
 // The number of players of the current game: 2 or 3.
 SHW_API int shw_players() { return g_pos->rules().players(); }
 // The jump rule of the current game: 0 adjacent, 1 long.
+// The ranking rule of the current game: 0 first winner only, 1 full ranking.
+SHW_API int shw_ranking_rule() { return g_pos->rules().ranking() == sh::RuleSet::Ranking::FullRanking ? 1 : 0; }
 SHW_API int shw_jump_rule() { return g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long ? 1 : 0; }
 SHW_API int shw_side_to_move() { return g_pos->side_to_move(); }
 SHW_API int shw_ply() { return g_pos->ply(); }
@@ -142,8 +152,10 @@ SHW_API int shw_owner(int cell) { return g_pos->owner(cell); }
 SHW_API int shw_cell_count() { return sh::kCells; }
 SHW_API int shw_cell_q(int cell) { return sh::geometry::q(cell); }
 SHW_API int shw_cell_r(int cell) { return sh::geometry::r(cell); }
-// Writes the legal moves (from | to << 8) of the side to move into the heap array `out` (capacity `cap`); returns their number.
+// Writes the legal moves (from | to << 8) of the side to move into the heap array `out` (capacity `cap`); returns their number. A game that
+// is over has none (as in the Java facade): with a full-ranking game the finished players' goals no longer block the others' moves.
 SHW_API int shw_legal_moves(std::int32_t* out, int cap) {
+    if (g_pos->outcome().has_value()) return 0;
     const int n = g_pos->generate(g_moves);
     const std::span<std::int32_t> dest(out, static_cast<std::size_t>(cap));
     for (int i = 0; i < n && i < cap; ++i) dest[static_cast<std::size_t>(i)] = g_moves[static_cast<std::size_t>(i)];
@@ -162,6 +174,17 @@ SHW_API int shw_outcome() {
     if (!o) return g_pos->generate(g_moves) > 0 ? -1 : 0;
     return o->has_winner() ? 1 + o->winner : 0;
 }
+// The absolute player of rank i (0 = first place), or -1 if that rank is not decided: in a running full-ranking game the players that have
+// finished, by rank; after the end the whole ranking (a first-winner game: only rank 0, the winner).
+SHW_API int shw_rank(int i) {
+    if (i < 0 || i > 2) return -1;
+    const auto o = g_pos->outcome();
+    if (o) return i < o->ranking_size ? o->ranking[static_cast<std::size_t>(i)] : -1;
+    const auto finishers = g_pos->finishers();
+    return static_cast<std::size_t>(i) < finishers.size() ? finishers[static_cast<std::size_t>(i)] : -1;
+}
+// The players that have finished (filled the goal in a full-ranking game with three players) as bits: bit p for player p; 0 otherwise.
+SHW_API int shw_finished_mask() { return g_pos->finished_mask(); }
 // The engine's move for the side to move (-1 if none; -2 if the player plays the other jump rule than the game, or two players where the game has
 // three or the reverse); the search is synchronous and blocks for the node budget. A three-player player plays whichever seat is to move.
 SHW_API int shw_choose(int player_id) {
