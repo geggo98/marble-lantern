@@ -6,6 +6,8 @@
   "engine.cppWasm": "C++ (WebAssembly)",
   "engine.javaWasmGc": "Java (TeaVM, WebAssembly GC)",
   "engine.javaJs": "Java (TeaVM, JavaScript)",
+  "engine.netWasm": "Neural network, CPU (WebAssembly)",
+  "engine.netWebGpu": "Neural network, GPU (WebGPU)",
   "engine.serverBrowser": "Server: same player as in the browser",
   "engine.serverBest": "Server: strongest classical player",
   "engine.serverNet": "Server: neural network player",

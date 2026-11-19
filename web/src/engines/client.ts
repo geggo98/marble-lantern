@@ -5,6 +5,7 @@ import type { Variant } from '../game/variant';
 import { isEvent, EngineFailure } from './protocol';
 import type { AssetUrls, Reply, Request, RequestBody, WorkerOut } from './protocol';
 import type { LoadedTable } from './tables';
+import type { EngineWarning } from './warnings';
 
 /** The part of a Worker the client uses. A test passes an in-process fake. */
 export interface WorkerLike {
@@ -23,6 +24,8 @@ export interface ClientOptions {
    * does not download again. Without it the worker fetches the table itself (and a restart fetches again).
    */
   loadTable?: (onProgress?: (p: Progress) => void) => Promise<LoadedTable>;
+  /** Net engines: the backend the worker should use; goes into the init request. Absent for the classical engines. */
+  backend?: 'wasm' | 'webgpu';
 }
 
 interface Pending {
@@ -75,9 +78,30 @@ export class WorkerEngine implements Engine {
     };
   }
 
+  /** Net engines: the warnings of the last newGame or choose. Always empty for the classical engines. */
+  warnings: readonly EngineWarning[] = [];
+  private warningListeners = new Set<() => void>();
+
+  subscribeWarnings(listener: () => void): () => void {
+    this.warningListeners.add(listener);
+    return () => this.warningListeners.delete(listener);
+  }
+
+  private setWarnings(next: readonly EngineWarning[]): void {
+    if (JSON.stringify(next) === JSON.stringify(this.warnings)) return;
+    this.warnings = next;
+    for (const l of this.warningListeners) l();
+  }
+
+  /** A net worker answers newGame with { warnings }; every other worker with null. */
+  private takeWarnings(result: unknown): void {
+    const w = (result as { warnings?: unknown } | null)?.warnings;
+    if (Array.isArray(w)) this.setWarnings(w as EngineWarning[]);
+  }
+
   newGame(setup: GameSetup): Promise<void> {
     this.setup = setup;
-    return this.call({ type: 'newGame', setup }).then(() => undefined);
+    return this.call({ type: 'newGame', setup }).then((r) => this.takeWarnings(r));
   }
 
   legalMoves(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<number[]> {
@@ -90,7 +114,9 @@ export class WorkerEngine implements Engine {
 
   async choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult> {
     const v = variant ?? this.setup?.variant ?? DEFAULT_VARIANT;
-    return (await this.abortable({ type: 'choose', history: [...history], variant: v }, signal)) as ChooseResult;
+    const result = (await this.abortable({ type: 'choose', history: [...history], variant: v }, signal)) as ChooseResult;
+    if (result.warnings) this.setWarnings(result.warnings);
+    return result;
   }
 
   async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant: Variant = DEFAULT_VARIANT): Promise<AnalysisResult> {
@@ -192,7 +218,7 @@ export class WorkerEngine implements Engine {
     // A copy is transferred; the main thread keeps the original for the next restart.
     const copy = this.table ? this.table.bytes.slice(0) : null;
     const { promise } = this.send(
-      { type: 'init', assets: this.options.assets, table: copy },
+      { type: 'init', assets: this.options.assets, table: copy, ...(this.options.backend ? { backend: this.options.backend } : {}) },
       onProgress,
       copy ? [copy] : undefined,
     );
@@ -207,7 +233,7 @@ export class WorkerEngine implements Engine {
     this.failAllExcept();
     this.ready = (async () => {
       await this.startWorker();
-      if (this.setup) await this.send({ type: 'newGame', setup: this.setup }).promise;
+      if (this.setup) this.takeWarnings(await this.send({ type: 'newGame', setup: this.setup }).promise);
     })();
     this.ready.catch(() => undefined); // each later call awaits it and sees the error there
   }

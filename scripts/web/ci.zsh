@@ -8,6 +8,7 @@
 #   3  wasm-build  C++ engine as WebAssembly
 #   4  wasm-test   node tests of the C++ engine
 #   5  teavm-build Java engine with TeaVM
+#   5b teavm-net-build net-MCTS facade of the net engines with TeaVM (web/public/engines/net/engine-net.*)
 #   6  engines     web/public/engines/engines.json
 #   7  web-install npm ci
 #   8  web-test    typecheck and Vitest
@@ -33,7 +34,7 @@ root=${0:A:h:h:h}
 cd $root
 
 typeset -a steps
-steps=(tables java-tests wasm-build wasm-test teavm-build engines web-install web-test web-build bench-smoke e2e)
+steps=(tables java-tests wasm-build wasm-test teavm-build teavm-net-build engines web-install web-test web-build bench-smoke e2e)
 
 from=""
 case "${1:-}" in
@@ -75,6 +76,7 @@ cmd=(
   wasm-build   "scripts/web/build-wasm.zsh"
   wasm-test    "scripts/web/test-wasm.zsh"
   teavm-build  "scripts/web/build-teavm.zsh"
+  teavm-net-build "scripts/web/build-teavm-net.zsh"
   engines      "scripts/web/engines-manifest.zsh"
   web-install  "scripts/web/install.zsh"
   web-test     "scripts/web/test.zsh"

@@ -7,11 +7,14 @@ export interface AssetUrls {
   engine: string[];
   manifest: string;
   tableGz: string;
+  /** Net engines only: directory of the packed model files with a trailing slash. Default: `${BASE_URL}models/` of the worker. */
+  modelsBaseUrl?: string;
 }
 
 export type Request =
   /** table: bytes the main thread already holds (transferred), or null to fetch them in the worker. */
-  | { id: number; type: 'init'; assets: AssetUrls; table: ArrayBuffer | null }
+  /** backend: net engines only, the backend the engine wants ('wasm' CPU or 'webgpu'); absent for the classical engines. The model and the search settings come with newGame (GameSetup.model, GameSetup.netOptions). */
+  | { id: number; type: 'init'; assets: AssetUrls; table: ArrayBuffer | null; backend?: 'wasm' | 'webgpu' }
   | { id: number; type: 'newGame'; setup: GameSetup }
   | { id: number; type: 'legalMoves'; history: number[]; variant?: Variant }
   | { id: number; type: 'choose'; history: number[]; variant?: Variant }

@@ -55,13 +55,14 @@
   tasks."wasm:build" = { exec = "${config.devenv.root}/scripts/web/build-wasm.zsh"; };
   tasks."wasm:test" = { exec = "${config.devenv.root}/scripts/web/test-wasm.zsh"; after = [ "wasm:build" "web:tables" ]; };
   tasks."teavm:build" = { exec = "${config.devenv.root}/scripts/web/build-teavm.zsh"; };
-  tasks."web:engines" = { exec = "${config.devenv.root}/scripts/web/engines-manifest.zsh"; after = [ "wasm:build" "teavm:build" ]; };
+  tasks."teavm:build-net" = { exec = "${config.devenv.root}/scripts/web/build-teavm-net.zsh"; };
+  tasks."web:engines" = { exec = "${config.devenv.root}/scripts/web/engines-manifest.zsh"; after = [ "wasm:build" "teavm:build" "teavm:build-net" ]; };
   tasks."web:install" = { exec = "${config.devenv.root}/scripts/web/install.zsh"; };
   tasks."web:test" = { exec = "${config.devenv.root}/scripts/web/test.zsh"; after = [ "web:install" ]; };
   tasks."web:build" = { exec = "${config.devenv.root}/scripts/web/build.zsh"; after = [ "web:engines" "web:tables" "web:models" "web:install" ]; };
   tasks."web:bench" = { exec = "${config.devenv.root}/scripts/web/bench.zsh"; after = [ "web:engines" "web:tables" ]; };
   tasks."web:e2e" = { exec = "${config.devenv.root}/scripts/web/e2e.zsh"; after = [ "web:build" ]; };
-  tasks."web:ci" = { exec = "${config.devenv.root}/scripts/web/ci.zsh"; after = [ "wasm:build" "wasm:test" "teavm:build" "web:engines" "web:install" "web:test" "web:tables" "web:build" "web:bench" "web:e2e" ]; };
+  tasks."web:ci" = { exec = "${config.devenv.root}/scripts/web/ci.zsh"; after = [ "wasm:build" "wasm:test" "teavm:build" "teavm:build-net" "web:engines" "web:install" "web:test" "web:tables" "web:build" "web:bench" "web:e2e" ]; };
   tasks."app:run" = { exec = "${config.devenv.root}/scripts/web/app-run.zsh"; };
   tasks."app:run-tornado" = { exec = "${config.devenv.root}/scripts/web/app-run-tornado.zsh"; };
   tasks."ci:security" = { exec = "${config.devenv.root}/scripts/ci/security.zsh"; };

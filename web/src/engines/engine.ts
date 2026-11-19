@@ -3,14 +3,19 @@
 
 import type { Player, Variant } from '../game/variant';
 
-export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js' | `server:${string}`;
+import type { EngineWarning, NetOptions } from './warnings';
+
+export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js' | 'net-wasm' | 'net-webgpu' | `server:${string}`;
+
+/** The net engines: MCTS with a neural network, no node budget (see GameSetup.netOptions). */
+export const isNetEngine = (id: EngineId): id is 'net-wasm' | 'net-webgpu' => id === 'net-wasm' || id === 'net-webgpu';
 
 export interface EngineInfo {
   id: EngineId;
   /** i18n key, e.g. "engine.cppWasm". */
   labelKey: string;
   runtime: 'wasm' | 'wasm-gc' | 'js' | 'server';
-  language: 'C++' | 'Java';
+  language: 'C++' | 'Java' | 'Java + C++';
   /** git describe of the build, from engines.json. */
   version: string;
   /** Sum of the shipped files, raw; from engines.json. */
@@ -34,6 +39,12 @@ export interface GameSetup {
   nodes: readonly number[];
   /** The game variant; missing means the default (adjacent jumps, two players). */
   variant?: Variant;
+  /**
+   * Net engines only (other engines ignore both fields; they are absent in every classical request): the id of the model
+   * (web/models/models.json), null or missing for none, and the search settings. `nodes` is not used by net engines.
+   */
+  model?: string | null;
+  netOptions?: NetOptions;
 }
 
 /** What Engine.outcome reports: the game goes on, a seat has won, or it ended without a winner (move limit, repetition, no legal move). */
@@ -51,6 +62,10 @@ export interface ChooseResult {
   raceMove: boolean;
   /** ADR 0001 guard; must stay 0. */
   rows1Requests: number;
+  /** Net engines only: what played the move. 'random' is the fallback (the warnings say why). `score` is the mean root value in [-1, 1]; `nodes` the tree size. */
+  net?: { backend: 'wasm' | 'webgpu' | 'random'; sims: number; batches: number };
+  /** Net engines only: the warnings that hold after this move (a device loss during the move shows up here). */
+  warnings?: EngineWarning[];
 }
 
 /** Result of Engine.analyse: a score for each analysed move. */
@@ -88,6 +103,10 @@ export interface BenchResult {
 
 export interface Engine {
   readonly info: EngineInfo;
+  /** Net engines: the warnings that hold now (set by newGame and choose). Absent or empty for the others. */
+  readonly warnings?: readonly EngineWarning[];
+  /** Net engines: calls the listener when `warnings` changed. Returns the unsubscribe function. */
+  subscribeWarnings?(listener: () => void): () => void;
   init(onProgress?: (p: Progress) => void): Promise<LoadReport>;
   newGame(setup: GameSetup): Promise<void>;
   /**

@@ -1,5 +1,6 @@
 // The engine session: finds the engines this build ships, loads one (with progress), swaps it in, and remembers what
 // went wrong. Framework-free; App subscribes through useSyncExternalStore.
+import { isNetEngine } from '../engines/engine';
 import type { Engine, EngineId, Progress } from '../engines/engine';
 import { createEngine, describeEngines } from '../engines/registry';
 import type { EngineChoice, EnginesManifest } from '../engines/registry';
@@ -39,7 +40,8 @@ export interface SessionDeps {
  * because it is faster than java-js), then java-js, then the server engines.
  */
 export function defaultChoice(choices: readonly EngineChoice[]): EngineChoice | null {
-  return choices.find((c) => c.available) ?? null;
+  // The net engines are never the default: without a model they play random moves.
+  return choices.find((c) => c.available && !isNetEngine(c.info.id)) ?? null;
 }
 
 export function toSessionError(e: unknown): SessionError {

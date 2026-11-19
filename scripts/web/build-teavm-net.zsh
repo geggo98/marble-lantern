@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Builds the net-MCTS engine without its forward pass with TeaVM (module teavm-net) and copies the three files to
 # web/public/engines/net/: engine-net.wasm, engine-net.wasm-runtime.js (Wasm GC) and engine-net.js (JavaScript).
-# Not wired into devenv.nix or the app yet.
+# Run through `devenv tasks run teavm:build-net`; web:engines runs after it.
 #
 # usage: build-teavm-net.zsh
 # Exit: 0 = built and copied (also when nothing changed), 1 = failure, 2 = wrong call.
