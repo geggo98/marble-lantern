@@ -423,34 +423,26 @@ Move guides are optional marks on the board that show how good each move is. The
 **What is shown.**
 
 - **Piece badges.** Each piece that can move gets a badge with a ring. It rates the best move of that piece against the best move of the whole position.
-- **Target marks.** After the human selects a piece, each target cell gets a ring and a mark. It rates that move against the value of the position.
+- **Target marks.** TODO-OPUS docs/web-ui.md 'Move guides' target marks. Facts: after the human selects a piece, each target gets a ring and a mark; it rates that move on the same scale as the piece badges (loss against the best move of the position).
 - **Advantage bar.** A gauge near the board shows who is ahead, with a text such as "You: slightly ahead".
 - **Legend.** "What the marks mean" under the switch lists the five bands and their marks.
 
 The marks appear only while the board accepts input, that is on the human's turn.
 
-**The five bands.** Targets and pieces share five bands, five marks and five ring styles. A step is one step of progress towards the goal corner, about 30 points ([analysis API](#analysis-api)).
+**The five bands.** TODO-OPUS docs/web-ui.md 'Move guides' five bands. Facts: pieces and targets share one scale and one reference, the best move of the position (`rankBand` in `web/src/guides/bands.ts`). A band is the loss of a move against the best move, in points (one step is about 30 points): up to 30 = top (mark ▲▲), up to 90 = good (▲), up to 180 = fair (=), up to 300 = weak (▼), more than 300 = poor (▼▼). Target texts are the keys `guide_move_*`, piece texts `guide_piece_*` ("best move: top"). A piece is rated by its best move, so the band of a piece equals the best band among its targets; the best move of the position is top as a target. Replace the former two-column table (targets against the position value, pieces against the best move) with this one scale.
 
-| Band | Mark | Target: difference to the position value | Piece badge: its best move behind the best move of the position |
-|---|---|---|---|
-| much better | ▲▲ | 90 points or more | up to 30 points (text "best move: top") |
-| better | ▲ | more than 30, less than 90 | up to 90 (text "good") |
-| about equal | = | -30 to 30 | up to 180 (text "fair") |
-| worse | ▼ | more than -90, less than -30 | up to 300 (text "weak") |
-| much worse | ▼▼ | -90 or less | more than 300 (text "poor") |
-
-The limits are in `web/src/guides/bands.ts`: one step (30 points) is the half width of "about equal", because the scores of one position vary by about 20 points between budgets; three steps (90 points) mark "much". The piece ranks use 1, 3, 6 and 10 steps. Before the comparison, every forced win counts the same and every forced loss counts the same, so that two winning moves are never told apart by the number of plies to the win.
+The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width of "top", because the scores of one position vary by about 20 points between budgets. The ranks use 1, 3, 6 and 10 steps. Before the comparison, every forced win counts the same and every forced loss counts the same, so that two winning moves are never told apart by the number of plies to the win.
 
 **How the scores are computed.** On the human's turn, while the engine is idle, `web/src/guides/analyser.ts` calls `Engine.analyse(history, null, GUIDE_NODES)`: all legal moves, 4,000 nodes each. One position is analysed at a time. The result is cached by engine and history, so Undo and Back do not repeat the work. A move of the human, an undo or the engine's turn aborts a running analysis; the adapter then restarts its worker, as for any abort. `web/src/guides/model.ts` turns the scores into bands (`buildView`).
 
 **The advantage bar.** It shows the value of the position from the human's side. The text uses the score: below 30 points "Even", below 100 "slightly ahead", below 200 "clearly ahead", from 200 on "far ahead"; in the race band "ahead in the race"; for a forced win "wins by force in N plies" (`web/src/guides/advantage.ts`). After the human moves, the bar shows the cached score of that move at once. After the engine answers, the bar is dimmed and marked "updating" until the analysis of the new position is ready.
 
-**The reference problem.** The analysis returns the best score as the value of the position (`AnalysisResult.position`). Target bands compare each move with that value, so no target can be better than the position: the best target is "about equal", and the others are "about equal", "worse" or "much worse". The bands "better" and "much better" therefore appear only on piece badges, where they mean "top" and "good". `buildView(result, reference)` accepts another reference value, but no honest one is available: the engine's last `score` is 0 after a move from race play and is out of date after an undo. This stays open.
+**The reference.** TODO-OPUS docs/web-ui.md 'Move guides' reference. Facts: the analysis returns the best score as the value of the position (`AnalysisResult.position`); every band, of a piece and of a target, is the loss against it (`buildView(result)`). Before 2026-11-19 targets were compared with the position value as a difference (bands `deltaBand`), pieces by loss; that gave 'about equal' on the best target of a piece badged top, and the known limit 'targets cannot be better than the position'. Both are gone: the former `reference` parameter of `buildView` was removed, because no honest second reference exists (the engine's last `score` is 0 after race play and stale after an undo). The advantage bar is unchanged.
 
 **Accessibility.**
 
 - Colour is never the only carrier: each band has its own mark and its own ring style (width and dash pattern).
-- The accessible name of a cell includes the band, for example "e5, empty, target, much better", and of a piece its rank, for example "best move: top".
+- The accessible name of a cell includes the band, for example "e5, empty, target, TODO-OPUS guide_move_much_better", and of a piece its rank, for example "best move: top".
 - The advantage bar is a `role="meter"` with the text as `aria-valuetext`. The state of the analysis ("Analysing the position") is a polite live region.
 - The five guide colours reach a contrast of at least 3:1 against the board colours in the light and the dark theme; `web/src/guides/tokens.test.ts` computes the ratios from `tokens.css`. In forced-colours mode the marks use system colours.
 - The marks have no animation.

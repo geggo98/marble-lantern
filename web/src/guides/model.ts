@@ -1,13 +1,13 @@
 // From an analysis result to what the board draws: a band for each move and for each movable piece. Pure.
 import type { AnalysisResult } from '../engines/engine';
 import { moveFrom } from '../engines/engine';
-import { moveBand, pieceBand } from './bands';
+import { rankBand } from './bands';
 import type { Band } from './bands';
 
 export interface GuideView {
   /** Value of the position for the mover: the best score. */
   position: number;
-  /** Band of each analysed move (key: the engine's move code, from | to << 8), against the value of the position. */
+  /** Band of each analysed move (key: the engine's move code, from | to << 8), against the best move of the position. */
   moves: ReadonlyMap<number, Band>;
   /** Band of each cell that holds a movable piece: its best move against the best move of the position. */
   pieces: ReadonlyMap<number, Band>;
@@ -15,8 +15,8 @@ export interface GuideView {
   scores: ReadonlyMap<number, number>;
 }
 
-/** `reference` is the value the move bands compare against; the default is the value of the position, the best score. */
-export function buildView(result: AnalysisResult, reference?: number): GuideView {
+/** Pieces and targets share one scale: the loss against the best move of the position (`rankBand`). */
+export function buildView(result: AnalysisResult): GuideView {
   const { moves, scores } = result;
   if (moves.length !== scores.length) throw new RangeError('analysis result: moves and scores differ in length');
   const position = scores.length === 0 ? 0 : Math.max(...scores);
@@ -25,12 +25,12 @@ export function buildView(result: AnalysisResult, reference?: number): GuideView
   const best = new Map<number, number>();
   moves.forEach((move, i) => {
     const score = scores[i]!;
-    moveBands.set(move, moveBand(score, reference ?? position));
+    moveBands.set(move, rankBand(score, position));
     scoreMap.set(move, score);
     const from = moveFrom(move);
     best.set(from, Math.max(best.get(from) ?? -Infinity, score));
   });
   const pieces = new Map<number, Band>();
-  for (const [from, score] of best) pieces.set(from, pieceBand(score, position));
+  for (const [from, score] of best) pieces.set(from, rankBand(score, position));
   return { position, moves: moveBands, pieces, scores: scoreMap };
 }

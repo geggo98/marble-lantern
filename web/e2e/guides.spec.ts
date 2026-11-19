@@ -2,10 +2,13 @@
 // and with forced colours; colour-vision deficiencies emulated through Chromium's DevTools protocol, with the marks asserted.
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import en from '../src/i18n/en.json' with { type: 'json' };
 import { openApp, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOTS = 'test-results/screens';
 const BANDS = ['much-better', 'better', 'equal', 'worse', 'much-worse'] as const;
+
+const MOVE_TEXT = new RegExp(`target, (${BANDS.map((b) => en[`guide_move_${b.replace('-', '_')}` as keyof typeof en]).join('|')})$`);
 
 const board = (page: Page): Locator => page.locator('svg.ml-board__svg');
 
@@ -53,7 +56,7 @@ test('selecting a piece tints its targets, each with a band, a mark and an acces
   }
   const names = await page.locator('[data-cell][aria-label*="target"]').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''));
   expect(names).toHaveLength(count);
-  for (const name of names) expect(name).toMatch(/target, (much better|better|about equal|worse|much worse)$/);
+  for (const name of names) expect(name).toMatch(MOVE_TEXT);
   // the selection ring and the legal-move rings are still there next to the marks
   await expect(page.locator('svg.ml-board__svg .ml-select')).toHaveCount(1);
   await expect(page.locator('svg.ml-board__svg .ml-target__ring')).toHaveCount(count);
@@ -128,4 +131,29 @@ test('colour-vision deficiencies: the five bands stay apart by their marks', asy
     await board(page).screenshot({ path: `${SHOTS}/${info.project.name}-guides-cvd-${type}-board.png`, animations: 'disabled' });
   }
   await cdp.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' });
+});
+
+// Owner report 2026-11-19: pieces carried "very good" but their targets said "equal". One scale: the band of a piece is the
+// best band among its targets, and the best move of the position is top as a target.
+test('the band of every piece equals the best band among its targets, with the real engine on the start position', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openApp(page, 'en');
+  await waitForHumanTurn(page);
+  await page.locator('[data-guides-toggle]').check();
+  await expect(page.locator('svg.ml-board__svg [data-guide="piece"]').first()).toBeAttached();
+  const pieces = await page.locator('svg.ml-board__svg [data-guide="piece"]').evaluateAll((els) =>
+    els.map((e) => ({ cell: e.getAttribute('data-cell-of')!, band: e.getAttribute('data-band')! })));
+  expect(pieces.length).toBeGreaterThan(0);
+  let tops = 0;
+  for (const piece of pieces) {
+    await page.locator(`[data-cell="${piece.cell}"]`).click();
+    await expect(page.locator('svg.ml-board__svg [data-guide="target"]').first()).toBeAttached();
+    const bands = await page.locator('svg.ml-board__svg [data-guide="target"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-band')!));
+    const best = BANDS[Math.min(...bands.map((b) => BANDS.indexOf(b as (typeof BANDS)[number])))];
+    expect(best, `piece ${piece.cell}`).toBe(piece.band);
+    if (piece.band === 'much-better') tops++;
+  }
+  expect(tops, 'the best move of the position is top as a target').toBeGreaterThan(0);
+  errors.expectNone();
 });

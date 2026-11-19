@@ -5,7 +5,7 @@ import type { TextKey } from './texts';
 
 /** i18n key suffix of a band: much-better -> much_better. */
 export const bandSuffix = (band: Band): string => band.replace('-', '_');
-export const bandTextKey = (band: Band): TextKey => `guide_band_${bandSuffix(band)}` as TextKey;
+export const bandTextKey = (band: Band): TextKey => `guide_move_${bandSuffix(band)}` as TextKey;
 export const pieceTextKey = (band: Band): TextKey => `guide_piece_${bandSuffix(band)}` as TextKey;
 
 /** The ring around a socket or a piece, for the band. `r` is the radius in board units. */

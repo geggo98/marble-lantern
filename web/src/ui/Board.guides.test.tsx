@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initialOwners } from '../game/board-state';
 import { makeMove, moveFrom, moveTo } from '../engines/engine';
 import { tinyLegalMoves } from '../engines/testing/tiny-moves';
+import en from '../i18n/en.json';
 import { BAND_ORDER } from '../guides/bands';
 import type { Band } from '../guides/bands';
 import { MARKS } from '../guides/marks';
@@ -115,7 +116,7 @@ describe('Board with guides', () => {
       const band = guides.moves.get(makeMove(first, target))!;
       const mark = marks.find((m) => m.getAttribute('data-band') === band)!;
       expect(mark.querySelector('path')?.getAttribute('d')).toBe(MARKS[band].d);
-      const text = { 'much-better': 'much better', better: 'better', equal: 'about equal', worse: 'worse', 'much-worse': 'much worse' }[band];
+      const text = en[`guide_move_${band.replace('-', '_')}` as keyof typeof en];
       expect(cell(target).getAttribute('aria-label')).toMatch(new RegExp(`target, ${text}(,|$)`));
     }
   });

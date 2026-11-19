@@ -8,6 +8,7 @@ import { WorkerEngine } from '../engines/client';
 import { clearEngines, registerEngine } from '../engines/registry';
 import type { EnginesManifest } from '../engines/registry';
 import { FakeEngineCore, FakeWorker } from '../engines/testing/fake-engine';
+import en from '../i18n/en.json';
 import { GUIDES_KEY } from '../guides/preference';
 import { App } from './App';
 
@@ -17,6 +18,8 @@ const file = { path: 'engines/cpp/engine-cpp.wasm', bytes: 1, gzipBytes: 1, sha2
 const manifest: EnginesManifest = { v: 1, version: 'test', engines: { 'cpp-wasm': { files: [file], binaryBytes: 1, binaryGzipBytes: 1 } } };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const MOVE_TEXT = new RegExp(`target, (${['much_better', 'better', 'equal', 'worse', 'much_worse'].map((b) => en[`guide_move_${b}` as keyof typeof en]).join('|')})$`);
 
 let host: HTMLElement;
 let root: Root;
@@ -120,12 +123,12 @@ describe('move guides in the app', () => {
       expect(marks.length).toBeGreaterThan(0);
       expect(marks).toHaveLength(all('.ml-target__ring').length);
       for (const target of all('[data-cell][aria-label*="target"]')) {
-        expect(target.getAttribute('aria-label')).toMatch(/target, (much better|better|about equal|worse|much worse)$/);
+        expect(target.getAttribute('aria-label')).toMatch(MOVE_TEXT);
       }
       for (const m of marks) seen.add(m.getAttribute('data-band')!);
     }
-    // the opening of the fake engine has only forward moves of equal gain: every target is about equal
-    expect([...seen]).toEqual(['equal']);
+    // the opening of the fake engine has only forward moves of equal gain: every target ties with the best move, so it is top
+    expect([...seen]).toEqual(['much-better']);
   });
 
   it('updates the advantage after the human move (from the cache) and again after the engine reply', async () => {
