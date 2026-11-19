@@ -10,7 +10,7 @@ if [[ ! -d node_modules/.bin ]]; then
   exit 1
 fi
 npm run --silent typecheck
-scripts/web/models.zsh
+$root/scripts/web/models.zsh
 rm -rf dist
 npm exec --no -- vite build
 

@@ -3,7 +3,7 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 
-export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js';
+export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js' | 'net-wasm' | 'net-webgpu';
 
 export const LANGUAGE_KEY = 'ml.language';
 

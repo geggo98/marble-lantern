@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Writes web/public/engines/engines.json: every shipped engine file with raw bytes, gzip bytes and SHA-256,
-# grouped by engine id, plus the git version of the build. Reads web/public/engines/{cpp,java,net}/ (net-wasm: the three flavours of the CPU network backend, js and wasm each, plus the TeaVM facade engine-net.*; net-webgpu: the TeaVM facade only).
+# grouped by engine id, plus the git version of the build. Reads web/public/engines/{cpp,java,net}/ (net-wasm and net-webgpu: the same nine files, the three flavours of the CPU network backend, js and wasm each, plus the TeaVM facade engine-net.*; net-webgpu falls back to the CPU backend).
 # Exit 0 = written, non-zero = no engine file found at all or an engine with missing files. A missing engine is a warning: the UI then shows it as not shipped.
 set -eu
 root=${0:A:h:h:h}
@@ -10,7 +10,8 @@ version=$(git -C $root describe --always --dirty 2>/dev/null || print unknown)
 DIR=$dir VERSION=$version perl -MJSON::PP -MDigest::SHA=sha256_hex -MIO::Compress::Gzip=gzip,\$GzipError -e '
   my $dir = $ENV{DIR};
   # file name -> engine id. The TeaVM targets are renamed engine-java.* in teavm-web/build.gradle.kts.
-  # The net engines share the TeaVM facade (engine-net.*: net-MCTS without the forward pass); net-wasm adds the C++ forward pass.
+  # The net engines share all nine files: the TeaVM facade (engine-net.*: net-MCTS without the forward pass) and the C++ forward pass
+  # (engine-net-nn-*, the CPU backend). net-webgpu needs the CPU backend too: it falls back to it when WebGPU is missing or lost.
   my @facade = ("net/engine-net.wasm", "net/engine-net.wasm-runtime.js", "net/engine-net.js");
   my @flavours = map { ("net/engine-net-nn-$_.js", "net/engine-net-nn-$_.wasm") } qw(scalar simd relaxed);
   my %engine_of = (
@@ -20,7 +21,7 @@ DIR=$dir VERSION=$version perl -MJSON::PP -MDigest::SHA=sha256_hex -MIO::Compres
     "java/engine-java.wasm-runtime.js"   => ["java-wasmgc"],
     "java/engine-java.js"                => ["java-js"],
     (map { $_ => ["net-wasm", "net-webgpu"] } @facade),
-    (map { $_ => ["net-wasm"] } @flavours),
+    (map { $_ => ["net-wasm", "net-webgpu"] } @flavours),
   );
   my (%engines, $found);
   for my $rel (sort keys %engine_of) {
@@ -43,7 +44,7 @@ DIR=$dir VERSION=$version perl -MJSON::PP -MDigest::SHA=sha256_hex -MIO::Compres
   # Each engine needs all of its files; a half-built engine is worse than none (java-js: its one file).
   for my $id (keys %engines) {
     my $n = @{ $engines{$id}{files} };
-    my $want = $id eq "cpp-wasm" || $id eq "java-wasmgc" ? 2 : $id eq "net-wasm" ? 9 : $id eq "net-webgpu" ? 3 : 1;
+    my $want = $id eq "cpp-wasm" || $id eq "java-wasmgc" ? 2 : $id eq "net-wasm" || $id eq "net-webgpu" ? 9 : 1;
     die "web:engines: $id has $n file(s), expected $want\n" if $n != $want;
   }
   my $json = JSON::PP->new->canonical->pretty->encode({ v => 1, version => $ENV{VERSION}, engines => \%engines });
