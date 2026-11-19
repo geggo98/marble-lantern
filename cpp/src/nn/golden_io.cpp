@@ -64,6 +64,8 @@ std::optional<Preset> preset_by_name(std::string_view name) {
     if (name == "small") return Preset{"small", "small-u5", small_config(2, PlaneSet::Classic1)};
     if (name == "large") return Preset{"large", "large-u5", large_config(2, PlaneSet::Classic1)};
     if (name == "gen11") return Preset{"gen11", "large-gen11", large_config(2, PlaneSet::Classic1)};
+    if (name == "tiny-v3") return Preset{"tiny-v3", "tiny-v3", tiny_config(3, PlaneSet::Classic1V)};
+    if (name == "small-v3") return Preset{"small-v3", "small-v3", small_config(3, PlaneSet::Classic1V)};
     return std::nullopt;
 }
 
@@ -120,7 +122,8 @@ std::expected<double, golden::Error> extra_rel(const std::map<std::string, std::
 }
 
 std::expected<GoldenData, golden::Error> load_golden_data(const std::filesystem::path& dir, const Preset& preset) {
-    auto inputs = load_golden_contents(dir, "nn-inputs.safetensors");
+    const bool variants = preset.config.planes == PlaneSet::Classic1V;
+    auto inputs = load_golden_contents(dir, variants ? "nn-inputs-v3.safetensors" : "nn-inputs.safetensors");
     if (!inputs) return std::unexpected(inputs.error());
     auto ref = load_golden_contents(dir, "nn-ref-" + preset.key + ".safetensors");
     if (!ref) return std::unexpected(ref.error());
@@ -146,6 +149,29 @@ std::expected<GoldenData, golden::Error> load_golden_data(const std::filesystem:
     d.values = *values;
     d.vlogits = *vlogits;
     d.vvalues = *vvalues;
+    if (variants) {
+        const auto* players = find_data(*inputs, "players");
+        const auto* mover = find_data(*inputs, "mover");
+        const auto* is_long = find_data(*inputs, "long");
+        const auto* absolute = find_data(*ref, "absolute");
+        if (players == nullptr || mover == nullptr || is_long == nullptr || absolute == nullptr) {
+            return corrupt("nn-inputs-v3 or nn-ref-" + preset.key + " lacks a tensor (players, mover, long, absolute)");
+        }
+        if (players->size() != n || mover->size() != n || is_long->size() != n || absolute->size() != 3 * n) {
+            return corrupt("nn-inputs-v3 / nn-ref-" + preset.key + ": variant facts do not match the number of positions");
+        }
+        for (std::size_t i = 0; i < n; ++i) {
+            const int p = static_cast<int>((*players)[i]);
+            const int m = static_cast<int>((*mover)[i]);
+            if ((p != 2 && p != 3) || m < 0 || m >= p || ((*is_long)[i] != 0.0f && (*is_long)[i] != 1.0f)) {
+                return corrupt("nn-inputs-v3: position " + std::to_string(i) + " has players/mover/long out of range");
+            }
+            d.players.push_back(p);
+            d.mover.push_back(m);
+            d.long_jump.push_back((*is_long)[i] != 0.0f);
+        }
+        d.absolute = *absolute;
+    }
     return d;
 }
 

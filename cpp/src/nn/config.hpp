@@ -23,6 +23,9 @@ inline constexpr int kPlainPlanes = 7;                   // Encoder.PLANES
 inline constexpr int kClassicPlanes = 13;                // Encoder.CLASSIC_PLANES
 inline constexpr int kDistOwn = 7;                       // Encoder.DIST_OWN
 inline constexpr int kEval = 12;                         // Encoder.EVAL
+inline constexpr int kLong = 13;                         // Encoder.LONG (classic1v): 1 in every cell row under the jump rule LONG
+inline constexpr int kThreePlayers = 14;                 // Encoder.THREE_PLAYERS (classic1v): 1 in every cell row with three players
+inline constexpr int kVariantPlanes = 15;                // Encoder.VARIANT_PLANES
 inline constexpr int kProgress = 6;                      // Encoder.PROGRESS
 inline constexpr int kDistScale = 16;                    // ClassicalPlanes.DIST_SCALE
 inline constexpr int kPolicyChannels = 2;                // Encoder.POLICY_CHANNELS
@@ -38,12 +41,13 @@ inline constexpr int kValueHidden = 32;                  // NetworkConfig.VALUE_
 inline constexpr std::string_view kFormat = "sternhalma-nn";
 inline constexpr int kFormatVersion = 1;
 inline constexpr int kFormatVersionPlanes = 2;
+inline constexpr int kFormatVersionVariants = 3;         // NetworkConfig.FORMAT_VERSION_VARIANTS: classic1v only
 
-enum class PlaneSet : std::uint8_t { Plain, Classic1, Classic1Planes };
+enum class PlaneSet : std::uint8_t { Plain, Classic1, Classic1Planes, Classic1V };
 
 std::string_view plane_set_id(PlaneSet set);
-int plane_count(PlaneSet set);            // 7 for Plain, 13 for the classical sets
-bool has_residual_priors(PlaneSet set);   // only Classic1
+int plane_count(PlaneSet set);            // 7 for Plain, 13 for the classical sets, 15 for Classic1V
+bool has_residual_priors(PlaneSet set);   // Classic1 and Classic1V
 
 struct NetworkConfig {
     int channels = 0;

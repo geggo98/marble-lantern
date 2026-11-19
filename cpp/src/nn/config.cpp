@@ -25,13 +25,20 @@ std::string_view plane_set_id(PlaneSet set) {
         case PlaneSet::Plain: return "plain";
         case PlaneSet::Classic1: return "classic1";
         case PlaneSet::Classic1Planes: return "classic1-planes";
+        case PlaneSet::Classic1V: return "classic1v";
     }
     return "?";
 }
 
-int plane_count(PlaneSet set) { return set == PlaneSet::Plain ? kPlainPlanes : kClassicPlanes; }
+int plane_count(PlaneSet set) {
+    switch (set) {
+        case PlaneSet::Plain: return kPlainPlanes;
+        case PlaneSet::Classic1V: return kVariantPlanes;
+        default: return kClassicPlanes;
+    }
+}
 
-bool has_residual_priors(PlaneSet set) { return set == PlaneSet::Classic1; }
+bool has_residual_priors(PlaneSet set) { return set == PlaneSet::Classic1 || set == PlaneSet::Classic1V; }
 
 long NetworkConfig::parameter_count() const {
     const long c = channels;
@@ -57,6 +64,9 @@ std::expected<NetworkConfig, Error> make_config(int channels, int blocks, int pl
     }
     if (players != 2 && players != 3) {
         return std::unexpected(Error{"players must be 2 or 3, got " + std::to_string(players)});
+    }
+    if (planes == PlaneSet::Classic1V && players != 3) {
+        return std::unexpected(Error{"planes classic1v needs players 3 (the value head serves 2 and 3), got " + std::to_string(players)});
     }
     if (value_hidden < 1 || value_hidden > kMaxValueHidden) {
         return std::unexpected(Error{"value_hidden must be in [1, " + std::to_string(kMaxValueHidden) + "], got " + std::to_string(value_hidden)});
@@ -85,9 +95,18 @@ std::expected<NetworkConfig, Error> config_from_metadata(const std::map<std::str
             planes = PlaneSet::Classic1;
         } else if (p->second == "classic1-planes") {
             planes = PlaneSet::Classic1Planes;
+        } else if (p->second == "classic1v") {
+            return std::unexpected(Error{"planes classic1v needs format_version 3, got 2"});
         } else {
             return std::unexpected(Error{"unknown planes: " + p->second + " (expected plain, classic1 or classic1-planes)"});
         }
+    } else if (*version == kFormatVersionVariants) {
+        const auto p = metadata.find("planes");
+        if (p == metadata.end()) return std::unexpected(Error{"metadata key planes is missing"});
+        if (p->second != "classic1v") {
+            return std::unexpected(Error{"format_version 3 needs planes classic1v, got " + p->second});
+        }
+        planes = PlaneSet::Classic1V;
     } else {
         return std::unexpected(Error{"unknown format_version: " + metadata.at("format_version")});
     }
@@ -103,6 +122,9 @@ std::expected<NetworkConfig, Error> config_from_metadata(const std::map<std::str
     if (!blocks) return std::unexpected(blocks.error());
     const auto players = int_value(metadata, "players");
     if (!players) return std::unexpected(players.error());
+    if (planes == PlaneSet::Classic1V && *players != 3) {
+        return std::unexpected(Error{"format_version 3 needs players 3, got " + metadata.at("players")});
+    }
     const auto hidden = int_value(metadata, "value_hidden");
     if (!hidden) return std::unexpected(hidden.error());
     return make_config(*channels, *blocks, *players, *hidden, planes);

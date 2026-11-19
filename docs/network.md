@@ -362,7 +362,7 @@ The tensor names and their order are those of `classic1`. Two shapes differ: `co
 
 ### C++ port
 
-The forward passes in `cpp/src/nn` already take the plane count from the config and add the priors when the plane set has them, so they need no change for 15 planes. To read version 3, the config code (`cpp/src/nn/config.hpp`, `config.cpp`) must know the plane set `classic1v` (15 planes, with priors) and accept `format_version` 3 under the rules above.
+The forward passes in `cpp/src/nn` take the plane count from the config and add the priors when the plane set has them, so they needed no change for 15 planes. The config code (`cpp/src/nn/config.hpp`, `config.cpp`) knows the plane set `classic1v` (15 planes, with priors) and accepts `format_version` 3 under the rules above; `absolute_values` in `priors.hpp` is the C++ counterpart of the value mapping of `Evaluator`. C++ has no encoder: the golden files `nn-inputs-v3` and `nn-ref-*-v3` carry Java-encoded inputs and the Java outputs (see `cpp/README.md`).
 
 ## Initialisation
 

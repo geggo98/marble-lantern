@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import sternhalma.engine.Position;
+import sternhalma.engine.RuleSet;
 
 /**
  * Not a test: writes the golden files of the C++ network port (docs/cpp-comparison-plan.md, WP8). Run with
@@ -33,6 +34,14 @@ import sternhalma.engine.Position;
  *       reference), {@code vlogits} and {@code vvalues} of {@link VectorNetwork};
  *   <li>{@code nn-ref-large-gen11} (only with {@code --real}): the same for the real weights of
  *       {@code $STERNHALMA_DATA_DIR/loop4/gen-0011/candidate.safetensors} (default data directory {@code data});
+ *   <li>{@code nn-weights-tiny-v3} and {@code nn-weights-small-v3}: seeded TINY and SMALL {@code classic1v} weights (format
+ *       version 3, three value outputs), {@code Parameters.uniform(config, 5, sqrt(6 / 7C))};
+ *   <li>{@code nn-inputs-v3}: {@code inputs} [64][122][15] and the facts of each position ({@code players}, {@code mover},
+ *       {@code long}, each [64]): 16 positions of every variant (two and three players, adjacent and long jumps) from seeded
+ *       playouts, encoded with {@code classic1v}; every mover of each variant occurs;
+ *   <li>{@code nn-ref-tiny-v3} and {@code nn-ref-small-v3}: {@code logits} [64][242], {@code values} [64][3] of
+ *       {@link Network}, {@code vlogits}, {@code vvalues} of {@link VectorNetwork}, and {@code absolute} [64][3]: the
+ *       absolute values {@link Evaluator} returns for the position (zero in the third column of a two-player position);
  *   <li>{@code nn-cases}: hand-checkable cases (see {@link #writeCases});
  *   <li>{@code MANIFEST.tsv}: file name, line count (0 for binary files), SHA-256, git commit, then comment lines
  *       {@code #max_err_frac.<impl>.<preset>} with the measured tolerance figures.
@@ -98,9 +107,103 @@ public final class GoldenNnExport {
             writeReferences(out, preset, inputs, written, figures);
         }
         writeCases(out, inputs, written);
+        writeVariants(out, written, figures);
         writeManifest(out, written, figures);
         System.out.println("golden files written to " + out + ": " + written);
         System.out.println("tolerance figures: " + figures);
+    }
+
+    /** Positions per variant in the {@code classic1v} files. */
+    static final int VARIANT_POSITIONS_EACH = 16;
+
+    private static final int[] VARIANT_PLAYERS = {2, 2, 3, 3};
+    private static final RuleSet.JumpRule[] VARIANT_JUMPS = {RuleSet.JumpRule.ADJACENT, RuleSet.JumpRule.LONG,
+            RuleSet.JumpRule.ADJACENT, RuleSet.JumpRule.LONG};
+
+    /** The golden positions of the four variants, in the order 2p adjacent, 2p long, 3p adjacent, 3p long. */
+    static List<Position> variantPositions() {
+        List<Position> result = new ArrayList<>();
+        for (int v = 0; v < VARIANT_PLAYERS.length; v++) {
+            List<Position> all = Playouts.positions(VARIANT_PLAYERS[v], VARIANT_JUMPS[v], 60, 160, 7 + v);
+            java.util.Set<Integer> movers = new java.util.TreeSet<>();
+            for (int i = 0; i < VARIANT_POSITIONS_EACH; i++) {
+                // the offset i breaks the stride's parity, so that both movers of a two-player game occur
+                Position p = all.get((int) ((long) i * all.size() / VARIANT_POSITIONS_EACH) + i);
+                movers.add(p.sideToMove());
+                result.add(p);
+            }
+            if (movers.size() != VARIANT_PLAYERS[v]) {
+                throw new IllegalStateException("variant " + v + " covers only the movers " + movers);
+            }
+        }
+        return result;
+    }
+
+    /** {@code nn-weights-*-v3}, {@code nn-inputs-v3} and {@code nn-ref-*-v3}. */
+    private static void writeVariants(Path out, List<String> written, Map<String, String> figures) throws IOException {
+        List<Position> positions = variantPositions();
+        int n = positions.size();
+        int size = PlaneSet.CLASSIC1V.inputSize();
+        float[] inputs = new float[n * size];
+        float[] players = new float[n];
+        float[] mover = new float[n];
+        float[] isLong = new float[n];
+        for (int i = 0; i < n; i++) {
+            Position p = positions.get(i);
+            Encoder.encode(PlaneSet.CLASSIC1V, p, inputs, i * size);
+            players[i] = p.rules().players();
+            mover[i] = p.sideToMove();
+            isLong[i] = p.rules().jumpRule() == RuleSet.JumpRule.LONG ? 1f : 0f;
+        }
+        Map<String, Tensor> in = new LinkedHashMap<>();
+        in.put("inputs", tensor("inputs", inputs, n, HexGrid.ROWS, Encoder.VARIANT_PLANES));
+        in.put("players", tensor("players", players, n));
+        in.put("mover", tensor("mover", mover, n));
+        in.put("long", tensor("long", isLong, n));
+        write(out, "nn-inputs-v3", in, meta("golden-nn-inputs", "positions", Integer.toString(n), "planes", "classic1v",
+                "source", "Playouts.positions(players, jump, 60, 160, 7 + variant), 16 evenly spaced per variant"), written);
+
+        for (NetworkConfig base : List.of(NetworkConfig.tiny(3), NetworkConfig.small(3))) {
+            NetworkConfig config = base.withPlanes(PlaneSet.CLASSIC1V);
+            String key = name(config, "tiny") + "-v3";
+            Parameters parameters = u5(config);
+            Path weights = out.resolve("nn-weights-" + key + ".safetensors");
+            parameters.save(weights);
+            written.add(weights.getFileName().toString());
+
+            float[] logits = new float[n * Encoder.POLICY_SIZE];
+            float[] values = new float[n * 3];
+            new Network(parameters).forward(inputs, n, logits, values);
+            VectorNetwork vector = new VectorNetwork(parameters);
+            float[] vlogits = new float[logits.length];
+            float[] vvalues = new float[values.length];
+            for (int i = 0; i < 3; i++) {
+                vector.forward(inputs, n, vlogits, vvalues);
+            }
+            // the absolute values as the Evaluator of this network returns them, one position at a time
+            Evaluator evaluator = new Evaluator(new Network(parameters));
+            float[] absolute = new float[n * 3];
+            for (int i = 0; i < n; i++) {
+                float[] v = evaluator.evaluate(positions.get(i)).values();
+                System.arraycopy(v, 0, absolute, i * 3, v.length);
+            }
+            Map<String, Tensor> tensors = new LinkedHashMap<>();
+            tensors.put("logits", tensor("logits", logits, n, Encoder.POLICY_SIZE));
+            tensors.put("values", tensor("values", values, n, 3));
+            tensors.put("vlogits", tensor("vlogits", vlogits, n, Encoder.POLICY_SIZE));
+            tensors.put("vvalues", tensor("vvalues", vvalues, n, 3));
+            tensors.put("absolute", tensor("absolute", absolute, n, 3));
+            write(out, "nn-ref-" + key, tensors, meta("golden-nn-ref", "preset", key, "positions", Integer.toString(n)), written);
+            Figure figure = figure(logits, values, vlogits, vvalues, 3);
+            figures.put("max_err_frac.vector." + key, format(figure.fraction));
+            if (figure.fraction > 1.0) {
+                figures.put("extra_rel_of_max_logit.vector." + key, format(figure.extra));
+            }
+        }
+    }
+
+    private static String name(NetworkConfig config, String small) {
+        return config.channels() == 8 ? small : "small";
     }
 
     /** The u5 weights of {@code GpuFeedBenchmark}: seed 5, bound sqrt(6 / 7C). */
