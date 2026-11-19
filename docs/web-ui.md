@@ -8,7 +8,7 @@ All engines implement one TypeScript `Engine` interface, and the browser engines
 The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons for the default engine are in [ADR 0003](adr/0003-teavm-default-engine.md), and the speed comparison is in [web benchmark](web-benchmark.md).
 The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
 The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
-The app also plays game variants: the long-hop jump rule and games with three players, with a human or an engine on each seat ([game variants](#game-variants)). No dialog for choosing a variant exists yet; a variant starts from a game link or from the `initialSetup` property of the `App` component ([starting a variant](#starting-a-variant)).
+The app also plays game variants: the long-hop jump rule and games with three players, with a human or an engine on each seat ([game variants](#game-variants)). The start dialog offers the jump rule and the game mode ([start dialog](#start-dialog)); a game link also starts a variant ([starting a variant](#starting-a-variant)).
 
 ## Contents
 
@@ -164,9 +164,27 @@ The parser does not check whether the moves are legal; the engine checks them un
 
 ### Start dialog
 
-A page without a game link asks "Do you want to begin?". "Yes" lets the human play side 0 and move first; "No" lets the engine begin. A page opened with a game link, or a link pasted into the address bar while a game runs, opens "Continue this game?". It shows the ply of the position and the side to move, and offers to continue as the side to move, to continue as the other side, or to start a new game. While a game runs, it also offers to keep the current game; Escape does the same. The button "New game" asks "Do you want to begin?" again; Escape keeps the running game. The engine loads in the background while the dialog is open.
+A page without a game link opens the dialog "New game"; the button "New game" opens the same dialog during a game. The engine loads in the background while the dialog is open. Above the buttons the dialog has two radio groups:
 
-The dialog builds a `GameSetup { seats, variant }` (`web/src/game/setup.ts`, see [game variants](#game-variants)). A seat is `human`, `engine` or `network`. The dialog offers only the two-player game of the default variant, with `human` and `engine` seats; the other variants start as described under [starting a variant](#starting-a-variant). Network seats are planned; the game controller cannot play them yet.
+- **Jump rule:** "Neighbour jump" (default) or "Long hop".
+- **Game mode:** "2 players: you against the engine" (default), "3 players: you and a friend on this device (hot-seat) against 1 engine", or "3 players: you against 2 engines".
+
+The buttons depend on the mode:
+
+- **Two players:** the question "Do you want to begin?" with "Yes, I begin" (primary, `data-choice="begin-yes"`) and "No, the engine begins" (`begin-no`). "Yes" lets the human play seat 0 and move first. The default game is therefore still one click.
+- **Three players:** a third radio group chooses a seat ("1st", "2nd", "3rd"; the 1st is seat 0 and moves first). For "against 2 engines" it is the person's seat (default 1st); for hot-seat it is the engine's seat (default 3rd). One button, "Start game" (`begin-start`), starts the game.
+
+`setupOfChoice` in `web/src/app/start-choice.ts` turns the choice into a `GameSetup` with the constructors of [game setup](#game-setup) and the current level.
+
+**The last choice is kept.** The dialog opens with the jump rule, mode and seats chosen last, stored in `localStorage` under the key `ml.start-choice`. Origin not recorded. Rationale: a person who plays the same variant again needs one click. Limits: the store is a per-browser convenience, not game state. Every read and write is guarded, because storage can be missing or blocked; a missing, blocked or invalid value gives the default choice, and a failed write is ignored.
+
+**"New game" always opens the dialog**, also during a variant game. Origin: the project owner changed the requirement when the dialog got the variant choices; before that, "New game" in a variant game restarted the same seats without a dialog. Rationale: the dialog now holds every choice of a game, and the stored choice keeps the same game one click away. While a game runs, Escape closes the dialog and leave the game as it is; before the first game there is nothing to keep, so Escape does nothing.
+
+**Modal behaviour.** The dialog uses `useDialog` (`web/src/ui/useDialog.ts`), like the menu ([small screens and touch](#small-screens-and-touch)): focus moves in, Tab stays inside, focus returns. The radios are native radio inputs, so a group is one Tab stop and the arrow keys change the choice. `useDialog` therefore skips an unchecked radio of a group with a checked one when it finds the first and last element of the Tab loop; otherwise the loop would end on an element that Tab never reaches. Each option and button is at least 44 px high. On a phone 320 px wide the dialog panel scrolls inside (`max-height: 92dvh`), and the page does not scroll.
+
+**A game link** opens "Continue this game?" instead, also when it is pasted into the address bar while a game runs. It shows the ply of the position and the side to move, names the jump rule for a long-hop link ("Jump rule: Long hop"), and offers to continue as the side to move, to continue as the other side, or to start a new game. While a game runs, it also offers to keep the current game; Escape does the same. A three-player link continues at once without this dialog, because it names its seats ([starting a variant](#starting-a-variant)).
+
+A seat of a `GameSetup` can also be `network`. Network seats are planned; the dialog does not offer them and the game controller cannot play them yet.
 
 ### Copy link
 
@@ -176,7 +194,7 @@ The button calls `navigator.clipboard.writeText`, which browsers offer only in a
 
 The app plays two jump rules and two player counts, and each seat can be a human or an engine. In code, a **variant** is `{ jump: 'adjacent' | 'long'; players: 2 | 3 }` (`web/src/game/variant.ts`). `DEFAULT_VARIANT` is adjacent jumps with two players. The helpers are `isDefault`, `sidesOf`, `sameVariant`, `sideAt(ply, variant)`, `moveLimit(variant)` (200 plies for two players, 300 for three) and `variantKey`. [Rules](rules.md) defines both jump rules and the three-player game. How the engines play the variants is described under [analysis API](#analysis-api) and in the [C++ README](../cpp/README.md).
 
-**Status.** The engine layer, the game controller, the game URL and the skill tracker (`web/src/skill/tracker.ts`, see [skill estimate](#skill-estimate)) support the variants. The dialog for choosing a variant and the board colour of a third player are not built. The default game looks and plays as it did before the variants.
+**Status.** The engine layer, the game controller, the game URL, the skill tracker (`web/src/skill/tracker.ts`, see [skill estimate](#skill-estimate)), the [start dialog](#start-dialog) and the play screen support the variants. The default game looks and plays as it did before the variants.
 
 ### Game setup
 
@@ -210,20 +228,51 @@ The app plays two jump rules and two player counts, and each seat can be a human
 
 ### Starting a variant
 
-No dialog offers the variants yet. A variant game starts in one of two ways:
+A variant game starts in one of three ways:
 
+- **From the [start dialog](#start-dialog).** It offers every variant and game mode.
 - **From a game link.** `#g=v1.&p=3&s=hee` starts a three-player game with the human on seat 0 at once, without a dialog, because the link names the seats. A two-player long-hop link (`...&j=long`) opens the usual "Continue this game?" dialog and keeps the long-hop rule. A link whose moves are illegal under its variant is a broken link.
-- **From the `initialSetup` property of the `App` component** (`web/src/app/App.tsx`). It takes a `GameSetup` and starts that game as soon as an engine is ready, without the "Do you want to begin?" dialog. A game link in the address takes precedence.
+- **From the `initialSetup` property of the `App` component** (`web/src/app/App.tsx`). It takes a `GameSetup` and starts that game as soon as an engine is ready, without the start dialog. A game link in the address takes precedence. Tests use it.
 
-During a variant game, "New game" restarts the same setup without a dialog, the swap button is enabled only when `canSwap` is true, and the engine-versus-engine demo makes every seat an engine.
+During a variant game, "New game" opens the start dialog, the swap button is shown only when `canSwap` is true (at most one human seat), and the engine-versus-engine demo makes every seat an engine.
 
 ### What differs from the default game
 
 - **Engines.** Only the browser engines play the variants ([the engines](#the-engines)). If a server engine is in use, `EngineSession` (`web/src/app/session.ts`) loads a browser engine instead.
 - **Analysis.** The move guides and the skill estimate need analysis, which exists only for two players. In a three-player game the guide switch, the advantage bar and the skill card are hidden, and the app makes no analysis request (checked by `web/src/app/App.variants.test.tsx`). With the long hop the move guides work, and the skill estimate works with the caveat under [skill estimate](#skill-estimate).
-- **Board.** The board draws seat 2 in the style of side 1, and the labels "your piece" and "engine piece" assume two sides. Labels for hot-seat and a colour for the third player are part of the variant UI, which is not built yet. One further limit: the board's keyboard tab stop stays on the piece that moved last, and in hot-seat that piece is not movable.
+- **Board and play screen.** Three players get a third marble, seat names, a seats card and a result card that ranks three seats ([board and play screen for three seats](#board-and-play-screen-for-three-seats)). A long-hop game for two players looks like the default game.
 
-Tests, with paths relative to `web/src/`: `game.variants.test.ts`, `setup.variants.test.ts`, `variant.test.ts` (in `game/`: controller, setup, board state), `app/game-url.variants.test.ts`, `app/App.variants.test.tsx`, `engines/variants.test.ts` and `engines/variants.cross.test.ts` (whole games on all three browser engines). The browser test is `web/e2e/variants.spec.ts`.
+### Board and play screen for three seats
+
+Code: `web/src/ui/seat-view.ts` (marble and name of each seat, pure functions), `web/src/app/PlayScreen.tsx`, `web/src/ui/Board.tsx` and `web/src/ui/Panels.tsx`.
+
+**Three marbles.** A is amber and plain, B is blue with a ring, C is pearl with a diamond. The pearl colours are the tokens `--ml-piece-c-*` in `web/design/tokens.css`. Colour is never the only cue: the marks differ in shape, and the lightness of pearl differs from amber and blue. `web/src/ui/seat-tokens.test.ts` computes the contrast from `tokens.css`: the pearl outline reaches 3:1 against the board, the diamond 4.5:1 on the marble, the pearl text colour 4.5:1 on the page, and pearl differs from amber and blue by at least 1.5:1 in lightness. The goal corner of each seat is drawn in the marble of that seat: plain sockets, sockets with a ring, or sockets with a diamond.
+
+**Which seat gets which marble** (`seatViews`):
+
+| Game | Marbles |
+|---|---|
+| two players | unchanged: the person amber, the engine blue; in the demo seat 1 is amber |
+| three players, one person | the person amber; the engines blue and pearl, in seat order |
+| hot-seat, and the three-player demo ("Engine vs. engine" pressed in a three-player game, so all three seats are engines) | seat 0 amber, seat 1 blue, seat 2 pearl |
+
+Rationale: the one person always finds their own pieces in amber, as in the two-player game. In hot-seat the marble follows the seat, so each of the two people keeps one marble through the game.
+
+**No board rotation.** In a two-player game the board turns so that the person's corner is at the bottom. A three-player game never turns the board. Rationale: in hot-seat two people share one board, so no orientation suits both. Limit: the game with one person against two engines is not turned either; no reason was recorded for that case.
+
+**Names.** Seats are numbered 1 to 3 in the texts. The one person is "Player 2 (you)", an engine "Player 1 (engine)", and a person in hot-seat plain "Player 1". The accessible names of pieces follow: "player 3 piece", "your piece, player 2", "player 3 piece, engine". In the three-player demo the names are the colours ("Amber", "Blue", "Pearl").
+
+**Status bar** (the row above the board that says whose turn it is). The one person sees "Your move" on their turn. Every other turn shows "{player} to move", and while an engine searches "{player} is thinking", with the marble of that seat pulsing. On an engine seat's turn the board takes no input. Between two engine moves in a row the controller pauses 350 ms ([game controller](#game-controller)).
+
+**Seats card.** A list of the three seats with marble and name; the seat on move is marked "to move". In hot-seat the card adds "Pass the device on after each move." The move list shows three moves per row, one round of the game.
+
+**Keyboard.** The board has one Tab stop. After every change of the legal moves, the Tab stop returns to the first movable piece of the seat to move, unless the cell used last can still move. If the keyboard focus is inside the board when the turn comes back to a person and the focused cell cannot move, the focus moves to the Tab stop. Rationale: in hot-seat the piece that moved last belongs to the other person and cannot move, so a Tab stop left there would point at nothing useful.
+
+**Result card.** A win names the seat: "Player 3 (engine) wins", "You win" for the one person, and the colour in a demo ("Pearl wins"). At the move limit (200 plies for two players, 300 for three) the card names no winner and lists the seats by an approximate distance to the goal, closest first. The distance of a seat is the sum of the hex distances of its pieces to the tip of its goal corner (`approximateDistance` in `web/src/ui/board-model.ts`). The marker "closest" goes to the single leader; on a tie no seat gets it. For two players the card lists amber first and puts the marker "ahead" on the side with the smaller distance. Rationale for the approximation: the engine measures the distance with its own code, which the `Engine` interface does not expose, so this figure only orders the seats; it is not the figure the engine scores with. The engines name no winner at the move limit either ([three players (TeaVM engines)](#three-players-teavm-engines)).
+
+**Controls.** The swap button appears only when `canSwap` is true, so not in hot-seat. In a three-player game the move guide switch, the advantage bar ([move guides](#move-guides)) and the skill card are hidden, because analysis exists only for two players. With the long hop they stay; the skill card then shows the note that the estimate is not calibrated ([skill estimate](#skill-estimate)).
+
+Tests, with paths relative to `web/src/`: `game.variants.test.ts`, `setup.variants.test.ts`, `variant.test.ts` (in `game/`: controller, setup, board state), `app/game-url.variants.test.ts`, `app/App.variants.test.tsx`, `engines/variants.test.ts` and `engines/variants.cross.test.ts` (whole games on all three browser engines). The tests of the start dialog and the three-seat screen are listed under [tests](#tests). The browser tests are `web/e2e/variants.spec.ts` and `web/e2e/start-dialog.spec.ts`.
 
 ## The engines
 
@@ -478,13 +527,13 @@ The standard error treats the moves as independent, which they are not (moves of
 
 The play screen has two presentations of one set of content. The breakpoint is 60 rem (960 px at the default font size). `useWide()` in `web/src/ui/useMedia.ts` reads it for React, and `web/src/ui/mobile.css` repeats it as `max-width: 59.99rem` for the layout.
 
-**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the four game buttons (Undo, New game, Swap sides, Engine vs. engine), the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
+**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the game buttons (Undo, New game, Swap sides, Engine vs. engine; Swap sides only when the game allows it), the seats card (three players only), the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
 
 **Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: Swap sides, Engine vs. engine, move guides, copy link, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
 
 - **Portrait.** Header (one row from 320 px; the mode badge keeps only its icon below 26 rem), status bar, board, advantage bar, bottom bar. The page is exactly as high as the viewport (`100dvh`) and does not scroll; the footer is hidden on this screen because the menu holds its content.
 - **Landscape phones** (height up to 32 rem). The header is one row. The board stands on the left. A column 12 to 17 rem wide holds the status bar, the advantage bar and the three actions, stacked.
-- **No layout shift.** The board is an SVG that fills a grid cell and scales with `preserveAspectRatio` meet. Loading, result and error cards lie over the lower part of the board (`.ml-play__notice`) and take no room. The slot of the advantage bar is reserved as soon as the move guides are on.
+- **No layout shift.** The board is an SVG that fills a grid cell and scales with `preserveAspectRatio` meet. Loading, result and error cards lie over the lower part of the board (`.ml-play__notice`) and take no room. The result card has a close button here (accessible name "Close the result"). Closing hides only the card; the status bar still says "Game over". The slot of the advantage bar is reserved as soon as the move guides are on.
 - **Safe areas.** `viewport-fit=cover` in `index.html`; the app, the footer and the sheets add `env(safe-area-inset-*)` as padding.
 
 **The menu** (`Menu.tsx`). A button with `aria-haspopup="dialog"`, `aria-expanded` and `aria-controls`; the sheet is a `role="dialog"` with `aria-modal`. It uses `useDialog` (`useDialog.ts`), the same hook as the start dialog: focus moves in, Tab and Shift+Tab stay inside, Escape closes (also when focus is outside the sheet, as happens in Safari after a tap), focus returns to the button. `useDialog` also makes every other child of `document.body` inert while the sheet is open. The sheet closes with Escape, the close button, a tap on the backdrop, or a swipe down on its top edge (a pull of 96 px, or 24 px at 0.5 px/ms or faster; `shouldDismissSwipe` in `touch-model.ts`). The engine sheet opens above the menu; Escape closes the engine sheet first. With `prefers-reduced-motion` the sheet has no animation. The reason for the focus return through a ref instead of `document.activeElement`: Safari does not focus a button that is tapped, so the active element at that moment is the page body.
@@ -506,7 +555,6 @@ The play screen has two presentations of one set of content. The breakpoint is 6
 **Limits.**
 
 - Playwright's WebKit is not Safari, and an emulated device is not a real one: nobody has tried the screen on a real iPhone or Android phone. The safe-area insets are zero in emulation.
-- The result card covers the lower part of the board on a small screen. The final position is still visible above it, but the card has no close button.
 - Dragging is tested with the mouse in both browsers and with real touch events through the DevTools protocol in Chromium only.
 
 ## Loading and checking the race table
@@ -579,6 +627,21 @@ curl -s -b jar.txt -X POST -H 'Content-Type: application/json' -H "X-CSRF-Token:
 | `./gradlew --no-build-cache :teavm-web:test` | the Java facade on the JVM, and `Sha256` against `MessageDigest` |
 | `./gradlew --no-build-cache :app:test` | the server engine list and move choice |
 | `devenv tasks run web:e2e` | Playwright against the built site: page load, each browser engine plays a move, board geometry against the C++ module, screenshots at 360 and 1280 pixels in German and English |
+
+Tests of the start dialog and the three-seat screen, with paths relative to `web/`:
+
+| File | Checks |
+|---|---|
+| `src/ui/StartDialog.test.tsx` | the dialog: radio groups, buttons per mode, focus and Tab loop |
+| `src/app/start-choice.test.ts` | storing and reading the last choice, invalid values, choice to `GameSetup` |
+| `src/ui/seat-view.test.ts` | marble and name of each seat |
+| `src/ui/seat-tokens.test.ts` | contrast of the pearl tokens |
+| `src/ui/Board.seats.test.tsx` | the board with three seats: marbles, goal sockets, Tab stop |
+| `src/app/App.seats.test.tsx` | the three-seat play screen: turns, names, undo, thinking, result card at the move limit, close button on a small screen only |
+| `src/app/e2e-fixtures.test.ts` recomputes the fixed games of `e2e/fixtures.ts` (its generator loops live in this test) and fails when they differ |
+| `e2e/start-dialog.spec.ts` | Playwright: the start dialog, hot-seat, two engines, the long hop, a three-engine demo, phone sizes |
+
+The fixed games of the browser tests live in `e2e/fixtures.ts` as game-URL payloads. Reason: Playwright runs in Node.js, which cannot import the `web/src` modules that load `cells.generated.json`, so the games are computed in advance. `e2e-fixtures.test.ts` runs in Vitest, computes them again and fails when they differ.
 
 `web:e2e` uses Chromium, Firefox and WebKit from nixpkgs. Chromium and Firefox decide the exit code; WebKit runs for information only, because Playwright's WebKit is not Safari.
 
