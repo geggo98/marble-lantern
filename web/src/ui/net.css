@@ -24,6 +24,11 @@
 .ml-netwarn__item > .ml-icon { width: 1.25rem; height: 1.25rem; margin-top: 1px; }
 .ml-netwarn__item > .ml-btn { grid-column: 2; justify-self: start; }
 .ml-netwarn__text { overflow-wrap: anywhere; }
+/* The live wrapper of the sheet is there for every engine; empty it takes no room (not display:none: that would remove the live region). */
+.ml-sheet > [data-net-warning-live]:empty { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ml-netwarn__details { grid-column: 2; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-netwarn__details summary { cursor: pointer; min-height: var(--ml-size-control); display: flex; align-items: center; }
+.ml-netwarn__details code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ml-start .ml-netwarn { margin-top: var(--ml-space-3); }
 
 /* The notice of the play screen: mounted only while a net engine needs it. At least 3 rem, taller when a text needs it. */

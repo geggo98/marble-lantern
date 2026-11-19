@@ -41,6 +41,7 @@ interface Opts {
   probe?: () => Promise<ProbeResult>;
   onApply?: SheetProps['onApply'];
   onClose?: () => void;
+  initialFocus?: SheetProps['initialFocus'];
 }
 
 async function open(o: Opts = {}): Promise<NetSelectionStore> {
@@ -63,6 +64,7 @@ async function open(o: Opts = {}): Promise<NetSelectionStore> {
         netStore={store}
         onApply={o.onApply ?? (() => undefined)}
         onClose={o.onClose ?? (() => undefined)}
+        {...(o.initialFocus ? { initialFocus: o.initialFocus } : {})}
       />,
     );
   });
@@ -173,6 +175,54 @@ describe('live warnings', () => {
     await open({ modelId: EXPERT });
     expect(q('[data-net-warning-live][aria-live="polite"]')).not.toBeNull();
     expect(warnings()).toEqual([]);
+  });
+});
+
+describe('live region and focus (L2, L3)', () => {
+  it('the live wrapper is in the sheet for a classical engine too and stays the same element when a net row is selected', async () => {
+    await open({ engine: 'cpp-wasm' });
+    const before = q('[data-net-warning-live][aria-live="polite"]');
+    expect(before).not.toBeNull();
+    expect(before!.childElementCount).toBe(0);
+    await click(q('[data-engine="net-wasm"]'));
+    expect(warnings()).toEqual(['no-model']);
+    expect(q('[data-net-warning-live][aria-live="polite"]')).toBe(before);
+    await click(q('[data-engine="cpp-wasm"]'));
+    expect(q('[data-net-warning-live][aria-live="polite"]')).toBe(before);
+    expect(before!.childElementCount).toBe(0);
+  });
+
+  it('selecting a net row scrolls its warning into view; opening the sheet on a net engine does not', async () => {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element): void {
+      scrolled.push(this);
+    };
+    try {
+      await open({ engine: 'cpp-wasm' });
+      expect(scrolled).toEqual([]);
+      await click(q('[data-engine="net-wasm"]'));
+      expect(scrolled).toEqual([q('[data-net-warning-live]')]);
+      scrolled.length = 0;
+      await click(q('[data-engine="cpp-wasm"]'));
+      expect(scrolled).toEqual([]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('initialFocus "model" puts the focus on the checked model radio of the group; by default it stays on the engine list', async () => {
+    await open({ modelId: SHARED, initialFocus: 'model' });
+    expect(document.activeElement).toBe(q(`[data-model="${SHARED}"] input`));
+    act(() => root?.unmount());
+    document.body.innerHTML = '';
+    await open({});
+    expect(document.activeElement).toBe(q('[data-engine="net-wasm"]'));
+  });
+
+  it('initialFocus "model" with no model chosen focuses None', async () => {
+    await open({ initialFocus: 'model' });
+    expect(document.activeElement).toBe(q('[data-model="none"] input'));
   });
 });
 

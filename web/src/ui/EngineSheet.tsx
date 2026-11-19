@@ -38,6 +38,8 @@ export interface SheetProps {
   netStore?: NetSelectionStore | undefined;
   /** The variant of the game: only the models that may play it are offered. */
   variant?: Variant | undefined;
+  /** Where the focus goes when the sheet opens: the engine list (default) or the model group (the buttons "choose a model" of the engine card). */
+  initialFocus?: 'engines' | 'model';
   onClose: () => void;
 }
 
@@ -65,7 +67,9 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
 
   useEffect(() => {
-    dialogRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus();
+    const modelInputs = props.initialFocus === 'model' ? dialogRef.current?.querySelectorAll<HTMLElement>(`[data-net-group="${MODEL_GROUP}"] input`) : undefined;
+    const inModels = modelInputs ? (Array.from(modelInputs).find((i) => (i as HTMLInputElement).checked) ?? modelInputs[0]) : null;
+    (inModels ?? dialogRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]'))?.focus();
     const back = opener.current;
     return () => {
       if (back instanceof HTMLElement) back.focus(); // focus returns to the button that opened the sheet
@@ -95,6 +99,16 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
       }
     }
   };
+
+  // A warning of the net row that was just selected may lie below the fold on a phone: bring it into view (not when the sheet opens).
+  const firstEngine = useRef(true);
+  useEffect(() => {
+    if (firstEngine.current) {
+      firstEngine.current = false;
+      return;
+    }
+    if (engine !== null && isNetEngine(engine)) dialogRef.current?.querySelector<HTMLElement>('[data-net-warning-live]')?.scrollIntoView?.({ block: 'nearest' });
+  }, [engine]);
 
   const group = (legendKey: TextKey, choices: EngineChoice[]): React.JSX.Element | null => {
     if (choices.length === 0) return null;
@@ -213,9 +227,10 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
         </div>
         {group('engines_browser', browser)}
         {group('engines_server', server)}
+        {/* A live region must exist before its text changes: the wrapper stays for every engine, its content changes. */}
+        <NetWarnings warnings={isNet ? evaluation.warnings : []} live onAction={{ 'choose-model': focusModels, 'choose-other': focusModels }} />
         {isNet && (
           <>
-            <NetWarnings warnings={evaluation.warnings} live onAction={{ 'choose-model': focusModels, 'choose-other': focusModels }} />
             <ModelGroup variant={variant} all={listModels()} models={evaluation.compatibleModels} modelId={modelId} sims={sims} onChange={setModelId} />
             <SimsGroup sims={sims} backend={engine === 'net-webgpu' ? 'webgpu' : 'wasm'} onChange={setSims} />
           </>

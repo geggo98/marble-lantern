@@ -102,7 +102,9 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const { game, session, humanSide, demo } = model;
   const state = useSyncExternalStore(game.subscribe.bind(game), () => game.state);
   const s = useSyncExternalStore(session.subscribe, session.getState);
-  const [sheet, setSheet] = useState(false);
+  const [sheetFocus, setSheetFocus] = useState<'engines' | 'model' | null>(null); // null: the sheet is closed
+  const sheet = sheetFocus !== null;
+  const setSheet = (open: boolean): void => setSheetFocus(open ? 'engines' : null);
   const wide = useWide();
   const [menu, setMenu] = useState(false);
   const [closedResult, setClosedResult] = useState<string | null>(null);
@@ -263,7 +265,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         onChange={() => setSheet(true)}
         warnings={s.warnings}
         {...(netBackend ? { net: { sims: model.netSelection?.selection.sims ?? DEFAULT_SIMS, backend: netBackend } } : {})}
-        onWarningAction={{ 'choose-model': () => setSheet(true), 'choose-other': () => setSheet(true), ...(model.onRetryNet ? { retry: model.onRetryNet } : {}) }}
+        onWarningAction={{ 'choose-model': () => setSheetFocus('model'), 'choose-other': () => setSheetFocus('model'), ...(model.onRetryNet ? { retry: model.onRetryNet } : {}) }}
       />
       {!demo && analysable && s.current && (
         <SkillCard
@@ -357,6 +359,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           currentId={s.current?.info.id ?? null}
           level={model.level}
           onClose={() => setSheet(false)}
+          initialFocus={sheetFocus ?? 'engines'}
           netStore={model.netSelection}
           variant={variant}
           onApply={(engine, level, net) => {
