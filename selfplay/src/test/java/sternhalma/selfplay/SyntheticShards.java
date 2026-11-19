@@ -35,7 +35,15 @@ final class SyntheticShards {
     /** As above for {@code players} players; {@code game_values} is [games, players] (the labels of the two-player case, padded with 0). */
     static Path write(Path dir, String name, int players, long shardSeed, int firstGameId, int games, int perGame,
             long sampleSeed) throws IOException {
-        List<Sample> samples = SyntheticSamples.samples(players, sampleSeed, games * perGame);
+        return write(dir, name, sternhalma.engine.RuleSet.defaults(players), shardSeed, firstGameId, games, perGame,
+                sampleSeed);
+    }
+
+    /** As above under the given rules; the shard metadata names them (`rules`), as a real shard does. */
+    static Path write(Path dir, String name, sternhalma.engine.RuleSet rules, long shardSeed, int firstGameId, int games,
+            int perGame, long sampleSeed) throws IOException {
+        int players = rules.players();
+        List<Sample> samples = SyntheticSamples.samples(rules, sampleSeed, games * perGame);
         Map<String, Tensor> tensors = SyntheticSamples.tensors(players, samples);
         int n = samples.size();
         int[] game = new int[n];
@@ -53,6 +61,7 @@ final class SyntheticShards {
         tensors.put("game_id", Tensor.i32(id, games));
         tensors.put("game_values", Tensor.f32(values, games, players));
         Map<String, String> metadata = SyntheticSamples.metadata(players);
+        metadata.put("rules", rules.toString());
         metadata.put("seed", Long.toString(shardSeed));
         Path file = dir.resolve(name);
         SampleFile.write(file, tensors, metadata);

@@ -2465,6 +2465,94 @@ scripts/threeseatmatch.sh paired data/shared/eval/A/openings-<hash>.jsonl \
 
 **Opponents by nodes, not time.** The machine is shared with other jobs, so time per move varies with load; a node budget gives the same opponent on every run.
 
+## Mixed-variant training (shared net)
+
+**TL;DR:** One TINY or SMALL network with the plane set `classic1v` ([network](network.md#format-version-3-variants)) trains on four variants at once: 2p-adjacent, 2p-long, 3p-adjacent and 3p-long. A mixed replay buffer reads shards of all four, gives each variant an equal share of every batch by default, and Gen0 reports the held-out proxies per variant. No strength numbers exist yet, and the training loop (`Loop`) does not support this network.
+
+The variant names are those of the enum `sternhalma.selfplay.Variant`: player count 2 or 3, jump rule `ADJACENT` or `LONG`.
+
+### Replay buffer for mixed data
+
+`ReplayBuffer.mixed(window, augment, planes, strata)` (module `selfplay`) accepts shard files of 2 and 3 players with either jump rule. Each file keeps its own rules: the buffer reads them from the shard metadata key `rules` (`GameShard.rules`) and passes the file's jump rule to the expander. The strict buffer `new ReplayBuffer(players, ...)` still rejects a file with another player count, and its batches are byte-identical to those before the change. `ReplayBufferGoldenTest` pins this with hashes taken from the code before the change.
+
+**Value rows.** A batch from the mixed buffer always has 3 value columns. A two-player sample gets the target (z0, z1, 0); the third column is a dummy target. Its value weight is the file's weight times `ReplayBuffer.TWO_PLAYER_VALUE_WEIGHT` = 1.5.
+
+**Project reasoning** for the factor 1.5: the value loss is the mean over the P = 3 outputs. A two-player sample has 2 real targets and one dummy, so its real targets get 2/3 of the gradient scale they would get in a network with 2 outputs; the factor 3/2 restores it. The factor lives in the batch (`TrainingBatch.valueWeight`), so the loss code (`ReferenceLoss` and the Tornado loss kernels) is unchanged. Limits: the third output of the network is pushed toward 0 for a two-player position, and the value head is not zero-sum.
+
+**Mirroring** follows [Symmetric augmentation](#symmetric-augmentation): the buffer mirrors two-player samples of both jump rules and never mirrors a three-player sample. Mirroring a three-player sample throws an exception.
+
+### Strata
+
+The option `--strata equal|natural` chooses how a batch is drawn. The default is `equal`; `run.json` records the value for `classic1v` runs only.
+
+- **equal:** slot i of a batch of size B belongs to the (i + step)-th of the k variants present in the data. Each variant therefore gets B/k slots (64 of 256 with four variants), and the remainder rotates with the step. Inside a variant the draw is uniform with replacement. The seed is (run seed, generation, step), so a resumed run draws the same batches.
+- **natural:** the uniform draw over all samples of [Replay buffer](#replay-buffer). Each variant gets the share it has in the data.
+
+With one variant present, both settings give the same draw.
+
+**Project reasoning** for `equal` as the default: the variants have different data sizes, because a three-player game gives about 3 times more samples than a two-player game, and the plan gives every variant equal weight. Limit: the buffer repeats the samples of a small variant more often, which risks overfitting it. Watch the held-out policy KL of that variant.
+
+### Data directories
+
+`Gen0 run DATA RUN` takes DATA as either a directory with `samples-*.safetensors` files or, if it has none, a parent directory whose direct subdirectories each hold the shards of one variant (for example `data/shared/2p-adjacent`). Gen0 reads the subdirectories in name order and skips hidden ones. When the files come from several directories, the data fingerprint in `run.json` includes the subdirectory name, because shards of different variants have the same file names.
+
+**Project reasoning** for the parent directory instead of several `--data` options: it changes the least. The positional argument and the resume check stay as they are.
+
+### Gen0 options and held-out proxies
+
+`Gen0 run ... --planes classic1v --preset small|tiny --trainer cpu|gpu [--strata equal|natural]` writes `players: 3`, `planes` and `strata` to `run.json`. Checkpoints, resume, lock and exit codes are unchanged ([Bootstrap](#bootstrap-generation-0-from-a-classical-teacher)). `Loop` still rejects every network with a player count other than 2.
+
+The held-out split is by game id, as before: a fraction of the games of each shard, chosen from the shard seed and the game id. For each variant, Gen0 takes the held-out samples of that variant (at most `--eval-samples`, evenly spaced) and computes policy KL, top-1 accuracy, value loss and winner accuracy.
+
+- **Winner of a sample:** the relative player with the single highest game value; none if the highest value is shared.
+- **Predicted winner:** the highest output among the first P outputs, with P the sample's player count (2 or 3). The dummy third output of a two-player sample does not count. A tie in the outputs counts as wrong.
+- **Chance level:** 1/2 for two players, 1/3 for three players.
+
+Gen0 reports the proxies as stderr lines `gen 0 proxies at step S, <variant> (...)` and as monitor events with a field `variant` in `metrics.jsonl`. The old combined event without `variant` stays. `Gen0 proxies RUN --data DIR` prints one indented line per variant. At start, Gen0 prints `gen 0 variant <v>: N training and M held-out samples` for each variant and warns if a variant has no held-out samples.
+
+### Commands
+
+Teacher data: one resumable job per variant, then a pilot before the long three-player jobs. The plan is about 250,000 samples per variant; cap the game count, not the sample count. N, S and T stand for games, seed and threads.
+
+```bash
+# 2p-adjacent (players 2 and jump adjacent are the defaults; S1 is on by default)
+scripts/selfplay.sh run --out data/shared/2p-adjacent --games N --seed S --threads T \
+  --spec "ab:eval=racelin1-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=1" \
+  --nodes 5000 --teacher-depth 2
+# 2p-long (defaults: BROWSER_LONG_SPEC mover, S1 off, margin layer on, teacher alpha 0.5,0.2,100)
+scripts/selfplay.sh run --out data/shared/2p-long --games N --seed S --threads T \
+  --players 2 --jump long --nodes 5000 --teacher-depth 2
+# pilot: prints game length, share of games at the move limit, cost per sample
+scripts/selfplay.sh pilot --games 20 --players 3 --jump long --seed 1 --threads 8
+# 3p-adjacent and 3p-long (mover BROWSER_3P_SPEC, ab3)
+scripts/selfplay.sh run --out data/shared/3p-adjacent --games N --seed S --threads T --players 3 --jump adjacent --nodes 15000
+scripts/selfplay.sh run --out data/shared/3p-long --games N --seed S --threads T --players 3 --jump long --nodes 15000
+# shared network
+scripts/gen0.sh run data/shared data/shared/gen0-shared --planes classic1v --preset small --trainer gpu \
+  --steps 40000 --batch 256 --strata equal --seed 1 --checkpoint-steps 200
+# control run (specialist): same budget, 2p-adjacent only, classic1 network;
+# use the same --seed, --lr, --warmup and --holdout as the shared run
+scripts/gen0.sh run data/shared/2p-adjacent data/shared/gen0-specialist --planes classic1 --preset small \
+  --trainer gpu --steps 40000 --batch 256
+```
+
+The three-player jobs have no teacher depth: the policy target is the played move with weight 1 − ε (ε = 0.05), there is no adjudication, and the value target is the game outcome. The control run uses the existing two-player path, so its batches are those of `ReplayBufferGoldenTest`.
+
+### Tests
+
+- `MixedReplayBufferTest`: strata proportions, value rows and weights, mirroring, determinism, winners. Mutation-checked.
+- `ReplayBufferGoldenTest`: the strict buffers give the same batches as before the change.
+- `MixedTrainingTest`: a TINY shared network on all four variants. At lr 0.01 the loss falls from 5.54 to 3.55 in 200 steps, and the per-variant policy KL falls from 1.8, 3.4, 1.8 and 4.4 to about 0.4 each. Also Gen0 on a parent directory, and the format version 3 candidate plays 60 legal plies in each variant.
+- `MixedTrainingGpuTest`: the same on the Tornado trainer, run by `gradlew :selfplay:gpuTest`; the numbers agree within 0.01.
+- `TornadoStepTest`, case `tiny3-classic1v-mixed`: the Tornado training step against the reference, for one step and for twenty steps. The largest loss difference over the twenty steps is under 0.05 % of the loss, a twentieth of the 1 % that the test allows; the parameters stay within the usual tolerance.
+
+### Limits
+
+- No Elo or other strength numbers exist yet.
+- `Loop` does not support the shared network.
+- The value head is not zero-sum.
+- The number of held-out samples of a variant depends on how many games of that variant exist.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).

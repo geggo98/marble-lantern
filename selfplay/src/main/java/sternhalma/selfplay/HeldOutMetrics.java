@@ -58,6 +58,22 @@ final class HeldOutMetrics {
          * @param results per sample +1, -1 or 0 (unknown or no winner): the result of its game for the mover
          */
         void add(TrainingBatch batch, float[] policy, float[] values, int[] results) {
+            int[] winners = new int[results.length];
+            int[] counts = new int[results.length];
+            for (int s = 0; s < results.length; s++) {
+                winners[s] = results[s] == 1 ? 0 : results[s] == -1 ? 1 : -1;
+                counts[s] = 2;
+            }
+            add(batch, policy, values, winners, counts);
+        }
+
+        /**
+         * Adds a batch of samples of any player count.
+         *
+         * @param winners per sample the relative player who wins its game, or -1 (unknown, shared top value)
+         * @param counts  per sample its player count (2 or 3): only the first {@code counts[s]} outputs name players
+         */
+        void add(TrainingBatch batch, float[] policy, float[] values, int[] winners, int[] counts) {
             int players = batch.players();
             for (int s = 0; s < batch.size(); s++) {
                 samples++;
@@ -78,10 +94,21 @@ final class HeldOutMetrics {
                     valueSum += wv * ReferenceLoss.value(values, s * players, batch.valueTarget(), s * players, players,
                             0, null, 0);
                 }
-                if (results[s] != 0) {
+                if (winners[s] >= 0) {
                     winnerSamples++;
-                    double diff = (double) values[s * players] - values[s * players + 1];
-                    if (Math.signum(diff) == results[s]) {
+                    int best = 0;
+                    boolean tie = false;
+                    for (int i = 1; i < counts[s]; i++) {
+                        double v = values[s * players + i];
+                        double top = values[s * players + best];
+                        if (v > top) {
+                            best = i;
+                            tie = false;
+                        } else if (v == top) {
+                            tie = true;
+                        }
+                    }
+                    if (!tie && best == winners[s]) {
                         winnerCorrect++;
                     }
                 }
@@ -132,8 +159,29 @@ final class HeldOutMetrics {
      *                    thread-safe if more than 1); the sums are added in batch order, so the result does not depend on it
      */
     static Metrics evaluate(ForwardPass network, ReplayBuffer heldOut, int evalSamples, int threads) {
+        return evaluate(network, heldOut, null, evalSamples, threads);
+    }
+
+    /**
+     * The metrics of every variant that the held-out buffer holds, each on at most {@code evalSamples} samples of
+     * that variant, in {@link Variant} order. A variant has its own value loss and winner accuracy: the winner of a
+     * three-player sample is the player with the highest output (yardstick: chance is 1/3, not 1/2).
+     */
+    static java.util.Map<Variant, Metrics> evaluateByVariant(ForwardPass network, ReplayBuffer heldOut,
+            int evalSamples, int threads) {
+        java.util.Map<Variant, Metrics> result = new java.util.LinkedHashMap<>();
+        for (Variant v : heldOut.variants()) {
+            result.put(v, evaluate(network, heldOut, v, evalSamples, threads));
+        }
+        return result;
+    }
+
+    /** As {@link #evaluate(ForwardPass, ReplayBuffer, int, int)}, on the samples of one variant (all if null). */
+    static Metrics evaluate(ForwardPass network, ReplayBuffer heldOut, Variant variant, int evalSamples,
+            int threads) {
         Objects.requireNonNull(network, "network");
-        int size = heldOut.size();
+        int[] subset = variant == null ? null : heldOut.indicesOf(variant);
+        int size = subset == null ? heldOut.size() : subset.length;
         if (size == 0 || evalSamples < 1) {
             throw new IllegalArgumentException("need a held-out sample and evalSamples >= 1");
         }
@@ -143,17 +191,22 @@ final class HeldOutMetrics {
         int n = Math.min(size, evalSamples);
         int players = network.config().players();
         List<TrainingBatch> batches = new ArrayList<>();
-        List<int[]> allResults = new ArrayList<>();
+        List<int[]> allWinners = new ArrayList<>();
+        List<int[]> allCounts = new ArrayList<>();
         for (int start = 0; start < n; start += CHUNK) {
             int count = Math.min(CHUNK, n - start);
             int[] indices = new int[count];
-            int[] results = new int[count];
+            int[] winners = new int[count];
+            int[] counts = new int[count];
             for (int i = 0; i < count; i++) {
-                indices[i] = (int) ((long) (start + i) * size / n);
-                results[i] = heldOut.result(indices[i]);
+                int at = (int) ((long) (start + i) * size / n);
+                indices[i] = subset == null ? at : subset[at];
+                winners[i] = heldOut.winner(indices[i]);
+                counts[i] = heldOut.variantOf(indices[i]).players();
             }
             batches.add(heldOut.batchOf(indices, new boolean[count]));
-            allResults.add(results);
+            allWinners.add(winners);
+            allCounts.add(counts);
         }
         List<float[][]> outputs = new ArrayList<>();
         if (threads == 1) {
@@ -180,7 +233,7 @@ final class HeldOutMetrics {
         }
         Accumulator acc = new Accumulator();
         for (int i = 0; i < batches.size(); i++) {
-            acc.add(batches.get(i), outputs.get(i)[0], outputs.get(i)[1], allResults.get(i));
+            acc.add(batches.get(i), outputs.get(i)[0], outputs.get(i)[1], allWinners.get(i), allCounts.get(i));
         }
         return acc.metrics();
     }

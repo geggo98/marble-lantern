@@ -47,6 +47,9 @@ class TornadoStepTest {
             double cv) {
 
         TrainingBatch batch(long seed) {
+            if (planes.variants()) {
+                return TrainTesting.mixedBatch(samples, seed);
+            }
             return TrainTesting.batch(config.players(), planes, samples, seed);
         }
     }
@@ -57,7 +60,11 @@ class TornadoStepTest {
         NetworkConfig classic3 = NetworkConfig.tiny(3).withPlanes(PlaneSet.CLASSIC1);
         NetworkConfig small = NetworkConfig.small(2).withPlanes(PlaneSet.CLASSIC1);
         NetworkConfig small3 = NetworkConfig.small(3);
+        NetworkConfig shared = NetworkConfig.tiny(3).withPlanes(PlaneSet.CLASSIC1V);
         return List.of(
+                new Case("tiny3-classic1v-mixed", shared,
+                        TrainTesting.classicPrior(Parameters.uniform(shared, 106, TrainTesting.initBound(shared))),
+                        PlaneSet.CLASSIC1V, 32, 1.0),
                 new Case("tiny2-plain", tiny2, Parameters.uniform(tiny2, 101, TrainTesting.initBound(tiny2)),
                         PlaneSet.PLAIN, 32, 1.0),
                 new Case("tiny2-classic1", classic2,

@@ -75,6 +75,58 @@ final class TrainTesting {
         return builder.build();
     }
 
+    /**
+     * The batch of a mixed buffer ({@code ReplayBuffer.mixed}) for {@code classic1v}: {@code n} samples cycling through
+     * the four variants (2p and 3p, adjacent and long), value width 3. A two-player sample has the dummy target 0 in
+     * the third column and the value weight 1.5 times the cycle weight; a three-player one has its three targets.
+     */
+    static TrainingBatch mixedBatch(int n, long seed) {
+        sternhalma.engine.RuleSet.JumpRule[] jumps = sternhalma.engine.RuleSet.JumpRule.values();
+        List<List<Position>> pools = new ArrayList<>();
+        for (int v = 0; v < 4; v++) {
+            sternhalma.engine.RuleSet rules = sternhalma.engine.RuleSet.defaults(2 + v / 2).withMoveLimit(1000)
+                    .withJumpRule(jumps[v % 2]);
+            List<Position> usable = new ArrayList<>();
+            for (Position p : Playouts.positions(rules, 4, 40, seed + v)) {
+                if (p.legalMoves().length > 0) {
+                    usable.add(p);
+                }
+            }
+            pools.add(usable);
+        }
+        Random random = new Random(seed);
+        PlaneSet planes = PlaneSet.CLASSIC1V;
+        TrainingBatch.Builder builder = new TrainingBatch.Builder(3, planes);
+        float[] policyWeights = {1f, 0.5f, 2f, 1.5f};
+        float[] valueWeights = {1f, 2f, 0.5f, 1f};
+        for (int i = 0; i < n; i++) {
+            List<Position> usable = pools.get(i % 4);
+            Position position = usable.get((int) ((long) (i / 4) * usable.size() / Math.max(1, n / 4)));
+            int[] moves = position.legalMoves();
+            Orientation orientation = Orientation.of(position);
+            float[] input = new float[planes.inputSize()];
+            Encoder.encode(planes, position, input, 0);
+            int[] from = new int[moves.length];
+            int[] to = new int[moves.length];
+            double[] target = new double[moves.length];
+            for (int m = 0; m < moves.length; m++) {
+                from[m] = orientation.toCanonical(Move.from(moves[m]));
+                to[m] = orientation.toCanonical(Move.to(moves[m]));
+                target[m] = m % 4 == 3 ? 0 : 0.1 + random.nextDouble();
+            }
+            target[0] = 1;
+            int players = position.rules().players();
+            float[] z = winner(players, random, position.sideToMove());
+            float weight = valueWeights[i % 4];
+            if (players == 2) {
+                z = new float[] {z[0], z[1], 0f};
+                weight *= 1.5f;
+            }
+            builder.add(input, from, to, target, z, policyWeights[i % 4], weight);
+        }
+        return builder.build();
+    }
+
     private static float[] winner(int players, Random random, int mover) {
         double[] absolute = new double[players];
         Arrays.fill(absolute, -1.0 / (players - 1));
