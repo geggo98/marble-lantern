@@ -217,7 +217,7 @@ class GateDeviceTest {
             List<String> args = new java.util.ArrayList<>(List.of("--init", init.toString()));
             args.addAll(LoopFixture.options("--generations", "1", "--gate-pairs", "8", "--pair-shard", "2", "--evaluator", "gpu",
                     "--games-in-flight", "4", "--threads", "3", "--promote-z", "0"));
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5),
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2),
                     () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.stopIn("gate", 1), args));
         } finally {
             Loop.devices = before;
@@ -245,7 +245,7 @@ class GateDeviceTest {
             args.addAll(LoopFixture.options("--generations", "1", "--gate-pairs", "5", "--pair-shard", "2", "--baseline-pairs", "3",
                     "--evaluator", "gpu", "--games-in-flight", "64", "--threads", "2", "--tail-threads", "4", "--tail-pairs", "9",
                     "--promote-z", "0"));
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
         } finally {
             Loop.devices = before;
         }
@@ -267,7 +267,7 @@ class GateDeviceTest {
             List<String> args = new java.util.ArrayList<>(List.of("--init", init.toString()));
             args.addAll(LoopFixture.options("--generations", "1", "--gate-pairs", "4", "--pair-shard", "2", "--baseline-pairs", "2",
                     "--evaluator", "gpu", "--games-in-flight", "4", "--threads", "3", "--promote-z", "0"));
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
         } finally {
             Loop.devices = before;
         }
@@ -296,7 +296,7 @@ class GateDeviceTest {
             List<String> args = new java.util.ArrayList<>(List.of("--init", init.toString()));
             args.addAll(LoopFixture.options("--generations", "1", "--gate-pairs", "4", "--pair-shard", "2", "--baseline-pairs", "2",
                     "--evaluator", "gpu", "--match-evaluator", "cpu", "--games-in-flight", "4", "--threads", "3", "--promote-z", "0"));
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
         } finally {
             Loop.devices = before;
         }
@@ -319,7 +319,7 @@ class GateDeviceTest {
             List<String> args = new java.util.ArrayList<>(List.of("--init", init.toString()));
             args.addAll(LoopFixture.options("--generations", "1", "--gate-pairs", "4", "--pair-shard", "2", "--baseline-pairs", "2",
                     "--match-evaluator", "gpu", "--games-in-flight", "4", "--threads", "3", "--promote-z", "0"));
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER, args));
         } finally {
             Loop.devices = before;
         }

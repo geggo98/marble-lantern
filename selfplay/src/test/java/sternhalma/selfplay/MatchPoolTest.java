@@ -299,7 +299,7 @@ class MatchPoolTest {
         Loop.devices = devices;
         LoopFixture.Result gpu;
         try {
-            gpu = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("gpu"), LoopFixture.NEVER,
+            gpu = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("gpu"), LoopFixture.NEVER,
                     loopOptions(init, "--evaluator", "gpu", "--games-in-flight", "4", "--eval-cohorts", "2", "--tail-games", "1",
                             "--tail-pairs", "2", "--tail-threads", "1", "--threads", "3")));
         } finally {
@@ -331,7 +331,7 @@ class MatchPoolTest {
         Loop.devices = devices;
         LoopFixture.Result r;
         try {
-            r = assertTimeoutPreemptively(Duration.ofMinutes(5), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER,
+            r = LoopFixture.runOrDump(Duration.ofMinutes(2), () -> LoopFixture.loop(tmp.resolve("run"), LoopFixture.NEVER,
                     loopOptions(init, "--generations", "1", "--mcts-batch", "2", "--evaluator", "gpu", "--games-in-flight", "4")));
         } finally {
             Loop.devices = before;

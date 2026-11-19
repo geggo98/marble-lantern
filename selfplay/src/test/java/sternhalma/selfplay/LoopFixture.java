@@ -76,6 +76,43 @@ final class LoopFixture {
         return new Result(code, err.toString(StandardCharsets.UTF_8), out.toString(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Runs {@code body} and fails with a dump of all threads (virtual threads included) if it takes longer than {@code limit}.
+     * The tiny runs take 1 to 3 seconds; one of them ran into the 5-minute limit on a 4-core CI runner without a trace of the
+     * cause (the plain timeout names only the test thread). The dump shows where the pairs and the evaluator wait.
+     */
+    static <T> T runOrDump(java.time.Duration limit, java.util.concurrent.Callable<T> body) throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "run-or-dump");
+            t.setDaemon(true);
+            return t;
+        });
+        java.util.concurrent.Future<T> f = pool.submit(body);
+        try {
+            return f.get(limit.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            Path dump = Files.createTempFile("thread-dump", ".txt");
+            Files.delete(dump); // the dump API creates the file itself
+            String text;
+            try {
+                java.lang.management.ManagementFactory.getPlatformMXBean(com.sun.management.HotSpotDiagnosticMXBean.class)
+                        .dumpThreads(dump.toString(), com.sun.management.HotSpotDiagnosticMXBean.ThreadDumpFormat.TEXT_PLAIN);
+                text = Files.readString(dump);
+            } catch (IOException | RuntimeException x) {
+                text = "no thread dump: " + x;
+            }
+            f.cancel(true);
+            throw new AssertionError("no result after " + limit + "; threads:\n" + text, e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            if (e.getCause() instanceof Exception ex) {
+                throw ex;
+            }
+            throw e;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     static final Loop.StopHook NEVER = (phase, done) -> false;
 
     /** Stops in {@code phase} once {@code done} items of it are done by this process. */
