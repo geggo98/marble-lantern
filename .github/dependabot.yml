@@ -5,9 +5,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    # Wait 7 days after a release before proposing it: a hijacked or broken release is usually pulled within days.
+    # Wait 14 days after a release before proposing it (the same period as min-release-age in .npmrc, see docs/supply-chain.md):
+    # a hijacked or broken release is usually pulled within days. The cooldown does not delay security updates.
     cooldown:
-      default-days: 7
+      default-days: 14
     commit-message:
       prefix: ci
     # One combined pull request per run instead of one per action.
@@ -22,7 +23,22 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      default-days: 14
+    commit-message:
+      prefix: deps
+      prefix-development: deps
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+
+  # npm dependencies of the online app (app/, Hilla). Same rules as web/.
+  - package-ecosystem: npm
+    directory: "/app"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: deps
       prefix-development: deps
