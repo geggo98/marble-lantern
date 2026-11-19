@@ -9,7 +9,7 @@ if [[ ! -d node_modules/.bin ]]; then
 fi
 $root/scripts/web/export-board.zsh --check
 npm run --silent typecheck
-# The Hilla app (app/) type-checks web/src with its own tsconfig, which has fewer type declarations (for example no WebGPU globals):
+# The Hilla app (app/) type-checks web/src with a tsconfig that lacks the WebGPU types (see web/tsconfig.app.json):
 # a name that web/tsconfig knows but app/tsconfig does not broke the Java job of CI once (GPUBufferUsage, 2026-11-19).
-npx tsc -p $root/app/tsconfig.json --noEmit
+npx tsc -p tsconfig.app.json --noEmit
 npm run --silent test

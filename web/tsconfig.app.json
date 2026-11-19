@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "//": "The Hilla app (app/) type-checks the web/ sources with ITS tsconfig, which has no @webgpu/types (the Java job of CI broke on GPUBufferUsage once, 2026-11-19). This config is web/tsconfig.json without those types and without tests; scripts/web/test.zsh runs it. app/node_modules is not needed.",
+  "compilerOptions": { "types": ["vite/client", "node"] },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/testing/**"]
+}
