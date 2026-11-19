@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import en from '../src/i18n/en.json' with { type: 'json' };
-import { openApp, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
+import { humanTurnCell, openApp, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'test-results/screens';
 const HOTSEAT = '#g=v1.&l=0&p=3&s=hhe';
@@ -16,9 +16,13 @@ const indicator = (page: Page) => page.locator('[data-advantage3] .ml-adv3');
 /** Plays the first move of the first piece that carries a badge (a piece that can move). */
 async function playFirstBadged(page: Page): Promise<void> {
   await expect(piecesWithBadge(page).first()).toBeAttached();
-  const cell = await piecesWithBadge(page).first().getAttribute('data-cell-of');
-  await page.locator(`[data-cell="${cell}"]`).dispatchEvent('click');
-  await page.locator('[data-cell][aria-label*="target"]').first().dispatchEvent('click');
+  // by keyboard: on a 320 px screen the hit circles of neighbouring pieces overlap, and the keys are the accessible way anyway
+  await humanTurnCell(page).focus();
+  await page.keyboard.press('Enter');
+  const targets = page.locator('[data-cell][aria-label*="target"]');
+  await expect(targets.first()).toBeAttached();
+  await targets.first().focus();
+  await page.keyboard.press('Enter');
 }
 
 /** Opens the hot-seat game with the guides switched on through the stored choice (on a phone the switch is in the menu). */
