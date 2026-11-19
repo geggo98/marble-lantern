@@ -745,7 +745,8 @@ it (node, wasm, same machine, two runs each).
   | `shw_players()` | 2 or 3 |
   | `shw_player_new3(nodes, jump)` | player id; -1 for `jump` not 0/1 or `nodes` < 1. Ids share one table with `shw_player_new` |
   | `shw_choose(id)` | plays for the side to move, whichever of the three it is; -1 no move; -2 (text in `shw_error()`) if the player's player count or jump rule differs from the game's |
-  | `shw_outcome()` | -1 running; 0 draw (move limit, or the side to move has no legal move); 1 + winner, so 1, 2 or 3 |
+  | TODO-OPUS cpp.readme.ranking {shw_game_new3(jump, players, ranking) 0 first/1 full, -1 otherwise; shw_ranking_rule(); shw_rank(i); shw_finished_mask(); shw_legal_moves empty when the game is over} | |
+| `shw_outcome()` | -1 running; 0 draw (move limit, or the side to move has no legal move); 1 + winner, so 1, 2 or 3 |
   | `shw_analyse(...)` | -3 for a three-player game (`shw_error()`: "analysis is available for two-player games only"), checked before the other arguments; in a two-player game -3 still means "cap too small" |
 
   `shw_legal_moves`, `shw_play`, `shw_unmake`, `shw_owner` and `shw_side_to_move` work for three players (the side cycles 0, 1, 2).
