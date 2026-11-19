@@ -38,4 +38,21 @@ perl -e '
 # Check 3: the model files are in dist and verify against their manifest (as in scripts/web/models.zsh).
 if [[ ! -d dist/models ]]; then print -u2 "web:build: dist/models is missing"; exit 1; fi
 ../scripts/models/pack-model.py verify --out dist/models
+
+# Check 4: the entry chunk (the one index.html loads) holds no WebGPU code: the probe loads lazily and the backend lives in the worker.
+# The control: some other chunk must contain 'requestAdapter', else the scan reads the wrong files or the probe vanished.
+perl -e '
+  open my $h, "<", "dist/index.html" or die "dist/index.html: $!"; local $/; my $html = <$h>; close $h;
+  my ($entry) = $html =~ m{<script[^>]*\ssrc="[^"]*?(assets/[^"/]+\.js)"} or die "web:build: no entry script in dist/index.html\n";
+  my ($in_entry, $elsewhere, $seen) = (0, 0, 0);
+  for my $f (glob "dist/assets/*.js") {
+    open my $c, "<:raw", $f or die "$f: $!"; my $s = <$c>; close $c; $seen++;
+    my $n = () = $s =~ /requestAdapter/g;
+    if ($f eq "dist/$entry") { $in_entry += $n } else { $elsewhere += $n }
+  }
+  die "web:build: entry chunk scan saw no file\n" unless $seen;
+  die "web:build: the entry chunk dist/$entry contains requestAdapter (WebGPU code in the main bundle)\n" if $in_entry;
+  die "web:build: no chunk contains requestAdapter (the control of the WebGPU scan failed)\n" unless $elsewhere;
+  print STDERR "web:build: entry chunk $entry has no WebGPU code ($elsewhere x requestAdapter in other chunks)\n";
+'
 print -u2 "web:build: dist/ is ready (base $BASE_PATH)"

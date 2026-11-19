@@ -6,8 +6,8 @@ import type { EngineId } from '../engine';
 import { isNetEngine } from '../engine';
 import { DEFAULT_SIMS, SIMS_PRESETS } from '../warnings';
 import type { EngineWarning, Sims } from '../warnings';
-import { listModels, modelFits, modelsFor } from './models';
-import type { ModelInfo } from './models';
+import { listModels, modelFits, modelsFor } from './model-manifest';
+import type { ModelInfo } from './model-manifest';
 
 export interface NetSelection {
   /** The engine the person wants: a net engine or any other id (then model and sims do not matter). */

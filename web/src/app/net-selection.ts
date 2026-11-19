@@ -8,7 +8,6 @@
 //   net.availability              // { wasm, webgpu: true | false | null (probe pending) }
 //   net.probeWebGpu()             // asks the browser once (a real adapter and device request); also done when net-webgpu is selected
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { isWebGpuAvailable } from '../engines/net/webgpu-backend';
 import { DEFAULT_SELECTION, evaluateSelection, loadSelection, saveSelection } from '../engines/net/selection';
 import type { NetAvailability, NetSelection, SelectionEvaluation } from '../engines/net/selection';
 import type { Variant } from '../game/variant';
@@ -33,7 +32,8 @@ export class NetSelectionStore {
     this.storage = storage === undefined ? browserStorage() : storage;
     const selection = options.initial ?? (storage === undefined ? loadSelection() : loadSelection(storage));
     this.state = { selection, availability: { wasm: options.wasm ?? cpuAvailable(), webgpu: null } };
-    this.probe = options.probe ?? isWebGpuAvailable;
+    // The probe code (webgpu-backend.ts) is not in the main bundle: it loads on the first probe.
+    this.probe = options.probe ?? (() => import('../engines/net/webgpu-backend').then((m) => m.isWebGpuAvailable()));
   }
 
   getState = (): NetState => this.state;
