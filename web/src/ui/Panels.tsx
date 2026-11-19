@@ -1,6 +1,8 @@
 // The cards of the play screen: status bar, controls, engine card, figures of the last engine move, move list,
 // loading card, result card, error card. Class names are those of design/mockup.html.
+import { isNetEngine } from '../engines/engine';
 import type { ChooseResult, EngineInfo, Progress } from '../engines/engine';
+import type { EngineWarning } from '../engines/warnings';
 import { Icon, Swatch, Tag } from './primitives';
 import type { SideStyle } from './primitives';
 import { notation } from './board-model';
@@ -89,10 +91,13 @@ export function EngineCard(props: {
   info: EngineInfo | null;
   level: number;
   onChange: () => void;
+  /** Warnings of the net engine in use. Only their codes reach the DOM, as data-net-warnings (a hook for the e2e specs). */
+  warnings?: readonly EngineWarning[];
 }): React.JSX.Element {
   const { t, n } = useT();
+  const netWarnings = props.info && isNetEngine(props.info.id) && props.warnings ? props.warnings.map((w) => w.code).join(',') : undefined;
   return (
-    <section className="ml-card ml-engine" aria-label={t('engine_heading')}>
+    <section className="ml-card ml-engine" aria-label={t('engine_heading')} {...(netWarnings === undefined ? {} : { 'data-net-warnings': netWarnings })}>
       <div className="ml-engine__head">
         <div>
           <p className="ml-kicker">{t('engine_heading')}</p>
@@ -123,7 +128,13 @@ export function Telemetry(props: { result: ChooseResult | null; stale: boolean }
   const r = props.result;
   if (!r) return null;
   return (
-    <dl className="ml-card ml-telemetry" aria-label={t('last_engine_move')} {...(props.stale ? { 'data-stale': 'true' } : {})}>
+    <dl
+      className="ml-card ml-telemetry"
+      aria-label={t('last_engine_move')}
+      {...(props.stale ? { 'data-stale': 'true' } : {})}
+      // Net engines: what really played the move (wasm, webgpu or random); a hook for the e2e specs, no visible effect.
+      {...(r.net ? { 'data-net-backend': r.net.backend } : {})}
+    >
       <div className="ml-telemetry__cell">
         <dt className="ml-kicker">{t('nodes')}</dt>
         <dd className="ml-telemetry__value">{n(r.nodes)}</dd>

@@ -30,6 +30,9 @@ test.describe('net-webgpu with a WebGPU adapter', () => {
     await expect(page.locator('.ml-engine .ml-card__title')).toContainText('Neural network');
     await playOneExchange(page);
     await expect(page.locator('.ml-telemetry__value').first()).not.toHaveText(/^\s*0\s*$/); // a net search, not a random move
+    // The GPU played it, not the CPU fallback: the hooks of the telemetry and of the engine card (src/ui/Panels.tsx).
+    await expect(page.locator('.ml-telemetry')).toHaveAttribute('data-net-backend', 'webgpu');
+    await expect(page.locator('.ml-engine')).toHaveAttribute('data-net-warnings', '');
     errors.expectNone();
   });
 });

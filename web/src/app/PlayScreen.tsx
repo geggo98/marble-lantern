@@ -239,7 +239,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         />
       )}
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
-      <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} />
+      <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} warnings={s.warnings} />
       {!demo && analysable && s.current && (
         <SkillCard
           tracker={model.tracker}
