@@ -127,4 +127,42 @@ class MctsMatchTest {
         assertEquals(2, match(shared.resolve("g"), "--subject", "mcts:sims=3", "--vs", "ab:5").code, "a rung between 2 and 99");
         assertEquals(2, match(shared.resolve("h"), "--subject", "mcts:sims=3", "--vs", "ab:1", "--pairs", "1").code);
     }
+
+    @Test
+    void jumpLongPlaysTheLongHopWithAClassic1vNetAndTheLongLadderByDefault() throws Exception {
+        Path variantNet = shared.resolve("variant.safetensors");
+        Parameters.init(NetworkConfig.tiny(3).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1V), 5).save(variantNet);
+        Path dir = shared.resolve("long");
+        // no --ladder-spec given for the long rule: the default is BROWSER_LONG_SPEC (match() passes one, so call directly)
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int code = MctsMatch.run(new String[] {"--out", dir.toString(), "--net", variantNet.toString(), "--subject",
+                "mcts:sims=3,batch=2,race=0", "--vs", "ab:1", "--vs", "raw", "--pairs", "3", "--seed", "8", "--threads", "2",
+                "--jump", "long", "--progress-seconds", "1"}, new PrintStream(out, true, StandardCharsets.UTF_8),
+                new PrintStream(err, true, StandardCharsets.UTF_8));
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("6 ok, 0 skip, 0 error, 0 left"), err.toString());
+        for (Path f : pairFiles(dir)) {
+            Map<Integer, MctsMatch.PairLine> lines = MctsMatch.read(f);
+            assertEquals(3, lines.size());
+            for (MctsMatch.PairLine l : lines.values()) {
+                assertEquals(2, l.wins() + l.draws() + l.losses());
+            }
+        }
+        // the adjacent run of the same arguments is another file (the hash holds the rule), so a rerun cannot mix them
+        Path adjacent = shared.resolve("long-vs-adjacent");
+        Run a = match(adjacent, "--subject", "mcts:sims=3,batch=2,race=0", "--vs", "ab:1", "--pairs", "3", "--seed", "8");
+        assertEquals(0, a.code, a.err);
+        List<String> longNames = pairFiles(dir).stream().map(f -> f.getFileName().toString()).toList();
+        assertTrue(!longNames.contains(pairFiles(adjacent).get(0).getFileName().toString()), "the rule is part of the file name");
+    }
+
+    @Test
+    void aLadderSpecOfTheOtherJumpRuleIsAUsageError() {
+        assertEquals(2, match(shared.resolve("j1"), "--subject", "mcts:sims=3,race=0", "--vs", "ab:1", "--jump", "long").code,
+                "the ab:eval=distance spec plays adjacent hops");
+        assertEquals(2, match(shared.resolve("j2"), "--subject", "mcts:sims=3,race=0", "--vs", "ab:1", "--ladder-spec",
+                "ab:eval=distance,jump=long").code, "a long spec in adjacent games");
+        assertEquals(2, match(shared.resolve("j3"), "--subject", "mcts:sims=3,race=0", "--vs", "ab:1", "--jump", "diagonal").code);
+    }
 }
