@@ -92,7 +92,8 @@ sh_library(sh_search
   src/search/linear_weights.cpp src/search/linear_eval.cpp src/search/incremental_linear.cpp
   src/search/jump_graph.cpp src/search/race_eval.cpp src/search/race_adjudication.cpp
   src/search/solitaire.cpp src/search/race_move.cpp
-  src/search/alpha_beta.cpp src/search/alpha_beta_player.cpp src/search/fingerprint.cpp)
+  src/search/alpha_beta.cpp src/search/alpha_beta_player.cpp src/search/fingerprint.cpp
+  src/search/three_player_search.cpp src/search/three_player_player.cpp)
 target_include_directories(sh_search PUBLIC src/search)
 target_link_libraries(sh_search PUBLIC sh_engine sh_tablebase)
 
@@ -177,6 +178,8 @@ sh_test(long_jump_test sh_engine)
 target_compile_definitions(long_jump_test PRIVATE SH_LONG_JUMP_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/long-jump-golden.tsv")
 sh_test(three_player_test sh_engine)
 target_compile_definitions(three_player_test PRIVATE SH_THREE_PLAYER_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/three-player-golden.tsv")
+sh_test(three_player_search_test sh_search)
+target_compile_definitions(three_player_search_test PRIVATE SH_THREE_PLAYER_CHOOSE_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../search/src/test/resources/three-player-choose-golden.tsv")
 sh_test(tablebase_test sh_tablebase)
 sh_test(race_table_bytes_test sh_search)
 sh_test(eval_test sh_search)
