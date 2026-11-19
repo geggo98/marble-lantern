@@ -42,7 +42,7 @@ stage() {
 err=0; i=0
 for v in $variants; do
   i=$((i+1)); next=${variants[$((i+1))]:-}
-  until ready $next; do (( stop )) && break 2; sleep 60; done
+  until ready "$next"; do (( stop )) && break 2; sleep 60; done
   (( stop )) && break
   net=$sh/spec-$v/gen-0000/candidate.safetensors
   [[ -s $net ]] || { print -u2 "$v: no specialist net, skipped"; err=$((err+1)); continue; }

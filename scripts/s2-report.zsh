@@ -32,14 +32,14 @@ print "== 2p-long (jump long), mcts:sims=200, seed 3002, specialist - shared"
 if [[ -f $data/2p-long/DONE ]]; then
   print "shared files:"; sf=(${=$(rung_files $shared/long-shared-mcts-sims-200)})
   print "specialist files:"; pf=(${=$(rung_files $data/2p-long)})
-  print "-- rung ab:1600"; $root/scripts/threeseatmatch.sh paired $pf[1] $sf[1]
-  print "-- rung ab:6400"; $root/scripts/threeseatmatch.sh paired $pf[2] $sf[2]
+  print -- "-- rung ab:1600"; $root/scripts/threeseatmatch.sh paired $pf[1] $sf[1]
+  print -- "-- rung ab:6400"; $root/scripts/threeseatmatch.sh paired $pf[2] $sf[2]
 else print "(not finished)"; fi
 for j in adjacent long; do
   print; print "== 3p-$j, mcts:sims=200,race=0, seed 4001, specialist - shared"
   if [[ -f $data/3p-$j/DONE ]]; then
     for opp in ab3:nodes=5000 ab3:nodes=20000; do
-      print "-- $opp"
+      print -- "-- $opp"
       $root/scripts/threeseatmatch.sh paired $(opening_file $data/3p-$j $opp) $(opening_file $shared/3p-$j $opp)
     done
   else print "(not finished)"; fi

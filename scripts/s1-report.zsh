@@ -18,6 +18,6 @@ for d in $s1/s*-b*-race0-ab*(N/); do
   on=$b3/s$sims-b$b-$r
   [[ -f $on/DONE ]] || on=$s1/s$sims-b$b-race1-$r
   [[ -f $on/DONE ]] || continue
-  print "-- sims=$sims batch=$b $r"
+  print -- "-- sims=$sims batch=$b $r"
   $root/scripts/threeseatmatch.sh paired $on/pairs-*.jsonl $d/pairs-*.jsonl 2>&1
 done
