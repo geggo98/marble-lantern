@@ -4,6 +4,8 @@ import { isNetEngine } from '../engines/engine';
 import type { ChooseResult, EngineInfo, Progress } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { Icon, Swatch, Tag } from './primitives';
+import { NetWarnings } from './net-warnings';
+import type { WarningAction } from './net-warnings';
 import type { SideStyle } from './primitives';
 import { notation } from './board-model';
 import type { MoveDescription } from './board-model';
@@ -93,8 +95,13 @@ export function EngineCard(props: {
   onChange: () => void;
   /** Warnings of the net engine in use. Only their codes reach the DOM, as data-net-warnings (a hook for the e2e specs). */
   warnings?: readonly EngineWarning[];
+  /** Net engines: the simulations per move and what plays the moves; they replace the node line. */
+  net?: { sims: number; backend: 'wasm' | 'webgpu' | 'random' };
+  /** The buttons of the warnings (choose a model: open the sheet; retry: load the model again). */
+  onWarningAction?: Partial<Record<WarningAction, () => void>>;
 }): React.JSX.Element {
   const { t, n } = useT();
+  const isNet = !!props.info && isNetEngine(props.info.id);
   const netWarnings = props.info && isNetEngine(props.info.id) && props.warnings ? props.warnings.map((w) => w.code).join(',') : undefined;
   return (
     <section className="ml-card ml-engine" aria-label={t('engine_heading')} {...(netWarnings === undefined ? {} : { 'data-net-warnings': netWarnings })}>
@@ -110,11 +117,20 @@ export function EngineCard(props: {
           </span>
         )}
       </div>
-      <p className="ml-engine__level">
-        <span>{t(levelKey(props.level))}</span>
-        <strong>{n(NODE_LEVELS[props.level] ?? props.level)}</strong>
-        <span>{t('nodes_per_move')}</span>
-      </p>
+      {isNet ? (
+        <p className="ml-engine__level" data-net-level>
+          <span>{t('net.sims.label')}</span>
+          <strong>{n(props.net?.sims ?? 0)}</strong>
+          {props.net && <Tag>{t(`net.backend.${props.net.backend}` as TextKey)}</Tag>}
+        </p>
+      ) : (
+        <p className="ml-engine__level">
+          <span>{t(levelKey(props.level))}</span>
+          <strong>{n(NODE_LEVELS[props.level] ?? props.level)}</strong>
+          <span>{t('nodes_per_move')}</span>
+        </p>
+      )}
+      {isNet && props.warnings && props.warnings.length > 0 && <NetWarnings warnings={props.warnings} {...(props.onWarningAction ? { onAction: props.onWarningAction } : {})} />}
       <button type="button" className="ml-btn" aria-haspopup="dialog" onClick={props.onChange}>
         <Icon name="tune" />
         <span>{t('engine_change')}</span>
@@ -135,9 +151,10 @@ export function Telemetry(props: { result: ChooseResult | null; stale: boolean }
       // Net engines: what really played the move (wasm, webgpu or random); a hook for the e2e specs, no visible effect.
       {...(r.net ? { 'data-net-backend': r.net.backend } : {})}
     >
+      {/* A net engine has no node count, depth or classical score: its result.score is a mean value in [-1, 1], not shown. */}
       <div className="ml-telemetry__cell">
-        <dt className="ml-kicker">{t('nodes')}</dt>
-        <dd className="ml-telemetry__value">{n(r.nodes)}</dd>
+        <dt className="ml-kicker">{r.net ? t('net.sims.label') : t('nodes')}</dt>
+        <dd className="ml-telemetry__value">{n(r.net ? r.net.sims : r.nodes)}</dd>
       </div>
       <div className="ml-telemetry__cell">
         <dt className="ml-kicker">{t('time')}</dt>
@@ -145,6 +162,15 @@ export function Telemetry(props: { result: ChooseResult | null; stale: boolean }
           {n(Math.round(r.ms))} <small>ms</small>
         </dd>
       </div>
+      {r.net ? (
+        <div className="ml-telemetry__cell">
+          <dt className="ml-kicker">{t('net.backend.label')}</dt>
+          <dd className="ml-telemetry__value">
+            <Tag>{t(`net.backend.${r.net.backend}` as TextKey)}</Tag>
+          </dd>
+        </div>
+      ) : (
+      <>
       <div className="ml-telemetry__cell">
         <dt className="ml-kicker">{t('depth')}</dt>
         <dd className="ml-telemetry__value">{r.raceMove ? '–' : n(r.depth)}</dd>
@@ -155,6 +181,8 @@ export function Telemetry(props: { result: ChooseResult | null; stale: boolean }
           <Tag solid={r.raceMove}>{r.raceMove ? t('src_race') : t('src_search')}</Tag>
         </dd>
       </div>
+      </>
+      )}
     </dl>
   );
 }

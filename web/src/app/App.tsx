@@ -21,7 +21,9 @@ import type { Player } from '../game/variant';
 import { loadChoice, saveChoice, setupOfChoice } from './start-choice';
 import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
 import type { GameSetup } from '../game/setup';
+import { isNetEngine } from '../engines/engine';
 import type { EngineId } from '../engines/engine';
+import type { Sims } from '../engines/warnings';
 import type { EnginesManifest } from '../engines/registry';
 import { Footer, Header } from '../ui/Chrome';
 import type { Screen } from '../ui/Chrome';
@@ -408,7 +410,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       tracker.abort();
       void game.undo();
     },
-    onApply: (id: EngineId, nextLevel: number) => {
+    onApply: (id: EngineId, nextLevel: number, net?: { modelId: string | null; sims: Sims }) => {
       void (async () => {
         game.cancel();
         tracker.abort();
@@ -416,15 +418,21 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         applySetup(withLevel(setupRef.current, nextLevel));
         engine.setNodes(nodesOfLevel(nextLevel));
         if (playing && !isDemo(setupRef.current)) sync.observe(snapshot()); // the strength is part of the address
-        netStore.setSelection({ engine: id });
+        netStore.setSelection({ engine: id, ...(net ?? {}) });
         if (id !== session.getState().current?.info.id || session.getState().phase !== 'ready') {
           if (await session.select(id)) await afterReady();
+        } else if (isNetEngine(id)) {
+          // same net engine: new model or simulations, no reload of the engine
+          if (await session.applyNet()) await afterReady();
         } else {
           await engine.newGame({ nodes: [nodesOfLevel(nextLevel), nodesOfLevel(nextLevel)], variant: variantOf(setupRef.current) });
           await afterReady();
         }
         tracker.pump();
       })();
+    },
+    onRetryNet: () => {
+      void session.applyNet().then(async (ok) => { if (ok) await afterReady(); });
     },
     onRestart: () => {
       void session.restart().then(async (ok) => { if (ok) await afterReady(); });
@@ -440,6 +448,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     dialogModel = {
       kind: 'begin',
       initial: loadChoice(),
+      net: netStore,
       onStart: (choice, humanBegins) => {
         saveChoice(choice);
         startSetup(setupOfChoice(choice, humanBegins, levelRef.current));

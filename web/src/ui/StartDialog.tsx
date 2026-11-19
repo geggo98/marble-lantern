@@ -7,6 +7,9 @@ import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import type { JumpRule, Player } from '../game/variant';
 import type { GameMode, StartChoice } from '../app/start-choice';
+import { useNetSelection } from '../app/net-selection';
+import type { NetSelectionStore } from '../app/net-selection';
+import { NetWarnings } from './net-warnings';
 import { useT } from './texts';
 import { useDialog } from './useDialog';
 import './start-dialog.css';
@@ -18,6 +21,8 @@ export type StartDialogModel =
       initial: StartChoice;
       /** `humanBegins` answers "Do you want to begin?"; it counts for the two-player mode only. */
       onStart: (choice: StartChoice, humanBegins: boolean) => void;
+      /** The selection of the net engines: when the selected net engine or model cannot play the variant chosen here, the dialog says so. */
+      net?: NetSelectionStore;
     }
   | {
       kind: 'link';
@@ -121,11 +126,18 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         <h2 className="ml-sheet__title" id={titleId}>{title}</h2>
         {body}
         {model.kind === 'begin' && <BeginChoices choice={choice} onChange={setChoice} />}
+        {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} choice={choice} />}
         <div className="ml-start__actions">{actions}</div>
       </section>
     </div>,
     document.body,
   );
+}
+
+/** The warnings of the selected net engine for the variant of the choice above; starting stays possible (the engine plays random moves). */
+function StartNetWarning({ store, choice }: { store: NetSelectionStore; choice: StartChoice }): React.JSX.Element {
+  const { evaluation } = useNetSelection(store, { jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 });
+  return <NetWarnings warnings={evaluation.warnings} live />;
 }
 
 const DEFAULT_CHOICE_FALLBACK: StartChoice = { jump: 'adjacent', mode: 'two', humanSeat: 0, engineSeat: 2 };

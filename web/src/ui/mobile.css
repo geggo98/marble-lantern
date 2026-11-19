@@ -63,8 +63,8 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     flex: 1; min-height: 0; width: 100%; max-width: 52rem; margin-inline: auto;
     display: grid; gap: var(--ml-space-2);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: "status" "board" "adv" "bar";
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "status" "net" "board" "adv" "bar";
     padding: var(--ml-space-2) var(--ml-gutter) calc(var(--ml-space-2) + env(safe-area-inset-bottom));
   }
   .ml-play__stage { display: contents; }
@@ -72,6 +72,7 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-play .ml-status { grid-area: status; height: 2.5rem; min-height: 0; }
   .ml-play .ml-status__who > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ml-play .ml-status__ply { white-space: nowrap; }
+  .ml-play__netnote { grid-area: net; }
   .ml-play__boardwrap { grid-area: board; position: relative; min-height: 8rem; min-width: 0; }
   .ml-play__adv, .ml-play__adv:empty { grid-area: adv; display: block; height: 3.5rem; overflow: hidden; }
   .ml-play__adv .ml-advantage__text {
@@ -109,8 +110,8 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-nav__link { flex: none; padding: 0 var(--ml-space-3); }
   .ml-play {
     grid-template-columns: minmax(0, 1fr) minmax(12rem, 17rem);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "board status" "board adv" "board ." "board bar";
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "board status" "board net" "board adv" "board ." "board bar";
     column-gap: var(--ml-space-3); max-width: none;
   }
   .ml-actionbar { grid-template-columns: minmax(0, 1fr); }

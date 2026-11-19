@@ -1,8 +1,17 @@
 // Engine and strength: a modal bottom sheet on a phone, a dialog on a wide screen (design-notes.md, section 9, P1 and P2).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EngineId } from '../engines/engine';
 import type { EngineChoice } from '../engines/registry';
+import { isNetEngine } from '../engines/engine';
+import { listModels } from '../engines/net/model-manifest';
+import { evaluateSelection } from '../engines/net/selection';
+import type { Sims } from '../engines/warnings';
+import { DEFAULT_VARIANT } from '../game/variant';
+import type { Variant } from '../game/variant';
+import { NetSelectionStore, useNetSelection } from '../app/net-selection';
+import { MODEL_GROUP, ModelGroup, SimsGroup } from './NetGroups';
+import { NetWarnings } from './net-warnings';
 import { Icon, Tag } from './primitives';
 import { DEFAULT_LEVEL, NODE_LEVELS, levelKey, runtimeTag } from './Panels';
 import { useT } from './texts';
@@ -23,7 +32,12 @@ export interface SheetProps {
   choices: readonly EngineChoice[];
   currentId: EngineId | null;
   level: number;
-  onApply: (engine: EngineId, level: number) => void;
+  /** `net` is given for a net engine only: the model and the simulations of the groups below. */
+  onApply: (engine: EngineId, level: number, net?: { modelId: string | null; sims: Sims }) => void;
+  /** The selection of the net engines (model, simulations, WebGPU probe). Without it the sheet keeps a private one. */
+  netStore?: NetSelectionStore | undefined;
+  /** The variant of the game: only the models that may play it are offered. */
+  variant?: Variant | undefined;
   onClose: () => void;
 }
 
@@ -39,6 +53,15 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const [engine, setEngine] = useState<EngineId | null>(first?.info.id ?? null);
   const [level, setLevel] = useState(props.level < NODE_LEVELS.length ? props.level : DEFAULT_LEVEL);
   const dialogRef = useRef<HTMLElement | null>(null);
+  const fallbackStore = useMemo(() => props.netStore ?? new NetSelectionStore({ storage: null }), [props.netStore]);
+  const variant = props.variant ?? DEFAULT_VARIANT;
+  const net = useNetSelection(fallbackStore, variant);
+  const [modelId, setModelId] = useState<string | null>(net.selection.modelId);
+  const [sims, setSims] = useState<Sims>(net.selection.sims);
+  const hasWebGpuRow = props.choices.some((c) => c.info.id === 'net-webgpu');
+  useEffect(() => {
+    if (hasWebGpuRow) void net.probeWebGpu(); // the row shows what the probe says
+  }, [hasWebGpuRow]); // eslint-disable-line react-hooks/exhaustive-deps -- once per sheet
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
 
   useEffect(() => {
@@ -131,6 +154,18 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                   )}
                   {id === defaultId && <Tag solid>{t('default')}</Tag>}
                 </span>
+                {id === 'net-webgpu' && c.available && (
+                  <p className="ml-option__reason" data-webgpu-status={net.availability.webgpu === null ? 'checking' : net.availability.webgpu ? 'available' : 'unavailable'}>
+                    <Icon name={net.availability.webgpu === false ? 'alert' : 'check'} />
+                    <span>
+                      {net.availability.webgpu === null
+                        ? t('net.webgpu.checking')
+                        : net.availability.webgpu
+                          ? t('net.webgpu.available')
+                          : t('net.webgpu.unavailable', { reason: net.availability.webgpuReason ?? '' })}
+                    </span>
+                  </p>
+                )}
                 {!c.available && (
                   <p className="ml-option__reason">
                     <Icon name="alert" />
@@ -148,6 +183,13 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const chosen = props.choices.find((c) => c.info.id === engine);
   const nodes = NODE_LEVELS[level] ?? NODE_LEVELS[DEFAULT_LEVEL];
   const fill = `${(level / (NODE_LEVELS.length - 1)) * 100}%`;
+  const isNet = engine !== null && isNetEngine(engine);
+  const evaluation = evaluateSelection({ engine: engine ?? 'cpp-wasm', modelId, sims }, variant, net.availability);
+  const focusModels = (): void => {
+    const target = dialogRef.current?.querySelector<HTMLElement>(`[data-net-group="${MODEL_GROUP}"] input:checked`) ?? dialogRef.current?.querySelector<HTMLElement>(`[data-net-group="${MODEL_GROUP}"] input`);
+    target?.focus();
+    target?.scrollIntoView?.({ block: 'nearest' });
+  };
   const browser = props.choices.filter((c) => c.info.runtime !== 'server');
   const server = props.choices.filter((c) => c.info.runtime === 'server');
 
@@ -170,7 +212,15 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
         </div>
         {group('engines_browser', browser)}
         {group('engines_server', server)}
-        <div className="ml-strength">
+        {isNet && (
+          <>
+            <NetWarnings warnings={evaluation.warnings} live onAction={{ 'choose-model': focusModels, 'choose-other': focusModels }} />
+            <ModelGroup variant={variant} all={listModels()} models={evaluation.compatibleModels} modelId={modelId} onChange={setModelId} />
+            <SimsGroup sims={sims} onChange={setSims} />
+          </>
+        )}
+        {!isNet && <p className="ml-hint" data-net-only-note>{t('net.classical.note')}</p>}
+        {!isNet && <div className="ml-strength">
           <p className="ml-kicker" id="ml-strength-label">{t('strength')}</p>
           <div className="ml-strength__readout">
             <span className="ml-strength__level">{t(levelKey(level))}</span>
@@ -204,14 +254,14 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
               <span className="ml-data">≈ {chosen ? n(estimateMs(chosen.info.runtime, nodes ?? 0)) : '–'} ms</span>
             </span>
           </p>
-        </div>
+        </div>}
         <div className="ml-sheet__actions">
           <button type="button" className="ml-btn" onClick={props.onClose}>{t('cancel')}</button>
           <button
             type="button"
             className="ml-btn ml-btn--primary"
             disabled={engine === null}
-            onClick={() => engine && props.onApply(engine, level)}
+            onClick={() => engine && (isNetEngine(engine) ? props.onApply(engine, level, { modelId, sims }) : props.onApply(engine, level))}
           >
             {t('apply')}
           </button>

@@ -5,7 +5,9 @@ import { goalCells, initialOwners } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { isDefault, moveLimit, variantKey } from '../game/variant';
 import type { Player } from '../game/variant';
+import { isNetEngine } from '../engines/engine';
 import type { EngineId } from '../engines/engine';
+import type { Sims } from '../engines/warnings';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
 import { GuideSettings } from '../ui/GuideSettings';
@@ -18,6 +20,8 @@ import { Menu } from '../ui/Menu';
 import { useWide } from '../ui/useMedia';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
+import { NetNotice } from '../ui/net-warnings';
+import { DEFAULT_SIMS } from '../engines/warnings';
 import {
   AlertCard, Controls, EngineCard, LoadingCard, MoveList, ResultCard, SeatsCard, StatusBar, Telemetry,
 } from '../ui/Panels';
@@ -53,7 +57,9 @@ export interface PlayModel {
   onSwap: () => void;
   onDemo: () => void;
   onUndo: () => void;
-  onApply: (engine: EngineId, level: number) => void;
+  onApply: (engine: EngineId, level: number, net?: { modelId: string | null; sims: Sims }) => void;
+  /** Loads the model again after a failed load (session.applyNet). */
+  onRetryNet?: () => void;
   onRestart: () => void;
   onSelect: (engine: EngineId) => void;
 }
@@ -206,6 +212,16 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     }
   }
 
+  // net engines: what plays the moves now, from the warnings of the session (the engine decides, not the selection)
+  const netEngine = !!s.current && isNetEngine(s.current.info.id);
+  const netBackend: 'wasm' | 'webgpu' | 'random' | null = !netEngine
+    ? null
+    : s.warnings.some((w) => w.code === 'fallback-random')
+      ? 'random'
+      : s.warnings.some((w) => w.code === 'backend-unavailable') || s.current?.info.id === 'net-wasm'
+        ? 'wasm'
+        : 'webgpu';
+
   const halo =
     state.outcome?.kind === 'win'
       ? (goalCells(variant)[state.outcome.winner] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Player }).winner)
@@ -239,7 +255,14 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         />
       )}
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
-      <EngineCard info={s.current?.info ?? null} level={model.level} onChange={() => setSheet(true)} warnings={s.warnings} />
+      <EngineCard
+        info={s.current?.info ?? null}
+        level={model.level}
+        onChange={() => setSheet(true)}
+        warnings={s.warnings}
+        {...(netBackend ? { net: { sims: model.netSelection?.selection.sims ?? DEFAULT_SIMS, backend: netBackend } } : {})}
+        onWarningAction={{ 'choose-model': () => setSheet(true), 'choose-other': () => setSheet(true), ...(model.onRetryNet ? { retry: model.onRetryNet } : {}) }}
+      />
       {!demo && analysable && s.current && (
         <SkillCard
           tracker={model.tracker}
@@ -263,6 +286,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           ply={state.history.length}
           limit={moveLimit(variant)}
         />
+        <NetNotice netEngine={netEngine} warnings={s.warnings} onOpen={() => setSheet(true)} />
         <div className="ml-play__boardwrap">
           <Board
             owner={state.owner}
@@ -331,9 +355,11 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           currentId={s.current?.info.id ?? null}
           level={model.level}
           onClose={() => setSheet(false)}
-          onApply={(engine, level) => {
+          netStore={model.netSelection}
+          variant={variant}
+          onApply={(engine, level, net) => {
             setSheet(false);
-            model.onApply(engine, level);
+            model.onApply(engine, level, net);
           }}
         />
       )}
