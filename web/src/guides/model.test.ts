@@ -65,3 +65,42 @@ describe('one scale for pieces and targets (start position shape)', () => {
     }
   });
 });
+
+// Three players: Engine.analyse returns paranoid scores from the point of view of the mover, in the same units as for two players
+// (analysis.ts), so the same view applies to whichever seat is to move. The numbers are made up in that scale: one step of
+// progress is about 30 points, a mate is 999,999 or -999,998.
+describe('three-player analysis results (paranoid scores of the seat to move)', () => {
+  // the mover trails both others: mostly negative scores, and one piece whose moves allow a forced loss
+  const pairs: Array<[number, number]> = [];
+  [-20, -50, -95, -140, -410].forEach((score, i) => pairs.push([makeMove(1, 30 + i), score]));
+  [-25, -80, -300].forEach((score, i) => pairs.push([makeMove(2, 40 + i), score]));
+  pairs.push([makeMove(3, 50), -999_998], [makeMove(3, 51), -999_994]);
+  const view = buildView(result(pairs));
+
+  it('takes the best score as the value of the position, also when every score is negative', () => {
+    expect(view.position).toBe(-20);
+  });
+  it('bands against the best move of the position, as for two players', () => {
+    expect(view.moves.get(makeMove(1, 30))).toBe('much-better'); // the best move is top
+    expect(view.moves.get(makeMove(2, 40))).toBe('much-better'); // 5 below: within the search noise
+    expect(view.moves.get(makeMove(1, 31))).toBe('much-better'); // 30 below: still within one step
+    expect(view.moves.get(makeMove(2, 41))).toBe('better'); // 60 below
+    expect(view.moves.get(makeMove(1, 32))).toBe('better'); // 75 below
+    expect(view.moves.get(makeMove(1, 33))).toBe('equal'); // 120 below
+    expect(view.moves.get(makeMove(2, 42))).toBe('worse'); // 280 below
+    expect(view.moves.get(makeMove(1, 34))).toBe('much-worse'); // 390 below
+  });
+  it('rates a move into a forced loss as poor, whatever the number of plies', () => {
+    expect(view.moves.get(makeMove(3, 50))).toBe('much-worse');
+    expect(view.moves.get(makeMove(3, 51))).toBe('much-worse');
+  });
+  it('keeps the invariants: a piece is as good as its best target, and the best move of the position is top', () => {
+    for (const piece of view.pieces.keys()) {
+      const own = [...view.moves].filter(([m]) => (m & 0xff) === piece).map(([, band]) => bandRank(band));
+      expect(view.pieces.get(piece), `piece ${piece}`).toBe(BAND_ORDER[Math.min(...own)]);
+    }
+    expect(Math.min(...[...view.moves.values()].map(bandRank))).toBe(0);
+    expect(view.pieces.get(1)).toBe('much-better');
+    expect(view.pieces.get(3)).toBe('much-worse');
+  });
+});

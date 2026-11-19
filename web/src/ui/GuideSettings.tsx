@@ -11,9 +11,11 @@ export interface GuideSettingsProps {
   onChange: (enabled: boolean) => void;
   /** The state of the analysis; "off" while the switch is off. */
   status: GuideStatus | 'off';
+  /** A three-player game: the scores are paranoid scores, a note says how to read the marks. */
+  three?: boolean;
 }
 
-export function GuideSettings({ enabled, onChange, status }: GuideSettingsProps): React.JSX.Element {
+export function GuideSettings({ enabled, onChange, status, three = false }: GuideSettingsProps): React.JSX.Element {
   const { t } = useT();
   const hintId = useId();
   const message =
@@ -34,6 +36,7 @@ export function GuideSettings({ enabled, onChange, status }: GuideSettingsProps)
       <p className="ml-guides-card__hint" id={hintId}>
         {t('guides_hint')}
       </p>
+      {three && <p className="ml-guides-card__note" data-guides-note-three="">{t('guides_note_three')}</p>}
       <p className="ml-guides-card__status" role="status" aria-live="polite" aria-busy={status === 'analysing'}>
         {enabled ? message : ''}
       </p>

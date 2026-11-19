@@ -42,10 +42,22 @@
 .ml-advantage__ends { display: flex; justify-content: space-between; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
 .ml-advantage.is-stale .ml-advantage__fill { opacity: 0.55; }
 
+/* three-player indicator: one segment per seat; solid, stripes and dots tell the seats apart without colour; the label sits on a surface pill, so its contrast does not depend on the segment colour */
+.ml-adv3 { display: flex; gap: 2px; block-size: 1.75rem; border-radius: var(--ml-radius-pill); overflow: hidden; border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-line-strong); }
+.ml-adv3__seg { flex: 1 1 0; min-inline-size: 4.5rem; display: flex; align-items: center; justify-content: center; }
+.ml-adv3__seg--a { background: var(--ml-piece-a); }
+.ml-adv3__seg--b { background: repeating-linear-gradient(135deg, var(--ml-piece-b) 0 6px, var(--ml-piece-b-lo) 6px 9px); }
+.ml-adv3__seg--c { background: radial-gradient(var(--ml-piece-c-edge) 1.2px, transparent 1.6px) 0 0 / 7px 7px, var(--ml-piece-c); }
+.ml-adv3__label { display: inline-flex; align-items: center; gap: 0.25rem; max-inline-size: 100%; padding-inline: 0.25rem 0.375rem; block-size: 1.25rem; border-radius: var(--ml-radius-pill); background: var(--ml-color-surface); color: var(--ml-color-ink); font-size: var(--ml-text-xs); font-weight: var(--ml-weight-medium); white-space: nowrap; overflow: hidden; }
+.ml-adv3__label .ml-swatch { inline-size: 1rem; block-size: 1rem; flex: none; }
+.ml-adv3__value { overflow: hidden; text-overflow: ellipsis; }
+.ml-advantage--three.is-stale .ml-adv3__seg { opacity: 0.6; }
+
 @media (forced-colors: active) {
   .ml-guide__glyph { fill: CanvasText; stroke: Canvas; }
   .ml-guide__badge, .ml-guide__socket { fill: Canvas; }
   .ml-guide__ring, .ml-guide__badge { stroke: CanvasText; }
   .ml-advantage__fill { background: Highlight; forced-color-adjust: none; }
   .ml-advantage__fill--engine { background: GrayText; }
+  .ml-adv3__seg { background: Canvas; border: 1px solid CanvasText; }
 }
