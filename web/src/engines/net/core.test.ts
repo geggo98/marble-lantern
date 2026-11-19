@@ -474,3 +474,109 @@ describe('NetCore: WebGPU', () => {
     await expect(core.choose([])).rejects.toMatchObject({ code: 'internal' });
   });
 });
+
+describe('NetCore: errors of a backend that are not typed backend errors (F1)', () => {
+  const trap = (): Error => Object.assign(new Error('unreachable executed'), { name: 'RuntimeError' });
+  const lost = (): Error => new DOMException('Device is lost', 'AbortError');
+
+  it('a wasm trap in evaluate degrades to random moves with the warnings, no rejection', async () => {
+    const r = rig();
+    r.onCreate.wasm = (b) => { b.failEvaluateWith = trap(); };
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    const res = await core.choose([], new AbortController().signal);
+    expect(res.net.backend).toBe('random');
+    expect(LEGAL).toContain(res.move);
+    expect(codes(res.warnings)).toEqual(['backend-unavailable', 'fallback-random']);
+    expect(res.warnings[0]!.reason).toContain('unreachable executed');
+  });
+
+  it('a DOMException AbortError of the GPU while the signal is not aborted falls back to the CPU net', async () => {
+    const r = rig();
+    r.onCreate.webgpu = (b) => { b.failEvaluateWith = lost(); };
+    const core = new NetCore('webgpu', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    const res = await core.choose([], new AbortController().signal);
+    expect(res.net.backend).toBe('wasm');
+    expect(res.move).toBe(30);
+    expect(codes(res.warnings)).toEqual(['backend-unavailable']);
+    expect(res.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm' });
+  });
+
+  it('a plain RuntimeError of the GPU backend also falls back to the CPU net', async () => {
+    const r = rig();
+    r.onCreate.webgpu = (b) => { b.failEvaluateWith = trap(); };
+    const core = new NetCore('webgpu', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    expect((await core.choose([])).net.backend).toBe('wasm');
+  });
+
+  it('a real abort still rejects with AbortError and does not degrade', async () => {
+    const r = rig();
+    const ac = new AbortController();
+    r.onCreate.webgpu = (b) => {
+      b.evaluate = async () => { ac.abort(); throw lost(); };
+    };
+    const core = new NetCore('webgpu', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    await expect(core.choose([], ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(core.warnings).toEqual([]);
+    expect(r.backends).toHaveLength(1);
+  });
+
+  it('degrading keeps the warning of the plan (no GPU) next to the degradation', async () => {
+    const r = rig();
+    r.gpu = { available: false, reason: 'no adapter' };
+    r.onCreate.wasm = (b) => { b.failEvaluateWith = trap(); };
+    const core = new NetCore('webgpu', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    const res = await core.choose([]);
+    expect(codes(res.warnings)).toEqual(['backend-unavailable', 'backend-unavailable', 'fallback-random']);
+    expect(res.warnings.map((w) => w.backend)).toEqual(['webgpu', 'wasm', undefined]);
+  });
+
+  it('random mode and net mode report a finished game with the same text', async () => {
+    const r = rig();
+    r.web.legal = [];
+    const rand = new NetCore('wasm', r.deps);
+    await rand.newGame({ nodes: [1, 1] });
+    const e1 = await rand.choose([1, 2, 3]).catch((e: unknown) => e as Error);
+    const net = new NetCore('wasm', r.deps);
+    await net.newGame({ nodes: [1, 1], model: 'expert' });
+    r.web.beginError = 'error illegal-history the game is over after 3 plies';
+    const e2 = await net.choose([1, 2, 3]).catch((e: unknown) => e as Error);
+    expect((e1 as Error).message).toBe((e2 as Error).message);
+  });
+});
+
+describe('NetCore: net options are validated (F2)', () => {
+  it.each([NaN, 0, -5, Infinity, -Infinity, 2.5, '300' as unknown as number, null as unknown as number])('sims %s becomes the default 200, no throw', async (sims) => {
+    const r = rig();
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims } });
+    expect(r.web.created.at(-1)!.sims).toBe(200);
+  });
+
+  it('keeps a valid sims value', async () => {
+    const r = rig();
+    await new NetCore('wasm', r.deps).newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims: 1 } });
+    expect(r.web.created.at(-1)!.sims).toBe(1);
+  });
+
+  it.each([NaN, Infinity, -Infinity, '3' as unknown as number])('batch %s becomes the backend default (wasm 1, webgpu 4)', async (batch) => {
+    const a = rig();
+    await new NetCore('wasm', a.deps).newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims: 200, batch } });
+    expect(a.web.created.at(-1)!.batch).toBe(1);
+    const b = rig();
+    await new NetCore('webgpu', b.deps).newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims: 200, batch } });
+    expect(b.web.created.at(-1)!.batch).toBe(4);
+  });
+
+  it('clamps finite batches to 1..16', async () => {
+    for (const [given, want] of [[0, 1], [-5, 1], [99, 16], [7.9, 7]] as const) {
+      const r = rig();
+      await new NetCore('webgpu', r.deps).newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims: 200, batch: given } });
+      expect(r.web.created.at(-1)!.batch).toBe(want);
+    }
+  });
+});

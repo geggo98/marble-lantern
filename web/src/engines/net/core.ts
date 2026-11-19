@@ -19,7 +19,8 @@ import { EngineFailure } from '../protocol';
 import { variantOf } from '../variant-args';
 import { defaultBatch, DEFAULT_SIMS } from '../warnings';
 import type { EngineWarning, NetOptions } from '../warnings';
-import type { NetBackend } from './backend';
+import { BackendError } from './backend';
+import type { NetBackend, NetOutputs } from './backend';
 import { modelFits } from './models';
 import type { ModelInfo } from './models';
 import type { WebNetModule } from './webnet.d';
@@ -79,6 +80,11 @@ function asFailure(e: unknown): unknown {
   if (!(e instanceof FacadeError)) return e;
   return new EngineFailure(e.code === 'illegal-history' ? 'illegal-history' : 'internal', `${e.code}: ${e.message}`);
 }
+
+/** Simulations per move: a finite integer of at least 1, else the default. Never throws. */
+const sanitizeSims = (v: unknown): number => (typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : DEFAULT_SIMS);
+/** Leaves per forward pass: a finite number (prepare() floors and clamps it to 1..16), else undefined for the default of the backend. */
+const sanitizeBatch = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 const abortError = (): Error => new DOMException('The search was aborted', 'AbortError');
 
@@ -145,8 +151,8 @@ export class NetCore {
 
   /** Starts a game: reads model and search settings of `setup`, loads what is needed. Never throws for a net problem: it becomes a warning. */
   async newGame(setup: GameSetup): Promise<EngineWarning[]> {
-    const sims = setup.netOptions?.sims ?? DEFAULT_SIMS;
-    this.setup = { modelId: setup.model ?? null, sims, batch: setup.netOptions?.batch, variant: variantOf(setup) };
+    const sims = sanitizeSims(setup.netOptions?.sims);
+    this.setup = { modelId: setup.model ?? null, sims, batch: sanitizeBatch(setup.netOptions?.batch), variant: variantOf(setup) };
     this.degraded = null;
     this.seedOfGame = this.d.seed() | 0;
     this.plan = null;
@@ -201,7 +207,7 @@ export class NetCore {
         nodes = r.nodes;
         stats = { backend: plan.kind as BackendKind, sims: r.sims, batches: r.batches };
       } catch (e) {
-        if (isAbort(e)) throw e;
+        if (isAbort(e) && signal?.aborted) throw e;
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
           plan = this.settle(plan, [
             { code: 'model-variant-mismatch', modelId: plan.model?.id, variant: v, reason: e.message },
@@ -244,7 +250,9 @@ export class NetCore {
   }
 
   private settle(plan: Plan, warnings: EngineWarning[]): Plan {
-    this.plan = { ...plan, mode: 'random', kind: null, warnings: [...(this.degraded ? [this.degraded] : []), ...warnings] };
+    // Keep what the plan already said (a missing GPU, say), then the degradation, then the new causes.
+    const lead = this.degraded && !plan.warnings.includes(this.degraded) ? [this.degraded] : [];
+    this.plan = { ...plan, mode: 'random', kind: null, warnings: [...plan.warnings, ...lead, ...warnings] };
     return this.plan;
   }
 
@@ -382,7 +390,7 @@ export class NetCore {
 
   private randomMove(history: readonly number[], v: Variant): number {
     const legal = this.legal(history, v);
-    if (legal.length === 0) throw new EngineFailure('illegal-history', 'the position has no legal move');
+    if (legal.length === 0) throw new EngineFailure('illegal-history', `illegal-history: the game is over after ${history.length} plies`); // the text of the net path (asFailure)
     const i = Math.min(legal.length - 1, Math.floor(this.d.random() * legal.length));
     return legal[i] as number;
   }
@@ -403,7 +411,17 @@ export class NetCore {
     while (n > 0) {
       if (signal?.aborted) throw abortError();
       const inputs = web.inputs();
-      const out = await held.backend.evaluate(inputs, n);
+      let out: NetOutputs;
+      try {
+        out = await held.backend.evaluate(inputs, n);
+      } catch (e) {
+        // A user abort wins. Any other error that is not a typed backend error (a wasm trap, a DOMException of a lost GPU that
+        // arrived before the device.lost handler ran) means this backend cannot go on: report it as a backend failure so that
+        // the fallback runs instead of the move rejecting.
+        if (signal?.aborted) throw abortError();
+        if (isAnyBackendError(e)) throw e;
+        throw new BackendError(held.kind === 'webgpu' ? 'device-lost' : 'unavailable', `the ${held.kind} backend failed: ${text(e)}`, { cause: e });
+      }
       batches++;
       n = Number(fields(web.apply(out.policyFrom, out.policyTo, out.values))[0]);
       if (n > 0 && now() - lastYield >= YIELD_AFTER_MS) {

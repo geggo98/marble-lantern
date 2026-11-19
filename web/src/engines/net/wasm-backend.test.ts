@@ -330,3 +330,21 @@ describe.skipIf(!haveModules)('golden positions against the Java reference, |fas
     },
   );
 });
+
+describe('WasmNetBackend: a trap in the module (F1)', () => {
+  it('a WebAssembly.RuntimeError of _net_evaluate becomes a typed NetBackendError', async () => {
+    const m = {
+      HEAPU8: new Uint8Array(64), HEAPF32: new Float32Array(256), UTF8ToString: () => '',
+      _malloc: () => 8, _free: () => undefined, _net_error: () => 0, _net_flavour: () => 0, _net_load: () => 0,
+      _net_planes: () => 1, _net_value_width: () => 2, _net_input_ptr: () => 4, _net_policy_from_ptr: () => 0, _net_policy_to_ptr: () => 0,
+      _net_values_ptr: () => 0, _net_max_batch: () => 1,
+      _net_evaluate: () => { throw new WebAssembly.RuntimeError('unreachable'); },
+      _net_free: () => undefined,
+    };
+    const b = await WasmNetBackend.create({ supports: () => true, flavours: ['scalar'], maxBatch: 1, factory: async () => async () => m });
+    await b.load(new Uint8Array(1));
+    const err = await b.evaluate(new Float32Array(ROWS * 1), 1).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetBackendError);
+    expect(err).toMatchObject({ code: 'internal', message: expect.stringMatching(/trapped: unreachable/) });
+  });
+});

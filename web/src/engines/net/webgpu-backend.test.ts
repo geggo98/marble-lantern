@@ -14,13 +14,13 @@ interface Fake {
   destroyed: () => number;
 }
 
-function fakeGpu(options: { adapter?: boolean; deviceError?: Error; limits?: Partial<Record<string, number>> } = {}): Fake {
+function fakeGpu(options: { adapter?: boolean; deviceError?: Error; mapError?: Error; limits?: Partial<Record<string, number>> } = {}): Fake {
   let lose: (i: { reason: string; message: string }) => void = () => undefined;
   const lost = new Promise<{ reason: string; message: string }>((r) => { lose = r; });
   let destroyed = 0;
   const buffer = {
     destroy: () => { destroyed++; },
-    mapAsync: () => new Promise<void>(() => undefined), // a read that never finishes: only a loss or a dispose can end the call
+    mapAsync: () => (options.mapError ? Promise.reject(options.mapError) : new Promise<void>(() => undefined)), // a read that never finishes: only a loss or a dispose can end the call
     getMappedRange: () => new ArrayBuffer(0),
     unmap: () => undefined,
   };
@@ -169,6 +169,15 @@ describe('WebGpuBackend', () => {
     await expect(b.evaluate(inputs, 5)).rejects.toMatchObject({ code: 'invalid-input' });
     await expect(b.evaluate(inputs, 1.5)).rejects.toMatchObject({ code: 'invalid-input' });
     await expect(b.evaluate(new Float32Array(2 * 122 * 7), 3)).rejects.toMatchObject({ code: 'invalid-input', message: expect.stringMatching(/need 2562/) }); // 3 * 122 * 7
+  });
+
+  it('a rejected mapAsync (AbortError before device.lost has fired) is a device-lost BackendError', async () => {
+    const fake = fakeGpu({ mapError: new DOMException('Device is lost', 'AbortError') });
+    const b = new WebGpuBackend({ gpu: fake.gpu });
+    await b.load(net());
+    const err = await b.evaluate(new Float32Array(122 * 7), 1).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BackendError);
+    expect(err).toMatchObject({ code: 'device-lost', message: expect.stringMatching(/mapAsync failed: Device is lost/) });
   });
 
   it('device loss rejects the pending evaluate and every later call with device-lost, and marks WebGPU unavailable', async () => {

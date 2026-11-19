@@ -262,7 +262,13 @@ export class WasmNetBackend implements NetBackend {
     }
     // The module owns the buffers; the JavaScript views are taken fresh on every call because the heap may have grown.
     this.m.HEAPF32.set(inputs, this.inPtr >> 2);
-    const rc = this.m._net_evaluate(batch);
+    let rc: number;
+    try {
+      rc = this.m._net_evaluate(batch);
+    } catch (e) {
+      // A wasm trap (WebAssembly.RuntimeError): the instance is unusable. A typed error lets the engine fall back.
+      throw new NetBackendError('internal', `net_evaluate trapped: ${e instanceof Error ? e.message : String(e)}`);
+    }
     if (rc !== 0) this.fail(rc, 'net_evaluate');
     const from = this.m._net_policy_from_ptr() >> 2;
     const to = this.m._net_policy_to_ptr() >> 2;

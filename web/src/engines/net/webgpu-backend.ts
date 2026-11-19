@@ -357,7 +357,12 @@ export class WebGpuBackend implements NetBackend {
     enc.copyBufferToBuffer(slot.out, 0, slot.staging, 0, polBytes);
     enc.copyBufferToBuffer(slot.out, valOffset, slot.staging, valOffset, valBytes);
     device.queue.submit([enc.finish()]);
-    await slot.staging.mapAsync(GPUMapMode.READ);
+    try {
+      await slot.staging.mapAsync(GPUMapMode.READ);
+    } catch (e) {
+      // mapAsync rejects with an AbortError or OperationError when the device dies, often before device.lost has fired.
+      throw this.failure ?? new BackendError('device-lost', `mapAsync failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    }
     const all = new Float32Array(slot.staging.getMappedRange());
     const policyFrom = new Float32Array(batch * CELLS);
     const policyTo = new Float32Array(batch * CELLS);
