@@ -1,0 +1,86 @@
+{
+  "v": 1,
+  "models": [
+    {
+      "id": "small-2p-adjacent-expert",
+      "rawBytesF16": 126004,
+      "packedBytes": 114957,
+      "sha256Raw": "07d2bebfb5bd2d4f9d5f3ff12722968a2699e6f6026f286248d6b7701be29f17",
+      "sha256Packed": "8cfe58e841911bb5239b69fc8b0a07db2cc33600244f4f7bb1dbd949434e89e3",
+      "file": "small-2p-adjacent-expert.safetensors.gz",
+      "formatVersion": 2,
+      "planeSet": "classic1",
+      "planes": 13,
+      "players": 2,
+      "params": 61734,
+      "variants": [
+        {
+          "jump": "adjacent",
+          "players": 2
+        }
+      ],
+      "sourceSha256": "dc4426f5bf0e83dba68484f94554abe95556976c2c79aea75861c249f8eadd01",
+      "createdFrom": "loop3 gen-0013 candidate, classic1 SMALL 32x4",
+      "strength": {
+        "mcts200_vs_ab25600_adjacent": {
+          "elo": 490,
+          "ci95": 75,
+          "note": "200 simulations, race adjudication on (docs/training.md)"
+        }
+      },
+      "labelKey": "model.small-2p-adjacent-expert.label",
+      "descriptionKey": "model.small-2p-adjacent-expert.description"
+    },
+    {
+      "id": "small-shared-all",
+      "rawBytesF16": 126910,
+      "packedBytes": 115866,
+      "sha256Raw": "1c85d4f4744cd3ec533cd58b0bd0ee9888f2e8e48629065bc46da835435579a7",
+      "sha256Packed": "1c8bd5a46cc5b75ceb71b54a0cb21429234c3f005626a2b0901eb1ec194029b7",
+      "file": "small-shared-all.safetensors.gz",
+      "formatVersion": 3,
+      "planeSet": "classic1v",
+      "planes": 15,
+      "players": 3,
+      "params": 62215,
+      "variants": [
+        {
+          "jump": "adjacent",
+          "players": 2
+        },
+        {
+          "jump": "long",
+          "players": 2
+        },
+        {
+          "jump": "adjacent",
+          "players": 3
+        },
+        {
+          "jump": "long",
+          "players": 3
+        }
+      ],
+      "sourceSha256": "71cfd413d13df936aa069b64f4c472f7acf1817c41b0af9868453b70af629ad8",
+      "createdFrom": "shared gen0 gen-0000 candidate, classic1v SMALL 32x4",
+      "strength": {
+        "mcts200_adjacent_elo": {
+          "vs_ab1600": 225,
+          "vs_ab6400": 69,
+          "vs_ab25600": -123
+        },
+        "mcts200_long_elo": {
+          "vs_ab1600": 191,
+          "vs_ab6400": 102
+        },
+        "mcts200_3p_score_vs_2xab3_5000": {
+          "adjacent": 0.913,
+          "long": 0.707
+        },
+        "note": "MctsMatch/ThreeSeatMatch, docs/training.md section Shared net for all four variants"
+      },
+      "labelKey": "model.small-shared-all.label",
+      "descriptionKey": "model.small-shared-all.description"
+    }
+  ]
+}

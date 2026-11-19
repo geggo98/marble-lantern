@@ -62,6 +62,7 @@ __pycache__/
 /web/dist/
 /web/public/engines/
 /web/public/tables/
+/web/public/models/
 /web/test-results/
 /app/node_modules/
 /app/src/main/frontend/generated/

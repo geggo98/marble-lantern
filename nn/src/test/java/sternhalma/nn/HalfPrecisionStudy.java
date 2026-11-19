@@ -12,7 +12,7 @@ import sternhalma.engine.Position;
 
 /**
  * Not a test: how much does storing the weights as float16 (F32 to F16 to F32 at load) change the outputs of a net?
- * Usage: {@code HalfPrecisionStudy <net.safetensors> [positions=2000] [seed=11]}. Prints a table; it does not judge strength.
+ * Usage: {@code HalfPrecisionStudy <net.safetensors> [positions=2000] [seed=11] [packed.safetensors|- [players=2 [adjacent|long]]]}. With a packed file (the F32 widening of a packed model, scripts/models/pack-model.py widen) the study compares the net with that file instead of its own rounding. Prints a table; it does not judge strength.
  *
  * <p>Positions: seeded random two-player playouts (adjacent jump rule), positions between ply 20 and ply 120 that are not
  * finished and have at least two legal moves, {@code positions} of them evenly spaced. Variants: {@code all} converts every
@@ -32,8 +32,12 @@ public final class HalfPrecisionStudy {
         int wanted = args.length > 1 ? Integer.parseInt(args[1]) : 2000;
         long seed = args.length > 2 ? Long.parseLong(args[2]) : 11;
         NetworkConfig config = base.config();
+        String packed = args.length > 3 && !args[3].equals("-") ? args[3] : null;
+        int players = args.length > 4 ? Integer.parseInt(args[4]) : 2;
+        sternhalma.engine.RuleSet.JumpRule jump = args.length > 5
+                ? sternhalma.engine.RuleSet.JumpRule.valueOf(args[5].toUpperCase(Locale.ROOT)) : sternhalma.engine.RuleSet.JumpRule.ADJACENT;
         List<Position> pool = new ArrayList<>();
-        for (Position p : Playouts.positions(2, 200, 160, seed)) {
+        for (Position p : Playouts.positions(players, jump, 200, 160, seed)) {
             if (p.ply() >= 20 && p.ply() <= 120 && p.outcome() == null && p.legalMoves().length >= 2) {
                 pool.add(p);
             }
@@ -52,8 +56,8 @@ public final class HalfPrecisionStudy {
         List<Evaluation> reference = evaluate(refEval, positions);
         float[][] refRaw = raw(ref, config, positions);
 
-        for (String variant : new String[] {"all", "weights"}) {
-            Parameters half = roundTrip(base, variant.equals("all"));
+        for (String variant : packed != null ? new String[] {"packed"} : new String[] {"all", "weights"}) {
+            Parameters half = packed != null ? Parameters.load(Path.of(packed)) : roundTrip(base, variant.equals("all"));
             Stats overflow = rangeStats(base);
             Network net = new Network(half);
             List<Evaluation> evaluations = evaluate(new Evaluator(net), positions);

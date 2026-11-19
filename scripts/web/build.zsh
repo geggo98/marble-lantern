@@ -10,6 +10,7 @@ if [[ ! -d node_modules/.bin ]]; then
   exit 1
 fi
 npm run --silent typecheck
+scripts/web/models.zsh
 rm -rf dist
 npm exec --no -- vite build
 
@@ -34,4 +35,7 @@ perl -e '
   die "web:build: $hits occurrence(s) of connect/ in the static bundle\n" if $hits;
   print STDERR "web:build: bundle scan ok ($files files, $bytes bytes, 0 x connect/)\n";
 '
+# Check 3: the model files are in dist and verify against their manifest (as in scripts/web/models.zsh).
+if [[ ! -d dist/models ]]; then print -u2 "web:build: dist/models is missing"; exit 1; fi
+../scripts/models/pack-model.py verify --out dist/models
 print -u2 "web:build: dist/ is ready (base $BASE_PATH)"
