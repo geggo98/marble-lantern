@@ -1,5 +1,5 @@
 // A mutable game position with make/unmake, legal move generation and end-of-game detection (Java: Position).
-// Two players, default rule family (see rules.hpp). Not thread-safe. The copy constructor is deleted; copy() is explicit, as in Java.
+// Two or three players, default rule family (see rules.hpp). Not thread-safe. The copy constructor is deleted; copy() is explicit, as in Java.
 #pragma once
 
 #include <array>
@@ -43,7 +43,7 @@ public:
     // ---- accessors ----
 
     const RuleSet& rules() const { return rules_; }
-    const Layout& layout() const { return Layout::two_players(); }
+    const Layout& layout() const { return *layout_; }
     int side_to_move() const { return side_; }
     // Number of plies played since the position was set up.
     int ply() const { return ply_; }
@@ -105,15 +105,16 @@ private:
     bool hands_opponent_the_win(int p, int from, int to) const;
     bool is_win(int occupied, int own) const;
     bool is_repeated() const;
-    std::array<double, 2> draw_values() const;
+    std::array<double, 3> draw_values() const;
 
     RuleSet rules_;
+    const Layout* layout_;  // the shared layout of rules_.players()
     bool long_jump_ = false;  // rules_.jump_rule() == Long, cached for generate()
     std::array<std::int8_t, kCells> owner_{};
-    std::array<int, 2> goal_occupied_{};  // cells of goal(p) that hold any piece
-    std::array<int, 2> goal_own_{};       // cells of goal(p) that hold a piece of p
-    std::array<std::array<int, kPieces>, 2> piece_cells_{};  // cells of each player's pieces, ascending
-    std::array<int, 2> piece_count_{};
+    std::array<int, Layout::kMaxPlayers> goal_occupied_{};  // cells of goal(p) that hold any piece
+    std::array<int, Layout::kMaxPlayers> goal_own_{};       // cells of goal(p) that hold a piece of p
+    std::array<std::array<int, kPieces>, Layout::kMaxPlayers> piece_cells_{};  // cells of each player's pieces, ascending
+    std::array<int, Layout::kMaxPlayers> piece_count_{};
     std::array<int, kCells> slot_{};  // for an occupied cell, its index in its owner's row of piece_cells_
     int side_ = 0;
     int ply_ = 0;

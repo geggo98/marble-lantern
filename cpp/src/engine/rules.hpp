@@ -1,5 +1,5 @@
-// The rule switches of docs/rules.md (Java: RuleSet), restricted to what the port supports: two players and a goal that may
-// not be left (LeaveGoal::Forbidden, the project default). Every other value of players, leave_goal, blocking_states and
+// The rule switches of docs/rules.md (Java: RuleSet), restricted to what the port supports: two or three players and a goal that may
+// not be left (LeaveGoal::Forbidden, the project default). Every other value of players (not 2 or 3), leave_goal, blocking_states and
 // ranking is refused by create(), as the Java class refuses the values that the rules document reserves. The switches that
 // the search benchmarks never change (move limit, blockade rule, suicide moves, repetition, draw handling) stay switchable,
 // because the engine tests exercise them.
@@ -41,6 +41,8 @@ public:
     static std::expected<RuleSet, std::string> create(const Spec& spec);
     // The project defaults: two players, 200 plies, goal not leavable, opponent fills, suicide moves illegal, score by distance.
     static RuleSet defaults();
+    // The project defaults for 2 or 3 players: 200 plies for two players, 300 for three (docs/rules.md).
+    static RuleSet defaults(int players);
 
     int players() const { return spec_.players; }
     int move_limit() const { return spec_.move_limit; }

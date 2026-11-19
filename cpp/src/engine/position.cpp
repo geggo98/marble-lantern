@@ -38,7 +38,7 @@ std::uint64_t Position::side_key(int player) { return kKeys.side[sz(player)]; }
 std::uint64_t Position::piece_key(int player, int cell) { return kKeys.piece[sz(player)][sz(cell)]; }
 
 Position::Position(const RuleSet& rules)
-    : rules_(rules), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), hash_(kKeys.side[0]), moves_(65), hashes_(65) {
+    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), hash_(kKeys.side[0]), moves_(65), hashes_(65) {
     owner_.fill(-1);
 }
 
@@ -74,7 +74,7 @@ Position Position::copy() const {
 
 std::expected<void, std::string> Position::put(int player, int cell) {
     if (ply_ > 0) return std::unexpected("setup is only allowed before the first move (ply " + std::to_string(ply_) + ")");
-    if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0..1");
+    if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0.." + std::to_string(rules_.players() - 1));
     if (cell < 0 || cell >= kCells) return std::unexpected("no such cell: " + std::to_string(cell));
     if (!layout().allowed(player, cell)) {
         return std::unexpected("player " + std::to_string(player) + " may not enter cell " + std::to_string(cell));
@@ -98,7 +98,7 @@ std::expected<void, std::string> Position::put(int player, int q, int r) {
 
 std::expected<void, std::string> Position::set_side_to_move(int player) {
     if (ply_ > 0) return std::unexpected("setup is only allowed before the first move (ply " + std::to_string(ply_) + ")");
-    if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0..1");
+    if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0.." + std::to_string(rules_.players() - 1));
     hash_ ^= kKeys.side[sz(side_)] ^ kKeys.side[sz(player)];
     side_ = player;
     return {};
@@ -358,16 +358,16 @@ std::optional<Outcome> Position::outcome() const {
     const int players = rules_.players();
     for (int i = 0; i < players; ++i) {
         const int q = (side_ + i) % players;  // starts with the player who did not just move
-        if (has_won(q)) return Outcome::win(q);
+        if (has_won(q)) return Outcome::win(q, players);
     }
     if (rules_.repetition() == RuleSet::Repetition::RepetitionIsDraw && is_repeated()) {
-        return Outcome::no_winner(Outcome::Reason::Repetition, draw_values());
+        return Outcome::no_winner(Outcome::Reason::Repetition, draw_values(), rules_.players());
     }
-    if (ply_ >= rules_.move_limit()) return Outcome::no_winner(Outcome::Reason::MoveLimit, draw_values());
+    if (ply_ >= rules_.move_limit()) return Outcome::no_winner(Outcome::Reason::MoveLimit, draw_values(), rules_.players());
     return std::nullopt;
 }
 
-Outcome Position::no_moves_outcome() const { return Outcome::no_winner(Outcome::Reason::NoMoves, draw_values()); }
+Outcome Position::no_moves_outcome() const { return Outcome::no_winner(Outcome::Reason::NoMoves, draw_values(), rules_.players()); }
 
 bool Position::is_repeated() const {
     for (int k = 0; k < ply_; ++k) {
@@ -377,12 +377,12 @@ bool Position::is_repeated() const {
 }
 
 // Values for a game without a winner, as set by draw_handling.
-std::array<double, 2> Position::draw_values() const {
-    constexpr int players = 2;
-    std::array<double, 2> values{};
+std::array<double, 3> Position::draw_values() const {
+    std::array<double, 3> values{};
     if (rules_.draw_handling() == RuleSet::DrawHandling::Draw) return values;
+    const int players = rules_.players();
     double mean = 0;
-    std::array<int, players> sums{};
+    std::array<int, Layout::kMaxPlayers> sums{};
     int max_distance = 0;
     for (int p = 0; p < players; ++p) {
         sums[sz(p)] = distance_sum(p);
