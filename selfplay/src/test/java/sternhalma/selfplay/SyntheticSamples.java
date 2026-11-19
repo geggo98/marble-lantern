@@ -37,12 +37,18 @@ final class SyntheticSamples {
      * sum to about 3, every fourth one is 0 (one stays positive).
      */
     static List<Sample> samples(int players, long seed, int count) {
+        return samples(RuleSet.defaults(players), seed, count);
+    }
+
+    /** As above under the given rules (player count and jump rule). */
+    static List<Sample> samples(RuleSet rules, long seed, int count) {
+        int players = rules.players();
         Random random = new Random(seed);
         float[] policyWeights = {1f, 0f, 0.5f, 2f};
         float[] valueWeights = {1f, 1f, 2f, 0.5f};
         List<Sample> result = new ArrayList<>();
         while (result.size() < count) {
-            Position position = Position.initial(RuleSet.defaults(players));
+            Position position = Position.initial(rules);
             for (int ply = 0; ply < 120 && result.size() < count && position.outcome() == null; ply++) {
                 int[] moves = position.legalMoves();
                 if (moves.length == 0) {
@@ -127,6 +133,14 @@ final class SyntheticSamples {
         m.put("format_version", Integer.toString(GameShard.FORMAT_VERSION));
         m.put("players", Integer.toString(players));
         return m;
+    }
+
+    static Path write(Path dir, String name, RuleSet rules, List<Sample> samples) throws IOException {
+        Path file = dir.resolve(name);
+        Map<String, String> m = metadata(rules.players());
+        m.put("rules", rules.toString());
+        SampleFile.write(file, tensors(rules.players(), samples), m);
+        return file;
     }
 
     static Path write(Path dir, String name, int players, List<Sample> samples) throws IOException {
