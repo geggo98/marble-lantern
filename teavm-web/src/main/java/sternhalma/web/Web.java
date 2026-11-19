@@ -38,8 +38,9 @@ public final class Web {
      * needs no table. Every entry point below with a {@code jump} argument takes it the same way, and likewise
      * {@code players}: {@code "2"} (also null or empty) or {@code "3"}. A three-player game needs no table and takes a
      * node budget per seat: {@code nodes0}, {@code nodes1}, {@code nodes2} (a missing or non-positive {@code nodes2} is
-     * {@code nodes1}). With two players {@code nodes2} is ignored. A call that omits the trailing arguments, as the
-     * old two-player callers do, plays two players.
+     * {@code nodes1}). With two players {@code nodes2} is ignored. Pass every argument: the TeaVM JavaScript export
+     * fails on an omitted String argument (measured under node), so a two-player caller passes {@code null} for
+     * {@code players} and 0 for {@code nodes2}.
      */
     @JSExport
     public static String newGame(int nodes0, int nodes1, String jump, String players, int nodes2) {
