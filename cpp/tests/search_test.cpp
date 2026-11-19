@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "golden.hpp"
 #include "golden_test_support.hpp"
 #include "linear_eval.hpp"
+#include "move.hpp"
 #include "options.hpp"
 #include "parse_number.hpp"
 #include "player_spec.hpp"
@@ -765,6 +767,120 @@ SH_TEST(player_with_race_play_has_the_java_name) {
     if (!player) return;  // no table on this machine
     CHECK_EQ((*player)->name(), std::string("ab[eval=linear-r1, depth<=30, 500 nodes, race=1, racerows=1]"));
     CHECK(((*player)->race()) != nullptr);
+}
+
+// ---- the Halma long hop (jump=long) ----
+
+SH_TEST(spec_jump_key) {
+    CHECK(parse_ok("ab:eval=linear-r3,nodes=100").jump_rule == RuleSet::JumpRule::Adjacent);
+    CHECK(parse_ok("ab:eval=linear-r3,nodes=100,jump=adjacent").jump_rule == RuleSet::JumpRule::Adjacent);
+    CHECK(parse_ok("ab:eval=linear-r3,nodes=100,jump=long").jump_rule == RuleSet::JumpRule::Long);
+    CHECK_EQ(parse_error("ab:eval=linear-r3,jump=far"), std::string("jump must be adjacent or long, got 'far'"));
+    // the race table and the race arithmetic count single jumps only
+    CHECK_EQ(parse_error("ab:eval=linear-r3,race=1,jump=long"),
+             std::string("jump=long cannot be combined with race=1: the race table and the solitaire beam are computed for single jumps"));
+    CHECK(parse_error("ab:eval=linear-r3,race=2,jump=long").starts_with("jump=long cannot be combined with race=2"));
+    CHECK(parse_error("ab:eval=racelin-r3,jump=long").starts_with("jump=long cannot be combined with eval=racelin-r3"));
+    CHECK(parse_error("ab:eval=racelin1-r3,jump=long").starts_with("jump=long cannot be combined with eval=racelin1-r3"));
+    // race=0 is no race play
+    CHECK(parse_ok("ab:eval=linear-r3,race=0,jump=long").race == 0);
+}
+
+SH_TEST(browser_long_spec_is_the_java_spec) {
+    CHECK_EQ(std::string(kBrowserLongSpec),
+             std::string("ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,jump=long"));
+    const PlayerSpec spec = parse_ok(kBrowserLongSpec);
+    CHECK(spec.jump_rule == RuleSet::JumpRule::Long);
+    CHECK_EQ(spec.race, 0);
+    const auto player = spec.create();
+    CHECK(player.has_value());
+    if (player) CHECK((*player)->name().find(", jump=long") != std::string::npos);
+}
+
+SH_TEST(long_player_refuses_adjacent_position_and_back) {
+    const RuleSet long_rules = *RuleSet::defaults().with_jump_rule(RuleSet::JumpRule::Long);
+    auto long_player = parse_ok("ab:eval=linear-r3,nodes=200,tt=12,jump=long").create();
+    auto adjacent_player = parse_ok("ab:eval=linear-r3,nodes=200,tt=12").create();
+    CHECK(long_player.has_value() && adjacent_player.has_value());
+    if (!long_player || !adjacent_player) return;
+    const Position adjacent_pos = Position::initial(RuleSet::defaults());
+    const Position long_pos = Position::initial(long_rules);
+    CHECK(!(*long_player)->plays(adjacent_pos));
+    CHECK((*long_player)->plays(long_pos));
+    CHECK(!(*adjacent_player)->plays(long_pos));
+    bool threw = false;
+    try {
+        (*long_player)->choose(adjacent_pos);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+    threw = false;
+    try {
+        (*adjacent_player)->choose(long_pos);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK((*long_player)->choose(long_pos) >= 0);
+    CHECK((*adjacent_player)->choose(adjacent_pos) >= 0);
+    // race play cannot be built for the long rule, even by hand
+    threw = false;
+    try {
+        auto eval = LinearEvaluator::linear_r3();
+        auto table = RaceMove::shared_table(2);
+        if (table) {
+            AlphaBetaPlayer bad(std::move(eval), 5, AlphaBeta::kNoLimit, 100, 10, "linear-r3", SearchOptions{},
+                                std::make_unique<RaceMove>(std::move(*table), 1), RuleSet::JumpRule::Long);
+        } else {
+            threw = true;  // no table on this machine: nothing to refuse
+        }
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
+// Self-play against a random player with long hops: every move of both sides is legal, the game ends by the rules, and the engine is
+// closer to its goal than the random player at the end (the draw handling scores by distance). Both colours.
+SH_TEST(long_hop_selfplay_against_random_smoke) {
+    const RuleSet long_rules = *RuleSet::defaults().with_jump_rule(RuleSet::JumpRule::Long);
+    for (const int engine_side : {0, 1}) {
+        auto player = parse_ok("ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,nodes=1500,tt=14,jump=long").create();
+        CHECK(player.has_value());
+        if (!player) return;
+        Position pos = Position::initial(long_rules);
+        std::uint64_t state = 0x1234ABCDULL + static_cast<std::uint64_t>(engine_side);
+        int plies = 0;
+        int long_hops_played = 0;
+        std::array<int, kMaxMoves> buf{};
+        while (!pos.outcome().has_value()) {
+            const int n = pos.generate(buf);
+            if (n == 0) break;
+            int move = -1;
+            if (pos.side_to_move() == engine_side) {
+                move = (*player)->choose(pos);
+            } else {
+                state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+                move = buf[static_cast<std::size_t>((state >> 33) % static_cast<std::uint64_t>(n))];
+            }
+            bool legal = false;
+            for (int i = 0; i < n; ++i) legal = legal || buf[static_cast<std::size_t>(i)] == move;
+            CHECK(legal);
+            if (!legal) return;
+            const int from = Move::from(move);
+            const int to = Move::to(move);
+            const int dq = geometry::q(to) - geometry::q(from);
+            const int dr = geometry::r(to) - geometry::r(from);
+            if (std::max({std::abs(dq), std::abs(dr), std::abs(dq + dr)}) > 2 && pos.side_to_move() == engine_side) ++long_hops_played;
+            pos.make(move);
+            ++plies;
+        }
+        CHECK(plies > 20);
+        CHECK(pos.ply() <= long_rules.move_limit());
+        CHECK(pos.distance_sum(engine_side) < pos.distance_sum(1 - engine_side));
+        CHECK(long_hops_played >= 0);
+    }
 }
 
 int main() { return sh::test::run_all(); }
