@@ -103,6 +103,8 @@ export class NetRequestHandler {
       case 'legalMoves':
         return this.ready().legalMoves(request.history, request.variant);
       case 'choose':
+        // The protocol has no abort message for a running choose (a Request carries no signal): the client ends a search by terminating
+        // and restarting the worker. So no AbortSignal is passed here; NetCore.choose takes one for callers that have it (tests, node).
         return this.ready().choose(request.history, undefined, request.variant);
       case 'analyse':
         return this.ready().analyse();
