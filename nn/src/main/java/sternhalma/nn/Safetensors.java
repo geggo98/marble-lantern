@@ -150,8 +150,9 @@ public final class Safetensors {
         for (Entry e : byOffset) {
             float[] data = new float[(int) ((e.end - e.begin) / Float.BYTES)];
             // A bulk get through a float view copies the bits; it does not canonicalise NaN.
-            buffer.slice(dataStart + (int) e.begin, data.length * Float.BYTES)
-                    .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(data);
+            ByteBuffer view = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+            view.position(dataStart + (int) e.begin);
+            view.asFloatBuffer().get(data);
             tensors.put(e.name, new Tensor(e.name, e.shape, data));
         }
         return new Contents(tensors, Collections.unmodifiableMap(header.metadata));
