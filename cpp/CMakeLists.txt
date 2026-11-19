@@ -120,6 +120,29 @@ if(EMSCRIPTEN)
   endif()
   # Emscripten's own warning when nixpkgs binaryen is one release ahead of the one it expects must not stop the build.
   target_link_options(engine-cpp PRIVATE -Wno-version-check)
+
+  # The network backend (src/wasm/net_api.cpp, contract IC1 of the web UI): three flavours of the same source, one .wasm each,
+  # always as ES modules (loaded by web/src/engines/net/wasm-backend.ts; SH_WASM_ES6 does not apply).
+  # The one named exception to -ffp-contract=off is simd_net.cpp (the fused variant, used only by the relaxed flavour).
+  set_source_files_properties(src/nn/simd_net.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=fast")
+  set(sh_net_sources src/wasm/net_api.cpp src/nn/config.cpp src/nn/safetensors.cpp src/nn/parameters.cpp src/nn/gather.cpp src/nn/simd_net.cpp
+    src/nn/simd_net_nofma.cpp src/nn/priors.cpp src/core/json_min.cpp)
+  set(sh_net_exports _net_error _net_flavour _net_load _net_planes _net_value_width _net_input_ptr _net_policy_from_ptr
+    _net_policy_to_ptr _net_values_ptr _net_max_batch _net_evaluate _net_free)
+  list(JOIN sh_net_exports "," sh_net_exports_csv)
+  function(sh_net_flavour name)
+    add_executable(${name} ${sh_net_sources})
+    sh_target(${name})
+    target_include_directories(${name} PRIVATE src/nn src/core)
+    target_compile_options(${name} PRIVATE ${ARGN})
+    target_link_options(${name} PRIVATE ${ARGN}
+      --no-entry -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createNet -sENVIRONMENT=web,worker,node
+      -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16777216 -sFILESYSTEM=0 -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAPF32,UTF8ToString
+      "-sEXPORTED_FUNCTIONS=_malloc,_free,${sh_net_exports_csv}" -Wno-version-check)
+  endfunction()
+  sh_net_flavour(engine-net-nn-scalar)
+  sh_net_flavour(engine-net-nn-simd -msimd128)
+  sh_net_flavour(engine-net-nn-relaxed -msimd128 -mrelaxed-simd)
   return()
 endif()
 

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>net wasm bench</title>
+</head>
+<body>
+<script type="module">
+import { SCHEDULE, benchFlavour, selfRatio } from '/core.mjs';
+
+window.probe = () => selfRatio();
+window.run = async (origin, flavour, batches, schedule) => {
+  Object.assign(SCHEDULE, schedule);
+  const weights = new Uint8Array(await (await fetch(`${origin}/weights`)).arrayBuffer());
+  const raw = await (await fetch(`${origin}/inputs`)).arrayBuffer();
+  const { default: create } = await import(`${origin}/wasm/engine-net-nn-${flavour}.js`);
+  return benchFlavour(create, weights, new Float32Array(raw), batches);
+};
+</script>
+</body>
+</html>
