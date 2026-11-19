@@ -1,6 +1,6 @@
 # Network
 
-**TL;DR:** The network is a small residual network on the 121 board cells. Each layer is a hex convolution: a gather of each cell and its 6 neighbours, then a matrix multiplication. Input is 7 planes per cell, seen from the player to move, with the board rotated so that this player always starts in the top corner. The policy head gives a "from" logit and a "to" logit per cell; a move scores the sum. The value head gives one value per player. Presets: TINY (8 channels, 1 block, for tests), SMALL (32 × 4, about 60,000 parameters, about 14 MFLOP per position) and LARGE (64 × 6, about 350,000 parameters, about 84 MFLOP per position). Weights are F32 safetensors files. Format version 2 (round 2, E11) adds an optional set of classical input planes and two learnable scalars that add a classical prior to the policy and the value; the plain 7-plane network of version 1 stays fully supported, and version 1 files read as that plain network (see [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2)). A scalar CPU reference implementation is the test oracle for every faster path; a fast path agrees with it if every output satisfies |fast − ref| ≤ 1e-4 + 1e-3 · |ref|.
+**TL;DR:** The network is a small residual network on the 121 board cells. Each layer is a hex convolution: a gather of each cell and its 6 neighbours, then a matrix multiplication. Input is 7 planes per cell, seen from the player to move, with the board rotated so that this player always starts in the top corner. The policy head gives a "from" logit and a "to" logit per cell; a move scores the sum. The value head gives one value per player. Presets: TINY (8 channels, 1 block, for tests), SMALL (32 × 4, about 60,000 parameters, about 14 MFLOP per position) and LARGE (64 × 6, about 350,000 parameters, about 84 MFLOP per position). Weights are F32 safetensors files. Format version 2 (round 2, E11) adds an optional set of classical input planes and two learnable scalars that add a classical prior to the policy and the value; the plain 7-plane network of version 1 stays fully supported, and version 1 files read as that plain network (see [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2)). Format version 3 adds the plane set `classic1v`: two more planes for the jump rule and the player count, so that one network serves two and three players under both jump rules (see [Format version 3 (variants)](#format-version-3-variants)). A scalar CPU reference implementation is the test oracle for every faster path; a fast path agrees with it if every output satisfies |fast − ref| ≤ 1e-4 + 1e-3 · |ref|.
 
 This document refines the section [Neural network](architecture.md#neural-network) of the architecture and uses the board, corners and play order of [rules](rules.md). The Java code is in the module `nn`, package `sternhalma.nn`.
 
@@ -26,7 +26,7 @@ Goals:
 Non-goals:
 
 - Batch normalisation, attention, dropout, or any operation outside the list above.
-- One network for several player counts. A network has a fixed number of players (2 or 3), because the value head has one output per player (**project decision**).
+- One network for several player counts, except with the plane set `classic1v`. Every other network has a fixed number of players (2 or 3), because the value head has one output per player (**project decision**). A `classic1v` network has three value outputs and serves two and three players (see [Format version 3 (variants)](#format-version-3-variants)).
 - Bit-exact agreement between implementations. See [Numeric conventions](#numeric-conventions).
 
 ## Terms
@@ -45,7 +45,7 @@ Non-goals:
 |---|---|---|
 | Activation with C channels | [122][C] | row · C + channel |
 | Batch of activations | [B][122][C] | b · 122 · C + row · C + channel |
-| Input (one position) | [122][7] ([122][13] with the classical planes) | row · planes + plane |
+| Input (one position) | [122][7] ([122][13] with the classical planes, [122][15] with `classic1v`) | row · planes + plane |
 | Policy logits (one position) | [121][2] | cell · 2 + k, with k = 0 "from", k = 1 "to" |
 | Values (one position) | [P] | relative player |
 | Convolution weight | [C_out][7 · C_in] | o · 7 · C_in + k · C_in + c (see [Gather table](#gather-table)) |
@@ -83,7 +83,7 @@ Details (**project decision**):
 
 **Project reasoning:** in canonical orientation, planes 3, 4 and 5 are the same for every position of a player count, and they are also the same for two and three players. The goal is always the bottom corner R_POS, the start is always the top corner R_NEG, and the playable cells are always the hexagon plus these two corners. The planes still help: together with the zero padding they tell the network where the board edge and the forbidden side corners are. They cost 3 of 49 input weights per output channel of the first layer. See [Open questions](#open-questions).
 
-A network can also read six more planes that classical code computes (distance, reachability, passed flag, linear evaluation): [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2). The seven planes above are the plane set `plain`; every statement in this document that does not say otherwise is about it.
+A network can also read six more planes that classical code computes (distance, reachability, passed flag, linear evaluation): [Classical planes and residual priors](#classical-planes-and-residual-priors-format-version-2). The plane set `classic1v` adds two more for the jump rule and the player count: [Format version 3 (variants)](#format-version-3-variants). The seven planes above are the plane set `plain`; every statement in this document that does not say otherwise is about it.
 
 ## Canonical orientation
 
@@ -204,7 +204,7 @@ At 4 bytes per parameter, a SMALL file holds 241,552 bytes of tensor data and a 
 
 ### Size limits
 
-**Project decision:** `NetworkConfig` accepts 1 ≤ C ≤ 1024 (`MAX_CHANNELS`), 0 ≤ B ≤ 64 (`MAX_BLOCKS`), P = 2 or 3, and 1 ≤ H ≤ 1024 (`MAX_VALUE_HIDDEN`). The constructor throws `IllegalArgumentException` for any other value; `Parameters.load` reports it as an `IOException`.
+**Project decision:** `NetworkConfig` accepts 1 ≤ C ≤ 1024 (`MAX_CHANNELS`), 0 ≤ B ≤ 64 (`MAX_BLOCKS`), P = 2 or 3 (exactly 3 for the plane set `classic1v`), and 1 ≤ H ≤ 1024 (`MAX_VALUE_HIDDEN`). The constructor throws `IllegalArgumentException` for any other value; `Parameters.load` reports it as an `IOException`.
 
 **Project reasoning:** the limits are far above the presets (C = 64, B = 6, H = 32) and stop a file of a few hundred bytes from making the loader allocate by its metadata alone. Before the limits, a file of a few hundred bytes without tensors whose metadata said `blocks` = 100,000,000 ran out of memory while the loader built the list of expected tensors. `Parameters.load` keeps the tensors of the file and only compares their names and shapes with `Parameters.shapes` of the config, so its memory use is bounded by the file size. A config at the limits has 2 + 4 · 64 + 6 = 264 tensors.
 
@@ -262,7 +262,7 @@ Mean pooling over the 121 cell rows per channel (row 121 excluded, division by 1
 
 Output i is the expected game value for relative player i, so output 0 is the mover. The training targets are the `Outcome.values` of the engine, reordered to relative players. They lie in [−1, 1]: a win gives +1 to the winner and −1/(P − 1) to each other player, and a game without a winner gives scores that sum to zero. tanh covers this range. The network does not force the outputs to sum to zero (**project decision**).
 
-`Evaluator` converts the outputs back to absolute players: the value for absolute player a is output (a − mover) mod P.
+`Evaluator` converts the outputs back to absolute players: the value for absolute player a is output (a − mover) mod P. A `classic1v` network has P = 3 and also evaluates two-player positions; there P is the player count of the position (see [Format version 3 (variants)](#format-version-3-variants)).
 
 ## Classical planes and residual priors (format version 2)
 
@@ -290,7 +290,7 @@ Details (**project decision**):
 - With three players relative player 1 is the next to move; there is no plane for relative player 2's distance or moves, and planes 11 and 12 are 0 (the passed test and the linear evaluation are two-player notions).
 - **The linear evaluation** is the sum of the 12 weights of `linear-r2` (`LinearWeights.ROUND2`) times the 12 features "side to move minus opponent" of `LinearEvaluator` (`ClassicalPlanes.linearLogit`). `nn` cannot depend on `search`, so it carries a copy of the features; `ClassicalPriorsTest` in `search` pins it to `LinearEvaluator.features` bit for bit on 120,000 positions of both leave-goal rules and the weights to `LinearWeights.ROUND2`. **The 13th feature `bestGain` (E07, the evaluator of `BEST_SPEC`) is not in it**: it needs the jump-component search of `LinearEvaluator.GainSearch`, which would be a second copy of 200 lines; the 12-feature `linear-r2` is the refit on passed-filtered self-play that `linear-r3` extends. A network that wants `bestGain` can learn it from the planes.
 - **Race counts** (option (d) of the E11 plan: the exact counts of both sides when both configurations are in the table) are **not** a plane: the table lives in `tablebase` and the counts apply only to passed positions, where the passed flag and the distance planes already carry most of the information. Skipped to keep the encoder free of table I/O; it is the first candidate if the planes help.
-- **Rules.** The planes follow the position's own rules (`Position.generate` honours leave-goal and the suicide rule). `SampleExpander` rebuilds a position from canonical cells without a rule set, so it assumes the default rules of the sample files (`RuleSet.defaults(players)` with the stored move limit); for these positions it equals `Encoder.encode` float for float. A sample file of another rule set would expand to planes that differ in planes 9 and 10 where the rules matter.
+- **Rules.** The planes follow the position's own rules (`Position.generate` honours leave-goal and the suicide rule). `SampleExpander` rebuilds a position from canonical cells without a rule set, so it assumes the default rules (`RuleSet.defaults(players)` with the stored move limit) except for the jump rule, which the caller passes from the sample's `rules` (`expand(planes, players, jumpRule, …)`; the overload without a jump rule means `ADJACENT`). For these positions it equals `Encoder.encode` float for float. A sample of another leave-goal or suicide rule would expand to planes that differ in planes 9 and 10 where the rules matter.
 - **Mirror.** With the left-right mirror of a two-player sample, row c' of every plane goes to row `mirror(c')`. The reachability, passed and evaluation planes of the mirrored position equal the mirrored rows of the original (tested for both movers, also against the encoding of `Position.transformed(Geometry::mirror)`).
 
 ### The residual priors
@@ -308,7 +308,61 @@ value_i           = tanh(net_i + k * sign_i * eval)  sign = +1 (relative player 
 - **Initialisation.** `Parameters.init` sets `beta = 1`, `k = 0.5` and starts `head_policy.weight` and `head_value.dense2.weight` at zero (the random draws are still taken, so the other tensors equal those of `classic1-planes`). An untrained `classic1` network is then exactly the classical prior: `ResidualPriorsTest` checks policy and value of `Network` and `VectorNetwork` against the distance gain and the linear evaluation for both movers. (A network with only zero weights and biases gives the same, which a test also checks.)
 - **On the device.** `TornadoNetwork` computes the raw outputs on the device (the logits as they are, the value head without its tanh) and adds the two priors on the host, after the results are back, with the code of `VectorNetwork`: no new kernel and no extra upload (the planes `dist_own` and `eval` are in the input that is on the host). See [tornado.md](tornado.md#residual-priors-on-the-host).
 
-The number of parameters is `(7 · I · C + C) + …` of the [formula](#how-the-numbers-were-computed) with I = 13, plus 2 for `classic1`: TINY 2,020 / 2,022, SMALL 61,732 / 61,734 (`classic1-planes` / `classic1`, two players).
+The number of parameters is `(7 · I · C + C) + …` of the [formula](#how-the-numbers-were-computed) with I = 13, plus 2 for `classic1`: TINY 2,020 / 2,022, SMALL 61,732 / 61,734 (`classic1-planes` / `classic1`, two players). For `classic1v` see [Format version 3 (variants)](#format-version-3-variants).
+
+## Format version 3 (variants)
+
+**TL;DR:** The plane set `classic1v` is `classic1` plus two constant planes, `long` and `three`, and a value head with three outputs. One network then serves all four variants: two or three players, each with the jump rule ADJACENT or LONG. It is the only plane set of format version 3. Files of versions 1 and 2 load and are written exactly as before.
+
+### The planes
+
+Planes 0 to 12 are those of `classic1`, at the same indices (`Encoder`, `ClassicalPlanes`). Two planes follow:
+
+| Plane | Name | Value at every cell row |
+|---|---|---|
+| 13 | long | 1 if the position's jump rule is `LONG` (`Position.rules().jumpRule()`), else 0 |
+| 14 | three | 1 if the position has three players, else 0 |
+
+Row 121 is 0 in all 15 planes. The input of one position has 122 · 15 = 1,830 floats.
+
+How the `classic1` planes behave in the four variants (**project decision**):
+
+- **Distance planes 7 and 8** are `Layout.distance`, the geometric steps to the goal. They do not depend on the jump rule, so they are valid in all four variants.
+- **Reach planes 9 and 10** are generated under the position's own rules (`Position.generate`), so they show long hops under `LONG`. `SampleExpander` takes the jump rule from the sample's `rules` through the overload `expand(planes, players, jumpRule, …)`; the old overload without a jump rule means `ADJACENT`.
+- **Plane 11 `passed`** is 0 for three players, as in `classic1`.
+- **Plane 12 `eval`** is 0 under `LONG` and for three players. Reason: the linear evaluation is fitted on two-player games with adjacent jumps. With the plane at 0, the value prior `k · eval` switches itself off in the variants it was not fitted for. Limit: this applies to `classic1v` only. Under `classic1` the encoder is unchanged and still writes the linear evaluation for a two-player `LONG` position.
+
+### The priors
+
+The residual priors are those of `classic1` (`ResidualPriors`, same formulas, same initial values `beta = 1` and `k = 0.5`):
+
+- The policy prior `beta · distance gain` is on in all four variants, because the distance planes are valid in all of them.
+- The value prior `k · sign · eval` has an effect only for two players with adjacent jumps, because plane 12 is 0 elsewhere.
+
+An untrained `classic1v` network therefore gives the distance prior as its policy in every variant and the classical value only for two players with adjacent jumps (`VariantPlanesTest`).
+
+### Value head and evaluator
+
+The value head has P = 3 outputs, in the order of relative players. `NetworkConfig.withPlanes(CLASSIC1V)` sets the player count to 3, and the `NetworkConfig` constructor rejects `classic1v` with 2 players.
+
+`Evaluator` accepts positions of 2 or 3 players for a `classic1v` network and uses the first `position.players()` value outputs: output r is relative player r, so the value of absolute player a is output (a − mover) mod n, with n the player count of the position. A batch may mix player counts and jump rules. Every other network still rejects a position whose player count differs from its own.
+
+**Planned training convention** (not part of the module `nn`; see [training.md](training.md) when it is implemented): a two-player sample stores the value target z = (z0, z1, 0) and gets value weight 1.5.
+
+### Tensors and parameter count
+
+The tensor names and their order are those of `classic1`. Two shapes differ: `conv_in.weight` is [C, 105] (7 · 15 columns), and `head_value.dense2` has P = 3 rows. The [parameter formula](#how-the-numbers-were-computed) holds with I = 15 and P = 3, plus 2 for the priors. For TINY (C = 8, B = 1, H = 32): 848 (`conv_in`) + 912 (block) + 18 (policy head) + 387 (value head) + 2 (priors) = 2,167, pinned in `VariantPlanesTest`.
+
+### File format rules
+
+- Version 3 is written only for `classic1v`, with the metadata `format_version` = `3`, `players` = `3`, `input_planes` = `15` and `planes` = `classic1v`.
+- The reader accepts version 3 only with exactly these values of `planes`, `players` and `input_planes`. It rejects `classic1v` in a version 2 file, and a version 3 file with another plane set.
+- Files of versions 1 and 2 are written and read as before, byte for byte. `EncoderGoldenTest` pins this with SHA-256 hashes of the encoder output and of seeded files, taken from the code before the change.
+- A reader of formats 1 and 2 rejects a version 3 file as an unknown `format_version`.
+
+### C++ port
+
+The forward passes in `cpp/src/nn` already take the plane count from the config and add the priors when the plane set has them, so they need no change for 15 planes. To read version 3, the config code (`cpp/src/nn/config.hpp`, `config.cpp`) must know the plane set `classic1v` (15 planes, with priors) and accept `format_version` 3 under the rules above.
 
 ## Initialisation
 
@@ -352,25 +406,25 @@ In this order (`Parameters.shapes(config)` returns exactly this list):
 | `head_value.dense1.bias` | [32] |
 | `head_value.dense2.weight` | [P, 32] |
 | `head_value.dense2.bias` | [P] |
-| `prior.beta` | [1] (only with residual priors, plane set `classic1`) |
+| `prior.beta` | [1] (only with residual priors, plane sets `classic1` and `classic1v`) |
 | `prior.k` | [1] (the same) |
 
-With classical planes `conv_in.weight` is [C, 91] (7 · 13 columns). The four `block{i}` lines repeat for i = 0, 1, …, B − 1, with the block number in decimal and without leading zeros (`block0`, `block1`, …).
+With classical planes `conv_in.weight` is [C, 91] (7 · 13 columns), with `classic1v` [C, 105] (7 · 15 columns). The four `block{i}` lines repeat for i = 0, 1, …, B − 1, with the block number in decimal and without leading zeros (`block0`, `block1`, …).
 
 ### Metadata keys
 
 | Key | Value | Example |
 |---|---|---|
 | `format` | always `sternhalma-nn` | `sternhalma-nn` |
-| `format_version` | integer as text; `1` (plain planes) or `2` (classical planes, adds `planes`) | `1` |
+| `format_version` | integer as text; `1` (plain planes), `2` (classical planes, adds `planes`) or `3` (`classic1v`) | `1` |
 | `channels` | C | `32` |
 | `blocks` | B | `4` |
-| `players` | P | `2` |
+| `players` | P; always `3` in version 3 | `2` |
 | `value_hidden` | H | `32` |
-| `input_planes` | `7` in version 1; the width of the plane set in version 2 (`13` for both classical sets) | `7` |
-| `planes` | only in version 2: `plain`, `classic1` or `classic1-planes` | `classic1` |
+| `input_planes` | `7` in version 1; the width of the plane set in version 2 (`13` for both classical sets); `15` in version 3 | `7` |
+| `planes` | only in versions 2 and 3: `plain`, `classic1` or `classic1-planes` in version 2, `classic1v` in version 3 | `classic1` |
 
-`Parameters.load` rejects a file whose `format` or `format_version` is unknown, whose config keys are missing or not integers, whose sizes are outside the [size limits](#size-limits), or whose tensor names or shapes differ from `Parameters.shapes` of that config. Extra metadata keys (for example a training step or a seed) are allowed and kept. Version 1 is written for a plain network (so older readers still read it) and read as plane set `plain`; a version 1 file with a `planes` key, a version 2 file without one or with an unknown name, and an `input_planes` that does not belong to the plane set are rejected.
+`Parameters.load` rejects a file whose `format` or `format_version` is unknown, whose config keys are missing or not integers, whose sizes are outside the [size limits](#size-limits), or whose tensor names or shapes differ from `Parameters.shapes` of that config. Extra metadata keys (for example a training step or a seed) are allowed and kept. Version 1 is written for a plain network (so older readers still read it) and read as plane set `plain`; a version 1 file with a `planes` key, a version 2 file without one, with an unknown name or with `classic1v`, a version 3 file with another plane set or with `players` other than 3, and an `input_planes` that does not belong to the plane set are rejected. Version 3 is written for `classic1v` only; see [Format version 3 (variants)](#format-version-3-variants).
 
 ## Numeric conventions
 
@@ -462,7 +516,7 @@ An earlier diagnostic run, with `Parameters.init` and 8 positions of random plan
 ## Open questions
 
 1. **Constant planes.** Planes 3 to 5 are the same for every position (see [Input planes](#input-planes)). Answered in part by E11: the informative planes (the single-agent distance of the cell for the mover and for the next player, and four more) are added as the plane set `classic1`, format version 2, and train faster and better ([training.md](training.md#as-implemented-block-2f--e11)); planes 3 to 5 were kept in that experiment, so whether they can be dropped is open.
-2. **Player count in the input.** Two-player and three-player networks are separate, so no plane encodes the player count. If one network should serve both, it needs such a plane and a value head with a fixed width.
+2. **Player count in the input.** Answered by the plane set `classic1v` (format version 3): plane 14 encodes the player count and the value head has a fixed width of 3, so one network serves both ([Format version 3 (variants)](#format-version-3-variants)). The other plane sets keep separate two-player and three-player networks. Whether one shared network plays as well as two separate ones is open.
 3. **Factorised policy.** fromLogit + toLogit cannot express all pair preferences (see [Policy head and move logits](#policy-head-and-move-logits)). A bilinear or per-piece head would fix this at more cost. Measure the policy loss first.
 4. **Value sum.** Should the value head enforce a zero sum, for example by subtracting the mean of the outputs, to match `Outcome.values`?
 5. **Tolerance.** The bound 1e-4 + 1e-3 · |ref| is derived, not measured. Tighten it once the fast paths report their largest errors.
