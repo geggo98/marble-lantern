@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import type { JumpRule, Player } from '../game/variant';
+import type { JumpRule, Player, Variant } from '../game/variant';
 import type { GameMode, StartChoice } from '../app/start-choice';
 import { useNetSelection } from '../app/net-selection';
 import type { NetSelectionStore } from '../app/net-selection';
@@ -34,6 +34,9 @@ export type StartDialogModel =
       preferred?: Side | undefined;
       onContinueAs: (humanSide: Side) => void;
       onNew: () => void;
+      /** The variant of the linked game and the selection of the net engines: the dialog warns when the selected net or model cannot play it. */
+      variant?: Variant | undefined;
+      net?: NetSelectionStore | undefined;
     }
   | { kind: 'broken'; reason: 'moves' | 'link'; onNew: () => void };
 
@@ -126,7 +129,8 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         <h2 className="ml-sheet__title" id={titleId}>{title}</h2>
         {body}
         {model.kind === 'begin' && <BeginChoices choice={choice} onChange={setChoice} />}
-        {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} choice={choice} />}
+        {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} variant={{ jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 }} />}
+        {model.kind === 'link' && model.net && model.variant && <StartNetWarning store={model.net} variant={model.variant} />}
         <div className="ml-start__actions">{actions}</div>
       </section>
     </div>,
@@ -134,9 +138,12 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
   );
 }
 
-/** The warnings of the selected net engine for the variant of the choice above; starting stays possible (the engine plays random moves). */
-function StartNetWarning({ store, choice }: { store: NetSelectionStore; choice: StartChoice }): React.JSX.Element {
-  const { evaluation } = useNetSelection(store, { jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 });
+/**
+ * The warnings of the selected net engine for the variant of the game that is about to start (the choice above, or the link); starting
+ * stays possible (the engine plays random moves). The store names the engine that plays (App resets it to the loaded one).
+ */
+function StartNetWarning({ store, variant }: { store: NetSelectionStore; variant: Variant }): React.JSX.Element {
+  const { evaluation } = useNetSelection(store, variant);
   return <NetWarnings warnings={evaluation.warnings} live />;
 }
 

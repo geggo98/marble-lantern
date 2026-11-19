@@ -469,6 +469,8 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       kind: 'link',
       ply: link.moves.length,
       jump: variantOfLink(link).jump,
+      variant: variantOfLink(link),
+      net: netStore,
       sideToMove: sideToMove(link.moves.length),
       preferred: link.humanSide,
       onContinueAs: (side) => startGame(side, link.moves, link.level, variantOfLink(link).jump),

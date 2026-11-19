@@ -10,6 +10,7 @@ import type { EngineInfo } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { StartDialog } from './StartDialog';
 import { EngineCard, Telemetry } from './Panels';
+import type { Variant } from '../game/variant';
 import { NetNotice, NetWarnings, describeWarnings, netNoticeKind, variantText } from './net-warnings';
 import de from '../i18n/de.json';
 import en from '../i18n/en.json';
@@ -234,6 +235,37 @@ describe('start dialog', () => {
     await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' });
     await act(async () => q('[data-choice="jump-long"]')!.click());
     expect(warns()).toEqual(['model-variant-mismatch']);
+  });
+
+  describe('link dialog (M6)', () => {
+    const link = async (modelId: string | null, variant: Variant, engine: 'net-wasm' | 'cpp-wasm' = 'net-wasm', withStore = true): Promise<void> => {
+      const net = new NetSelectionStore({ initial: { engine, modelId, sims: 200 }, storage: null, wasm: true });
+      await render(
+        <StartDialog
+          model={{ kind: 'link', ply: 4, jump: variant.jump, sideToMove: 0, onContinueAs: () => undefined, onNew: () => undefined, variant, ...(withStore ? { net } : {}) }}
+        />,
+      );
+    };
+
+    it('warns before Continue when the model cannot play the variant of the link', async () => {
+      await link('small-2p-adjacent-expert', { jump: 'long', players: 2 });
+      expect(warns()).toEqual(['model-variant-mismatch']);
+      expect((q('.ml-start__actions button') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('judges the variant of the link, not the default: the expert model plays an adjacent 2-player link', async () => {
+      await link('small-2p-adjacent-expert', { jump: 'adjacent', players: 2 });
+      expect(warns()).toEqual([]);
+      await link('small-2p-adjacent-expert', { jump: 'adjacent', players: 3 });
+      expect(warns()).toEqual(['model-variant-mismatch']);
+    });
+
+    it('a classical engine or no store: no warning', async () => {
+      await link('small-2p-adjacent-expert', { jump: 'long', players: 2 }, 'cpp-wasm');
+      expect(warns()).toEqual([]);
+      await link('small-2p-adjacent-expert', { jump: 'long', players: 2 }, 'net-wasm', false);
+      expect(warns()).toEqual([]);
+    });
   });
 
   it('a classical engine selected: no warning; no store: no warning', async () => {
