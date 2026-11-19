@@ -66,6 +66,20 @@ jobs:
       - name: Fetch rows2.bin
         run: devenv shell -- scripts/ci/fetch-rows2.zsh
 
+      - name: Restore the Gradle dependency cache
+        # Caches only downloaded dependencies and the wrapper distribution, never build outputs or the configuration
+        # cache. A restored file is not trusted by position: dependency verification (gradle/verification-metadata.xml)
+        # checks every artifact against its checksum, cached or not. Caches are scoped to this repository, and a pull
+        # request writes only to its own ref scope. The key changes with every file that decides which artifacts are needed.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'build-logic/gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-${{ runner.os }}-
+
       - name: Test and build the offline UI
         # web:ci runs the engine tests, builds, web tests, bundle checks, benchmark smoke test and browser tests.
         # BASE_PATH is derived from REPO_NAME by scripts/web/ci.zsh (the project path of the Pages site, e.g. /marble-lantern/).
