@@ -15,7 +15,7 @@ import type { StartDialogModel } from './StartDialog';
 let host: HTMLElement;
 let root: Root;
 const q = <T extends HTMLElement = HTMLElement>(s: string): T | null => document.querySelector<T>(s);
-const choice = (name: string): HTMLInputElement | HTMLButtonElement => q<HTMLInputElement | HTMLButtonElement>(`[data-choice="${name}"]`)!;
+const choice = (name: string): HTMLInputElement => q<HTMLInputElement>(`[data-choice="${name}"]`)!;
 const click = async (el: Element): Promise<void> => {
   await act(async () => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
