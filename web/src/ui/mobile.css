@@ -63,9 +63,14 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     flex: 1; min-height: 0; width: 100%; max-width: 52rem; margin-inline: auto;
     display: grid; gap: var(--ml-space-2);
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "status" "board" "adv" "bar";
+    padding: var(--ml-space-2) var(--ml-gutter) calc(var(--ml-space-2) + env(safe-area-inset-bottom));
+  }
+  /* The notice of a net engine is a row of its own only while it is mounted (net-warnings.tsx, NetNotice); a game without it keeps the four rows. */
+  .ml-play--net {
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
     grid-template-areas: "status" "net" "board" "adv" "bar";
-    padding: var(--ml-space-2) var(--ml-gutter) calc(var(--ml-space-2) + env(safe-area-inset-bottom));
   }
   .ml-play__stage { display: contents; }
   /* Fixed heights, whatever the font: a longer text is cut off, it never makes the row taller and moves the board. */
@@ -110,9 +115,13 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-nav__link { flex: none; padding: 0 var(--ml-space-3); }
   .ml-play {
     grid-template-columns: minmax(0, 1fr) minmax(12rem, 17rem);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "board status" "board adv" "board ." "board bar";
+    column-gap: var(--ml-space-3); max-width: none;
+  }
+  .ml-play--net {
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     grid-template-areas: "board status" "board net" "board adv" "board ." "board bar";
-    column-gap: var(--ml-space-3); max-width: none;
   }
   .ml-actionbar { grid-template-columns: minmax(0, 1fr); }
   .ml-actionbar .ml-btn { flex-direction: row; gap: var(--ml-space-2); min-height: var(--ml-size-control); font-size: var(--ml-text-sm); }

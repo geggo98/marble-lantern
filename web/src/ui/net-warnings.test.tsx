@@ -10,7 +10,7 @@ import type { EngineInfo } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { StartDialog } from './StartDialog';
 import { EngineCard, Telemetry } from './Panels';
-import { NetNotice, NetWarnings, describeWarnings, variantText } from './net-warnings';
+import { NetNotice, NetWarnings, describeWarnings, netNoticeKind, variantText } from './net-warnings';
 import de from '../i18n/de.json';
 import en from '../i18n/en.json';
 import { translate } from './texts';
@@ -141,38 +141,37 @@ describe('NetWarnings', () => {
 });
 
 describe('NetNotice (play screen)', () => {
-  it('is a polite status region with a name, empty while all is well and for a classical engine', async () => {
+  it('is not in the DOM at all while all is well, for a classical engine, and for warnings that need no notice (M3, L1)', async () => {
     await render(<NetNotice netEngine warnings={[]} onOpen={() => undefined} />);
-    const el = q('.ml-play__netnote')!;
-    expect(el.getAttribute('role')).toBe('status');
-    expect(el.getAttribute('aria-live')).toBe('polite');
-    expect(el.getAttribute('aria-label')!.length).toBeGreaterThan(0);
-    expect(el.getAttribute('data-net-notice')).toBe('none');
-    expect(el.hasAttribute('data-slot')).toBe(true);
-    expect(q('.ml-netnote')).toBeNull();
-  });
-
-  it('keeps the region but reserves no slot for a classical engine, and ignores its warnings', async () => {
-    await render(<NetNotice netEngine={false} warnings={[{ code: 'fallback-random' }]} onOpen={() => undefined} />);
-    expect(q('.ml-play__netnote')!.hasAttribute('data-slot')).toBe(false);
-    expect(q('.ml-netnote')).toBeNull();
+    expect(document.body.querySelector('.ml-play__netnote')).toBeNull();
+    expect(document.body.querySelector('[role="status"]')).toBeNull();
+    await render(<NetNotice netEngine={false} warnings={[{ code: 'fallback-random' }, { code: 'backend-unavailable', fallback: 'wasm' }]} onOpen={() => undefined} />);
+    expect(document.body.querySelector('.ml-play__netnote')).toBeNull();
+    await render(<NetNotice netEngine warnings={[{ code: 'no-model' }, { code: 'model-load-failed' }]} onOpen={() => undefined} />);
+    expect(document.body.querySelector('.ml-play__netnote')).toBeNull();
   });
 
   it.each([
-    ['fallback-random', 'random'],
-    ['backend-unavailable', 'cpu'],
-  ] as const)('%s gives the %s notice with an open button; the same element, so nothing moves', async (code, kind) => {
+    ['fallback-random', 'random', '#i-alert'],
+    ['backend-unavailable', 'cpu', '#i-info'],
+  ] as const)('%s gives the %s notice: a named polite status region with an open button and the icon of its tone', async (code, kind, icon) => {
     const onOpen = vi.fn();
-    await render(<NetNotice netEngine warnings={[{ code }]} onOpen={onOpen} />);
-    expect(q('.ml-play__netnote')!.getAttribute('data-net-notice')).toBe(kind);
-    expect(q('.ml-play__netnote')!.hasAttribute('data-slot')).toBe(true);
+    await render(<NetNotice netEngine warnings={[{ code, ...(code === 'backend-unavailable' ? { fallback: 'wasm' as const } : {}) }]} onOpen={onOpen} />);
+    const el = q('.ml-play__netnote')!;
+    expect(el.getAttribute('data-net-notice')).toBe(kind);
+    expect(el.getAttribute('role')).toBe('status');
+    expect(el.getAttribute('aria-live')).toBe('polite');
+    expect(el.getAttribute('aria-label')!.length).toBeGreaterThan(0);
+    expect(el.querySelector('use')!.getAttribute('href')).toBe(icon);
     await act(async () => q('[data-net-notice-open]')!.click());
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it('other warnings (no-model alone, model-load-failed) show no notice', async () => {
-    await render(<NetNotice netEngine warnings={[{ code: 'no-model' }, { code: 'model-load-failed' }]} onOpen={() => undefined} />);
-    expect(q('.ml-netnote')).toBeNull();
+  it('random moves win over the CPU fallback when both are active', () => {
+    expect(netNoticeKind(true, [{ code: 'backend-unavailable', fallback: 'wasm' }, { code: 'fallback-random' }])).toBe('random');
+    expect(netNoticeKind(true, [{ code: 'backend-unavailable', fallback: 'wasm' }])).toBe('cpu');
+    expect(netNoticeKind(true, [])).toBeNull();
+    expect(netNoticeKind(false, [{ code: 'fallback-random' }])).toBeNull();
   });
 });
 

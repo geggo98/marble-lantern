@@ -115,26 +115,35 @@ export function NetWarnings({ warnings, onAction, live = false }: NetWarningsPro
   return live ? <div aria-live="polite" data-net-warning-live>{list}</div> : list;
 }
 
+/** Which compact notice the play screen needs: random moves, the CPU instead of the GPU, or none (only net engines have one). */
+export function netNoticeKind(netEngine: boolean, warnings: readonly EngineWarning[]): 'random' | 'cpu' | null {
+  if (!netEngine) return null;
+  if (warnings.some((w) => w.code === 'fallback-random')) return 'random';
+  return warnings.some((w) => w.code === 'backend-unavailable') ? 'cpu' : null;
+}
+
 /**
- * The compact notice of the play screen: shown while the engine plays random moves or falls back to the CPU net. The element is
- * always there while a net engine is selected (a live region must exist before its text changes) and keeps its height, so the board
- * does not move. A button opens the engine sheet.
+ * The compact notice of the play screen: in the DOM only while a net engine is selected AND the engine plays random moves or fell
+ * back to the CPU net. Without a warning there is no element, no live region and no grid row, so a classical game, and a net game that
+ * works, look exactly as before the net UI. The warnings change at newGame and when the settings are applied, so the board moves then,
+ * not during a game (an engine that loses its backend in the middle of a game is the one exception). A button opens the engine sheet.
+ *
+ * Text budget for the catalog (net.notice.random, net.notice.cpu, net.action.settings): at most 40 characters in German, one line at
+ * 320 px; the button label one short word.
  */
-export function NetNotice(props: { netEngine: boolean; warnings: readonly EngineWarning[]; onOpen: () => void }): React.JSX.Element {
+export function NetNotice(props: { netEngine: boolean; warnings: readonly EngineWarning[]; onOpen: () => void }): React.JSX.Element | null {
   const { t } = useT();
-  const relevant = props.netEngine ? props.warnings.filter((w) => w.code === 'fallback-random' || w.code === 'backend-unavailable') : [];
-  const kind = relevant.some((w) => w.code === 'fallback-random') ? 'random' : relevant.length > 0 ? 'cpu' : null;
+  const kind = netNoticeKind(props.netEngine, props.warnings);
+  if (!kind) return null;
   return (
-    <div className="ml-play__netnote" {...(props.netEngine ? { 'data-slot': '' } : {})} role="status" aria-live="polite" aria-label={t('net.notice.label')} data-net-notice={kind ?? 'none'}>
-      {kind && (
-        <div className="ml-netnote">
-          <Icon name="alert" />
-          <span className="ml-netnote__text">{t(kind === 'random' ? 'net.notice.random' : 'net.notice.cpu')}</span>
-          <button type="button" className="ml-btn" data-net-notice-open onClick={props.onOpen}>
-            {t('net.action.settings')}
-          </button>
-        </div>
-      )}
+    <div className="ml-play__netnote" role="status" aria-live="polite" aria-label={t('net.notice.label')} data-net-notice={kind}>
+      <div className="ml-netnote" data-tone={kind === 'random' ? 'alert' : 'info'}>
+        <Icon name={kind === 'random' ? 'alert' : 'info'} />
+        <span className="ml-netnote__text">{t(kind === 'random' ? 'net.notice.random' : 'net.notice.cpu')}</span>
+        <button type="button" className="ml-btn" data-net-notice-open onClick={props.onOpen}>
+          {t('net.action.settings')}
+        </button>
+      </div>
     </div>
   );
 }

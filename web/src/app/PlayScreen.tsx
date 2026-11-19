@@ -20,7 +20,7 @@ import { Menu } from '../ui/Menu';
 import { useWide } from '../ui/useMedia';
 import { approximateDistance, cellName, describeHistory } from '../ui/board-model';
 import { EngineSheet } from '../ui/EngineSheet';
-import { NetNotice } from '../ui/net-warnings';
+import { NetNotice, netNoticeKind } from '../ui/net-warnings';
 import { DEFAULT_SIMS } from '../engines/warnings';
 import {
   AlertCard, Controls, EngineCard, LoadingCard, MoveList, ResultCard, SeatsCard, StatusBar, Telemetry,
@@ -222,6 +222,8 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         ? 'wasm'
         : 'webgpu';
 
+  const noticeKind = netNoticeKind(netEngine, s.warnings);
+
   const halo =
     state.outcome?.kind === 'win'
       ? (goalCells(variant)[state.outcome.winner] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Player }).winner)
@@ -277,7 +279,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   );
 
   return (
-    <main className="ml-play">
+    <main className={noticeKind ? 'ml-play ml-play--net' : 'ml-play'}>
       <div className="ml-play__stage">
         <StatusBar
           state={state.thinking ? 'thinking' : 'ready'}

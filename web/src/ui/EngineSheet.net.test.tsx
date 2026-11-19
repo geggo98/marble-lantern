@@ -180,7 +180,7 @@ describe('WebGPU row', () => {
   const status = (): string | null | undefined => q('[data-webgpu-status]')?.getAttribute('data-webgpu-status');
   it('says checking while the probe runs, then available', async () => {
     let done: (r: { available: boolean }) => void = () => undefined;
-    await open({ probe: () => new Promise((r) => (done = r)) });
+    await open({ engine: 'net-webgpu', probe: () => new Promise((r) => (done = r)) });
     expect(status()).toBe('checking');
     expect(q('[data-webgpu-status] use')!.getAttribute('href'), 'a neutral icon while the probe runs, no check mark').toBe('#i-wait');
     await act(async () => done({ available: true }));
@@ -189,11 +189,26 @@ describe('WebGPU row', () => {
   });
 
   it('says unavailable with the reason from the probe', async () => {
-    await open({ probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
+    await open({ engine: 'net-webgpu', probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
     expect(status()).toBe('unavailable');
     expect(q('[data-webgpu-status]')!.textContent).toContain('net.reason.webgpu-no-adapter'); // the localized text of the code
     expect(q<HTMLDetailsElement>('[data-webgpu-status] details')!.open).toBe(false); // the English technical text is folded away
     expect(q('[data-webgpu-status] details')!.textContent).toContain('no adapter');
+  });
+
+  it('is not probed when the sheet opens with another engine; selecting the WebGPU row probes once, and only then shows its status (M3, L1)', async () => {
+    const probe = vi.fn(() => Promise.resolve({ available: true }));
+    await open({ engine: 'cpp-wasm', probe });
+    expect(probe).not.toHaveBeenCalled();
+    expect(status()).toBeUndefined();
+    await click(q('[data-engine="net-wasm"]'));
+    expect(probe).not.toHaveBeenCalled();
+    await click(q('[data-engine="net-webgpu"]'));
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(status()).toBe('available');
+    await click(q('[data-engine="net-wasm"]'));
+    await click(q('[data-engine="net-webgpu"]'));
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 
   it('is not probed when no WebGPU row is listed', async () => {

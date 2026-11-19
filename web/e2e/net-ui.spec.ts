@@ -77,7 +77,7 @@ for (const size of [
       await waitForHumanTurn(page);
       await pickEngine(page, 'net-wasm', EXPERT);
       await closeMenu(page);
-      await expect(page.locator('.ml-play__netnote')).toHaveAttribute('data-net-notice', 'none');
+      await expect(page.locator('.ml-play__netnote'), 'no notice element while the net plays').toHaveCount(0);
       await playExchange(page);
       await shot(page, `${info.project.name}-${size.name}-play-net-ok`);
       await withCards(page, async () => {

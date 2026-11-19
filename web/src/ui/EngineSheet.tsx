@@ -58,10 +58,10 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const net = useNetSelection(fallbackStore, variant);
   const [modelId, setModelId] = useState<string | null>(net.selection.modelId);
   const [sims, setSims] = useState<Sims>(net.selection.sims);
-  const hasWebGpuRow = props.choices.some((c) => c.info.id === 'net-webgpu');
+  // The browser is asked about WebGPU only when the WebGPU row is selected, not when the sheet opens (the probe caches).
   useEffect(() => {
-    if (hasWebGpuRow) void net.probeWebGpu(); // the row shows what the probe says
-  }, [hasWebGpuRow]); // eslint-disable-line react-hooks/exhaustive-deps -- once per sheet
+    if (engine === 'net-webgpu') void net.probeWebGpu();
+  }, [engine]); // eslint-disable-line react-hooks/exhaustive-deps -- probeWebGpu is stable
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
 
   useEffect(() => {
@@ -154,7 +154,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                   )}
                   {id === defaultId && <Tag solid>{t('default')}</Tag>}
                 </span>
-                {id === 'net-webgpu' && c.available && (
+                {id === 'net-webgpu' && c.available && checked && (
                   <p className="ml-option__reason" data-webgpu-status={net.availability.webgpu === null ? 'checking' : net.availability.webgpu ? 'available' : 'unavailable'}>
                     <Icon name={net.availability.webgpu === null ? 'wait' : net.availability.webgpu ? 'check' : 'alert'} />
                     <span>

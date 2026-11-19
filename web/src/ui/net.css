@@ -26,23 +26,18 @@
 .ml-netwarn__text { overflow-wrap: anywhere; }
 .ml-start .ml-netwarn { margin-top: var(--ml-space-3); }
 
-/* The notice of the play screen: always the same height while a net engine is selected, so nothing moves when it fills. */
-.ml-play__netnote { height: 0; overflow: hidden; }
-.ml-play__netnote[data-slot] { height: 3rem; }
+/* The notice of the play screen: mounted only while a net engine needs it. At least 3 rem, taller when a text needs it. */
+.ml-play__netnote { min-height: 3rem; }
 .ml-netnote {
-  display: flex; align-items: center; gap: var(--ml-space-2); height: 100%; box-sizing: border-box;
+  display: flex; align-items: center; gap: var(--ml-space-2); min-height: 3rem; box-sizing: border-box;
   padding: 0 var(--ml-space-2) 0 var(--ml-space-3); border-radius: var(--ml-radius-md);
   background: var(--ml-color-info-bg); border: var(--ml-border) solid var(--ml-color-line-strong); border-left: 4px solid var(--ml-color-ink);
   font-size: var(--ml-text-xs); line-height: 1.25;
 }
 .ml-netnote > .ml-icon { flex: none; width: 1.25rem; height: 1.25rem; }
 .ml-netnote__text { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
-.ml-netnote > .ml-btn { flex: none; min-height: var(--ml-size-control); max-width: 40%; padding-inline: var(--ml-space-2); font-size: var(--ml-text-xs); }
+.ml-netnote > .ml-btn { flex: none; min-height: var(--ml-size-control); max-width: 40%; padding-inline: var(--ml-space-2); font-size: var(--ml-text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (min-width: 60rem) { .ml-netnote { font-size: var(--ml-text-sm); } }
-@media (max-width: 59.99rem) and (orientation: landscape) and (max-height: 32rem) {
-  .ml-play__netnote[data-slot] { height: auto; min-height: 3rem; }
-  .ml-netnote { height: auto; }
-}
 @media (forced-colors: active) {
   .ml-netwarn__item, .ml-netnote, .ml-choice { border-color: CanvasText; }
 }
