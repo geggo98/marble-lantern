@@ -59,6 +59,11 @@ jobs:
       - name: Fetch rows2.bin
         run: devenv shell -- scripts/ci/fetch-rows2.zsh
 
+      - name: Install the npm dependencies of web/ (the Hilla frontend build compiles web/src)
+        # :app:vaadinBuildFrontend type-checks ../web/src, which resolves react and the types from web/node_modules.
+        # Without them the build fails with TS2307 "Cannot find module 'react'". --mode single: install only, no "after" tasks.
+        run: devenv tasks run --mode single web:install
+
       - name: Gradle build (TornadoVM tests skip without the SDK, as on a developer machine)
         run: devenv shell -- ./gradlew --no-build-cache build
 
