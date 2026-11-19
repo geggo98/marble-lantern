@@ -25,11 +25,11 @@ public final class SampleExpander {
      * Constant planes (3 to 5) of canonical orientation as a full input; index [plain or classical][players - 2][mirror].
      * The classical planes are not in the template; they are written after it.
      */
-    private static final float[][][][] TEMPLATE = new float[2][2][2][];
+    private static final float[][][][] TEMPLATE = new float[3][2][2][];
 
     static {
-        for (int set = 0; set < 2; set++) {
-            int stride = set == 0 ? Encoder.PLANES : Encoder.CLASSIC_PLANES;
+        for (int set = 0; set < 3; set++) {
+            int stride = set == 0 ? Encoder.PLANES : set == 1 ? Encoder.CLASSIC_PLANES : Encoder.VARIANT_PLANES;
             for (int players = 2; players <= 3; players++) {
                 Layout layout = Layout.of(players);
                 for (int m = 0; m < (players == 2 ? 2 : 1); m++) {
@@ -63,6 +63,12 @@ public final class SampleExpander {
         return Geometry.mirror(canonicalCell);
     }
 
+    /** {@link #expand(PlaneSet, int, RuleSet.JumpRule, byte[], int, int, int, boolean, float[], int)} with adjacent jumps. */
+    public static void expand(PlaneSet planes, int players, byte[] cells, int cellsOffset, int ply, int moveLimit,
+            boolean mirror, float[] out, int outOffset) {
+        expand(planes, players, RuleSet.JumpRule.ADJACENT, cells, cellsOffset, ply, moveLimit, mirror, out, outOffset);
+    }
+
     /** {@link #expand(PlaneSet, int, byte[], int, int, int, boolean, float[], int)} with the plain planes. */
     public static void expand(int players, byte[] cells, int cellsOffset, int ply, int moveLimit, boolean mirror,
             float[] out, int outOffset) {
@@ -74,11 +80,13 @@ public final class SampleExpander {
      * slice is written. The classical planes of {@link PlaneSet#CLASSIC1} are recomputed here from the cells: the
      * position is rebuilt in canonical orientation (relative player i as player i, default rules with the given move
      * limit, the mover to move) and the same code as in {@link Encoder#encode} runs on it, so the result equals the
-     * encoding of the original position float for float (for positions under the default rules, which the sample
-     * files assume).
+     * encoding of the original position float for float (for positions under the default rules except the jump rule, which the sample
+     * files record in {@code rules}).
      *
      * @param planes    the plane set of the network that will read the input
      * @param players   2 or 3
+     * @param jumpRule  the jump rule of the sample's {@code rules}: the reach planes are generated under it, and for
+     *                  {@link PlaneSet#CLASSIC1V} it sets {@link Encoder#LONG} (and zeroes {@link Encoder#EVAL})
      * @param cells     canonical cells, {@link HexGrid#CELLS} bytes from {@code cellsOffset}: 0 empty, 1 + relative
      *                  player otherwise
      * @param ply       {@code Position.ply()} of the original position, &gt;= 0
@@ -88,8 +96,9 @@ public final class SampleExpander {
      *                                   moveLimit is out of range, or a cell byte is larger than players
      * @throws IndexOutOfBoundsException if a slice does not fit its array
      */
-    public static void expand(PlaneSet planes, int players, byte[] cells, int cellsOffset, int ply, int moveLimit,
-            boolean mirror, float[] out, int outOffset) {
+    public static void expand(PlaneSet planes, int players, RuleSet.JumpRule jumpRule, byte[] cells, int cellsOffset,
+            int ply, int moveLimit, boolean mirror, float[] out, int outOffset) {
+        Objects.requireNonNull(jumpRule, "jumpRule");
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
@@ -102,7 +111,7 @@ public final class SampleExpander {
         Objects.checkFromIndexSize(cellsOffset, HexGrid.CELLS, cells.length);
         int stride = planes.planes();
         Objects.checkFromIndexSize(outOffset, planes.inputSize(), out.length);
-        System.arraycopy(TEMPLATE[planes.classical() ? 1 : 0][players - 2][mirror ? 1 : 0], 0, out, outOffset,
+        System.arraycopy(TEMPLATE[planes.variants() ? 2 : planes.classical() ? 1 : 0][players - 2][mirror ? 1 : 0], 0, out, outOffset,
                 planes.inputSize());
         float progress = (float) Math.min(ply, moveLimit) / moveLimit;
         for (int c = 0; c < HexGrid.CELLS; c++) {
@@ -115,9 +124,13 @@ public final class SampleExpander {
                 out[base + Encoder.OWN + owner - 1] = 1f;
             }
             out[base + Encoder.PROGRESS] = progress;
+            if (planes.variants()) {
+                out[base + Encoder.LONG] = jumpRule == RuleSet.JumpRule.LONG ? 1f : 0f;
+                out[base + Encoder.THREE_PLAYERS] = players == 3 ? 1f : 0f;
+            }
         }
         if (planes.classical()) {
-            RuleSet rules = RuleSet.defaults(players).withMoveLimit(moveLimit);
+            RuleSet rules = RuleSet.defaults(players).withMoveLimit(moveLimit).withJumpRule(jumpRule);
             Position position = Position.empty(rules);
             for (int c = 0; c < HexGrid.CELLS; c++) {
                 int owner = cells[cellsOffset + c] & 0xFF;
@@ -125,7 +138,7 @@ public final class SampleExpander {
                     position.put(owner - 1, c);
                 }
             }
-            ClassicalPlanes.fill(position, Orientation.of(players, 0), mirror, out, outOffset, stride);
+            ClassicalPlanes.fill(position, Orientation.of(players, 0), mirror, planes.variants(), out, outOffset, stride);
         }
     }
 }

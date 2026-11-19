@@ -58,8 +58,10 @@ public record TrainingBatch(int size, int players, float[] input, int[] moveOffs
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
         long width = (long) size * HexGrid.ROWS;
-        if (input.length % width != 0|| (input.length / width != Encoder.PLANES && input.length / width != Encoder.CLASSIC_PLANES)) {
-            throw new IllegalArgumentException("input needs " + width * Encoder.PLANES + " or " + width * Encoder.CLASSIC_PLANES
+        if (input.length % width != 0|| (input.length / width != Encoder.PLANES && input.length / width != Encoder.CLASSIC_PLANES
+                && input.length / width != Encoder.VARIANT_PLANES)) {
+            throw new IllegalArgumentException("input needs " + width * Encoder.PLANES + ", " + width * Encoder.CLASSIC_PLANES
+                    + " or " + width * Encoder.VARIANT_PLANES
                     + " floats for " + size + " samples, has " + input.length);
         }
         requireLength("moveOffsets", moveOffsets.length, size + 1L);

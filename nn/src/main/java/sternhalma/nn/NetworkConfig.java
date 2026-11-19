@@ -12,7 +12,8 @@ import java.util.Objects;
  *
  * @param channels    channels C of the trunk, 1 to {@link #MAX_CHANNELS}
  * @param blocks      residual blocks B, 0 to {@link #MAX_BLOCKS}
- * @param players     players P, 2 or 3; the width of the value head output
+ * @param players     players P, 2 or 3; the width of the value head output. A network of {@link PlaneSet#CLASSIC1V}
+ *                    has P = 3 and serves positions of two and three players
  * @param valueHidden hidden width H of the value head, 1 to {@link #MAX_VALUE_HIDDEN}; 32 in every preset
  * @param planes      the input planes and priors, {@link PlaneSet#PLAIN} for the networks of format version 1
  */
@@ -34,6 +35,11 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
     public static final int FORMAT_VERSION = 1;
     /** The format version of a network with classical planes: adds the metadata key {@code planes}. */
     public static final int FORMAT_VERSION_PLANES = 2;
+    /**
+     * The format version of a network of {@link PlaneSet#CLASSIC1V}: 15 input planes and a value head of width 3 that
+     * serves two and three players (docs/network.md, "Format version 3 (variants)").
+     */
+    public static final int FORMAT_VERSION_VARIANTS = 3;
 
     /** A network with the plain planes. */
     public NetworkConfig(int channels, int blocks, int players, int valueHidden) {
@@ -50,6 +56,10 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
         }
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
+        }
+        if (planes.variants() && players != 3) {
+            throw new IllegalArgumentException("planes " + planes.id() + " needs players 3 (the value head serves two and"
+                    + " three players), got " + players);
         }
         if (valueHidden < 1 || valueHidden > MAX_VALUE_HIDDEN) {
             throw new IllegalArgumentException("value_hidden must be in [1, " + MAX_VALUE_HIDDEN + "], got "
@@ -72,12 +82,15 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
         return new NetworkConfig(64, 6, players, VALUE_HIDDEN);
     }
 
-    /** The same network size with another set of input planes and priors. */
+    /**
+     * The same network size with another set of input planes and priors. {@link PlaneSet#CLASSIC1V} sets players to 3,
+     * the value head width of that plane set.
+     */
     public NetworkConfig withPlanes(PlaneSet other) {
-        return new NetworkConfig(channels, blocks, players, valueHidden, other);
+        return new NetworkConfig(channels, blocks, other.variants() ? 3 : players, valueHidden, other);
     }
 
-    /** Input planes per cell: 7 for {@link PlaneSet#PLAIN}, 13 for the classical sets. */
+    /** Input planes per cell: 7 for {@link PlaneSet#PLAIN}, 13 for the classical sets, 15 for {@link PlaneSet#CLASSIC1V}. */
     public int inputPlanes() {
         return planes.planes();
     }
@@ -107,12 +120,13 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
      * The metadata entries of docs/network.md, "Metadata keys": format, format_version, channels, blocks,
      * players, value_hidden and input_planes, in this order, and for a classical plane set the key {@code planes}
      * after them. A network with the plain planes is written as format version 1, so that older readers still read
-     * it; any other plane set is format version 2.
+     * it; a plane set with classical planes is format version 2, and {@link PlaneSet#CLASSIC1V} is format version 3.
      */
     public Map<String, String> toMetadata() {
         Map<String, String> m = new LinkedHashMap<>();
         m.put("format", FORMAT);
-        m.put("format_version", Integer.toString(planes == PlaneSet.PLAIN ? FORMAT_VERSION : FORMAT_VERSION_PLANES));
+        m.put("format_version", Integer.toString(planes == PlaneSet.PLAIN ? FORMAT_VERSION
+                : planes.variants() ? FORMAT_VERSION_VARIANTS : FORMAT_VERSION_PLANES));
         m.put("channels", Integer.toString(channels));
         m.put("blocks", Integer.toString(blocks));
         m.put("players", Integer.toString(players));
@@ -148,6 +162,17 @@ public record NetworkConfig(int channels, int blocks, int players, int valueHidd
                 throw new IllegalArgumentException("metadata key planes is missing");
             }
             planes = PlaneSet.ofId(metadata.get("planes"));
+            if (planes.variants()) {
+                throw new IllegalArgumentException("planes " + planes.id() + " is format_version 3, not 2");
+            }
+        } else if (version == FORMAT_VERSION_VARIANTS) {
+            if (!metadata.containsKey("planes")) {
+                throw new IllegalArgumentException("metadata key planes is missing");
+            }
+            planes = PlaneSet.ofId(metadata.get("planes"));
+            if (!planes.variants()) {
+                throw new IllegalArgumentException("format_version 3 is for planes classic1v, got " + planes.id());
+            }
         } else {
             throw new IllegalArgumentException("unknown format_version: " + metadata.get("format_version"));
         }

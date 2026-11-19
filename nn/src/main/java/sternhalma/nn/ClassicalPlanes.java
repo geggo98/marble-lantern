@@ -5,6 +5,7 @@ import sternhalma.engine.Geometry;
 import sternhalma.engine.Layout;
 import sternhalma.engine.Move;
 import sternhalma.engine.Position;
+import sternhalma.engine.RuleSet;
 
 /**
  * The classical input planes of {@link PlaneSet#CLASSIC1} (docs/network.md, "Classical planes and residual
@@ -95,10 +96,13 @@ public final class ClassicalPlanes {
      *
      * @param position the position; its side to move is the mover of {@code orientation}
      * @param mirror   write each row to its left-right mirror (two players); the planes of the mirrored position
+     * @param variants the plane set is {@link PlaneSet#CLASSIC1V}: {@link Encoder#EVAL} is 0 under the LONG jump rule
+     *                 (the linear evaluation is fitted for adjacent jumps), as it is for three players
      * @param offset   start of the position in {@code out}
      * @param stride   planes per row of {@code out}, at least {@link Encoder#CLASSIC_PLANES}
      */
-    static void fill(Position position, Orientation orientation, boolean mirror, float[] out, int offset, int stride) {
+    static void fill(Position position, Orientation orientation, boolean mirror, boolean variants, float[] out,
+            int offset, int stride) {
         int players = orientation.players();
         int mover = orientation.mover();
         int next = (mover + 1) % players;
@@ -126,7 +130,8 @@ public final class ClassicalPlanes {
             out[row[Move.to(moves[i])] + Encoder.REACH_NEXT] = 1f;
         }
         float passed = passed(position) ? 1f : 0f;
-        float eval = players == 2 ? (float) linearLogit(position) : 0f;
+        boolean evalOn = players == 2 && !(variants && position.rules().jumpRule() == RuleSet.JumpRule.LONG);
+        float eval = evalOn ? (float) linearLogit(position) : 0f;
         for (int c = 0; c < Geometry.CELLS; c++) {
             out[row[c] + Encoder.PASSED] = passed;
             out[row[c] + Encoder.EVAL] = eval;

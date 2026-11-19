@@ -17,10 +17,15 @@ final class Playouts {
      * at its outcome, when the side to move has no legal move, or after {@code maxPlies}.
      */
     static List<Position> positions(int players, int games, int maxPlies, long seed) {
+        return positions(players, RuleSet.JumpRule.ADJACENT, games, maxPlies, seed);
+    }
+
+    /** The same under the given jump rule. */
+    static List<Position> positions(int players, RuleSet.JumpRule jumpRule, int games, int maxPlies, long seed) {
         List<Position> result = new ArrayList<>();
         Random random = new Random(seed);
         for (int g = 0; g < games; g++) {
-            Position position = Position.initial(RuleSet.defaults(players).withMoveLimit(1000));
+            Position position = Position.initial(RuleSet.defaults(players).withMoveLimit(1000).withJumpRule(jumpRule));
             result.add(position.copy());
             for (int ply = 0; ply < maxPlies && position.outcome() == null; ply++) {
                 int[] moves = position.legalMoves();
