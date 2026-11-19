@@ -6,6 +6,7 @@ import sternhalma.engine.Geometry;
 import sternhalma.engine.Layout;
 import sternhalma.engine.Move;
 import sternhalma.engine.Position;
+import sternhalma.engine.RuleSet;
 
 /**
  * Input planes and the policy layout (docs/network.md, "Input planes" and "Policy head and move logits").
@@ -50,6 +51,12 @@ public final class Encoder {
     public static final int EVAL = 12;
     /** Number of input planes of {@link PlaneSet#CLASSIC1}. */
     public static final int CLASSIC_PLANES = 13;
+    /** Plane 13 (variant planes only): 1 in every cell row if the position's jump rule is LONG. */
+    public static final int LONG = 13;
+    /** Plane 14 (variant planes only): 1 in every cell row if the position has three players. */
+    public static final int THREE_PLAYERS = 14;
+    /** Number of input planes of {@link PlaneSet#CLASSIC1V}. */
+    public static final int VARIANT_PLANES = 15;
     /** Floats per encoded position of the plain planes: 122 rows times 7 planes = 854. */
     public static final int INPUT_SIZE = HexGrid.ROWS * PLANES;
 
@@ -127,7 +134,16 @@ public final class Encoder {
             out[base + PROGRESS] = progress;
         }
         if (planes.classical()) {
-            ClassicalPlanes.fill(position, orientation, false, out, offset, stride);
+            ClassicalPlanes.fill(position, orientation, false, planes.variants(), out, offset, stride);
+        }
+        if (planes.variants()) {
+            float isLong = position.rules().jumpRule() == RuleSet.JumpRule.LONG ? 1f : 0f;
+            float isThree = position.rules().players() == 3 ? 1f : 0f;
+            for (int c = 0; c < Geometry.CELLS; c++) {
+                int base = offset + index(stride, orientation.toCanonical(c), 0);
+                out[base + LONG] = isLong;
+                out[base + THREE_PLAYERS] = isThree;
+            }
         }
     }
 

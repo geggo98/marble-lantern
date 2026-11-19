@@ -15,6 +15,10 @@ import sternhalma.engine.Position;
  * double), and reorder the values from relative to absolute players: the value of absolute player a is
  * output {@code (a - mover) mod players}.
  *
+ * <p>A network of {@link PlaneSet#CLASSIC1V} serves positions of two and three players: its value head has three
+ * outputs, and a position of n players takes the first n of them (relative players 0 to n - 1). Every other network
+ * accepts only positions with its own player count.
+ *
  * <p>The evaluator does not check whether the game is over; the caller asks {@code Position.outcome()}
  * first.
  *
@@ -42,7 +46,8 @@ public final class Evaluator {
     /**
      * Evaluates one position. The position is not changed.
      *
-     * @throws IllegalArgumentException if the position's player count differs from the network's
+     * @throws IllegalArgumentException if the position's player count differs from the network's, or, for a network of
+     *                                  {@link PlaneSet#CLASSIC1V}, is not 2 or 3
      */
     public Evaluation evaluate(Position position) {
         return evaluate(List.of(position)).getFirst();
@@ -60,7 +65,8 @@ public final class Evaluator {
      *                                  inside the forward pass
      */
     public List<Evaluation> evaluate(List<Position> positions) {
-        int players = network.config().players();
+        int netPlayers = network.config().players();
+        boolean variants = network.config().planes().variants();
         int batch = positions.size();
         if (batch == 0) {
             throw new IllegalArgumentException("no positions to evaluate");
@@ -70,14 +76,15 @@ public final class Evaluator {
         float[] input = new float[batch * inputSize];
         for (int b = 0; b < batch; b++) {
             Position position = positions.get(b);
-            if (position.rules().players() != players) {
-                throw new IllegalArgumentException("position " + b + " has " + position.rules().players()
-                        + " players, the network has " + players);
+            int positionPlayers = position.rules().players();
+            if (variants ? positionPlayers != 2 && positionPlayers != 3 : positionPlayers != netPlayers) {
+                throw new IllegalArgumentException("position " + b + " has " + positionPlayers
+                        + " players, the network has " + netPlayers + (variants ? " (serves 2 and 3)" : ""));
             }
             Encoder.encode(planes, position, input, b * inputSize);
         }
         float[] policy = new float[batch * Encoder.POLICY_SIZE];
-        float[] values = new float[batch * players];
+        float[] values = new float[batch * netPlayers];
         network.forward(input, batch, policy, values);
 
         List<Evaluation> result = new ArrayList<>(batch);
@@ -86,9 +93,10 @@ public final class Evaluator {
             int[] moves = position.legalMoves();
             float[] priors = priors(Orientation.of(position), policy, b * Encoder.POLICY_SIZE, moves);
             int mover = position.sideToMove();
+            int players = position.rules().players();
             float[] absolute = new float[players];
             for (int a = 0; a < players; a++) {
-                absolute[a] = values[b * players + Math.floorMod(a - mover, players)];
+                absolute[a] = values[b * netPlayers + Math.floorMod(a - mover, players)];
                 if (Float.isNaN(absolute[a])) {
                     throw new IllegalStateException("network output is NaN: value of player " + a
                             + " in position " + b);
