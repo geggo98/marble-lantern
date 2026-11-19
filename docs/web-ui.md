@@ -8,23 +8,25 @@ All engines implement one TypeScript `Engine` interface, and the browser engines
 The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons for the default engine are in [ADR 0003](adr/0003-teavm-default-engine.md), and the speed comparison is in [web benchmark](web-benchmark.md).
 The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
 The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
+The app plays game variants: the long-hop jump rule and games with three players, with a human or an engine on each seat ([game variants](#game-variants)). The UI for choosing a variant is not built yet; a start hook and game links start them.
 
 ## Contents
 
 1. [Terms](#terms)
 2. [The two modes](#the-two-modes)
 3. [Game URL](#game-url)
-4. [The engines](#the-engines)
-5. [The engine interface](#the-engine-interface)
-6. [The worker protocol](#the-worker-protocol)
-7. [Analysis API](#analysis-api)
-8. [Move guides](#move-guides)
-9. [Skill estimate](#skill-estimate)
-10. [Small screens and touch](#small-screens-and-touch)
-11. [Loading and checking the race table](#loading-and-checking-the-race-table)
-12. [Build, run and test](#build-run-and-test)
-13. [Continuous integration](#continuous-integration)
-14. [Known limits](#known-limits)
+4. [Game variants](#game-variants)
+5. [The engines](#the-engines)
+6. [The engine interface](#the-engine-interface)
+7. [The worker protocol](#the-worker-protocol)
+8. [Analysis API](#analysis-api)
+9. [Move guides](#move-guides)
+10. [Skill estimate](#skill-estimate)
+11. [Small screens and touch](#small-screens-and-touch)
+12. [Loading and checking the race table](#loading-and-checking-the-race-table)
+13. [Build, run and test](#build-run-and-test)
+14. [Continuous integration](#continuous-integration)
+15. [Known limits](#known-limits)
 
 ## Terms
 
@@ -37,6 +39,9 @@ The browser engines can also score moves ([analysis API](#analysis-api)). The UI
 - **Score:** the value of a move or position that the search reports, in points, from the point of view of the side that makes the move; higher is better. One step of progress towards the goal corner is worth about 30 points ([analysis API](#analysis-api)).
 - **Engine card, skill card:** panels of the play screen. The engine card shows the engine and its level. The skill card shows the skill estimate. The engine sheet is the dialog "Engine and strength", opened from the engine card, in which the player chooses engine and level.
 - **Ply:** one move of one side.
+- **Variant:** the pair of jump rule (`adjacent` or `long`, see [rules](rules.md), "Jump rule") and player count (2 or 3). The default variant is adjacent jumps with two players: the game of every link written before the variants existed.
+- **Seat:** the place of one player. Seat 0 moves first, and the seat to move after `ply` plies is `ply % players`. A seat is played by a human or by an engine.
+- **Hot-seat:** a three-player game with two human seats on the same device and one engine seat. The two humans share one board and take turns; the board does not turn.
 - **Wasm GC:** WebAssembly with garbage collection. TeaVM 0.16.0 has only this WebAssembly backend.
 - **Network player:** the player that searches with Monte Carlo tree search (MCTS) guided by a neural network; its weights are a safetensors file ([network](network.md)). It runs only on the server.
 - **Fingerprint:** move checksum and total nodes of a fixed benchmark game. Equal fingerprints mean equal moves and equal search ([web benchmark, the fingerprint](web-benchmark.md#the-fingerprint)).
@@ -72,7 +77,7 @@ In the online mode, `app/build.gradle.kts` copies `web/public/engines/` and `web
 | `web/src/engines/java/` | adapter for the TeaVM output, both targets |
 | `web/src/engines/server/` | adapter for the server engines (online mode only) |
 | `web/src/board/` | board geometry `cells.generated.json` (121 cells with id and axial coordinates `q`, `r`) and `path.ts` (jump path for the move animation) |
-| `web/src/game/` | game state: move history, side to move, undo, new game |
+| `web/src/game/` | game state: move history, side to move, undo, new game; `variant.ts` (the variant and its helpers), `setup.ts` (who plays which seat) |
 | `web/src/ui/`, `web/src/app/` | screens and components |
 | `web/src/guides/` | move guides: bands, marks, advantage text, background analysis (see [move guides](#move-guides)) |
 | `web/src/skill/` | skill estimate: statistic, calibration, level encoding, background tracker (see [skill estimate](#skill-estimate)) |
@@ -96,17 +101,27 @@ Code: `web/src/app/game-url.ts` (encode, decode and parse, pure functions withou
 
 ```text
 #g=v1.<payload>&h=<side>&l=<level>
+#g=v1.<payload>&h=<side>&l=<level>&j=long
+#g=v1.<payload>&l=<level>&p=3&s=<seats>
 ```
+
+The first line is the default variant (adjacent jumps, two players). The second adds the long-hop rule. The third is a three-player game, with the long hop if `&j=long` is added.
 
 - `g=v1.` is the version prefix.
 - `h=0` or `h=1` is the side the human plays. Side 0 moves first. The dialogs call side 0 Blue and side 1 Amber.
 - `l=<n>` is the level. A number 0 to 4 is an index into the five preset levels (1,000, 5,000, 20,000, 100,000 and 500,000 nodes). A number 10 to 5,000,000 is a custom level, the node budget itself, which the button "Match engine to my strength" sets (see [skill estimate](#skill-estimate)); `l=7300` means 7,300 nodes per move. The numbers 5 to 9 and everything else are invalid.
 
-`h` and `l` are optional for the parser; the app always writes both. An empty game at the default strength is `#g=v1.&h=0&l=2`.
+- `j=long` is the long-hop jump rule. The adjacent rule has no `j`; the encoder never writes `j=adjacent`.
+- `p=3` is a game with three players. Two players have no `p`; the encoder never writes `p=2`.
+- `s=<seats>` is who plays each seat: one character per seat, `h` for a human and `e` for an engine, in playing order. It is required with `p=3` and not allowed without it. A three-player link has at least one and at most two `h`: `hee` (one human against two engines), `hhe` (hot-seat). Two players keep `h=<side>`; three players have no `h`, because the seats say it.
+
+`h` and `l` are optional for the parser; the app writes both for two players (for three, `l` only). An empty game at the default strength is `#g=v1.&h=0&l=2`. A three-player game of one human on seat 0 is `#g=v1.&l=2&p=3&s=hee`.
+
+Origin: a decision of the project owner (game-variants feature). Rationale: a link written before the variants has none of the new fields, so it keeps its meaning, and the new fields appear only where they differ from the default. Limit: the format has no field for a network player.
 
 The payload holds the moves from the start position. Each move is 14 bits: 7 bits for the from-cell and 7 bits for the to-cell, cells 0 to 120. The moves form one big-endian bit stream, zero-padded to whole bytes and encoded as base64url without padding (alphabet `A-Z`, `a-z`, `0-9`, `-`, `_`). 4 moves take 7 bytes, 5 moves take 9 bytes.
 
-Size, measured by the unit test `web/src/app/game-url.test.ts`: 100 plies give 175 bytes and a payload of 234 characters. The move limit of a game is 200 plies (`MOVE_LIMIT` in `web/src/game/board-state.ts`, see [rules](rules.md)); that gives 350 bytes and 467 characters, and a fragment of 481 characters with the prefix and both fields. A limit of 1,000 plies would give 1,750 bytes and 2,334 characters by the same arithmetic (calculated, not measured); this shows the cost if the limit were raised. A game at the move limit is short enough to paste into a chat message.
+Size, measured by the unit test `web/src/app/game-url.test.ts`: 100 plies give 175 bytes and a payload of 234 characters. The move limit of a two-player game is 200 plies (`MOVE_LIMIT` in `web/src/game/board-state.ts`, `moveLimit(variant)` in `web/src/game/variant.ts`, see [rules](rules.md)); that gives 350 bytes and 467 characters, and a fragment of 481 characters with the prefix and both fields. A three-player game has 300 plies: 525 bytes and 700 characters, and 720 characters with the prefix, `&l=2&p=3&s=hhe` (measured by the unit test `web/src/app/game-url.variants.test.ts`). A limit of 1,000 plies would give 1,750 bytes and 2,334 characters by the same arithmetic (calculated, not measured); this shows the cost if the limit were raised. A game at the move limit is short enough to paste into a chat message.
 
 ### Routes
 
@@ -118,17 +133,18 @@ The app writes one history entry per full turn:
 
 | Event | History call |
 |---|---|
-| The human moves | `pushState`: a new entry with the position after the human's move |
-| The engine's answer arrives | `replaceState`: the same entry now holds the answer too |
+| A human moves (any human seat) | `pushState`: a new entry with the position after that move |
+| An engine answers (any engine seat) | `replaceState`: the same entry now holds the answer too |
 | Undo, new game | `pushState` |
 | Only the strength changes | `replaceState` |
 | The human swaps sides | a new game, so `pushState`; `replaceState` if no move was played yet |
+| The human seat rotates (three players, swap button) | `replaceState`: the moves stay, the address shows the new seats |
 | The first state of a page | `replaceState`, no extra entry |
 | Engine-versus-engine demo (two engines play each other; the play screen button "Engine vs. engine") | nothing |
 
 Back loads the previous entry: it cancels a running search (the engine terminates its Web Worker and starts a new one, see [the engine interface](#the-engine-interface)) and loads that position without a dialog. Forward does the same in the other direction. The app marks its own entries in `history.state`. An address that the user typed or pasted has no marker, so it opens the "Continue this game?" dialog instead.
 
-Origin: a decision of the project owner. Rationale: with one entry per ply, Back would first show the position in which the engine is to move. The engine would answer at once, so Back would seem to do nothing or to fight the player. The player thinks in turns, and with one entry per turn Back means "take back my last move and the engine's answer". Limit: the rule assumes one human against one engine; the demo writes no entries at all.
+Origin: a decision of the project owner. Rationale: with one entry per ply, Back would first show the position in which the engine is to move. The engine would answer at once, so Back would seem to do nothing or to fight the player. The player thinks in turns, and with one entry per turn Back means "take back my last move and the engine's answer". Limit: the rule assumes that the engines answer right after a human. With three players one entry holds the move of a human and the answers of the engines up to the next human seat; in hot-seat every move of a human is an entry of its own, because the next move is another person's. The demo writes no entries at all.
 
 ### Strict parsing
 
@@ -138,40 +154,88 @@ The parser is strict. It requires:
 - a payload whose length is a whole number of moves, with zero padding bits
 - only the base64url alphabet, in canonical form: no padding characters and no non-zero spare bits
 - every cell between 0 and 120
-- at most 200 moves
-- `h` 0 or 1; `l` 0 to 4 or 10 to 5,000,000, without leading zeros; the two fields may come in either order, and either may be missing
+- at most as many moves as the variant allows: 200 for two players, 300 for three (the variant comes from `p`, which may stand after the payload)
+- `h` 0 or 1, only for two players; `l` 0 to 4 or 10 to 5,000,000, without leading zeros; the fields may come in any order, and `h` and `l` may be missing
+- `j` only as `j=long`; `p` only as `p=3`; `s` of three characters from `h` and `e` with one or two `h`, required with `p=3` and not allowed without it
 - no unknown fields and no repeated fields
 
 Anything else is a broken link, which the app reports and never repairs. Rationale: a repaired link could show a game that nobody sent, and the canonical payload gives each move list exactly one text.
 
-The parser does not check whether the moves are legal; the engine does. `legalMoves(history)` rejects an illegal history with the error code `illegal-history` ([worker protocol](#the-worker-protocol)). The app asks the engine as soon as the engine is ready, while the dialog is still open, and again when the player continues the game. A broken link or an illegal history shows a plain message with the choice "Start a new game". A bad link never crashes the app.
+The parser does not check whether the moves are legal; the engine does, under the rules of the variant of the link. A hop that is legal only with the long-hop rule is an illegal move in a link without `j=long`: `legalMoves(history, variant)` rejects it, and the link is reported as broken. `legalMoves` rejects an illegal history with the error code `illegal-history` ([worker protocol](#the-worker-protocol)). The app asks the engine as soon as the engine is ready, while the dialog is still open, and again when the player continues the game. A broken link or an illegal history shows a plain message with the choice "Start a new game". A bad link never crashes the app.
 
 ### Start dialog
 
 A page without a game link asks "Do you want to begin?". "Yes" lets the human play side 0 and move first; "No" lets the engine begin. A page opened with a game link, or a link pasted into the address bar while a game runs, opens "Continue this game?". It shows the ply of the position and the side to move, and offers to continue as the side to move, to continue as the other side, or to start a new game. While a game runs, it also offers to keep the current game; Escape does the same. The button "New game" asks "Do you want to begin?" again; Escape keeps the running game. The engine loads in the background while the dialog is open.
 
-The dialog builds a `GameSetup { seats: [Seat, Seat] }` (`web/src/game/setup.ts`). A seat is `human`, `engine` or `network`. Today there are exactly two seats, and the UI offers only `human` and `engine`; more players and network players are planned.
+The dialog builds a `GameSetup { seats, variant }` (`web/src/game/setup.ts`, see [game variants](#game-variants)). A seat is `human`, `engine` or `network`. The dialog offers the two-player game of the default variant only, with `human` and `engine`; the variants start through the hook and the links described under [game variants](#game-variants). Network players are planned, and no controller plays them yet.
 
 ### Copy link
 
 The button calls `navigator.clipboard.writeText`, which browsers offer only in a secure context (HTTPS or `localhost`). If that call fails or is missing, the button shows a read-only text field with the address selected, for copying by hand. The button is disabled during the engine-versus-engine demo and while the dialog is open.
 
+## Game variants
+
+The app plays two jump rules and two player counts, and each seat can be a human or an engine. A **variant** is `{ jump: 'adjacent' | 'long'; players: 2 | 3 }` (`web/src/game/variant.ts`); `DEFAULT_VARIANT` is adjacent jumps with two players, and `isDefault`, `sidesOf`, `sameVariant`, `sideAt(ply, variant)`, `moveLimit(variant)` (200 plies for two players, 300 for three) and `variantKey` are the helpers. The rules of both jump rules and of three players are in [rules](rules.md); the engines are described under [analysis API](#analysis-api) and in the [C++ README](../cpp/README.md).
+
+**Status.** The engine layer, the game controller, the game URL and the skill tracker support the variants. The dialog for choosing a variant and the board colours of a third player are not built. The default game looks and plays as before.
+
+### Game setup
+
+`GameSetup` (`web/src/game/setup.ts`) is `{ seats: Seat[]; variant?: Variant }` with as many seats as players. A missing `variant` is the default. Three constructors build the game modes; one level applies to all engine seats:
+
+| Constructor | Game |
+|---|---|
+| `humanVsEngine(side, level, jump = 'adjacent')` | two players, one human, one engine |
+| `hotSeatVsEngine(level, engineSeat = 2, jump = 'adjacent')` | three players, two humans on the same device, the engine on `engineSeat` |
+| `humanVsTwoEngines(humanSeat, level, jump = 'adjacent')` | three players, one human, two engines |
+
+`engineVsEngine(level, jump)` is the two-player demo. Readers: `humanSeatsOf`, `engineSeatsOf`, `humanSeatOf` (the one human seat or `null`), `humanSideOf` (two players only), `isDemo`, `isHotSeat`, `levelOf`, `variantOf`, `isSupported`. Changers: `withLevel`, `withHumanSeat(setup, seat)`, `withAllEngines`. `controllerSeats(setup)` gives the `'human' | 'engine'` list that the controller takes and refuses `network` seats.
+
+### Game controller
+
+`GameController` (`web/src/game/game.ts`) takes `{ engine, nodes, seats?, variant?, enginePauseMs?, mode?, humanSide? }`. `mode` and `humanSide` are the two-player shortcuts that existed before; `seats` and `variant` replace them. The state (`GameState`) has `history`, `owner` (cell to seat, 0 to 2, or -1), `sideToMove` (0 to 2), `legal`, `outcome`, `thinking`, `lastEngine`, `error`, `variant`, `seats` and `canSwap`.
+
+- **Turns.** The side to move is `ply % players`. A human seat accepts `play(move)`; an engine seat gets `choose`. `isHumanTurn()` and `isEngineTurn()` say which. Two engine seats in a row play one after another.
+- **Pause.** Between two engine moves in a row the controller waits `enginePauseMs` (default 350 ms for three players, 0 for two, so the two-player demo runs at engine speed), so that the person can follow the board. `cancel()` ends the pause. Tests pass 0.
+- **Hot-seat.** Consecutive human seats need no engine call and no pause; the board does not turn (a UI matter: the controller only reports `sideToMove`).
+- **End of the game.** After each move the controller asks `Engine.outcome`. A win names the seat (`{ kind: 'win', winner }`). A draw is `{ kind: 'move-limit' }` at the move limit, `{ kind: 'no-moves', side }` when the side to move has no legal move, and `{ kind: 'draw' }` otherwise (a repeated position). The win and the move limit are also computed from the board at once (`outcomeOf` in `board-state.ts`), so the result card needs no round trip; a unit test and the cross-engine test check that the board and the engines agree on every win.
+- **Undo.** `undo()` takes back the last move and then every move until a human seat is to move. Two players with one human: the human move and the engine answer, as before. One human and two engines: the human move and both answers. Hot-seat: one ply when the previous seat was human, else the engine move and the move of the human before it, so that the same human is to move again. A game with no human seat takes back one move. Origin: the project owner asked for "undo to the previous human turn". Rationale: after an engine move the engine would play the same move again at once, so a one-ply undo would do nothing.
+- **Swap.** `canSwap` is true with at most one human seat and false in hot-seat; `swapSides` throws when it is false. Two players: the human takes the other side, as before. Three players with one human: `swapSides()` rotates the human seat to the next seat (`swapSides(seat)` names it) and the board stays. The engines then play their seats from the position.
+- **Loading.** `loadGame(history, { humanSide?, seats?, variant? })` asks the engine whether the history is legal under the variant, and leaves the game as it was if not. `newGame({ seats?, variant?, humanSide?, mode?, nodes? })` starts a game with other seats or another variant.
+
+### Starting a variant
+
+There is no dialog yet. Two hooks start variants:
+
+- **A game link.** `#g=v1.&p=3&s=hee` starts a three-player game with the human on seat 0, at once and without a question, because the link names the seats. A two-player long-hop link (`...&j=long`) opens the usual "Continue this game?" dialog and keeps the rule. A link whose moves are illegal under its variant is a broken link.
+- **The `initialSetup` property of `App`** (`web/src/app/App.tsx`) takes a `GameSetup` and starts that game as soon as an engine is ready, without the "Do you want to begin?" dialog. A game link in the address takes precedence.
+
+In a variant, "New game" restarts the same setup without a dialog; the swap button follows `canSwap`; the engine demo makes every seat an engine.
+
+### What differs from the default game
+
+- **Engines.** Only the browser engines play variants ([the engines](#the-engines)). The session loads a browser engine if the one in use is a server engine.
+- **Analysis.** Move guides and the skill estimate need analysis, which exists for two players. For three players the guide switch, the advantage bar and the skill card are not shown, and no analysis request is made (checked by `web/src/app/App.variants.test.tsx`). For the long hop the guides work; the skill estimate works with the caveat under [skill estimate](#skill-estimate).
+- **Board.** The board draws seat 2 in the style of the second side, and the labels "your piece" and "engine piece" are for two sides. The hot-seat labels and the third colour belong to the variant UI. One further limit of the board: its keyboard tab stop stays on the piece that moved last, which is not a movable piece in hot-seat.
+
+Tests: `game.variants.test.ts`, `setup.variants.test.ts`, `variant.test.ts` (controller, setup, board state), `app/game-url.variants.test.ts`, `app/App.variants.test.tsx`, `engines/variants.test.ts`, `engines/variants.cross.test.ts` (whole games on all three browser engines), and `web/e2e/variants.spec.ts` (real browser).
+
 ## The engines
 
 | Engine id | Language, compiler | Shipped files | Size raw (gzip) | Browser needs |
 |---|---|---|---|---|
-| `cpp-wasm` (fallback without Wasm GC) | C++, Emscripten 6.0.9 | `engines/cpp/engine-cpp.js`, `engine-cpp.wasm` | 284,072 bytes (107,823) | WebAssembly; no threads, no `SharedArrayBuffer` |
-| `java-wasmgc` (default) | Java, TeaVM 0.16.0, Wasm GC target | `engines/java/engine-java.wasm`, `engine-java.wasm-runtime.js` | 570,792 bytes (197,505) | Wasm GC and the final version of WebAssembly exception handling, which TeaVM's output uses: Chrome 137, Firefox 131, Safari 18.4 according to MDN |
-| `java-js` | Java, TeaVM 0.16.0, JavaScript target | `engines/java/engine-java.js` | 320,624 bytes (117,745) | any current browser |
+| `cpp-wasm` (fallback without Wasm GC) | C++, Emscripten 6.0.9 | `engines/cpp/engine-cpp.js`, `engine-cpp.wasm` | 332,585 bytes (119,979) | WebAssembly; no threads, no `SharedArrayBuffer` |
+| `java-wasmgc` (default) | Java, TeaVM 0.16.0, Wasm GC target | `engines/java/engine-java.wasm`, `engine-java.wasm-runtime.js` | 609,221 bytes (208,705) | Wasm GC and the final version of WebAssembly exception handling, which TeaVM's output uses: Chrome 137, Firefox 131, Safari 18.4 according to MDN |
+| `java-js` | Java, TeaVM 0.16.0, JavaScript target | `engines/java/engine-java.js` | 337,073 bytes (123,277) | any current browser |
 | `server:browser` | Java on the server | none | | online mode |
 | `server:best` | Java on the server, `BEST_SPEC` | none | | online mode, and the server has `rows1.bin` |
 | `server:net` | Java on the server, network player (MCTS) | none | | online mode, and the server has a weights file |
 
-The sizes come from `web/public/engines/engines.json` of the build of 2026-11-18. `scripts/web/engines-manifest.zsh` writes this file with raw size, gzip size and SHA-256 of every shipped file, and the UI and the benchmark read the sizes from it.
+The sizes come from `web/public/engines/engines.json` of the build of 2026-11-19 (the sizes grew with the long-hop and three-player code). `scripts/web/engines-manifest.zsh` writes this file with raw size, gzip size and SHA-256 of every shipped file, and the UI and the benchmark read the sizes from it.
 
 All three browser engines and `server:browser` play `BROWSER_SPEC` with the node budget appended (`BROWSER_SPEC,nodes=N`). The full player specification is fixed inside each engine, not in the UI, because a different transposition-table size changes the search and with it the moves.
 
-`web/src/engines/registry.ts` checks for Wasm GC with `WebAssembly.validate` on a 13-byte module that declares one struct type. If the check fails, the engine picker shows `java-wasmgc` as unavailable and the session starts with `cpp-wasm`; `java-js` stays selectable. The session starts with the first available engine in the order `java-wasmgc`, `cpp-wasm`, `java-js` ([ADR 0003](adr/0003-teavm-default-engine.md)).
+`web/src/engines/registry.ts` checks for Wasm GC with `WebAssembly.validate` on a 13-byte module that declares one struct type. If the check fails, the engine picker shows `java-wasmgc` as unavailable and the session starts with `cpp-wasm`; `java-js` stays selectable. The session starts with the first available engine in the order `java-wasmgc`, `cpp-wasm`, `java-js` ([ADR 0003](adr/0003-teavm-default-engine.md)). A definition may also declare `supportsVariant(variant)`. `describeEngines(manifest, variant)` then marks an engine that cannot play the variant as unavailable with the reason `variant`, and the engine sheet says "This engine plays only the standard game." The three browser engines play every variant; the server engines play the default variant only. `EngineSession.setVariant()` lists the engines again for the variant of the next game and loads the first engine that can play it if the engine in use cannot.
 
 No network player runs in the browser: the C++ port has no Monte Carlo tree search, and the TeaVM build of it was never run.
 
@@ -183,6 +247,8 @@ No network player runs in the browser: the C++ port has no Monte Carlo tree sear
 - `legalMoves(history)`: the legal moves after the history.
 - `choose(engineId, history, nodes)`: replays the history, creates a fresh player, searches and returns the same fields as `ChooseResult` ([the engine interface](#the-engine-interface)). The node budget must be between 1 and 5,000,000. A semaphore limits concurrent searches to the number of CPU cores.
 
+The server engines play the default variant only (adjacent jumps, two players): `GameEndpoint` has no field for the jump rule or the player count. The adapter (`web/src/engines/server/client.ts`) rejects every other variant with the code `unsupported` before it calls the server, in `newGame`, `legalMoves`, `choose`, `analyse` and `outcome`. For the default variant it computes `outcome` itself from the board rules (a win, the move limit, no legal move).
+
 The server is stateless: no transposition table carries over between calls. The `net` player turns the node budget into `nodes / 100` simulations, at least one.
 
 ## The engine interface
@@ -193,19 +259,25 @@ The server is stateless: no transposition table carries over between calls. The 
 export interface Engine {
   readonly info: EngineInfo;
   init(onProgress?: (p: Progress) => void): Promise<LoadReport>;
-  newGame(setup: GameSetup): Promise<void>;
-  legalMoves(history: readonly number[]): Promise<number[]>;
-  choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult>;
+  newGame(setup: GameSetup): Promise<void>; // setup: { nodes: readonly number[]; variant?: Variant }
+  legalMoves(history: readonly number[], variant?: Variant): Promise<number[]>;
+  choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult>;
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant?: Variant): Promise<AnalysisResult>;
+  outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome>;
   dispose(): void;
 }
+
+// EngineOutcome = { kind: 'ongoing' } | { kind: 'win'; winner: 0 | 1 | 2 } | { kind: 'draw' }
 ```
 
 A move is one number: `from | (to << 8)`, with cell ids 0 to 120 as in `engine/src/main/java/sternhalma/engine/Move.java`. The C++ port uses the same ids.
 
 Rules behind the interface:
 
-- **The move history is the game state.** `choose` and `legalMoves` take every move since the start position, and the engine replays them. The search needs the earlier positions to handle repetitions, and a game has at most 200 plies, so the replay is cheap. Between calls of one game the engine keeps one player per side, so the transposition table carries over. `newGame` drops both players. After an undo the UI calls `newGame` and continues.
+- **The move history is the game state.** `choose` and `legalMoves` take every move since the start position, and the engine replays them. The search needs the earlier positions to handle repetitions, and a game has at most 200 plies, so the replay is cheap. Between calls of one game the engine keeps one player per seat, so the transposition table carries over. `newGame` drops the players. After an undo the UI calls `newGame` and continues.
 - **Switching the engine keeps the game.** `web/src/app/switchable-engine.ts` swaps the engine behind the game controller (`GameController` in `web/src/game/game.ts`, which holds the history and calls the engine); the new engine replays the history on its next call.
+- **The variant is an argument.** `legalMoves`, `analyse` and `outcome` replay the history under the `variant` they get (default: adjacent jumps, two players), so they need no game. `newGame(setup)` takes `setup.variant` and a node budget per seat (`setup.nodes`: two entries for two players, three for three; a missing entry repeats the one before). `choose` plays for the side to move with the variant of the last `newGame`; a `variant` argument that differs from it is an error (`internal`). The `WorkerEngine` client replays `newGame` with its variant after it restarted the worker. `outcome` says whether the game after the history goes on, was won (by seat 0, 1 or 2) or ended without a winner (`draw`: the move limit, a repeated position, or a side without a legal move); it rejects an illegal history with `illegal-history`. An engine that cannot play a variant rejects with the code `unsupported`.
+- **The race table is for one variant.** Only the adjacent two-player game reads it. Long-hop play and three-player play have no race play, so `newGame`, `legalMoves`, `choose` and `outcome` for those variants work before a table is installed (and ignore an installed one). The adjacent two-player game still fails with `internal` ("the race table is not installed") until `installTable` ran.
 - **Cancel means terminate.** No engine can stop a search early. When the `AbortSignal` fires, `web/src/engines/client.ts` terminates the worker and starts a new one. The main thread keeps the table bytes, so the restart does not download them again.
 - **The board does not come from the engine.** The UI draws the board from `web/src/board/cells.generated.json` before any engine has loaded. A browser test compares this file with the cell coordinates of the C++ module.
 - **Jump paths are for display only.** `web/src/board/path.ts` finds the chain of jumps for the move animation by a breadth-first search over the board. Which moves are legal always comes from `legalMoves`.
@@ -219,10 +291,11 @@ Rules behind the interface:
 | Request `type` | Fields | Reply `result` |
 |---|---|---|
 | `init` | `assets` (URLs of engine files, table manifest, table), `table` (bytes the main thread already holds, transferred, or `null`) | `LoadReport` |
-| `newGame` | `setup.nodes`: node budget for side 0 and side 1 | `null` |
-| `legalMoves` | `history` | `number[]` |
-| `choose` | `history` | `ChooseResult` |
-| `bench` | `plies`, `nodes` | `BenchResult` (the benchmark game, played inside the worker) |
+| `newGame` | `setup.nodes`: node budget per seat (two or three entries); `setup.variant` (optional) | `null` |
+| `legalMoves` | `history`, `variant` (optional) | `number[]` |
+| `choose` | `history`, `variant` (optional: the variant of the last `newGame`) | `ChooseResult` |
+| `outcome` | `history`, `variant` (optional) | `EngineOutcome` |
+| `bench` | `plies`, `nodes`, `variant` (optional) | `BenchResult` (the benchmark game, played inside the worker) |
 
 A failed request replies with `ok: false` and an `EngineError` with an English message for logs and one of these codes, which the UI maps to a translated text:
 
@@ -235,12 +308,13 @@ A failed request replies with `ok: false` and an `EngineError` with an English m
 | `wasm-gc-unsupported` | the browser cannot run the Wasm GC engine |
 | `illegal-history` | the history contains an illegal move |
 | `rows1-requested` | the engine asked for `rows1.bin` |
+| `unsupported` | the engine cannot do this: a server engine asked for another variant than the default, or analysis for three players |
 | `aborted` | the request was cancelled |
 | `internal` | anything else |
 
 ## Analysis API
 
-`Engine.analyse(history, moves, nodes, signal?)` scores candidate moves after a history and returns an `AnalysisResult`:
+`Engine.analyse(history, moves, nodes, signal?, variant?)` scores candidate moves after a history and returns an `AnalysisResult`:
 
 - `moves`: the scored moves. If the call passes `null`, these are all legal moves in the order of `legalMoves`; otherwise the given subset.
 - `scores`: one score per move, in the order of `moves`.
@@ -253,7 +327,7 @@ The worker request has the type `analyse` with the fields `history`, `moves` and
 
 **Jump rule (TeaVM engines).** `WebCore` and the `Web` facade in `teavm-web/` play either jump rule of [docs/rules.md](rules.md) ("Jump rule"): `adjacent` (default) or `long` (Halma long hop). Every facade entry point that replays a history or searches takes the rule as a string argument: `newGame(nodes0, nodes1, jump, players, nodes2)`, `legalMoves(history, jump, players)`, `choose(history, jump, players)`, `analyse(history, moves, nodes, jump, players)`, `bench(plies, nodes, jump, players)` and `outcome(history, jump, players)`. The `players` argument is described under [Three players](#three-players-teavm-engines). `"adjacent"`, `""` and `null` mean `adjacent`, `"long"` means `long`, and any other text fails with `error internal`. The TeaVM JavaScript target does not turn a missing argument into `null` (it arrives as `undefined` and fails), so the caller always passes the argument. The rule applies to the whole call: the history is replayed under it, so a move that is legal only with a long hop, sent with `adjacent`, gives `error illegal-history`. A game plays one rule: `choose` with a rule other than the one of the last `newGame` gives `error internal`; call `newGame` again.
 
-For `long`, the game players use `BROWSER_LONG_SPEC` and the analysis player uses `BROWSER_LONG_SPEC,tt=16`. Both have no race play and no race evaluator, because the race table counts single jumps only. `long` therefore needs no table: it works before `setTable` and ignores an installed one, and `choose` always reports `raceMove` 0 and `rows1Requests` 0. `adjacent` is unchanged and still fails with `error internal` ("no table installed") before `setTable`. `analyse` does not depend on the rule of the current game. Scores of `long` use the same scale and mate bounds as above, but they come from the weaker evaluator `linear-r3`, so they are not comparable with `adjacent` scores. The C++ engine is not covered here.
+For `long`, the game players use `BROWSER_LONG_SPEC` and the analysis player uses `BROWSER_LONG_SPEC,tt=16`. Both have no race play and no race evaluator, because the race table counts single jumps only. `long` therefore needs no table: it works before `setTable` and ignores an installed one, and `choose` always reports `raceMove` 0 and `rows1Requests` 0. `adjacent` is unchanged and still fails with `error internal` ("no table installed") before `setTable`. `analyse` does not depend on the rule of the current game. Scores of `long` use the same scale and mate bounds as above, but they come from the weaker evaluator `linear-r3`, so they are not comparable with `adjacent` scores. The C++ engine plays both rules through `shw_game_new2(jump, players)` and `shw_player_new(nodes, jump)` ([C++ README](../cpp/README.md), "Browser API"). The three browser engines give the same moves, scores and node counts for long-hop games and the same outcome (`web/src/engines/variants.cross.test.ts`, which plays whole games on all three, without a race table).
 
 #### Three players (TeaVM engines)
 
@@ -264,6 +338,7 @@ The `players` argument of every entry point above is the string `"2"` or `"3"`; 
 - **`analyse`** with `"3"` gives `error unsupported analysis is available for two players only`. Analysis is two-player only.
 - **`outcome(history, jump, players)`** returns `ok ongoing`, `ok win <side>` (side 0, 1 or 2) or `ok draw`. A `draw` is every end without a winner: the move limit, repetition and a side without a legal move. At the move limit the rules score the game by distance, which names no winner, so the facade does not either. A history that is illegal gives `error illegal-history`.
 - The call with a finished game: `legalMoves` returns an empty list, `choose` gives `error illegal-history`.
+- On the TypeScript side, `analyse` for three players rejects with the code `unsupported` before the facade or the module is called, on all three browser engines and in the fake engine of the tests. The C++ module answers `shw_analyse` with -3 for three players.
 
 The code is in `WebCore.newGame3`, `WebCore.outcome` and the `Web` facade in `teavm-web/`; the player is described in [Three-player browser player](search-and-evaluation.md#three-player-browser-player).
 
@@ -279,7 +354,7 @@ In the ordinary band, a logistic fit gives the probability that the side to move
 
 **Speed.** On `cpp-wasm`, all 68 legal moves of a mid-game position take about 0.1 to 0.2 s at `GUIDE_NODES` (4,000 nodes per move, for the [move guides](#move-guides)) and about 0.7 s at `SKILL_NODES` (20,000 nodes per move, for the [skill estimate](#skill-estimate), which runs in the background). These figures come from the comments in `analysis.ts`; the measurement setup is not recorded.
 
-**Tests.** `web/src/engines/testing/analysis-suite.ts` runs against the C++ engine and both TeaVM targets; `web/src/engines/analysis.cross.test.ts` compares the engines; further tests are `WebFacadeTest` in `teavm-web/` and `cpp/wasm/test/analyse.mjs`.
+**Tests.** `web/src/engines/testing/analysis-suite.ts` runs against the C++ engine and both TeaVM targets; `web/src/engines/analysis.cross.test.ts` and `web/src/engines/variants.cross.test.ts` compare the engines; further tests are `WebFacadeTest` in `teavm-web/` and `cpp/wasm/test/analyse.mjs`.
 
 ## Move guides
 
@@ -321,6 +396,8 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the half wi
 - The marks have no animation.
 - On small screens the marks grow with the other board marks ([small screens and touch](#small-screens-and-touch)).
 
+**Variants.** The guides are for two players. For three players there is no analysis, so the switch, the advantage bar and the legend are not shown and no analysis is requested. For the long hop the analysis runs under the long-hop rule (`BROWSER_LONG_SPEC` without race play), and the app passes the variant with every request; the cache key includes the variant. The bands were fitted for the adjacent rule: the long-hop evaluator `linear-r3` is weaker, so the same point difference may mean a different move quality. Nobody measured this.
+
 **Server engines.** The server engines reject `analyse` with the code `unsupported`. The guides then show "Move guides need an engine that runs in this browser." and draw no marks; choosing a browser engine brings them back. Any other error shows "Move guides are not available right now." for that position. A failure never stops the game.
 
 **Tests.** `web/src/guides/*.test.ts` (bands, model, advantage text, marks, preference, analyser, contrast), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the switch and the marks in a browser).
@@ -349,6 +426,10 @@ Two buttons on the skill card are for the case that another person takes over th
 
 - "Pause measuring" stops the analysis and the recording. The pause is stored too, so it survives a reload. Moves played during a pause never count, also not after "Resume measuring".
 - "Delete measurements" clears the store and starts counting from the current position; the moves played so far stay out.
+
+**Variants.** The ledger is kept per jump rule: an entry belongs to the rule the move was played under, and the estimate uses the entries of the rule of the game that is on. The file in `localStorage` stays `ml.skill.v1`: the entries of the adjacent rule are the `entries` list as before, and the long-hop entries are an optional second list `long`, which older files do not have and the reader accepts as missing. A damaged `long` list voids the file like any other damage. Three players are not measured: the tracker starts no analysis, `TrackerState.enabled` is false, `ledger` is empty, and the skill card shows nothing. "Delete measurements" clears every list. `TrackerState` carries `variant`, `enabled` and `calibrated`; `estimateForVariant(losses, calibration, variant)` in `web/src/skill/estimate.ts` returns the estimate with a flag `calibrated`, or `null` for three players.
+
+**The long hop is not calibrated.** `calibration.json` was fitted on two-player games with adjacent jumps, and nobody measured which node budget matches a loss statistic under the long hop. The estimate for the long hop uses the adjacent calibration for lack of a better one and is marked `calibrated: false`; the skill card then adds the note "This estimate uses the calibration of the standard game. For long jumps it is only a rough guide." A long-hop calibration would need the script `scripts/web/calibrate-skill.zsh` to play the long-hop rule.
 
 **Calibration.** The mapping from the statistic to a node budget comes from measurements, not from a model. `scripts/web/calibrate-skill.zsh` (code in `scripts/web/calibrate-skill.mts`; run it inside `devenv shell`, after `devenv tasks run web:engines web:tables`) lets the C++ engine play whole games against itself at each node budget of a ladder: the 13 budgets from 50 to 500,000 nodes in the table below, one rung each. The first 4 plies are random legal moves, seeded with 1000 to 1015, the same 16 seeds for every budget. For every engine move after the opening, the script measures the loss with the same analysis as the app (`analyse` at `SKILL_NODES`, same engine code). `web/src/skill/calibration.json` holds the result with the seeds, the number of games and moves, the engine version, the date and the definition of the statistic.
 
