@@ -640,6 +640,14 @@ public final class Gen0 {
                 startStep, cleanup, (System.nanoTime() - t0) / 1e9,
                 wholeRun(cfg.steps() - startStep, earlier, earlier > 0 ? "rate of an earlier run" : "none yet"));
 
+        if (cfg.planeSet().variants()) {
+            for (Variant v : trainBuffer.variants()) {
+                int held = heldBuffer.indicesOf(v).length;
+                err.printf(Locale.ROOT, "gen 0 variant %s: %d training and %d held-out samples%s%n", v.label(),
+                        trainBuffer.indicesOf(v).length, held, held == 0 ? " (WARNING: no proxies for this variant)" : "");
+            }
+        }
+
         // phase 3: train
         TrainingRun.Clock clock = TrainingRun.Clock.system();
         RunMonitor monitor = cad.monitor() ? new RunMonitor(run.resolve("metrics.jsonl"), clock) : null;
