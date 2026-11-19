@@ -22,6 +22,8 @@ public final class Position {
 
     private static final long[][] PIECE_KEY = new long[3][Geometry.CELLS];
     private static final long[] SIDE_KEY = new long[3];
+    /** Zobrist keys of the finished players; drawn after all other keys, so the older hashes stay as they were. */
+    private static final long[] FINISHED_KEY = new long[3];
 
     static {
         SplitMix64 random = new SplitMix64(0x5E7A_11A1_0000_0001L);
@@ -30,6 +32,9 @@ public final class Position {
             for (int c = 0; c < Geometry.CELLS; c++) {
                 PIECE_KEY[p][c] = random.nextLong();
             }
+        }
+        for (int p = 0; p < 3; p++) {
+            FINISHED_KEY[p] = random.nextLong();
         }
     }
 
@@ -54,11 +59,21 @@ public final class Position {
     private final int[][] jumpTo;
     /** Whether the rules use the Halma long hop ({@link RuleSet.JumpRule#LONG}). */
     private final boolean longJump;
+    /** Whether a player who fills the goal leaves the game and the others play on ({@link RuleSet#playsOnAfterWin}). */
+    private final boolean playOn;
     private int sideToMove;
     private int ply;
     private long hash;
     private int[] moves = new int[65];
     private long[] hashes = new long[65];
+    /** Per ply: the player who made the move, and the set of finished players before it. */
+    private int[] movers = new int[65];
+    private int[] masksBefore = new int[65];
+    /** Bit p is set if player p has finished (filled the goal) and makes no more moves. */
+    private int finishedMask;
+    /** The finished players by rank, first place first; {@code finishedCount} entries are valid. */
+    private final int[] finishers = new int[3];
+    private int finishedCount;
 
     // scratch space for move generation
     private final int[] stack = new int[Geometry.CELLS];
@@ -67,6 +82,7 @@ public final class Position {
         this.rules = rules;
         this.layout = Layout.of(rules.players());
         this.longJump = rules.jumpRule() == RuleSet.JumpRule.LONG;
+        this.playOn = rules.playsOnAfterWin();
         this.goalOccupied = new int[rules.players()];
         this.goalOwn = new int[rules.players()];
         this.pieceCells = new int[rules.players()][PIECES];
@@ -112,6 +128,11 @@ public final class Position {
         c.hash = hash;
         c.moves = moves.clone();
         c.hashes = hashes.clone();
+        c.movers = movers.clone();
+        c.masksBefore = masksBefore.clone();
+        c.finishedMask = finishedMask;
+        System.arraycopy(finishers, 0, c.finishers, 0, finishers.length);
+        c.finishedCount = finishedCount;
         return c;
     }
 
@@ -193,9 +214,53 @@ public final class Position {
         return put(player, cell);
     }
 
+    /**
+     * Declares a player finished with the next free rank, as if the player had filled the goal. For setup before
+     * the first {@link #make}, with {@code ranking=FULL_RANKING} and three players only. If the player is to move,
+     * the turn passes to the next player who has not finished.
+     */
+    public Position finish(int player) {
+        requireSetup();
+        requirePlayer(player);
+        if (!playOn) {
+            throw new IllegalStateException("finished players need ranking=FULL_RANKING with three players");
+        }
+        if (isFinished(player) || finishedCount >= rules.players() - 1) {
+            throw new IllegalStateException("player " + player + " cannot finish now");
+        }
+        markFinished(player);
+        if (sideToMove == player) {
+            int next = nextActive(player);
+            hash ^= SIDE_KEY[player] ^ SIDE_KEY[next];
+            sideToMove = next;
+        }
+        return this;
+    }
+
+    private void markFinished(int player) {
+        finishedMask |= 1 << player;
+        finishers[finishedCount++] = player;
+        hash ^= FINISHED_KEY[player];
+    }
+
+    /** The next player after {@code p}, in turn order, who has not finished; {@code p} if there is none. */
+    private int nextActive(int p) {
+        int players = rules.players();
+        for (int i = 1; i <= players; i++) {
+            int q = (p + i) % players;
+            if ((finishedMask & (1 << q)) == 0) {
+                return q;
+            }
+        }
+        return p;
+    }
+
     public Position setSideToMove(int player) {
         requireSetup();
         requirePlayer(player);
+        if (isFinished(player)) {
+            throw new IllegalArgumentException("player " + player + " has finished and cannot be to move");
+        }
         hash ^= SIDE_KEY[sideToMove] ^ SIDE_KEY[player];
         sideToMove = player;
         return this;
@@ -227,12 +292,27 @@ public final class Position {
         return sideToMove;
     }
 
+    /** Whether the player has finished: filled the goal with {@code ranking=FULL_RANKING}, three players. */
+    public boolean isFinished(int player) {
+        return (finishedMask & (1 << player)) != 0;
+    }
+
+    /** The finished players as a bit set (bit p for player p); 0 unless {@code ranking=FULL_RANKING}. */
+    public int finishedMask() {
+        return finishedMask;
+    }
+
+    /** The finished players by rank, first place first, as a new array. */
+    public int[] finishers() {
+        return Arrays.copyOf(finishers, finishedCount);
+    }
+
     /** Number of plies played since the position was set up. */
     public int ply() {
         return ply;
     }
 
-    /** Zobrist hash of the pieces and the side to move. */
+    /** Zobrist hash of the pieces, the side to move and the set of finished players. */
     public long hash() {
         return hash;
     }
@@ -290,16 +370,23 @@ public final class Position {
         if (ply + 1 >= hashes.length) {
             hashes = Arrays.copyOf(hashes, hashes.length * 2);
             moves = Arrays.copyOf(moves, moves.length * 2);
+            movers = Arrays.copyOf(movers, movers.length * 2);
+            masksBefore = Arrays.copyOf(masksBefore, masksBefore.length * 2);
         }
         hashes[ply] = hash;
         moves[ply] = move;
+        movers[ply] = p;
+        masksBefore[ply] = finishedMask;
         owner[from] = -1;
         owner[to] = (byte) p;
         hash ^= PIECE_KEY[p][from] ^ PIECE_KEY[p][to];
         updateGoalCounts(p, from, -1);
         updateGoalCounts(p, to, +1);
         movePiece(p, from, to);
-        int next = (p + 1) % rules.players();
+        if (playOn) {
+            recordFinishers(p);
+        }
+        int next = nextActive(p);
         hash ^= SIDE_KEY[p] ^ SIDE_KEY[next];
         sideToMove = next;
         ply++;
@@ -315,7 +402,9 @@ public final class Position {
         int move = moves[ply];
         int from = Move.from(move);
         int to = Move.to(move);
-        int p = (sideToMove + rules.players() - 1) % rules.players();
+        int p = movers[ply];
+        finishedMask = masksBefore[ply];
+        finishedCount = Integer.bitCount(finishedMask);
         owner[to] = -1;
         owner[from] = (byte) p;
         updateGoalCounts(p, to, -1);
@@ -323,6 +412,21 @@ public final class Position {
         movePiece(p, to, from);
         sideToMove = p;
         hash = hashes[ply];
+    }
+
+    /**
+     * After a move of {@code p}: every active player whose goal is now filled finishes with the next free rank, in
+     * turn order starting after {@code p} (as {@link #outcome} checks a win without ranking). The last active player
+     * is not marked: it takes the last rank when the game is over.
+     */
+    private void recordFinishers(int p) {
+        int players = rules.players();
+        for (int i = 1; i <= players; i++) {
+            int q = (p + i) % players;
+            if (finishedCount < players - 1 && !isFinished(q) && hasWon(q)) {
+                markFinished(q);
+            }
+        }
     }
 
     private void updateGoalCounts(int player, int cell, int delta) {
@@ -390,7 +494,7 @@ public final class Position {
     /** Whether some opponent's goal holds at least {@code CORNER_SIZE - 1} pieces. */
     private boolean opponentGoalNearlyFull(int p) {
         for (int q = 0; q < goalOccupied.length; q++) {
-            if (q != p && goalOccupied[q] >= Geometry.CORNER_SIZE - 1) {
+            if (q != p && !isFinished(q) && goalOccupied[q] >= Geometry.CORNER_SIZE - 1) {
                 return true;
             }
         }
@@ -518,7 +622,7 @@ public final class Position {
         int fromGoal = layout.goalPlayerOfCell(from);
         int toGoal = layout.goalPlayerOfCell(to);
         for (int q = 0; q < rules.players(); q++) {
-            if (q == p) {
+            if (q == p || isFinished(q)) {
                 continue;
             }
             int occupied = goalOccupied[q] - (fromGoal == q ? 1 : 0) + (toGoal == q ? 1 : 0);
@@ -551,6 +655,9 @@ public final class Position {
      * player who did not move wins.
      */
     public Outcome outcome() {
+        if (playOn) {
+            return playOnOutcome(false);
+        }
         int players = rules.players();
         for (int i = 0; i < players; i++) {
             int q = (sideToMove + i) % players; // starts with the player who did not just move
@@ -569,7 +676,100 @@ public final class Position {
 
     /** The outcome to use when the side to move has no legal move. */
     public Outcome noMovesOutcome() {
+        if (playOn) {
+            return playOnOutcome(true);
+        }
         return Outcome.noWinner(Outcome.Reason.NO_MOVES, drawValues());
+    }
+
+    /**
+     * {@link #outcome} (or {@link #noMovesOutcome} with {@code noMoves}) for {@code ranking=FULL_RANKING} with three
+     * players. The game is over when one active player is left, which takes the last rank; then the reason is
+     * {@code WIN}. Otherwise the checks of {@link #outcome} apply, and the finished players keep their ranks.
+     */
+    private Outcome playOnOutcome(boolean noMoves) {
+        int players = rules.players();
+        if (finishedCount >= players - 1) {
+            int[] ranking = new int[players];
+            System.arraycopy(finishers, 0, ranking, 0, finishedCount);
+            ranking[finishedCount] = nextActive(finishers[finishedCount - 1]);
+            return Outcome.ranked(Outcome.Reason.WIN, ranking, rankValues(ranking, players));
+        }
+        Outcome.Reason reason;
+        if (noMoves) {
+            reason = Outcome.Reason.NO_MOVES;
+        } else if (rules.repetition() == Repetition.REPETITION_IS_DRAW && isRepeated()) {
+            reason = Outcome.Reason.REPETITION;
+        } else if (ply >= rules.moveLimit()) {
+            reason = Outcome.Reason.MOVE_LIMIT;
+        } else {
+            return null;
+        }
+        return unfinishedOutcome(reason);
+    }
+
+    /** The value of rank {@code r} (0 = first): 1 for the first, -1 for the last, evenly spaced. */
+    private static double rankValue(int r, int players) {
+        return (double) (players - 1 - 2 * r) / (players - 1);
+    }
+
+    private static double[] rankValues(int[] ranking, int players) {
+        double[] values = new double[players];
+        for (int r = 0; r < players; r++) {
+            values[ranking[r]] = rankValue(r, players);
+        }
+        return values;
+    }
+
+    /**
+     * The end without a complete ranking: the finished players keep their ranks and values; the others share the
+     * remaining rank values, evenly with {@code DRAW}, or by the distance score of {@link #drawValues} with
+     * {@code SCORE_BY_DISTANCE}. Their order is by distance sum, the smaller sum first, ties by player number.
+     */
+    private Outcome unfinishedOutcome(Outcome.Reason reason) {
+        int players = rules.players();
+        int open = players - finishedCount;
+        int[] rest = new int[open];
+        int[] sums = new int[players];
+        int n = 0;
+        for (int q = 0; q < players; q++) {
+            sums[q] = distanceSum(q);
+            if (!isFinished(q)) {
+                int i = n++;
+                while (i > 0 && sums[rest[i - 1]] > sums[q]) {
+                    rest[i] = rest[i - 1];
+                    i--;
+                }
+                rest[i] = q;
+            }
+        }
+        int[] ranking = new int[players];
+        System.arraycopy(finishers, 0, ranking, 0, finishedCount);
+        System.arraycopy(rest, 0, ranking, finishedCount, open);
+        double[] values = new double[players];
+        double slots = 0;
+        for (int r = 0; r < players; r++) {
+            if (r < finishedCount) {
+                values[ranking[r]] = rankValue(r, players);
+            } else {
+                slots += rankValue(r, players);
+            }
+        }
+        double share = slots / open;
+        double mean = 0;
+        int maxDistance = 0;
+        for (int q : rest) {
+            mean += sums[q];
+        }
+        for (int q = 0; q < players; q++) {
+            maxDistance = Math.max(maxDistance, layout.maxDistance(q));
+        }
+        mean /= open;
+        double scale = (double) PIECES * maxDistance;
+        for (int q : rest) {
+            values[q] = rules.drawHandling() == DrawHandling.DRAW ? share : share + (mean - sums[q]) / scale;
+        }
+        return Outcome.ranked(reason, ranking, values);
     }
 
     private boolean isRepeated() {
@@ -623,6 +823,9 @@ public final class Position {
                 result.put(player, cellMap.applyAsInt(c));
             }
         }
+        for (int i = 0; i < finishedCount; i++) {
+            result.finish(finishers[i]);
+        }
         result.setSideToMove(swapPlayers ? 1 - sideToMove : sideToMove);
         return result;
     }
@@ -633,6 +836,8 @@ public final class Position {
                 && sideToMove == other.sideToMove
                 && rules.players() == other.rules.players()
                 && rules.jumpRule() == other.rules.jumpRule()
+                && rules.playsOnAfterWin() == other.rules.playsOnAfterWin()
+                && finishedMask == other.finishedMask
                 && Arrays.equals(owner, other.owner);
     }
 
@@ -656,6 +861,10 @@ public final class Position {
             }
             sb.append(new String(row).stripTrailing()).append('\n');
         }
-        return sb.append("side to move: ").append(sideToMove).append(", ply ").append(ply).toString();
+        sb.append("side to move: ").append(sideToMove).append(", ply ").append(ply);
+        if (finishedCount > 0) {
+            sb.append(", finished ").append(Arrays.toString(finishers()));
+        }
+        return sb.toString();
     }
 }

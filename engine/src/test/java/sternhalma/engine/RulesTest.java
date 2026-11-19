@@ -232,10 +232,9 @@ class RulesTest {
     // ---- test 15: three players (the first-win case is in ReviewRegressionTest) ----
 
     @Test
-    void fullRankingAndBlockingStatesAreRejectedAsNotImplemented() {
+    void blockingStatesAreRejectedAsNotImplemented() {
         RuleSet d = RuleSet.defaults(3);
-        assertThrows(UnsupportedOperationException.class, () -> new RuleSet(3, 300, d.leaveGoal(), d.blockadeRule(),
-                d.suicideMoves(), d.blockingStates(), d.repetition(), d.drawHandling(), RuleSet.Ranking.FULL_RANKING));
+        assertEquals(RuleSet.Ranking.FULL_RANKING, d.withRanking(RuleSet.Ranking.FULL_RANKING).ranking());
         assertThrows(UnsupportedOperationException.class, () -> new RuleSet(2, 200, d.leaveGoal(), d.blockadeRule(),
                 d.suicideMoves(), RuleSet.BlockingStates.ILLEGAL, d.repetition(), d.drawHandling(), d.ranking()));
         assertThrows(IllegalArgumentException.class, () -> RuleSet.defaults(4));
