@@ -77,7 +77,7 @@ cmd=(
   wasm-test    "scripts/web/test-wasm.zsh"
   teavm-build  "scripts/web/build-teavm.zsh"
   teavm-net-build "scripts/web/build-teavm-net.zsh"
-  engines      "scripts/web/engines-manifest.zsh"
+  engines      "env ENGINES_STRICT=1 scripts/web/engines-manifest.zsh"
   web-install  "scripts/web/install.zsh"
   web-test     "scripts/web/test.zsh"
   web-build    "scripts/web/build.zsh"

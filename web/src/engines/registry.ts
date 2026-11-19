@@ -17,7 +17,7 @@ export interface EnginesManifest {
   v: 1;
   /** git describe of the build. */
   version: string;
-  engines: Partial<Record<EngineId, { files: EngineFile[]; binaryBytes: number; binaryGzipBytes: number }>>;
+  engines: Partial<Record<EngineId, { files: EngineFile[]; binaryBytes: number; binaryGzipBytes: number; downloadGzipBytes?: number }>>;
 }
 
 export interface EngineContext {
@@ -106,6 +106,7 @@ export function describeEngines(manifest: EnginesManifest, variant: Variant = DE
       version: manifest.version,
       binaryBytes: entry?.binaryBytes ?? 0,
       binaryGzipBytes: entry?.binaryGzipBytes ?? 0,
+      ...(entry?.downloadGzipBytes ? { downloadGzipBytes: entry.downloadGzipBytes } : {}),
     };
     const shipped = definition.runtime === 'server' || (entry?.files.length ?? 0) > 0;
     if (!shipped) return { definition, info, available: false, reason: 'not-shipped' as const };

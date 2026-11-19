@@ -54,6 +54,15 @@ describe('registry', () => {
     expect(choice!.info).toMatchObject({ version: 'v0-1-gabc', binaryBytes: 267000, binaryGzipBytes: 101000, language: 'C++' });
   });
 
+  it('passes downloadGzipBytes of a manifest entry to the info, and leaves it out otherwise', () => {
+    registerEngine(def('cpp-wasm', 'wasm'));
+    registerEngine(def('java-wasmgc', 'wasm-gc'));
+    const m: EnginesManifest = { ...manifest, engines: { ...manifest.engines, 'java-wasmgc': { ...manifest.engines['java-wasmgc']!, downloadGzipBytes: 150000 } } };
+    const byId = Object.fromEntries(describeEngines(m).map((c) => [c.info.id, c.info]));
+    expect(byId['java-wasmgc']!.downloadGzipBytes).toBe(150000);
+    expect('downloadGzipBytes' in byId['cpp-wasm']!).toBe(false);
+  });
+
   it('offers server engines without shipped files', () => {
     registerEngine(def('server:browser', 'server'));
     expect(describeEngines(manifest)[0]).toMatchObject({ available: true });

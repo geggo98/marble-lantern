@@ -21,6 +21,8 @@ export interface EngineInfo {
   /** Sum of the shipped files, raw; from engines.json. */
   binaryBytes: number;
   binaryGzipBytes: number;
+  /** Net engines: gzip bytes of a typical load (facade and one CPU flavour), from engines.json. The sum above counts every flavour. */
+  downloadGzipBytes?: number;
 }
 
 /** All values in milliseconds, measured inside the worker. */

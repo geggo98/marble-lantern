@@ -28,6 +28,8 @@ export interface SheetProps {
 }
 
 const kb = (bytes: number, n: (v: number) => string): string => `${n(Math.round(bytes / 1000))} KB`;
+/** Gzip size to show: the typical download when the manifest has one (net engines), else the sum of all files. */
+export const gzipShown = (info: { binaryGzipBytes: number; downloadGzipBytes?: number }): number => info.downloadGzipBytes ?? info.binaryGzipBytes;
 
 export function EngineSheet(props: SheetProps): React.JSX.Element {
   const { t, n } = useT();
@@ -123,7 +125,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                     c.info.binaryBytes > 0 && (
                       <span>
                         {kb(c.info.binaryBytes, n)}
-                        {c.info.binaryGzipBytes > 0 ? ` · ${kb(c.info.binaryGzipBytes, n)} gzip` : ''}
+                        {gzipShown(c.info) > 0 ? ` · ${kb(gzipShown(c.info), n)} gzip` : ''}
                       </span>
                     )
                   )}
