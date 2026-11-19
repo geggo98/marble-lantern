@@ -3,6 +3,7 @@ package sternhalma.web;
 import org.teavm.jso.JSByRef;
 import org.teavm.jso.JSExport;
 import sternhalma.engine.Outcome;
+import sternhalma.engine.RuleSet;
 
 /**
  * The surface TeaVM exports to JavaScript, for both targets (Wasm GC and JS). Every method returns a String and never
@@ -41,14 +42,20 @@ public final class Web {
      * {@code nodes1}). With two players {@code nodes2} is ignored. Pass every argument: the TeaVM JavaScript export
      * fails on an omitted String argument (measured under node), so a two-player caller passes {@code null} for
      * {@code players} and 0 for {@code nodes2}.
+     *
+     * <p>The last argument of every entry point is {@code ranking}: {@code "first"} (also null or empty) ends a game at
+     * the first winner, {@code "full"} plays on after a first winner so that the others play for the lower ranks (three
+     * players; with two players it changes nothing). Like {@code jump} and {@code players} it is always passed, and a
+     * game plays the ranking rule of its {@code newGame}.
      */
     @JSExport
-    public static String newGame(int nodes0, int nodes1, String jump, String players, int nodes2) {
+    public static String newGame(int nodes0, int nodes1, String jump, String players, int nodes2, String ranking) {
         try {
             if (WebCore.parsePlayers(players) == 3) {
-                CORE.newGame3(nodes0, nodes1, nodes2 > 0 ? nodes2 : nodes1, WebCore.parseJump(jump));
+                CORE.newGame3(nodes0, nodes1, nodes2 > 0 ? nodes2 : nodes1, WebCore.parseJump(jump),
+                        WebCore.parseRanking(ranking));
             } else {
-                CORE.newGame(nodes0, nodes1, WebCore.parseJump(jump));
+                CORE.newGame(nodes0, nodes1, WebCore.parseJump(jump), WebCore.parseRanking(ranking));
             }
             return "ok";
         } catch (RuntimeException e) {
@@ -58,9 +65,10 @@ public final class Web {
 
     /** {@code ok <moves>}, the moves comma separated (empty when the game is over). */
     @JSExport
-    public static String legalMoves(String history, String jump, String players) {
+    public static String legalMoves(String history, String jump, String players, String ranking) {
         try {
-            return "ok " + join(CORE.legalMoves(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players)));
+            return "ok " + join(CORE.legalMoves(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players),
+                    WebCore.parseRanking(ranking)));
         } catch (RuntimeException e) {
             return error(e);
         }
@@ -68,9 +76,10 @@ public final class Web {
 
     /** {@code ok <move> <score> <depth> <nodes> <ms> <raceMove 0|1> <rows1Requests>}. */
     @JSExport
-    public static String choose(String history, String jump, String players) {
+    public static String choose(String history, String jump, String players, String ranking) {
         try {
-            WebCore.Choice c = CORE.choose(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players));
+            WebCore.Choice c = CORE.choose(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players),
+                    WebCore.parseRanking(ranking));
             return "ok " + c.move() + " " + c.score() + " " + c.depth() + " " + c.nodes() + " " + c.ms() + " "
                     + (c.raceMove() ? 1 : 0) + " " + c.rows1Requests();
         } catch (RuntimeException e) {
@@ -83,10 +92,10 @@ public final class Web {
      * {@code moves} is a comma separated list of the moves to score, or empty for all legal moves.
      */
     @JSExport
-    public static String analyse(String history, String moves, int nodes, String jump, String players) {
+    public static String analyse(String history, String moves, int nodes, String jump, String players, String ranking) {
         try {
             WebCore.Analysis a = CORE.analyse(parse(history), moves == null || moves.isEmpty() ? null : parse(moves), nodes,
-                    WebCore.parseJump(jump), WebCore.parsePlayers(players));
+                    WebCore.parseJump(jump), WebCore.parsePlayers(players), WebCore.parseRanking(ranking));
             return "ok " + a.nodes() + " " + a.ms() + " " + a.rows1Requests() + " " + join(a.moves()) + " " + join(a.scores());
         } catch (RuntimeException e) {
             return error(e);
@@ -94,14 +103,32 @@ public final class Web {
     }
 
     /**
+     * The state of the game. With {@code ranking} {@code "first"}, and with two players whatever {@code ranking} is:
      * {@code ok ongoing}, {@code ok win <side>} (side 0, 1 or 2) or {@code ok draw}. A draw is every end without a
      * winner: the move limit (the rules then score by distance, which names no winner), repetition and a side
      * without legal moves.
+     *
+     * <p>With {@code ranking} {@code "full"} and three players: {@code ok ongoing} while nobody has finished,
+     * {@code ok ongoing finished <mask>} after a first finisher while the others play for second place ({@code mask} is
+     * a decimal number, bit p set for player p: 1, 2 or 4), and {@code ok ranking <a> <b> <c>} when the game is over,
+     * the three players by rank, first place first. The game is then never a {@code draw}: at the move limit, at a
+     * repetition and for a side without legal moves the players that have not finished are ranked by distance to the
+     * goal (docs/rules.md, "Playing on for second place").
      */
     @JSExport
-    public static String outcome(String history, String jump, String players) {
+    public static String outcome(String history, String jump, String players, String ranking) {
         try {
-            Outcome o = CORE.outcome(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players));
+            RuleSet.Ranking rule = WebCore.parseRanking(ranking);
+            int playerCount = WebCore.parsePlayers(players);
+            WebCore.State s = CORE.state(parse(history), WebCore.parseJump(jump), playerCount, rule);
+            Outcome o = s.outcome();
+            if (rule == RuleSet.Ranking.FULL_RANKING && playerCount == 3) {
+                if (o == null) {
+                    return s.finishedMask() == 0 ? "ok ongoing" : "ok ongoing finished " + s.finishedMask();
+                }
+                int[] r = o.ranking();
+                return "ok ranking " + r[0] + " " + r[1] + " " + r[2];
+            }
             return o == null ? "ok ongoing" : o.hasWinner() ? "ok win " + o.winner() : "ok draw";
         } catch (RuntimeException e) {
             return error(e);
@@ -110,9 +137,10 @@ public final class Web {
 
     /** {@code ok <moves> <nodes per ply> <ms per ply> <rows1Requests>}, the three lists comma separated. */
     @JSExport
-    public static String bench(int plies, int nodes, String jump, String players) {
+    public static String bench(int plies, int nodes, String jump, String players, String ranking) {
         try {
-            WebCore.Bench b = CORE.bench(plies, nodes, WebCore.parseJump(jump), WebCore.parsePlayers(players));
+            WebCore.Bench b = CORE.bench(plies, nodes, WebCore.parseJump(jump), WebCore.parsePlayers(players),
+                    WebCore.parseRanking(ranking));
             StringBuilder ms = new StringBuilder();
             for (int i = 0; i < b.ms().length; i++) {
                 ms.append(i == 0 ? "" : ",").append(b.ms()[i]);
