@@ -664,3 +664,28 @@ Games row: `scripts/bench-mac.sh --games 2 --specs best --out cpp/results/mac-cl
 check that Java and C++ played the games with equal node totals and move counts. `--warm-games` (Java `Bench` and `search_bench`): the untimed warm-up
 also plays the full games. It was added because the first session stopped at the JIT trend check (the Java runs rose by 1.2 % over the three
 repetitions while the games were not warmed up), which is the plan's "add one warm-up pass".
+
+## Jump rule: the Halma long hop
+
+The engine plays two jump rules, as the Java engine does (`RuleSet.JumpRule`, rules in `docs/rules.md`, section "Jump rule").
+`RuleSet::JumpRule::Adjacent` is the default: a piece jumps over one adjacent piece. `RuleSet::JumpRule::Long` is the Halma long hop:
+in each direction the first piece P at distance k is jumped, and the piece lands on the mirror cell at distance 2k. All cells between
+the start and P, all cells between P and the landing, and the landing itself must be empty and on the board. Chained hops use the same
+depth-first search as the adjacent rule, so the order of the generated moves is the same as in Java. The default rule keeps its code
+path: `Position::generate` selects the long variant once per call from a flag set at construction. Measured on 2026-11-19 (release-hardened,
+Apple silicon): the browser-spec search ran 2.49 and 2.50 M nodes/s before the change and 2.53 M nodes/s twice after it; a
+depth-5 perft over the start position took 0.082 s before and 0.085 s after (noise level).
+
+- **Search.** The `PlayerSpec` key `jump=long` (default `jump=adjacent`) names the rule a player plays. Race play (`race=1`, `race=2`) and
+  the evaluators `racelin1-r3` and `racelin-r3` are refused with `jump=long`: the race table and its arithmetic count single jumps only.
+  `choose()` throws `std::invalid_argument` for a position of the other rule (check `plays(position)` first where throwing is not an option).
+  `kBrowserLongSpec` in `player_spec.hpp` equals Java `Strategies.BROWSER_LONG_SPEC`.
+- **Golden check.** `long_jump_test` reads the Java file `engine/src/test/resources/long-jump-golden.tsv` in place (the path comes from
+  CMake, so no second copy can drift) and reproduces all 30 rows: the move count, the SHA-256 of the sorted moves and the SHA-256 of the
+  moves in generation order, once from the listed pieces and once from the seeded playout. The test fails, and does not skip, if the file
+  is missing. It also compares `generate()` with a coordinate-based oracle over seeded playouts.
+- **Browser API** (`src/wasm/wasm_api.cpp`). `shw_game_new(jump)` and `shw_player_new(nodes, jump)` take the rule (0 adjacent, 1 long);
+  an omitted argument from JavaScript is 0, which keeps every old call unchanged (`game.mjs` still shows the benchmark fingerprint).
+  `shw_jump_rule()` returns the rule of the current game. `shw_choose` returns -2 for a player of the other rule. `shw_analyse` follows
+  the rule of the game: for a long-hop game it uses `eval=linear-r3`, `tt=16` and `jump=long`, without race arithmetic. The tests are
+  `wasm_api_test` (native, no Emscripten) and `cpp/wasm/test/longhop.mjs` (run by `scripts/web/test-wasm.zsh`).
