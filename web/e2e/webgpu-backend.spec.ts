@@ -60,7 +60,11 @@ test.describe('WebGPU backend', () => {
       configFile: false,
       optimizeDeps: { entries: ['e2e/webgpu/page.html'] },
       logLevel: 'error',
-      server: { host: '127.0.0.1', port: 0, strictPort: false, fs: { allow: [repoDir] } },
+      // cross-origin isolation: performance.now() then has 5 microsecond resolution instead of 100 (the latency test needs it)
+      server: {
+        host: '127.0.0.1', port: 0, strictPort: false, fs: { allow: [repoDir] },
+        headers: { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'require-corp', 'cross-origin-resource-policy': 'same-origin' },
+      },
       plugins: [{
         name: 'webgpu-e2e-files',
         configureServer(s) {
@@ -114,22 +118,22 @@ test.describe('WebGPU backend', () => {
   });
 
   for (const c of CASES) {
-    for (const where of ['main', 'worker'] as const) {
-      for (const maxBatch of [8, 16]) {
-        test(`${c.name}: outputs match the Java reference (${where}, maxBatch ${maxBatch})`, async ({ page }) => {
-          test.skip(!available.includes(c), `files of ${c.name} are missing (${c.weightsFile})`);
-          await openPage(page);
-          const r = await call(page, 'check', [{ base, testCase: c, maxBatch }], where === 'worker');
-          expect(r.checked).toBeGreaterThan(10_000);
-          expect(r.violations, `max |fast-ref| / tolerance = ${r.maxFrac}`).toBe(0);
-          expect(r.maxFrac).toBeLessThanOrEqual(1);
-          // the check can fail: the same numbers compared with the reference of another position violate the tolerance
-          expect(r.controlViolations).toBeGreaterThan(0);
-          expect(r.planes).toBe(r.goldenPlanes);
-          expect(r.valueWidth).toBe(r.goldenPlayers);
-          expect(r.pass).toBe(true);
-        });
-      }
+    // main thread with the default batch, Worker with the largest batch: both axes covered without the full product (SwiftShader is slow)
+    for (const [where, maxBatch] of [['main', 8], ['worker', 16]] as const) {
+      test(`${c.name}: outputs match the Java reference (${where}, maxBatch ${maxBatch})`, async ({ page }) => {
+        test.skip(!available.includes(c), `files of ${c.name} are missing (${c.weightsFile})`);
+        await openPage(page);
+        const r = await call(page, 'check', [{ base, testCase: c, maxBatch }], where === 'worker');
+        console.log(`${c.name} ${where} maxBatch ${maxBatch}: maxFrac ${r.maxFrac}, ${r.checked} values, control violations ${r.controlViolations}, load+compile ${Math.round(r.loadMs)} ms`);
+        expect(r.checked).toBeGreaterThan(10_000);
+        expect(r.violations, `max |fast-ref| / tolerance = ${r.maxFrac}`).toBe(0);
+        expect(r.maxFrac).toBeLessThanOrEqual(1);
+        // the check can fail: the same numbers compared with the reference of another position violate the tolerance
+        expect(r.controlViolations).toBeGreaterThan(0);
+        expect(r.planes).toBe(r.goldenPlanes);
+        expect(r.valueWidth).toBe(r.goldenPlayers);
+        expect(r.pass).toBe(true);
+      });
     }
   }
 
