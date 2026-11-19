@@ -2406,6 +2406,65 @@ For the app, the number of simulations per move becomes the strength control.
 - A held-out proxy at step 0 of each generation, so that the start network and the candidate are compared on the same samples.
 - A replay window that drops generation 0 by samples instead of as a whole generation.
 
+## Evaluating variants
+
+A **shared network** is one network file that plays four variants: 2 or 3 players, each with the adjacent jump or the long hop ([rules](rules.md#jump-rule), "Jump rule"). It uses the plane set `classic1v`, whose value head has 3 outputs; a two-player position uses the first two ([network](network.md#format-version-3-variants), "Format version 3 (variants)"). Three tools evaluate it, all in module `selfplay` and all following the [job conventions](#job-conventions): `MctsMatch` for two players, `ThreeSeatMatch` for three players, and `PairedReport` to compare two results. Run the commands below from the repository root inside the devenv shell. The paths under `data/shared/` are examples.
+
+### Two players: `MctsMatch`
+
+`MctsMatch` plays paired games of a subject against classical rungs: each pair starts from one seeded random opening and is played twice with the colours swapped. The subject is `mcts:...` or `raw` (the raw policy) and may use any network that `nn.Evaluator` accepts, including `classic1v`. An opponent `ab:N` is the `--ladder-spec` at N nodes. `--jump adjacent|long` selects the rule (default `adjacent`):
+
+- **Adjacent:** the default ladder spec is `Strategies.BEST_SPEC`.
+- **Long:** the openings are random legal plies under the long hop, and the default ladder spec is `Strategies.BROWSER_LONG_SPEC`: classical alpha-beta without race table and race play. Rationale: the race table counts single jumps only, so it is wrong under the long hop. Limit: the long-hop rungs are therefore weaker than `BEST_SPEC` rungs at equal nodes.
+- A ladder spec of the other rule is refused with exit 2. The name of the pairs file `DIR/pairs-<hash>.jsonl` hashes the rule, so the two rules never share a file.
+
+`StrengthEstimate.estimate(..., JumpRule)` does the same for the raw policy; the tests use it, and its command line is `MctsMatch --subject raw`.
+
+```
+scripts/mctsmatch.sh --out data/shared/eval/long2p --net data/shared/gen0/net.safetensors \
+  --subject mcts:sims=200,race=0 --vs ab:1600 --vs ab:6400 --vs ab:25600 --jump long --pairs 100 --seed 3001
+```
+
+For the adjacent jump, drop `--jump long`; the ladder is then `BEST_SPEC`. **Limit:** the long-hop rungs are not calibrated against the adjacent ladder, so an Elo against `BROWSER_LONG_SPEC` is not comparable with an Elo against `BEST_SPEC`.
+
+### Three players: `ThreeSeatMatch`
+
+Seat 0 moves first, so the seat may be worth something. `ThreeSeatMatch` therefore plays every opening three times, with the candidate in seat 0, 1 and 2; both other seats hold two identical opponents. Each `--vs` is one match. A player is `random`, `ab3:nodes=N` (the classical three-player alpha-beta, `ThreePlayerSpec`; `--jump` adds the `jump` key) or `mcts:...` (the network comes from `--net` or the key `net=`). `--control ab3` puts the opponent's own spec into the candidate seats, `--control random` a random player; a control run measures the seat effect with no difference in strength.
+
+The report gives, per seat and in total: wins/games, the share, its exact 95 % Clopper-Pearson interval (`ClopperPearson.interval95`), the position of the share relative to chance (1/3), the draw share, the move-limit share and the mean plies. A **draw** is a game without a winner; it is neither a win nor a loss. 3-player `ab3` games can reach the move limit of 300 plies (`moveLimit` in [rules](rules.md#rule-switches), "Rule switches"); these count as draws and appear in the move-limit share. The total interval treats all games as independent, but the three games of one opening are not, so it is a little too narrow; compare candidates with `PairedReport`.
+
+Seeds depend on (seed, opening, rotation) only, so the result does not depend on the thread count (tested with 1, 2 and 3 threads). Job conventions: the unit is an opening, one JSON line per opening in `DIR/openings-<hash>.jsonl`; a rerun skips finished openings and ignores a torn last line; the lock `DIR/.threeseat.lock` makes a second run exit with 75; SIGINT and SIGTERM stop with 130 and 143; a progress line with ETA comes every 10 s; the result is text on stdout and JSON in `DIR/result-<hash>.json`.
+
+```
+scripts/threeseatmatch.sh --out data/shared/eval/3p-adjacent --candidate mcts:sims=200,race=0 \
+  --net data/shared/gen0/net.safetensors --vs ab3:nodes=5000 --vs ab3:nodes=20000 --vs random \
+  --jump adjacent --openings 100 --seed 4001
+scripts/threeseatmatch.sh --out data/shared/eval/3p-control --control ab3 \
+  --vs ab3:nodes=5000 --vs ab3:nodes=20000 --openings 100 --seed 4001
+```
+
+**Calibration (measured, adjacent jump, seed 4001, 200 openings, `ab3` at 5000 nodes in all seats, 4 threads, 56 s):**
+
+| Candidate seat | Wins | Share | 95 % interval |
+|---|---|---|---|
+| 0 | 77 of 200 | 0.385 | [0.317, 0.456] |
+| 1 | 64 of 200 | 0.320 | [0.256, 0.389] |
+| 2 | 59 of 200 | 0.295 | [0.233, 0.363] |
+| total | 200 of 600 | 0.333 | |
+
+No draws; mean 148.6 plies. Identical deterministic players play the same game in all three rotations, so the total is 1/3 by construction and only the per-seat shares carry information. All three intervals contain 1/3, so at this sample size the seat effect is compatible with no advantage. Read a candidate's per-seat shares against this table, not against exactly 1/3. A sanity check: `ab3` at 500 nodes beat two random players in 12 of 12 games (4 openings, seed 1).
+
+### Comparing two results: `PairedReport`
+
+```
+scripts/threeseatmatch.sh paired data/shared/eval/A/openings-<hash>.jsonl \
+  data/shared/eval/B/openings-<hash>.jsonl --json data/shared/eval/paired.json
+```
+
+`PairedReport` pairs two files of the same kind by opening index. The value of a unit is, for `ThreeSeatMatch`, the share of the three games the candidate won, and for `MctsMatch`, the pair score. It reports the mean difference A - B, the standard error sd/sqrt(n), z = mean / standard error and the two-sided p, and it counts units present in one file only. Pairing removes what the opening contributes to both results, so it is tighter than two separate intervals. **A gain counts only at |z| > 1.96.** Origin: the success criterion of the shared-network plan, "A gain only at z > 1.96 on paired data". Guard: two `ThreeSeatMatch` files with different opening positions at the same index (other seed, opening plies or rule) are refused. **Limit:** a pairs file of `MctsMatch` does not store its openings, so keep seed and opening plies equal by hand.
+
+**Opponents by nodes, not time.** The machine is shared with other jobs, so time per move varies with load; a node budget gives the same opponent on every run.
+
 ## Open questions
 
 1. **Residual scaling at initialisation.** Does `Parameters.init` without normalisation layers let the block outputs grow too much for LARGE? Measure first; if yes, add `residualInitScale` (see [Weight initialisation](#weight-initialisation)).
