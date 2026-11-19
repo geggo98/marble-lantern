@@ -11,7 +11,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import sternhalma.engine.RuleSet.JumpRule;
 import sternhalma.search.PlayerSpec;
+import sternhalma.search.Strategies;
 
 /**
  * The self-play data tool (round-2 plan, E05; docs/training.md, "Self-play data tool"). Classical engines only: it
@@ -24,7 +26,9 @@ import sternhalma.search.PlayerSpec;
  *                [--opening uniform|softmax] [--opening-min 4] [--opening-max 10] [--opening-temp 30]
  *                [--opening-depth 1|2] [--tt auto|spec] [--epsilon 0.05] [--samples 1|0] [--reuse 1|0]
  *                [--teacher-depth D [--teacher-tau T] [--teacher-alpha START,END,PLIES]] [--progress SECONDS]
+ *                [--players 2|3] [--jump adjacent|long] [--nodes N]
  *   SelfPlay run --status --out DIR
+ *   SelfPlay pilot [--games 20] [--threads T] (the options of run; writes nothing, prints length, move-limit share and cost)
  *   SelfPlay report DIR... [--sweep 300,500,700] [--check-s1 1]
  *   SelfPlay strong-check --from DIR... --out DIR --spec SPEC [--limit 300] [--threads T]
  *   SelfPlay strong-check --status --out DIR
@@ -71,6 +75,7 @@ public final class SelfPlay {
         try {
             return switch (command) {
                 case "run" -> runCommand(opts, err);
+                case "pilot" -> VariantPilot.run(opts, out, err);
                 case "report" -> Report.run(positional, opts, out, err);
                 case "strong-check" -> StrongCheck.run(opts, err);
                 case "teacher-check" -> TeacherCheck.run(opts, out, err);
@@ -123,6 +128,47 @@ public final class SelfPlay {
         return spec + ",tt=" + tt;
     }
 
+    static JumpRule jump(String v) {
+        return switch (v) {
+            case "adjacent" -> JumpRule.ADJACENT;
+            case "long" -> JumpRule.LONG;
+            default -> throw new IllegalArgumentException("--jump must be adjacent or long, got " + v);
+        };
+    }
+
+    /** Nodes per move of the two-player long-hop mover when neither --spec nor --nodes says otherwise. */
+    static final long LONG_NODES = 5000;
+
+    /**
+     * The mover spec of a variant. Two players, adjacent jump: {@code --spec} is required, as always. Otherwise the
+     * default is {@code Strategies.BROWSER_LONG_SPEC} (2p long, with {@code nodes=5000}), {@code BROWSER_3P_SPEC} or
+     * {@code BROWSER_3P_LONG_SPEC}. {@code --nodes N} sets the node budget of any of them; {@code jump=long} is
+     * added to a given spec that lacks a jump key. The table size is chosen from the nodes for two players
+     * ({@link #effectiveSpec}); an {@code ab3:} spec keeps its own {@code tt}.
+     */
+    static String variantSpec(Map<String, String> opts, int players, JumpRule jump) {
+        String spec = opts.get("spec");
+        if (spec == null) {
+            if (players == 3) {
+                spec = jump == JumpRule.LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC;
+            } else if (jump == JumpRule.LONG) {
+                spec = Strategies.BROWSER_LONG_SPEC + (opts.containsKey("nodes") ? "" : ",nodes=" + LONG_NODES);
+            } else {
+                spec = require(opts, "spec");
+            }
+        }
+        if (jump == JumpRule.LONG && !spec.matches(".*[:,]jump=.*")) {
+            spec += ",jump=long";
+        }
+        String nodes = opts.get("nodes");
+        if (nodes != null) {
+            Long.parseLong(nodes);
+            spec = spec.matches(".*[:,]nodes=.*") ? spec.replaceAll("([:,])nodes=\\d+", "$1nodes=" + nodes)
+                    : spec + ",nodes=" + nodes;
+        }
+        return players == 3 ? spec : effectiveSpec(spec, opts.getOrDefault("tt", "auto"));
+    }
+
     static double control(String v) {
         return switch (v) {
             case "all" -> 1.0;
@@ -138,10 +184,15 @@ public final class SelfPlay {
     }
 
     static SelfPlayGame.Settings settings(Map<String, String> opts) {
-        String spec = effectiveSpec(require(opts, "spec"), opts.getOrDefault("tt", "auto"));
+        int players = intOpt(opts, "players", 2);
+        JumpRule jump = jump(opts.getOrDefault("jump", "adjacent"));
+        boolean long2 = players == 2 && jump == JumpRule.LONG;
+        String spec = variantSpec(opts, players, jump);
         Adjudication.Config d = Adjudication.Config.PRODUCTION;
-        Adjudication.Config adj = new Adjudication.Config(intOpt(opts, "s1", 1) == 1,
-                intOpt(opts, "margin", d.margin()), intOpt(opts, "margin-moves", d.marginMoves()),
+        // 2p long: no S1 (the race table counts single jumps), the score-margin layer on; 3p: no adjudication at all
+        boolean variantOff = players == 3 || long2;
+        Adjudication.Config adj = new Adjudication.Config(intOpt(opts, "s1", variantOff ? 0 : 1) == 1,
+                intOpt(opts, "margin", long2 ? 500 : d.margin()), intOpt(opts, "margin-moves", d.marginMoves()),
                 doubleOpt(opts, "eval-threshold", d.evalThreshold()), intOpt(opts, "eval-plies", d.evalPlies()));
         OpeningSampler.Mode mode = OpeningSampler.Mode.valueOf(
                 opts.getOrDefault("opening", "uniform").toUpperCase(Locale.ROOT));
@@ -149,7 +200,7 @@ public final class SelfPlay {
                 control(opts.getOrDefault("control", "0.1")), mode, intOpt(opts, "opening-min", 4),
                 intOpt(opts, "opening-max", 10), doubleOpt(opts, "opening-temp", 30), intOpt(opts, "opening-depth", 1),
                 doubleOpt(opts, "epsilon", 0.05), intOpt(opts, "samples", 1) == 1, intOpt(opts, "reuse", 1) == 1,
-                teacher(opts));
+                teacher(opts, long2), players, jump);
     }
 
     /**
@@ -157,7 +208,19 @@ public final class SelfPlay {
      * {@code --teacher-depth}. Without {@code --teacher-tau} the temperature measured for the depth (3: 0.1, 2: 0.06).
      */
     static Teacher.Config teacher(Map<String, String> opts) {
+        return teacher(opts, false);
+    }
+
+    /**
+     * With {@code long2} (two players, long hop) the teacher is on by default: depth 2 and the calibration
+     * {@code 0.5,0.2,100}, the weights of the value blend that the sigma(score / 75) calibration of the adjacent game
+     * does not justify for the long hop (unverified: docs/training.md).
+     */
+    static Teacher.Config teacher(Map<String, String> opts, boolean long2) {
         String depth = opts.get("teacher-depth");
+        if (depth == null && long2) {
+            depth = "2";
+        }
         if (depth == null) {
             if (opts.containsKey("teacher-tau") || opts.containsKey("teacher-alpha")) {
                 throw new IllegalArgumentException("--teacher-tau and --teacher-alpha need --teacher-depth");
@@ -167,7 +230,7 @@ public final class SelfPlay {
         int d = Integer.parseInt(depth);
         double tau = opts.containsKey("teacher-tau") ? Double.parseDouble(opts.get("teacher-tau"))
                 : Teacher.Config.defaultTau(d);
-        String alpha = opts.get("teacher-alpha");
+        String alpha = opts.getOrDefault("teacher-alpha", long2 ? "0.5,0.2,100" : null);
         if (alpha == null) {
             return new Teacher.Config(d, tau);
         }

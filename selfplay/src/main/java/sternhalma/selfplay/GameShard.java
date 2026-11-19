@@ -31,15 +31,16 @@ public final class GameShard {
     /** Tensors and metadata of a shard. */
     public static void write(Path file, SelfPlayGame.Settings settings, int shard, int firstGame,
             List<GameRecord> games) throws IOException {
-        SampleFile.write(file, tensors(games), metadata(settings, shard, firstGame, games.size()));
+        SampleFile.write(file, tensors(settings.rules(), games), metadata(settings, shard, firstGame, games.size()));
     }
 
     static Map<String, String> metadata(SelfPlayGame.Settings settings, int shard, int firstGame, int games) {
+        RuleSet rules = settings.rules();
         Map<String, String> m = new LinkedHashMap<>();
         m.put("format", FORMAT);
         m.put("format_version", Integer.toString(FORMAT_VERSION));
-        m.put("players", "2");
-        m.put("rules", RuleSet.defaults(2).toString());
+        m.put("players", Integer.toString(rules.players()));
+        m.put("rules", rules.toString());
         m.put("generation", "0");
         m.put("network_sha256", "");
         m.put("search", settings.spec());
@@ -60,6 +61,12 @@ public final class GameShard {
     }
 
     static Map<String, Tensor> tensors(List<GameRecord> games) {
+        return tensors(RuleSet.defaults(2), games);
+    }
+
+    /** The tensors of games under {@code rules}; the value tensors have one column per player. */
+    static Map<String, Tensor> tensors(RuleSet rules, List<GameRecord> games) {
+        int pl = rules.players();
         int g = games.size();
         int totalMoves = 0;
         int totalSamples = 0;
@@ -76,11 +83,11 @@ public final class GameShard {
         int[] moveOffsets = new int[g + 1];
         int[] moves = new int[totalMoves];
         int[] scores = new int[totalMoves];
-        float[] values = new float[g * 2];
+        float[] values = new float[g * pl];
         byte[] label = new byte[g];
         short[] labelPly = new short[g];
         short[] finalPly = new short[g];
-        float[] finalValues = new float[g * 2];
+        float[] finalValues = new float[g * pl];
         short[] s1 = new short[g * 3];
         short[] margin = new short[g * 2];
         short[] eval = new short[g * 2];
@@ -96,7 +103,7 @@ public final class GameShard {
         byte[] to = new byte[totalLegal];
         float[] target = new float[totalLegal];
         int[] played = new int[totalSamples];
-        float[] valueTarget = new float[totalSamples * 2];
+        float[] valueTarget = new float[totalSamples * pl];
         float[] wp = new float[totalSamples];
         float[] wv = new float[totalSamples];
         byte[] flags = new byte[totalSamples];
@@ -104,7 +111,7 @@ public final class GameShard {
         int mo = 0;
         int so = 0;
         int lo = 0;
-        short limit = (short) RuleSet.defaults(2).moveLimit();
+        short limit = (short) rules.moveLimit();
         for (int i = 0; i < g; i++) {
             GameRecord r = games.get(i);
             id[i] = r.id();
@@ -113,13 +120,13 @@ public final class GameShard {
             System.arraycopy(r.scores(), 0, scores, mo, r.scores().length);
             mo += r.moves().length;
             moveOffsets[i + 1] = mo;
-            values[2 * i] = (float) r.labelValues()[0];
-            values[2 * i + 1] = (float) r.labelValues()[1];
+            for (int k = 0; k < pl; k++) {
+                values[pl * i + k] = (float) r.labelValues()[k];
+                finalValues[pl * i + k] = r.finalValues() == null ? Float.NaN : (float) r.finalValues()[k];
+            }
             label[i] = (byte) r.label().code;
             labelPly[i] = (short) r.labelPly();
             finalPly[i] = (short) r.finalPly();
-            finalValues[2 * i] = r.finalValues() == null ? Float.NaN : (float) r.finalValues()[0];
-            finalValues[2 * i + 1] = r.finalValues() == null ? Float.NaN : (float) r.finalValues()[1];
             put(s1, 3 * i, r.s1(), true);
             put(margin, 2 * i, r.margin(), false);
             put(eval, 2 * i, r.eval(), false);
@@ -136,7 +143,7 @@ public final class GameShard {
             System.arraycopy(s.cells(), 0, cells, so * Geometry.CELLS, s.cells().length);
             System.arraycopy(s.ply(), 0, ply, so, n);
             System.arraycopy(s.played(), 0, played, so, n);
-            System.arraycopy(s.value(), 0, valueTarget, 2 * so, 2 * n);
+            System.arraycopy(s.value(), 0, valueTarget, pl * so, pl * n);
             System.arraycopy(s.policyWeight(), 0, wp, so, n);
             System.arraycopy(s.valueWeight(), 0, wv, so, n);
             System.arraycopy(s.flags(), 0, flags, so, n);
@@ -160,21 +167,21 @@ public final class GameShard {
         t.put("move_to", Tensor.u8(to, totalLegal));
         t.put("move_target", Tensor.f32(target, totalLegal));
         t.put("played", Tensor.i32(played, totalSamples));
-        t.put("value_target", Tensor.f32(valueTarget, totalSamples, 2));
+        t.put("value_target", Tensor.f32(valueTarget, totalSamples, pl));
         t.put("policy_weight", Tensor.f32(wp, totalSamples));
         t.put("value_weight", Tensor.f32(wv, totalSamples));
         t.put("flags", Tensor.u8(flags, totalSamples));
         t.put("game", Tensor.i32(sampleGame, totalSamples));
         t.put("game_moves", Tensor.i32(moves, totalMoves));
         t.put("game_move_offsets", Tensor.i32(moveOffsets, g + 1));
-        t.put("game_values", Tensor.f32(values, g, 2));
+        t.put("game_values", Tensor.f32(values, g, pl));
         t.put("game_id", Tensor.i32(id, g));
         t.put("game_opening_plies", Tensor.i16(opening, g));
         t.put("game_scores", Tensor.i32(scores, totalMoves));
         t.put("game_label", Tensor.u8(label, g));
         t.put("game_label_ply", Tensor.i16(labelPly, g));
         t.put("game_final_ply", Tensor.i16(finalPly, g));
-        t.put("game_final_values", Tensor.f32(finalValues, g, 2));
+        t.put("game_final_values", Tensor.f32(finalValues, g, pl));
         t.put("game_s1", Tensor.i16(s1, g, 3));
         t.put("game_margin", Tensor.i16(margin, g, 2));
         t.put("game_eval", Tensor.i16(eval, g, 2));
@@ -198,6 +205,50 @@ public final class GameShard {
 
     private static Firing firing(Layer layer, short[] a, int at, boolean withEnd) {
         return a[at] < 0 ? null : new Firing(layer, a[at], a[at + 1], withEnd ? a[at + 2] : -1);
+    }
+
+    private static double[] doubles(float[] a, int from, int n) {
+        double[] d = new double[n];
+        for (int k = 0; k < n; k++) {
+            d[k] = a[from + k];
+        }
+        return d;
+    }
+
+    /**
+     * The rules the shard's games were played under, parsed from the {@code rules} metadata ({@code
+     * RuleSet.toString()}, e.g. {@code RuleSet[players=3, moveLimit=300, ..., jumpRule=LONG]}). A shard without the
+     * key (or a key without {@code jumpRule}, written before the jump rule existed) means the defaults of
+     * {@code players} (2 if that is missing as well) with the adjacent jump. Every sample of the shard has these
+     * rules; the move limit of a sample is also in the tensor {@code move_limit}.
+     */
+    public static RuleSet rules(Map<String, String> metadata) {
+        String text = metadata.get("rules");
+        String declared = metadata.get("players");
+        int players = declared != null && declared.matches("[23]") ? Integer.parseInt(declared) : 2;
+        if (text == null) {
+            return RuleSet.defaults(players);
+        }
+        Map<String, String> kv = new java.util.HashMap<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\w+)=(\\w+)").matcher(text);
+        while (m.find()) {
+            kv.put(m.group(1), m.group(2));
+        }
+        RuleSet d = RuleSet.defaults(kv.containsKey("players") ? Integer.parseInt(kv.get("players")) : players);
+        RuleSet r = new RuleSet(d.players(),
+                kv.containsKey("moveLimit") ? Integer.parseInt(kv.get("moveLimit")) : d.moveLimit(),
+                RuleSet.LeaveGoal.valueOf(kv.getOrDefault("leaveGoal", d.leaveGoal().name())),
+                RuleSet.BlockadeRule.valueOf(kv.getOrDefault("blockadeRule", d.blockadeRule().name())),
+                RuleSet.SuicideMoves.valueOf(kv.getOrDefault("suicideMoves", d.suicideMoves().name())),
+                RuleSet.BlockingStates.valueOf(kv.getOrDefault("blockingStates", d.blockingStates().name())),
+                RuleSet.Repetition.valueOf(kv.getOrDefault("repetition", d.repetition().name())),
+                RuleSet.DrawHandling.valueOf(kv.getOrDefault("drawHandling", d.drawHandling().name())),
+                RuleSet.Ranking.valueOf(kv.getOrDefault("ranking", d.ranking().name())),
+                RuleSet.JumpRule.valueOf(kv.getOrDefault("jumpRule", RuleSet.JumpRule.ADJACENT.name())));
+        if (declared != null && r.players() != players) {
+            throw new IllegalArgumentException("metadata players " + declared + " but rules " + text);
+        }
+        return r;
     }
 
     /** A shard as read back: its metadata and the game records (samples are not rebuilt). */
@@ -230,14 +281,18 @@ public final class GameShard {
         if (offsets.length != id.length + 1 || offsets[id.length] != moves.length || scores.length != moves.length) {
             throw new IOException(file + ": inconsistent game tensors");
         }
+        int pl = rules(m).players();
+        if (values.length != id.length * pl || finalValues.length != id.length * pl) {
+            throw new IOException(file + ": game value tensors do not have " + pl + " columns");
+        }
         List<GameRecord> games = new ArrayList<>();
         for (int i = 0; i < id.length; i++) {
             boolean playedOut = finalPly[i] >= 0;
             games.add(new GameRecord(id[i], opening[i],
                     java.util.Arrays.copyOfRange(moves, offsets[i], offsets[i + 1]),
                     java.util.Arrays.copyOfRange(scores, offsets[i], offsets[i + 1]),
-                    Layer.of(label[i]), labelPly[i], new double[] {values[2 * i], values[2 * i + 1]}, playedOut,
-                    finalPly[i], playedOut ? new double[] {finalValues[2 * i], finalValues[2 * i + 1]} : null,
+                    Layer.of(label[i]), labelPly[i], doubles(values, pl * i, pl), playedOut,
+                    finalPly[i], playedOut ? doubles(finalValues, pl * i, pl) : null,
                     firing(Layer.S1, s1, 3 * i, true), firing(Layer.MARGIN, margin, 2 * i, false),
                     firing(Layer.EVAL, eval, 2 * i, false), race[i], cpu[3 * i] * 1000L, cpu[3 * i + 1] * 1000L,
                     cpu[3 * i + 2] * 1000L, nodes[i], null));
