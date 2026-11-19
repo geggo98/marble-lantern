@@ -9,6 +9,7 @@ import sternhalma.engine.Geometry;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.engine.RuleSet.JumpRule;
 import sternhalma.nn.Orientation;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.Evaluators;
@@ -16,6 +17,8 @@ import sternhalma.search.IllegalMoveException;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.RaceAdjudication;
 import sternhalma.search.SearchResult;
+import sternhalma.search.ThreePlayerPlayer;
+import sternhalma.search.ThreePlayerSpec;
 import sternhalma.selfplay.Adjudication.Firing;
 import sternhalma.selfplay.Adjudication.Layer;
 import sternhalma.tablebase.RaceTable;
@@ -39,10 +42,42 @@ public final class SelfPlayGame {
      * @param samples         whether to build samples
      * @param teacher         teacher samples of generation 0 (E10): policy and value targets from exact root scores,
      *                        or null for the bootstrap targets
+     * @param players         2 or 3; with 3 the spec is an {@code ab3:} text ({@link ThreePlayerSpec}), the labels are
+     *                        the played move (1 - epsilon) and {@code Outcome.values}, and neither adjudication nor a
+     *                        teacher exists
+     * @param jumpRule        the jump rule of the games; the spec must name the same rule; {@code LONG} excludes S1
      */
     public record Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
             OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
-            int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher) {
+            int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher, int players,
+            JumpRule jumpRule) {
+
+        public Settings {
+            if (players != 2 && players != 3) {
+                throw new IllegalArgumentException("players must be 2 or 3, got " + players);
+            }
+            java.util.Objects.requireNonNull(jumpRule, "jumpRule");
+            if (players == 3 && (adjudication.any() || teacher != null)) {
+                throw new IllegalArgumentException("three-player games have no adjudication and no teacher");
+            }
+            if (players == 3 && openingMode != OpeningSampler.Mode.UNIFORM) {
+                throw new IllegalArgumentException("three-player games take uniform openings only");
+            }
+            if (jumpRule == JumpRule.LONG && adjudication.s1()) {
+                throw new IllegalArgumentException("S1 counts single jumps: use --s1 0 with --jump long");
+            }
+            if (jumpRule == JumpRule.LONG && adjudication.evalThreshold() > 0) {
+                throw new IllegalArgumentException(
+                        "layer 3 reads adjacent-jump features: use --eval-threshold 0 with --jump long");
+            }
+        }
+
+        public Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
+                OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
+                int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher) {
+            this(spec, seed, adjudication, controlFraction, openingMode, openingMin, openingMax, openingTemperature,
+                    openingDepth, epsilon, samples, reuse, teacher, 2, JumpRule.ADJACENT);
+        }
 
         public Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
                 OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
@@ -51,20 +86,30 @@ public final class SelfPlayGame {
                     openingDepth, epsilon, samples, reuse, null);
         }
 
+        /** The rules of the games: the defaults of the player count with the jump rule. */
+        public RuleSet rules() {
+            return RuleSet.defaults(players).withJumpRule(jumpRule);
+        }
+
         public String describe() {
             return "spec=" + spec + ";seed=" + seed + ";adjudication=" + adjudication.describe() + ";control="
                     + controlFraction + ";opening=" + openingMode.name().toLowerCase(java.util.Locale.ROOT) + ","
                     + openingMin + "-" + openingMax + ",T=" + openingTemperature + ",depth=" + openingDepth
                     + ";epsilon=" + epsilon + ";samples=" + (samples ? 1 : 0)
-                    + (teacher == null ? "" : ";teacher=" + teacher.describe());
+                    + (teacher == null ? "" : ";teacher=" + teacher.describe())
+                    + (players == 2 ? "" : ";players=" + players)
+                    + (jumpRule == JumpRule.ADJACENT ? "" : ";jump=" + jumpRule.name().toLowerCase(java.util.Locale.ROOT));
         }
     }
 
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
 
     private final Settings settings;
-    private final RuleSet rules = RuleSet.defaults(2);
+    private final RuleSet rules;
+    /** The two-player spec; null for three players. */
     private final PlayerSpec spec;
+    /** The three-player spec; null for two players. */
+    private final ThreePlayerSpec spec3;
     private final Adjudication adjudication;
     private final OpeningSampler openings;
     private final Teacher teacher;
@@ -72,7 +117,21 @@ public final class SelfPlayGame {
 
     public SelfPlayGame(Settings settings) {
         this.settings = settings;
-        this.spec = PlayerSpec.parse(settings.spec());
+        this.rules = settings.rules();
+        JumpRule specJump;
+        if (settings.players() == 3) {
+            this.spec = null;
+            this.spec3 = ThreePlayerSpec.parse(settings.spec());
+            specJump = spec3.jumpRule();
+        } else {
+            this.spec = PlayerSpec.parse(settings.spec());
+            this.spec3 = null;
+            specJump = spec.jumpRule();
+        }
+        if (specJump != settings.jumpRule()) {
+            throw new IllegalArgumentException("the spec plays jump=" + specJump.name().toLowerCase(java.util.Locale.ROOT)
+                    + ", the settings say jump=" + settings.jumpRule().name().toLowerCase(java.util.Locale.ROOT));
+        }
         this.teacher = settings.teacher() == null ? null : new Teacher(settings.teacher(), spec);
         Adjudication.Config a = settings.adjudication();
         this.adjudication = new Adjudication(a, rules.players(), a.s1() ? RaceTable.rows2() : null,
@@ -127,8 +186,10 @@ public final class SelfPlayGame {
             scores[n] = GameRecord.NO_SCORE;
             moves[n++] = m;
         }
-        AlphaBetaPlayer[] ps = players();
-        long nodes0 = ps[0].totalNodes() + ps[1].totalNodes();
+        AlphaBetaPlayer[] ps = spec3 == null ? players() : null;
+        // one three-player searcher plays every seat; its table lives for this game only
+        ThreePlayerPlayer ps3 = spec3 == null ? null : spec3.create();
+        long nodes0 = ps3 == null ? ps[0].totalNodes() + ps[1].totalNodes() : 0;
         Adjudication.Tracker tracker = adjudication.tracker();
         Firing cut = null;
         long searchCpu = 0;
@@ -155,12 +216,13 @@ public final class SelfPlayGame {
             }
             int mover = pos.sideToMove();
             long t0 = cpu();
-            int move = ps[mover].choose(pos);
+            sternhalma.search.Player player = ps3 == null ? ps[mover] : ps3;
+            int move = player.choose(pos);
             searchCpu += cpu() - t0;
             if (Arrays.stream(legal).noneMatch(x -> x == move)) {
-                throw new IllegalMoveException(ps[mover].name(), move, pos);
+                throw new IllegalMoveException(player.name(), move, pos);
             }
-            SearchResult result = ps[mover].lastResult();
+            SearchResult result = ps3 == null ? ps[mover].lastResult() : ps3.lastResult();
             scores[n] = result == null ? GameRecord.NO_SCORE : result.score();
             moves[n++] = move;
             pos.make(move);
@@ -176,9 +238,10 @@ public final class SelfPlayGame {
         Layer label = cut == null ? Layer.NONE : cut.layer();
         int labelPly = cut == null ? pos.ply() : cut.ply();
         double[] labelValues = cut == null ? outcome.values().clone() : win(cut.winner());
-        long nodes = ps[0].totalNodes() + ps[1].totalNodes() - nodes0;
+        long nodes = ps3 == null ? ps[0].totalNodes() + ps[1].totalNodes() - nodes0 : ps3.totalNodes();
         GameRecord.Samples samples = settings.samples()
-                ? samples(played, opening.length, labelPly, labelValues, label != Layer.NONE, settings.epsilon(), teacher)
+                ? samples(rules, null, played, opening.length, labelPly, labelValues, label != Layer.NONE,
+                        settings.epsilon(), teacherLabeler(teacher))
                 : null;
         return new GameRecord(id, opening.length, played, Arrays.copyOf(scores, n), label, labelPly, labelValues,
                 playedOut, playedOut ? pos.ply() : -1, playedOut ? outcome.values().clone() : null,
@@ -200,7 +263,12 @@ public final class SelfPlayGame {
      */
     static GameRecord.Samples samples(int[] moves, int openingPlies, int cut, double[] labelValues,
             boolean adjudicated, double epsilon, Teacher teacher) {
-        Labeler labeler = (s, pos, z) -> {
+        return samples(moves, openingPlies, cut, labelValues, adjudicated, epsilon, teacherLabeler(teacher));
+    }
+
+    /** The labeler of a teacher; without one (null) the bootstrap target of the played move. */
+    static Labeler teacherLabeler(Teacher teacher) {
+        return (s, pos, z) -> {
             if (teacher == null) {
                 return new PlyLabel(null, z, false, true);
             }
@@ -209,7 +277,6 @@ public final class SelfPlayGame {
             return new PlyLabel(label.policy(), teacher.config().value(z, pos.ply(), label.best(),
                     RaceAdjudication.passed(pos)), full, full);
         };
-        return samples(moves, openingPlies, cut, labelValues, adjudicated, epsilon, labeler);
     }
 
     /**
@@ -233,13 +300,19 @@ public final class SelfPlayGame {
     /** {@link #samples(int[], int, int, double[], boolean, double, Teacher)} with the labels of any source. */
     static GameRecord.Samples samples(int[] moves, int openingPlies, int cut, double[] labelValues,
             boolean adjudicated, double epsilon, Labeler labeler) {
-        return samples(null, moves, openingPlies, cut, labelValues, adjudicated, epsilon, labeler);
+        return samples(RuleSet.defaults(2), null, moves, openingPlies, cut, labelValues, adjudicated, epsilon, labeler);
     }
 
     /** Like the above, replayed from {@code start} (null: the start position of the game). */
     static GameRecord.Samples samples(Position start, int[] moves, int openingPlies, int cut, double[] labelValues,
             boolean adjudicated, double epsilon, Labeler labeler) {
-        RuleSet rules = RuleSet.defaults(2);
+        return samples(RuleSet.defaults(2), start, moves, openingPlies, cut, labelValues, adjudicated, epsilon,
+                labeler);
+    }
+
+    /** Like the above under any rules; {@code start}, if given, has these rules. */
+    static GameRecord.Samples samples(RuleSet rules, Position start, int[] moves, int openingPlies, int cut,
+            double[] labelValues, boolean adjudicated, double epsilon, Labeler labeler) {
         int players = rules.players();
         Position pos = start == null ? Position.initial(rules) : start.copy();
         int n = cut;
