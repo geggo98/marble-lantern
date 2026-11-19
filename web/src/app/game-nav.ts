@@ -4,8 +4,10 @@
 //   replaceState when the engine's answer arrives, and when only the side or the strength changes
 //
 // The navigation port keeps the code free of `window`, so that tests run it against a fake history.
-import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
+import type { ControllerSeat } from '../game/game';
+import { DEFAULT_VARIANT, sameVariant } from '../game/variant';
+import type { Variant } from '../game/variant';
 import { formatGameFragment } from './game-url';
 
 export interface NavEvent {
@@ -59,11 +61,26 @@ export function browserNavigation(): NavigationPort {
 /** What the URL says about the game. */
 export interface UrlSnapshot {
   moves: readonly number[];
+  /** Two players: the side of the human. Ignored for three players. */
   humanSide: Side;
   level: number;
+  /** Missing means the default variant. */
+  variant?: Variant;
+  /** Three players: who plays each seat. */
+  seats?: readonly ControllerSeat[];
 }
 
 const sameMoves = (a: readonly number[], b: readonly number[]): boolean => a.length === b.length && a.every((m, i) => m === b[i]);
+
+const sameSeats = (a: readonly ControllerSeat[] | undefined, b: readonly ControllerSeat[] | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && a.length === b.length && a.every((s, i) => s === b[i]));
+
+/** The seat of the player who made the last move is a human seat. */
+function lastMoverIsHuman(snapshot: UrlSnapshot): boolean {
+  const variant = snapshot.variant ?? DEFAULT_VARIANT;
+  const mover = (snapshot.moves.length - 1) % variant.players;
+  return variant.players === 2 ? mover === snapshot.humanSide : snapshot.seats?.[mover] === 'human';
+}
 
 export class GameUrlSync {
   private written: UrlSnapshot | null = null;
@@ -81,7 +98,8 @@ export class GameUrlSync {
   /** Writes the snapshot to the URL if it differs from what the URL shows. */
   observe(snapshot: UrlSnapshot): 'push' | 'replace' | null {
     const before = this.written;
-    if (before && sameMoves(before.moves, snapshot.moves) && before.humanSide === snapshot.humanSide && before.level === snapshot.level) {
+    if (before && sameMoves(before.moves, snapshot.moves) && before.humanSide === snapshot.humanSide && before.level === snapshot.level &&
+      sameVariant(before.variant ?? DEFAULT_VARIANT, snapshot.variant ?? DEFAULT_VARIANT) && sameSeats(before.seats, snapshot.seats)) {
       return null;
     }
     this.written = snapshot;
@@ -92,7 +110,7 @@ export class GameUrlSync {
       before.moves.every((m, i) => m === snapshot.moves[i]);
     let how: 'push' | 'replace';
     if (before === null || sameMoves(before.moves, snapshot.moves)) how = 'replace'; // first state, or side or strength only
-    else if (extended) how = sideToMove(snapshot.moves.length - 1) === snapshot.humanSide ? 'push' : 'replace'; // human move: new entry; engine answer: same entry
+    else if (extended) how = lastMoverIsHuman(snapshot) ? 'push' : 'replace'; // human move: new entry; engine answer: same entry
     else how = 'push'; // undo or new game
     if (how === 'push') this.nav.push(fragment);
     else this.nav.replace(fragment);

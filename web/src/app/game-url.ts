@@ -1,14 +1,19 @@
 // The game in the URL fragment (docs/web-ui.md, section "Game URL"). Pure: no DOM, no engine.
 //
-//   #g=v1.<payload>[&h=0|1][&l=<level>]
+//   #g=v1.<payload>[&h=0|1][&l=<level>][&j=long][&p=3&s=<seats>]
 //
 // payload: every move as 14 bits (from 7 bit, to 7 bit, cells 0 to 120), big-endian bit stream, zero-padded to whole
 //          bytes, base64url without padding.
 // h:       the side the human plays (0 moves first). l: the strength level: an index into NODE_LEVELS (0 to 4) or a custom node budget (skill/level.ts).
+// j:       the jump rule, only "long" (omitted for the adjacent rule).  p: the player count, only "3" (omitted for two players).
+// s:       three players only, and then required: one character per seat, "h" a human and "e" an engine, e.g. "hhe" (hot-seat) or "hee";
+//          at least one and at most two humans. Two players keep h; three players have no h.
 //
 // Parsing is strict: a link that is not exactly what the encoder writes is reported as broken, never repaired.
-import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
+import { DEFAULT_VARIANT, isDefault, moveLimit } from '../game/variant';
+import type { Variant } from '../game/variant';
+import type { ControllerSeat } from '../game/game';
 import { makeMove, moveFrom, moveTo } from '../engines/engine';
 import { CELL_COUNT } from '../board/cells';
 import { isValidLevel } from '../skill/level';
@@ -16,6 +21,8 @@ import type { Screen } from '../ui/Chrome';
 
 export const GAME_URL_VERSION = 'v1';
 const BITS_PER_MOVE = 14;
+/** The longest game of any variant (300 plies for three players); parseGameFragment narrows it to the variant of the link. */
+const MAX_MOVES = 300;
 
 export type GameUrlReason = 'version' | 'length' | 'alphabet' | 'padding' | 'cell' | 'too-long' | 'field';
 
@@ -29,9 +36,17 @@ export class GameUrlError extends Error {
 export interface GameLink {
   /** Moves from the start position, oldest first (`from | (to << 8)`). */
   moves: readonly number[];
+  /** Two players: the side the human plays. */
   humanSide?: Side;
   level?: number;
+  /** Missing means the default variant (adjacent jumps, two players). */
+  variant?: Variant;
+  /** Three players: who plays each seat. Always present for three players, never for two. */
+  seats?: readonly ControllerSeat[];
 }
+
+/** The variant of a link. */
+export const variantOfLink = (link: GameLink): Variant => link.variant ?? DEFAULT_VARIANT;
 
 export type ParsedHash =
   | { kind: 'screen'; screen: Screen }
@@ -95,7 +110,7 @@ export function encodeMoves(moves: readonly number[]): string {
   return base64urlEncode(bytes);
 }
 
-export function decodeMoves(payload: string): number[] {
+export function decodeMoves(payload: string, limit = moveLimit(DEFAULT_VARIANT)): number[] {
   if (/[^A-Za-z0-9_-]/.test(payload)) throw new GameUrlError('alphabet', 'a character is not in the base64url alphabet');
   if (payload.length % 4 === 1) throw new GameUrlError('length', 'the text has an impossible length');
   const bytes = base64urlDecode(payload);
@@ -104,7 +119,7 @@ export function decodeMoves(payload: string): number[] {
   if (Math.ceil((count * BITS_PER_MOVE) / 8) !== bytes.length) {
     throw new GameUrlError('length', `${bytes.length} bytes are not a whole number of moves`);
   }
-  if (count > MOVE_LIMIT) throw new GameUrlError('too-long', `${count} moves, the limit is ${MOVE_LIMIT}`);
+  if (count > limit) throw new GameUrlError('too-long', `${count} moves, the limit is ${limit}`);
   const moves: number[] = [];
   let bit = 0;
   for (let n = 0; n < count; n++) {
@@ -123,12 +138,32 @@ export function decodeMoves(payload: string): number[] {
 
 // ---- fragment ----
 
-/** The fragment including the leading "#". */
+/** The fragment including the leading "#". Three players need `seats` (and ignore `humanSide`); two players ignore `seats`. */
 export function formatGameFragment(link: GameLink): string {
+  const variant = variantOfLink(link);
   let out = `#g=${GAME_URL_VERSION}.${encodeMoves(link.moves)}`;
-  if (link.humanSide !== undefined) out += `&h=${link.humanSide}`;
+  if (variant.players === 2 && link.humanSide !== undefined) out += `&h=${link.humanSide}`;
   if (link.level !== undefined) out += `&l=${link.level}`;
+  if (variant.jump === 'long') out += '&j=long';
+  if (variant.players === 3) {
+    if (!link.seats) throw new GameUrlError('field', 'a three-player link needs its seats');
+    out += `&p=3&s=${formatSeats(link.seats, 3)}`;
+  }
   return out;
+}
+
+const SEAT_CHAR: Readonly<Record<ControllerSeat, string>> = { human: 'h', engine: 'e' };
+
+function formatSeats(seats: readonly ControllerSeat[], players: number): string {
+  const text = seats.map((s) => SEAT_CHAR[s]).join('');
+  if (!validSeatText(text, players)) throw new GameUrlError('field', `seats ${text} do not fit a game of ${players} players`);
+  return text;
+}
+
+/** One character per seat; at least one and at most two humans (hot-seat has two, a game against two engines one). */
+function validSeatText(text: string, players: number): boolean {
+  const humans = text.split('h').length - 1;
+  return text.length === players && /^[he]+$/.test(text) && humans >= 1 && humans <= 2;
 }
 
 /** Strict parser for the game fragment; throws GameUrlError. */
@@ -136,9 +171,11 @@ export function parseGameFragment(fragment: string): GameLink {
   const fields = fragment.replace(/^#/, '').split('&');
   const first = fields[0]!;
   if (!first.startsWith(`g=${GAME_URL_VERSION}.`)) throw new GameUrlError('version', 'no "g=v1." prefix');
-  const link: { moves: number[]; humanSide?: Side; level?: number } = {
-    moves: decodeMoves(first.slice(`g=${GAME_URL_VERSION}.`.length)),
-  };
+  const moves = decodeMoves(first.slice(`g=${GAME_URL_VERSION}.`.length), MAX_MOVES);
+  const link: { moves: number[]; humanSide?: Side; level?: number; variant?: Variant; seats?: ControllerSeat[] } = { moves };
+  let jump: Variant['jump'] = 'adjacent';
+  let players: Variant['players'] = 2;
+  let seatText: string | null = null;
   const seen = new Set<string>();
   for (const field of fields.slice(1)) {
     const match = /^(?<key>[a-z])=(?<value>.*)$/.exec(field);
@@ -148,8 +185,23 @@ export function parseGameFragment(fragment: string): GameLink {
     seen.add(key);
     if (key === 'h' && (value === '0' || value === '1')) link.humanSide = Number(value) as Side;
     else if (key === 'l' && /^(0|[1-9]\d{0,6})$/.test(value) && isValidLevel(Number(value))) link.level = Number(value);
+    else if (key === 'j' && value === 'long') jump = 'long';
+    else if (key === 'p' && value === '3') players = 3;
+    else if (key === 's' && /^[he]{3}$/.test(value)) seatText = value;
     else throw new GameUrlError('field', `bad value in "${field}"`);
   }
+  // the fields that belong together
+  if (players === 3) {
+    if (seatText === null) throw new GameUrlError('field', 'a three-player link needs s=<seats>');
+    if (link.humanSide !== undefined) throw new GameUrlError('field', 'h is for two players; three players use s');
+    if (!validSeatText(seatText, 3)) throw new GameUrlError('field', `bad seats "${seatText}"`);
+    link.seats = [...seatText].map((c): ControllerSeat => (c === 'h' ? 'human' : 'engine'));
+  } else if (seen.has('s')) {
+    throw new GameUrlError('field', 's is for three players; two players use h');
+  }
+  const variant: Variant = { jump, players };
+  if (!isDefault(variant)) link.variant = variant;
+  if (moves.length > moveLimit(variant)) throw new GameUrlError('too-long', `${moves.length} moves, the limit is ${moveLimit(variant)}`);
   return link;
 }
 

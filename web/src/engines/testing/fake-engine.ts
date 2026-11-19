@@ -1,7 +1,7 @@
 // A fake engine for tests: random-ish legal moves from the tiny generator, behind the real worker protocol.
 // Do not import it from production code.
 import { CELLS, cellCentre } from '../../board/cells';
-import { goalCells, outcomeOf, replay } from '../../game/board-state';
+import { applyMove, goalCells, initialOwners, outcomeOf } from '../../game/board-state';
 import { DEFAULT_VARIANT } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import type { AnalysisResult, ChooseResult, EngineInfo, EngineOutcome, LoadReport } from '../engine';
@@ -30,6 +30,17 @@ export function seeded(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** Replays the history and checks every move against the tiny generator of the rule, like a real engine (illegal-history). */
+function replayChecked(history: readonly number[], variant: Variant): Int8Array {
+  const owner = initialOwners(variant);
+  history.forEach((move, ply) => {
+    const side = ply % variant.players;
+    if (!tinyLegalMoves(owner, side, variant).includes(move)) throw new Error(`move ${move} at ply ${ply} is not legal for the ${variant.jump} rule`);
+    applyMove(owner, move);
+  });
+  return owner;
 }
 
 export class FakeEngineCore {
@@ -79,7 +90,7 @@ export class FakeEngineCore {
   private legal(history: readonly number[], variant: Variant): number[] {
     let owner;
     try {
-      owner = replay(history, variant);
+      owner = replayChecked(history, variant);
     } catch (e) {
       throw new EngineFailure('illegal-history', String(e));
     }
@@ -91,7 +102,7 @@ export class FakeEngineCore {
   private outcome(history: readonly number[], variant: Variant): EngineOutcome {
     let owner;
     try {
-      owner = replay(history, variant);
+      owner = replayChecked(history, variant);
     } catch (e) {
       throw new EngineFailure('illegal-history', String(e));
     }
