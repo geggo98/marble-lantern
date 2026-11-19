@@ -23,6 +23,7 @@ import java.util.function.LongFunction;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.engine.RuleSet.JumpRule;
 import sternhalma.nn.ForwardPass;
 import sternhalma.search.Elo;
 import sternhalma.search.GameRunner;
@@ -144,8 +145,14 @@ final class StrengthEstimate {
      */
     static List<Rung> estimate(ForwardPass network, String base, List<Integer> ladder, int pairs, long seed, int threads,
             BooleanSupplier stop, IntConsumer progress) {
+        return estimate(network, base, ladder, pairs, seed, threads, stop, progress, JumpRule.ADJACENT);
+    }
+
+    /** {@link #estimate(ForwardPass, String, List, int, long, int, BooleanSupplier, IntConsumer)} under a jump rule. */
+    static List<Rung> estimate(ForwardPass network, String base, List<Integer> ladder, int pairs, long seed, int threads,
+            BooleanSupplier stop, IntConsumer progress, JumpRule jump) {
         RawPolicyPlayer raw = new RawPolicyPlayer(network, "raw-policy");
-        return estimate(gameSeed -> raw, base, ladder, pairs, seed, threads, stop, progress);
+        return estimate(gameSeed -> raw, base, ladder, pairs, seed, threads, stop, progress, jump);
     }
 
     /**
@@ -156,10 +163,21 @@ final class StrengthEstimate {
      */
     static List<Rung> estimate(LongFunction<Player> subject, String base, List<Integer> ladder, int pairs, long seed,
             int threads, BooleanSupplier stop, IntConsumer progress) {
+        return estimate(subject, base, ladder, pairs, seed, threads, stop, progress, JumpRule.ADJACENT);
+    }
+
+    /**
+     * The estimate under a jump rule: the openings and the games follow {@code jump}, and the rung spec must name the
+     * same rule ({@link #requireJump}). For {@link JumpRule#LONG} the base is a classical spec without race play, e.g.
+     * {@link #defaultBase(JumpRule)}.
+     */
+    static List<Rung> estimate(LongFunction<Player> subject, String base, List<Integer> ladder, int pairs, long seed,
+            int threads, BooleanSupplier stop, IntConsumer progress, JumpRule jump) {
         if (pairs < 2 || threads < 1 || ladder.isEmpty()) {
             throw new IllegalArgumentException("need pairs >= 2, threads >= 1 and a ladder");
         }
-        RuleSet rules = RuleSet.defaults(2);
+        requireJump(base, jump);
+        RuleSet rules = RuleSet.defaults(2).withJumpRule(jump);
         List<Rung> result = new ArrayList<>();
         AtomicInteger done = new AtomicInteger();
         try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
@@ -296,6 +314,26 @@ final class StrengthEstimate {
     }
 
     static String defaultBase() {
-        return Strategies.BEST_SPEC;
+        return defaultBase(JumpRule.ADJACENT);
+    }
+
+    /**
+     * The ladder opponent of a jump rule: {@code BEST_SPEC} for single jumps, {@code BROWSER_LONG_SPEC} for the long hop
+     * (no race table and no race play exist for it, so the rungs are weaker than the adjacent ones at the same nodes).
+     */
+    static String defaultBase(JumpRule jump) {
+        return jump == JumpRule.LONG ? Strategies.BROWSER_LONG_SPEC : Strategies.BEST_SPEC;
+    }
+
+    /**
+     * Refuses a ladder spec that plays another jump rule than the games: the player would refuse the position at its
+     * first move, or (for an adjacent spec in long games) not at all if the check were left to the first move.
+     */
+    static void requireJump(String base, JumpRule jump) {
+        JumpRule specJump = PlayerSpec.parse(base).jumpRule();
+        if (specJump != jump) {
+            throw new IllegalArgumentException("the ladder spec plays jump=" + specJump.name().toLowerCase(Locale.ROOT)
+                    + " but the games use jump=" + jump.name().toLowerCase(Locale.ROOT) + ": " + base);
+        }
     }
 }

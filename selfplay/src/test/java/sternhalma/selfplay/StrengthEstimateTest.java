@@ -133,6 +133,54 @@ class StrengthEstimateTest {
         }
     }
 
+    // ---- the long hop (--jump long) ----
+
+    private static final RuleSet LONG_RULES = RuleSet.defaults(2).withJumpRule(RuleSet.JumpRule.LONG);
+
+    @Test
+    void longHopOpeningsAreLongRulePositionsAndLegalAndDifferFromAdjacentOnes() {
+        // the openings are drawn from legalMoves() of a LONG position, so every ply is a long-rule move; across many
+        // openings the long hop must have been available, i.e. the games differ from the adjacent ones
+        int different = 0;
+        for (int pair = 0; pair < 60; pair++) {
+            Position a = StrengthEstimate.opening(LONG_RULES, 5, pair, 12);
+            assertEquals(RuleSet.JumpRule.LONG, a.rules().jumpRule());
+            assertEquals(12, a.ply());
+            assertTrue(a.legalMoves().length > 0);
+            assertEquals(a.hash(), StrengthEstimate.opening(LONG_RULES, 5, pair, 12).hash(), "seeded");
+            if (a.hash() != StrengthEstimate.opening(RuleSet.defaults(2), 5, pair, 12).hash()) {
+                different++;
+            }
+        }
+        assertTrue(different > 0, "12 random plies reach a long hop in at least one of 60 openings");
+    }
+
+    @Test
+    void aLongSmokeRunPlaysLegalGamesWithATinyClassic1vNetAndIsRepeatable() {
+        Network net = new Network(Parameters.init(NetworkConfig.tiny(3).withPlanes(sternhalma.nn.PlaneSet.CLASSIC1V), 4));
+        String base = StrengthEstimate.defaultBase(RuleSet.JumpRule.LONG);
+        assertEquals(sternhalma.search.Strategies.BROWSER_LONG_SPEC, base);
+        List<Rung> one = StrengthEstimate.estimate(net, base, List.of(1, 100), 2, 9, 1, () -> false, n -> { },
+                RuleSet.JumpRule.LONG);
+        List<Rung> two = StrengthEstimate.estimate(net, base, List.of(1, 100), 2, 9, 2, () -> false, n -> { },
+                RuleSet.JumpRule.LONG);
+        assertEquals(one, two);
+        for (Rung r : one) {
+            assertEquals(4, r.wins() + r.draws() + r.losses());
+            assertTrue(r.spec().contains("jump=long"), r.spec());
+        }
+    }
+
+    @Test
+    void aRungThatPlaysAnotherJumpRuleThanTheGamesIsRefused() {
+        Network net = network(1);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> StrengthEstimate.estimate(net,
+                BASE, List.of(100), 2, 1, 1, () -> false, n -> { }, RuleSet.JumpRule.LONG), "adjacent spec, long games");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> StrengthEstimate.estimate(net,
+                StrengthEstimate.defaultBase(RuleSet.JumpRule.LONG), List.of(100), 2, 1, 1, () -> false, n -> { }),
+                "long spec, adjacent games");
+    }
+
     private static int move(String spec, Position p) {
         return sternhalma.search.PlayerSpec.parse(spec).create().choose(p.copy());
     }
