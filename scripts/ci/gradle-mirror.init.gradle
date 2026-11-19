@@ -1,0 +1,40 @@
+// Gradle init script, installed by scripts/ci/select-gradle-repos.zsh ONLY when the mirror passed the health probe.
+// The placeholder below is replaced with the mirror URL at install time. Nothing in here touches credentials or
+// dependency verification: every artifact, from any repository, is still checked against
+// gradle/verification-metadata.xml (strict), so a mirror cannot place a wrong artifact in the build.
+//
+// Why settingsEvaluated: this hook runs on the settings of EVERY build of the composite, that is the main build and
+// the included build "build-logic", each with its own settings file. Gradle falls through to the next repository only
+// on HTTP 404; the mirror answers 404 for what it lacks (new releases, plugins that live only on the Gradle plugin
+// portal), and Maven Central or the plugin portal then answer.
+def mirrorUrl = '@MIRROR_URL@'
+
+gradle.settingsEvaluated { settings ->
+    // (a) Plugin resolution. A settings file without pluginManagement.repositories (build-logic) resolves plugins from
+    // the plugin portal implicitly; adding only the mirror would remove that default, so the portal is added explicitly.
+    def pluginRepos = settings.pluginManagement.repositories
+    def hadPluginRepos = !pluginRepos.isEmpty()
+    def pluginMirror = pluginRepos.maven {
+        name = 'ciMirror'
+        url = mirrorUrl
+    }
+    if (hadPluginRepos) {
+        pluginRepos.remove(pluginMirror)
+        pluginRepos.addFirst(pluginMirror)
+    } else {
+        pluginRepos.gradlePluginPortal()
+    }
+
+    // (b) Dependency resolution, also of build-logic's own code. Compatible with FAIL_ON_PROJECT_REPOS: the repositories
+    // stay in the settings. addFirst puts the mirror in front of mavenCentral().
+    def depRepos = settings.dependencyResolutionManagement.repositories
+    def depMirror = depRepos.maven {
+        name = 'ciMirror'
+        url = mirrorUrl
+    }
+    depRepos.remove(depMirror)
+    depRepos.addFirst(depMirror)
+
+    println "[ci-mirror] ${settings.rootDir.name}: plugin repositories ${pluginRepos*.name}, " +
+        "dependency repositories ${depRepos*.name}"
+}
