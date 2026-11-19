@@ -135,7 +135,7 @@ This section names only the parts that affect the architecture:
 
 - **Move limit.** A `RuleSet` parameter, 200 plies by default for two players (*project decision*); 300 plies for three players is *proposed*.
 - **Blockade.** An opponent piece in the goal counts as filling it, provided at least one own piece is in the goal (*project decision*, owner, 2026-11-07). This is Definition 1 of [Sturtevant2019, §3.2] (*established*).
-- **Three players.** Play goes clockwise around the star, and the game ends at the first winner (*project decision*). TODO-OPUS architecture.ranking {FULL_RANKING implemented, see rules.md section Playing on for second place}
+- **Three players.** Play goes clockwise around the star, and the game ends at the first winner (*project decision*). The switch `ranking = FULL_RANKING` lets the other players play on for second place (*project decision*, owner, 2026-11-19); the engines implement it, and [rules](rules.md#playing-on-for-second-place) defines it.
 - **Games without a winner.** The default `drawHandling = SCORE_BY_DISTANCE` ranks the players by their distance to the goal; `DRAW` stays available for comparisons with the solved tables of [Sturtevant2019, §5], where draws are real draws (*project decision*).
 - **Two deliberate deviations.** The defaults `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT` are *project decisions* and differ from [Sturtevant2019, §3]: its rules contain no ban on leaving the goal, and they declare a game drawn when any board state repeats (§3.4, Definition 4). See [rules](rules.md#deliberate-deviations-from-sturtevant2019). The move limit applies as a backstop in both repetition modes.
 

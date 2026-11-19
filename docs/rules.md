@@ -165,7 +165,7 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 | `blockingStates` | `NONE`, `ILLEGAL` | `NONE` (**proposed**) | With `ILLEGAL`, a move to a state with an empty goal cell that its owner cannot reach is not legal. | `ILLEGAL` is Definition 3 (§3.3). The default deviates from the paper. |
 | `repetition` | `MOVE_LIMIT`, `REPETITION_IS_DRAW` | `MOVE_LIMIT` | With `REPETITION_IS_DRAW`, the first repeated position also ends the game without a winner. | Deviation: the paper uses Definition 4 (§3.4). |
 | `drawHandling` | `DRAW`, `SCORE_BY_DISTANCE` | `SCORE_BY_DISTANCE` | The result when the game ends without a winner. | The paper scores such games as draws. |
-| `ranking` | `FIRST_WINNER_ONLY`, `FULL_RANKING` | `FIRST_WINNER_ONLY` | TODO-OPUS rules.switch.ranking {first: game ends at first winner; full: three players, a player who fills the goal is finished and the others play on, see section Playing on for second place; two players: no effect} | The paper focuses on two players (§3) and gives no rule for ranking. |
+| `ranking` | `FIRST_WINNER_ONLY`, `FULL_RANKING` | `FIRST_WINNER_ONLY` | With `FIRST_WINNER_ONLY`, the game ends when the first player fills the goal. With `FULL_RANKING` and three players, that player is finished and the others play on (see [Playing on for second place](#playing-on-for-second-place)). With two players, both values behave the same. | The paper focuses on two players (§3) and gives no rule for ranking. |
 | `jumpRule` | `ADJACENT`, `LONG` | `ADJACENT` | With `LONG`, a piece hops over one piece at any distance along a line and lands at the same distance behind it (see [Jump rule](#jump-rule)). | The paper plays adjacent jumps only (§3.1). `LONG` is outside the paper, so its oracles do not apply. |
 
 ### Project defaults and their evidence
@@ -173,7 +173,7 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 - **`moveLimit`** — **project decision** (owner, 2026-11-07): 200 plies for two players. The value for three players, 300 plies (100 per player), is **proposed**.
 - **`blockadeRule = OPPONENT_FILLS`** — **project decision** (owner, 2026-11-07): an opponent piece in the goal counts as filling it if at least one own piece is in the goal. This is exactly Definition 1 [Sturtevant2019, §3.2]. A goal that holds only opponent pieces is not a win.
 - **`drawHandling = SCORE_BY_DISTANCE`** — **project decision** (owner, 2026-11-07). The value `DRAW` stays available, because comparisons with the solved tables of [Sturtevant2019] need real draws (see [Oracles from the paper](#oracles-from-the-paper)).
-- **`ranking = FIRST_WINNER_ONLY`** — **project decision** (owner, 2026-11-07). TODO-OPUS rules.default.ranking {FIRST_WINNER_ONLY stays default; FULL_RANKING implemented 2026-11-19 on owner wish}
+- **`ranking = FIRST_WINNER_ONLY`** — **project decision** (owner, 2026-11-07). It stays the default. `FULL_RANKING` was added on 2026-11-19 at the owner's wish (see [Playing on for second place](#playing-on-for-second-place)).
 - **`suicideMoves = ILLEGAL`** — **project decision (proposed)**. It follows Definition 2. The paper focuses on the two-player game [Sturtevant2019, §3]; the three-player form of the rule is an open point.
 - **`blockingStates = NONE`** — **project decision (proposed)**. The project deviates from Definition 3 in the default, because the paper itself calls the conditions for 10 pieces "more complicated" [Sturtevant2019, §3.3] and does not give them. Before `ILLEGAL` can be implemented for 10 pieces, the project must define "unreachable" exactly.
 
@@ -267,19 +267,21 @@ Consequences for the engine:
 
 - The result of a game is a vector with one value per player, not a single number.
 - Alpha-beta search does not apply. See [search and evaluation](search-and-evaluation.md) for Max^n, Paranoid, Best Reply Search and MCTS.
-- **Project decision** (owner, 2026-11-07): play goes clockwise (see [Screen orientation and clockwise order](#screen-orientation-and-clockwise-order)), and the game ends when the first player fills the goal (`ranking = FIRST_WINNER_ONLY`). TODO-OPUS rules.three.ranking {see section Playing on for second place}
+- **Project decision** (owner, 2026-11-07): play goes clockwise (see [Screen orientation and clockwise order](#screen-orientation-and-clockwise-order)), and the game ends when the first player fills the goal (`ranking = FIRST_WINNER_ONLY`). With `ranking = FULL_RANKING` the game goes on for second place; see [Playing on for second place](#playing-on-for-second-place).
 - **Project decision (proposed):** `moveLimit = 300` plies for three players, which is 100 plies per player.
 - [Sturtevant2019, §3] focuses on the two-player game. **Open point:** the three-player form of Definitions 2 and 3.
 
 ## Playing on for second place
 
-TODO-OPUS rules.fullranking.section {mark as project decision (owner wish, 2026-11); three players only, with two players FULL_RANKING equals FIRST_WINNER_ONLY exactly;
- finish: after a move, every active player whose goal meets Definition 1 is finished with the next free rank, checked in turn order starting after the mover; at most players-1 players are marked, the last active player takes the last rank;
- finished players make no moves, turn order skips them, their pieces stay and block and can be jumped; their goals no longer count for Definition 2 (suicide) of other players;
- game over: one active player left (reason WIN, ranking complete) or move limit or repetition or active player without legal move (NO_MOVES): finished keep ranks, the others ranked by distance sum ascending, ties by player number; no draw exists in this mode;
- values: rank values 1, 0, -1; at an unfinished end the unranked players share the remaining rank values evenly with DRAW, or share plus (mean - sum)/scale with SCORE_BY_DISTANCE;
- hash and equality include the finished set; history is only the move list, replay needs the RuleSet with ranking;
- search: with two active players the 3p search is zero-sum root vs the active opponent, second place scores SECOND=MATE/2 minus height, first MATE-h, last -(MATE-h), NOT_FIRST penalty 4000 in evaluation}
+**Project decision** (owner wish, 2026-11-19): with `ranking = FULL_RANKING`, a three-player game does not end at the first winner. The players who are left play on for second place. The rule applies to three players only. With two players, `FULL_RANKING` behaves exactly like `FIRST_WINNER_ONLY`.
+
+- **Finishing.** After each move, every player still in play whose goal is filled under Definition 1 finishes and takes the next free rank. The check runs in turn order, starting with the player after the mover and ending with the mover. At most `players - 1` players finish this way; the last player in play takes the last rank when the game ends.
+- **Finished players.** A finished player makes no more moves, and the turn order skips it. Its pieces stay on the board: they block cells and can be jumped over. Its goal no longer counts for Definition 2, so a move that fills it is not suicidal.
+- **End of the game.** The game ends when only one player is still in play. Then the ranking is complete, and the reason is `WIN`. It also ends at the move limit, at a repeated position with `repetition = REPETITION_IS_DRAW`, or when the player to move has no legal move (`NO_MOVES`). In these cases the finished players keep their ranks, and the others are ranked by their distance sum, the smaller sum first; equal sums go to the lower player number. This mode has no draw.
+- **Values.** The ranks are worth 1, 0 and −1. In a game that ends without a complete ranking, the players without a rank share the remaining rank values: evenly with `drawHandling = DRAW`, or with `SCORE_BY_DISTANCE` the even share plus (mean distance sum of the players without a rank − own distance sum) divided by the largest possible distance sum.
+- **Position identity.** The hash and the equality of a position include the set of finished players. A position before a finish therefore never repeats a position after it. A game record is only the list of moves, so a replay needs the rule set with its `ranking` value.
+
+The three-player search handles finished players as described in [search and evaluation](search-and-evaluation.md#value-scalar-for-two-players-vector-for-three).
 
 ## Symmetry
 
@@ -392,7 +394,7 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 12. With `blockingStates = ILLEGAL`, a move that blocks the outer two rows of the opponent's goal while a goal cell behind them stays empty is not in the move list (the case of [Sturtevant2019, §3.3, Fig. 4(b)]). With `NONE`, the move exists. This test waits until the project defines "unreachable" for 10 pieces.
 13. With `repetition = MOVE_LIMIT` and `moveLimit = 200`, a game without a winner ends after exactly 200 plies, and a win on ply 200 counts. With `REPETITION_IS_DRAW`, the first repeated position (same cells, same side to move) ends the game, and the 200-ply limit still applies.
 14. With `drawHandling = SCORE_BY_DISTANCE`, the player with the smaller remaining distance gets the better score, and equal distances give equal scores. With `DRAW`, both players get the draw value.
-15. With 3 players and `ranking = FIRST_WINNER_ONLY`, the game ends at the first win. TODO-OPUS rules.test15 {FULL_RANKING is accepted; tests: FullRankingTest, three-player-ranking-golden.tsv}
+15. With 3 players and `ranking = FIRST_WINNER_ONLY`, the game ends at the first win. The switch also accepts `FULL_RANKING`; with two players it changes nothing. With three players the rules of [Playing on for second place](#playing-on-for-second-place) hold: the first finisher leaves the turn order, its pieces stay and block, a finished goal no longer makes a move suicidal, the second finisher ends the game, the finished set is part of hash and equality, and the move limit, a repeated position or a player without a legal move rank the players still in play by distance. `engine/src/test/java/sternhalma/engine/FullRankingTest.java` checks these cases. The C++ port reproduces the golden file `engine/src/test/resources/three-player-ranking-golden.tsv` (both jump rules, won and running games, every side to move).
 16. Each symmetry of [Symmetry](#symmetry) maps a legal position to a legal position. The move count of a position equals the move count of its image. The 180-degree rotation equals the player symmetry followed by the left-right flip.
 17. Property test: for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash. The engine tests use seeded random playouts for this; jqwik is not used yet.
 18. With `jumpRule = LONG`, on seeded random positions, the move set contains the `ADJACENT` move set, equals the move set of an independent oracle built from the definition in [Jump rule](#jump-rule), and has no duplicate (start, end) pair. The engine reproduces the move counts and hashes of the golden file `engine/src/test/resources/long-jump-golden.tsv`.
