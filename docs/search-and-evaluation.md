@@ -802,6 +802,41 @@ flowchart TD
     P -->|3| ALT[Max^n, Paranoid, BRS: not the main engine]
 ```
 
+## Three-player browser player
+
+**TL;DR:** The browser plays three seats with `ThreePlayerPlayer`, a paranoid alpha-beta over the linear evaluation. It needs no race table, works for both jump rules and runs on a node budget. Measured (2026-11-19): it won all 240 games against two random players and 112 of 120 games against two greedy distance players. It is a classical stand-in, not the main engine of this document.
+
+**What it is.** `ThreePlayerSpec.parse("ab3:...").create()` builds a `ThreePlayerPlayer`. Spec keys: `nodes` (default 20000), `depth` (30), `ms` (none), `tt` (log2 table size, 16), `eval` (`linear-r2`, `linear-r1` or `linear`) and `jump=adjacent|long`. `Strategies.BROWSER_3P_SPEC` and `Strategies.BROWSER_3P_LONG_SPEC` are the browser constants. The search is `ThreePlayerSearch`; its result is the `SearchResult` of the two-player player (move, score, depth, nodes), where `score` is the paranoid score from the view of the player to move.
+
+**How it searches.**
+
+- Paranoid alpha-beta (see the table above): the player to move maximises its own score, the two other players minimise it. This is a two-player zero-sum game between one player and a coalition, so alpha-beta and a transposition table apply unchanged.
+- Score of a position for player r: the mean, over the two opponents q, of the linear evaluation "r against q" (the 12 features of `LinearEvaluator` as "r minus q", weights `linear-r2`, no tempo term). A win of r at height h scores `AlphaBeta.MATE` minus h, a win of an opponent the negative.
+- Iterative deepening, killer moves, and a move order by the mover's distance gain (jump chains first). The transposition table is keyed by position hash and root player, because the same position has a different score for another root player.
+- Nodes are counted as in `AlphaBeta`: one per call, leaves included. An unfinished iteration is discarded; the first iteration always finishes, so there is always a move. The result is deterministic for a node or depth budget; a time budget (`ms`) makes it machine dependent.
+- No race table, no solitaire beam, no `bestGain` feature: these exist for two players or single jumps only. The jump features of the evaluator count single jumps also under `jump=long`.
+
+**One bug the tests found.** The `lateral` feature measures the distance from the centre line `|q - s|`, which is the axis of player 0 only. For players 1 and 2 it penalised the cells of their own goal corner by about one step of distance per cell, and the last pieces of seats 1 and 2 never entered the goal (against two random players, seat 0 won 40 of 40 games, seats 1 and 2 won 7 and 3). The three-player search computes `lateral` per player from the axis of that player (`|q - r|` for player 1, `|r - s|` for player 2). The two-player code is unchanged.
+
+**Measured (2026-11-19, `ThreePlayerTest`, 20000 nodes per move, fixed seeds).**
+
+| Opponents | Rule | Result per seat 0 / 1 / 2 | Total |
+|---|---|---|---|
+| 2 random players | adjacent | 40 / 40 / 40 of 40 | 120 of 120 (100 %) |
+| 2 random players | long hop | 40 / 40 / 40 of 40 | 120 of 120 (100 %) |
+| 2 greedy distance players, 4 random opening plies | adjacent | 20 / 20 / 20 of 20 | 60 of 60 (100 %) |
+| 2 greedy distance players, 4 random opening plies | long hop | 18 / 17 / 17 of 20 | 52 of 60 (about 87 %) |
+
+A greedy distance player picks the move that reduces its own distance sum most, ties broken at random. Chance level against two opponents is 1 of 3. Speed on one core in a test JVM: about 1.8 million nodes per second with `jump=adjacent` (11 ms per move of 20000 nodes) and about 1.0 million with `jump=long` (19 ms). The tests assert that a move of 20000 nodes takes under one second.
+
+**Limits.**
+
+- **Kingmaker problem.** The game is not zero-sum. A player that cannot win any more can choose which of the two others wins. The paranoid assumption does not model this; it treats both opponents as one coalition against the player to move. Real opponents seldom cooperate perfectly (see above), so the player is pessimistic.
+- **No strength measurement against strong play.** The opponents above are a random player and a one-ply greedy player. The numbers show that the player is far above both; they do not rank it against a network or against humans. Max^n and Best Reply Search were not implemented, so there is no measurement that says paranoid is the best of the three families here.
+- **Search depth.** At 20000 nodes the search reaches about depth 4 (one move of each player and one more of the player to move). Endgames in which the last pieces need a plan longer than that are decided by the evaluation, not by search.
+- **Analysis.** The player has no move-guide hook for the web; `analyse` returns only the result of its own search.
+- **Origin of the weights.** The weights were fitted on two-player games. Their use for three players is an assumption that the measurements above support but do not prove optimal.
+
 ## Warning: random playouts do not end
 
 Purely random MCTS playouts practically never end in Chinese Checkers (reported). Pieces can move backwards, so a random game has no bound on its length. A random playout gives no useful result.
