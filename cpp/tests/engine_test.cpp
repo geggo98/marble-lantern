@@ -387,7 +387,10 @@ SH_TEST(rule_sets_outside_the_port_are_refused) {
     CHECK(RuleSet::create(spec).has_value());
     RuleSet::Spec three = spec;
     three.players = 3;
-    CHECK(!RuleSet::create(three).has_value());
+    CHECK(RuleSet::create(three).has_value());  // three players are supported since step 2b
+    RuleSet::Spec four = spec;
+    four.players = 4;
+    CHECK(!RuleSet::create(four).has_value());
     RuleSet::Spec leave = spec;
     leave.leave_goal = RuleSet::LeaveGoal::Allowed;
     CHECK(!RuleSet::create(leave).has_value());

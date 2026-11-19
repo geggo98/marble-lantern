@@ -18,6 +18,7 @@
 #include "race_table.hpp"
 #include "rules.hpp"
 #include "scores.hpp"
+#include "three_player_player.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -46,7 +47,17 @@ int g_analysis_nodes = 0;
 bool g_analysis_long = false;
 std::int64_t g_analysis_visited = 0;
 std::optional<sh::Position> g_pos;
-std::vector<std::unique_ptr<sh::AlphaBetaPlayer>> g_players;
+// A player of the table: a two-player player (two) or a three-player player (three); exactly one is set.
+struct PlayerSlot {
+    std::unique_ptr<sh::AlphaBetaPlayer> two;
+    std::unique_ptr<sh::ThreePlayerPlayer> three;
+};
+std::vector<PlayerSlot> g_players;
+PlayerSlot& slot(int id) { return g_players.at(static_cast<std::size_t>(id)); }
+const std::optional<sh::SearchResult>& result_of(int id) {
+    PlayerSlot& s = slot(id);
+    return s.two ? s.two->last_result() : s.three->last_result();
+}
 std::array<int, sh::kMaxMoves> g_moves{};
 }  // namespace
 
@@ -79,19 +90,45 @@ SHW_API int shw_player_new(int nodes, int jump) {
     if (!spec) { g_error = spec.error(); return -1; }
     auto player = spec->create();
     if (!player) { g_error = player.error(); return -1; }
-    g_players.push_back(std::move(*player));
+    PlayerSlot s;
+    s.two = std::move(*player);
+    g_players.push_back(std::move(s));
     return static_cast<int>(g_players.size()) - 1;
 }
-SHW_API void shw_player_clear(int id) { g_players.at(static_cast<std::size_t>(id))->clear_search(); }
-
-// Starts a new game from the start position. jump = 0: the adjacent jump rule, 1: the Halma long hop. Returns 0, or -1 for another value
-// of jump (the game is then unchanged). A call without an argument from JavaScript passes jump = 0.
-SHW_API int shw_game_new(int jump) {
+// A three-player player (ThreePlayerSpec, BROWSER_3P_SPEC: paranoid alpha-beta, eval linear-r2, no race table) with a node budget per move; returns
+// its id (>= 0) or -1 (jump other than 0 or 1; nodes < 1). jump = 0 plays the adjacent rule, jump = 1 the Halma long hop. A three-player player
+// plays the side to move of a three-player game of its rule; shw_choose returns -2 for any other game.
+SHW_API int shw_player_new3(int nodes, int jump) {
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
-    const auto rules = sh::RuleSet::defaults().with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent);
+    if (nodes < 1) { g_error = "nodes must be at least 1, got " + std::to_string(nodes); return -1; }
+    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (jump == 1 ? ",jump=long" : ""));
+    if (!spec) { g_error = spec.error(); return -1; }
+    auto player = spec->create();
+    if (!player) { g_error = player.error(); return -1; }
+    PlayerSlot s;
+    s.three = std::move(*player);
+    g_players.push_back(std::move(s));
+    return static_cast<int>(g_players.size()) - 1;
+}
+SHW_API void shw_player_clear(int id) {
+    PlayerSlot& s = slot(id);
+    if (s.two) s.two->clear_search(); else s.three->clear_search();
+}
+
+// Starts a new game from the start position. jump = 0: the adjacent jump rule, 1: the Halma long hop; players = 2 (200 plies) or 3 (clockwise
+// play order top, lower right, lower left; 300 plies). Returns 0, or -1 for another value of jump or players (the game is then unchanged;
+// shw_error() tells which).
+SHW_API int shw_game_new2(int jump, int players) {
+    if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
+    if (players != 2 && players != 3) { g_error = "players must be 2 or 3, got " + std::to_string(players); return -1; }
+    const auto rules = sh::RuleSet::defaults(players).with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent);
     g_pos.emplace(sh::Position::initial(*rules));
     return 0;
 }
+// The two-player game: shw_game_new2(jump, 2). A call without an argument from JavaScript passes jump = 0.
+SHW_API int shw_game_new(int jump) { return shw_game_new2(jump, 2); }
+// The number of players of the current game: 2 or 3.
+SHW_API int shw_players() { return g_pos->rules().players(); }
 // The jump rule of the current game: 0 adjacent, 1 long.
 SHW_API int shw_jump_rule() { return g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long ? 1 : 0; }
 SHW_API int shw_side_to_move() { return g_pos->side_to_move(); }
@@ -114,25 +151,32 @@ SHW_API int shw_play(int move) {
     return -1;
 }
 SHW_API void shw_unmake() { g_pos->unmake(); }
-// -1 running, 0 draw, 1 + winner otherwise.
+// -1 running, 0 draw (move limit, or the side to move has no legal move), 1 + winner otherwise: 1, 2 or 3 for the winner 0, 1 or 2 (3 only in a three-player game).
 SHW_API int shw_outcome() {
     const auto o = g_pos->outcome();
     if (!o) return g_pos->generate(g_moves) > 0 ? -1 : 0;
     return o->has_winner() ? 1 + o->winner : 0;
 }
-// The engine's move for the side to move (-1 if none, -2 if the player plays the other jump rule than the game); the search is
-// synchronous and blocks for the node budget.
+// The engine's move for the side to move (-1 if none; -2 if the player plays the other jump rule than the game, or two players where the game has
+// three or the reverse); the search is synchronous and blocks for the node budget. A three-player player plays whichever seat is to move.
 SHW_API int shw_choose(int player_id) {
-    auto& player = *g_players.at(static_cast<std::size_t>(player_id));
-    if (!player.plays(*g_pos)) { g_error = "player " + player.name() + " cannot play a game of the other jump rule"; return -2; }
-    return player.choose(*g_pos);
+    PlayerSlot& s = slot(player_id);
+    const std::string& name = s.two ? s.two->name() : s.three->name();
+    const bool right_players = g_pos->rules().players() == (s.two ? 2 : 3);
+    if (!right_players) { g_error = "player " + name + " cannot play a game with " + std::to_string(g_pos->rules().players()) + " players"; return -2; }
+    if (!(s.two ? s.two->plays(*g_pos) : s.three->plays(*g_pos))) { g_error = "player " + name + " cannot play a game of the other jump rule"; return -2; }
+    return s.two ? s.two->choose(*g_pos) : s.three->choose(*g_pos);
 }
-SHW_API int shw_last_score(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? r->score : 0; }
-SHW_API int shw_last_depth(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? r->depth : 0; }
-SHW_API double shw_last_nodes(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? static_cast<double>(r->nodes) : 0; }
-SHW_API int shw_has_result(int id) { return g_players.at(static_cast<std::size_t>(id))->last_result().has_value() ? 1 : 0; }
-SHW_API double shw_total_nodes(int id) { return static_cast<double>(g_players.at(static_cast<std::size_t>(id))->total_nodes()); }
-SHW_API double shw_race_moves(int id) { return static_cast<double>(g_players.at(static_cast<std::size_t>(id))->race_moves()); }
+SHW_API int shw_last_score(int id) { const auto& r = result_of(id); return r ? r->score : 0; }
+SHW_API int shw_last_depth(int id) { const auto& r = result_of(id); return r ? r->depth : 0; }
+SHW_API double shw_last_nodes(int id) { const auto& r = result_of(id); return r ? static_cast<double>(r->nodes) : 0; }
+SHW_API int shw_has_result(int id) { return result_of(id).has_value() ? 1 : 0; }
+SHW_API double shw_total_nodes(int id) {
+    PlayerSlot& s = slot(id);
+    return static_cast<double>(s.two ? s.two->total_nodes() : s.three->total_nodes());
+}
+// Moves played by race arithmetic instead of search; always 0 for a three-player player.
+SHW_API double shw_race_moves(int id) { PlayerSlot& s = slot(id); return s.two ? static_cast<double>(s.two->race_moves()) : 0.0; }
 // Scores moves of the current position for the side to move. `moves_in` (n_in entries) lists the moves to score, or is null for all legal
 // moves; the moves scored are written to `moves_out` and their scores to `scores_out` (capacity `cap` each; scores are integers of the
 // search scale, from the point of view of the side that makes the move, higher is better). Each move is made, the child position is
@@ -140,8 +184,9 @@ SHW_API double shw_race_moves(int id) { return static_cast<double>(g_players.at(
 // search is one ply farther from the root than from the child, so mate scores move one step towards 0 (a move that wins at once scores
 // kMate - 1, as in a search of the parent). The analysis player follows the jump rule of the game: the analysis spec of the browser, or
 // for a long-hop game the same search with eval=linear-r3 and jump=long (no race arithmetic). Returns the number of moves scored, or -1 a move in the list is not legal, -2 the game is
-// over, -3 cap too small, -4 the player could not be created (shw_error), -5 nodes < 1.
+// over, -3 cap too small or (with shw_error() set) the game has three players: analysis is two-player only, -4 the player could not be created (shw_error), -5 nodes < 1.
 SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
+    if (g_pos->rules().players() != 2) { g_error = "analysis is available for two-player games only"; return -3; }
     if (nodes < 1) return -5;
     sh::Position& pos = *g_pos;
     std::array<int, sh::kMaxMoves> legal{};

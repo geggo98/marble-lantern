@@ -3,8 +3,8 @@
 namespace sh {
 
 std::expected<RuleSet, std::string> RuleSet::create(const Spec& spec) {
-    if (spec.players != 2) {
-        return std::unexpected("players must be 2 (three players are not supported by the C++ port), got " + std::to_string(spec.players));
+    if (spec.players != 2 && spec.players != 3) {
+        return std::unexpected("players must be 2 or 3, got " + std::to_string(spec.players));
     }
     if (spec.move_limit <= 0) {
         return std::unexpected("moveLimit must be positive, got " + std::to_string(spec.move_limit));
@@ -24,6 +24,13 @@ std::expected<RuleSet, std::string> RuleSet::create(const Spec& spec) {
 RuleSet RuleSet::defaults() {
     // The default spec is valid by construction.
     return RuleSet(Spec{});
+}
+
+RuleSet RuleSet::defaults(int players) {
+    Spec spec;
+    spec.players = players;
+    spec.move_limit = players == 2 ? 200 : 300;
+    return RuleSet(spec);
 }
 
 std::expected<RuleSet, std::string> RuleSet::with_move_limit(int value) const {
