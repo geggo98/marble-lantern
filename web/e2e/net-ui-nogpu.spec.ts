@@ -20,8 +20,9 @@ test.describe('net-webgpu without WebGPU, UI', () => {
     test.skip(hasAdapter, 'this Chromium still has a WebGPU adapter with WebGPU switched off');
     await waitForHumanTurn(page);
     const dialog = await openEngineSheet(page);
-    await expect(dialog.locator('[data-webgpu-status="unavailable"]')).toBeVisible();
+    await expect(dialog.locator('[data-webgpu-status]'), 'the status shows only once the WebGPU row is selected').toHaveCount(0);
     await dialog.locator('[data-engine="net-webgpu"]').click();
+    await expect(dialog.locator('[data-webgpu-status="unavailable"]')).toBeVisible();
     await dialog.locator('[data-model="small-2p-adjacent-expert"] input').check();
     await dialog.locator('[data-sims="50"] input').check();
     await expect(dialog.locator('[data-net-warning="backend-unavailable"]')).toBeVisible();

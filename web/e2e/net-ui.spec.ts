@@ -93,13 +93,13 @@ for (const size of [
       errors.expectNone();
     });
 
-    test('three players: the start dialog warns about the expert model, the sheet offers the shared one only', async ({ page }, info) => {
+    test('three players: the New game dialog warns about the expert model that plays, the sheet offers the shared one only', async ({ page }, info) => {
       const errors = watchPageErrors(page);
-      await page.addInitScript(
-        ([key, value]) => localStorage.setItem(key!, value!),
-        ['ml.net-selection', JSON.stringify({ engine: 'net-wasm', modelId: EXPERT, sims: 50 })],
-      );
-      await openApp(page, 'en', '', 'ask');
+      await openApp(page, 'en');
+      await waitForHumanTurn(page);
+      await pickEngine(page, 'net-wasm', EXPERT);
+      await closeMenu(page);
+      await page.getByRole('button', { name: 'New game' }).first().click();
       const start = page.locator('[data-dialog="begin"]');
       await expect(start).toBeVisible();
       await expect(start.locator('[data-net-warning]')).toHaveCount(0); // two players, adjacent: the expert fits
@@ -116,9 +116,39 @@ for (const size of [
       await expect(dialog.locator(`[data-model="${SHARED}"]`)).toHaveCount(1);
       await expect(dialog.locator('[data-net-hidden-note]')).toBeVisible();
       await expect(dialog.locator('[data-net-warning="model-variant-mismatch"]')).toBeVisible();
+      // the shared model of a 3-player game: its 3-player measurement, labelled with the player count, no 2-player line
+      await expect(dialog.locator(`[data-model="${SHARED}"] [data-strength-fact][data-players="3"]`)).toHaveCount(2);
+      await expect(dialog.locator(`[data-model="${SHARED}"] [data-strength-fact][data-players="2"]`)).toHaveCount(0);
       await shot(page, `${info.project.name}-${size.name}-sheet-net-3p-mismatch`);
       await dialog.locator(`[data-model="${SHARED}"] input`).check();
       await expect(dialog.locator('[data-net-warning]')).toHaveCount(0);
+      errors.expectNone();
+    });
+
+    test('a stored net engine does not warn at the next visit, a classical engine plays, and the stored model stays (H1)', async ({ page }) => {
+      const errors = watchPageErrors(page);
+      await page.addInitScript(
+        ([key, value]) => {
+          if (!sessionStorage.getItem('seeded')) {
+            sessionStorage.setItem('seeded', '1');
+            localStorage.setItem(key!, value!);
+          }
+        },
+        ['ml.net-selection', JSON.stringify({ engine: 'net-wasm', modelId: null, sims: 800 })],
+      );
+      await openApp(page, 'en', '', 'ask');
+      const start = page.locator('[data-dialog="begin"]');
+      await expect(start).toBeVisible();
+      await expect(start.locator('[data-net-warning]'), 'no warning for a net engine that does not play').toHaveCount(0);
+      await start.locator('[data-choice="begin-yes"]').click();
+      await waitForHumanTurn(page);
+      await withCards(page, async () => {
+        await expect(page.locator('.ml-engine')).not.toHaveAttribute('data-net-warnings', /.*/); // a classical engine: no net warnings at all
+      });
+      await expect(page.locator('.ml-play__netnote')).toHaveCount(0);
+      const stored = (): Promise<{ engine: string; sims: number }> => page.evaluate(() => JSON.parse(localStorage.getItem('ml.net-selection') ?? '{}') as { engine: string; sims: number });
+      await expect.poll(async () => (await stored()).engine, 'the store names the engine that was loaded').not.toBe('net-wasm');
+      expect((await stored()).sims).toBe(800);
       errors.expectNone();
     });
 
@@ -138,20 +168,49 @@ for (const size of [
       await shot(page, `${info.project.name}-${size.name}-play-notice-de`);
     });
 
-    test('the notice keeps the board where it is while a net engine with a warning is selected', async ({ page }) => {
+    test('geometry: a net game without a notice has exactly the board box of a classical game; the notice moves it at apply, never during play', async ({ page }, info) => {
       await openApp(page, 'en');
       await waitForHumanTurn(page);
+      const svg = page.locator('svg.ml-board__svg');
+      const box = async (): Promise<{ x: number; y: number; width: number; height: number }> => (await svg.boundingBox())!;
+      const classical = await box();
+      expect(await page.locator('.ml-play__netnote').count(), 'no notice element in a classical game').toBe(0);
+      expect(await page.locator('.ml-play .ml-play__netnote, .ml-play [role="status"][aria-label]').count(), 'no extra live region').toBe(0);
+      info.annotations.push({ type: 'board-classical', description: JSON.stringify(classical) });
       await pickEngine(page, 'net-wasm', EXPERT);
       await closeMenu(page);
-      const svg = page.locator('svg.ml-board__svg');
-      const before = (await svg.boundingBox())!;
-      await pickEngine(page, 'net-wasm', null); // the notice fills in
+      await expect(page.locator('.ml-play__netnote')).toHaveCount(0);
+      const working = await box();
+      info.annotations.push({ type: 'board-net-ok', description: JSON.stringify(working) });
+      for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(working[key] - classical[key]), `net game without notice, board ${key}`).toBeLessThanOrEqual(1);
+      await pickEngine(page, 'net-wasm', null); // random moves: the notice is mounted
       await closeMenu(page);
-      await expect(page.locator('.ml-play__netnote')).toHaveAttribute('data-net-notice', 'random');
-      const after = (await svg.boundingBox())!;
-      if (size.name === 'phone390') {
-        for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(after[key] - before[key]), `board ${key}`).toBeLessThanOrEqual(1);
-      }
+      await expect(page.locator('.ml-play__netnote')).toHaveCount(1);
+      const noticed = await box();
+      info.annotations.push({ type: 'board-notice', description: JSON.stringify(noticed) });
+      await playExchange(page);
+      const after = await box();
+      for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(after[key] - noticed[key]), `during play, board ${key}`).toBeLessThanOrEqual(1);
+      // back to a classical engine: the notice leaves, the board is where it was
+      await pickEngine(page, 'cpp-wasm');
+      await closeMenu(page);
+      await expect(page.locator('.ml-play__netnote')).toHaveCount(0);
+      const back = await box();
+      for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(back[key] - classical[key]), `back to classical, board ${key}`).toBeLessThanOrEqual(1);
+    });
+
+    test('the engine card button "choose a model" opens the sheet with the focus on the model group (L2)', async ({ page }) => {
+      await openApp(page, 'en');
+      await waitForHumanTurn(page);
+      await pickEngine(page, 'net-wasm', null);
+      await closeMenu(page);
+      await withCards(page, async () => {
+        await page.locator('.ml-engine [data-warning-action="choose-model"]').click();
+        const dialog = page.getByRole('dialog').filter({ has: page.locator('[data-engine]') });
+        await expect(dialog).toBeVisible();
+        await expect(dialog.locator('[data-model="none"] input')).toBeFocused();
+        await page.keyboard.press('Escape');
+      });
     });
   });
 }
