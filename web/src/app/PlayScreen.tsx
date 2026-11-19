@@ -31,9 +31,13 @@ import type { SkillTracker } from '../skill/tracker';
 import type { EngineSession } from './session';
 import type { SessionError } from './session';
 
+import type { NetSelectionStore } from './net-selection';
+
 export interface PlayModel {
   game: GameController;
   session: EngineSession;
+  /** The selection of the net engines (model, simulations) with its state hook useNetSelection; the model picker of the next UI step binds to it. */
+  netSelection?: NetSelectionStore;
   /** The engine's analyse method, for the move guides. */
   analyse: AnalyseFn;
   humanSide: Side;

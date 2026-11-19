@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { EngineSession } from './session';
 import { loadManifest } from './adapters';
 import { SwitchableEngine } from './switchable-engine';
+import { NetSelectionStore } from './net-selection';
 import { GameUrlSync, browserNavigation, isOwnEntry } from './game-nav';
 import type { NavEvent, NavigationPort, UrlSnapshot } from './game-nav';
 import { formatGameFragment, parseHash, variantOfLink } from './game-url';
@@ -51,6 +52,8 @@ export interface AppProps {
    * A game link in the address (with `&j=long`, or `&p=3&s=<seats>`) takes precedence. "New game" opens the start dialog.
    */
   initialSetup?: GameSetup;
+  /** The selection of the net engines (engine, model, simulations). Tests pass a store with a fake probe; the default keeps it in localStorage. */
+  netSelection?: NetSelectionStore;
 }
 
 /** What stands before the game. */
@@ -99,7 +102,7 @@ function whenIdle(game: GameController): Promise<void> {
 /** A link for three players names its seats, so it needs no dialog: the app continues it at once. */
 const continuesAtOnce = (link: GameLink): boolean => (link.variant?.players ?? 2) === 3;
 
-export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup }: AppProps): React.JSX.Element {
+export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup, netSelection }: AppProps): React.JSX.Element {
   const nav = useMemo(() => navigation ?? browserNavigation(), [navigation]);
   const [screen, setScreen] = useState<Screen>(() => screenFromHash(nav.hash));
   const [flow, setFlowState] = useState<Flow>(() => {
@@ -143,7 +146,9 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     engine.setNodes(nodes);
     const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 1, nodes: [nodes, nodes] });
     const baseUrl = import.meta.env.BASE_URL;
+    const netStore = netSelection ?? new NetSelectionStore();
     const session = new EngineSession({
+      net: () => ({ model: netStore.selection.modelId, sims: netStore.selection.sims }),
       engine,
       baseUrl,
       loadManifest: manifestLoader ?? (() => loadManifest(baseUrl)),
@@ -159,10 +164,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       isReady: () => session.getState().phase === 'ready',
       store: ledgerStore ?? browserLedgerStore(),
     });
-    return { engine, game, session, sync, tracker };
+    return { engine, game, session, sync, tracker, netStore };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one instance for the life of the page
   }, []);
-  const { engine, game, session, sync, tracker } = parts;
+  const { engine, game, session, sync, tracker, netStore } = parts;
   const sessionState = useSyncExternalStore(session.subscribe, session.getState);
 
   const snapshot = (): UrlSnapshot => snapshotOf(game.state.history, setupRef.current, lastHuman.current, levelRef.current);
@@ -361,6 +366,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   const model: PlayModel = {
     game,
     session,
+    netSelection: netStore,
     analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal, variantOf(setupRef.current)),
     humanSide,
     demo,
@@ -410,6 +416,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         applySetup(withLevel(setupRef.current, nextLevel));
         engine.setNodes(nodesOfLevel(nextLevel));
         if (playing && !isDemo(setupRef.current)) sync.observe(snapshot()); // the strength is part of the address
+        netStore.setSelection({ engine: id });
         if (id !== session.getState().current?.info.id || session.getState().phase !== 'ready') {
           if (await session.select(id)) await afterReady();
         } else {
@@ -423,6 +430,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       void session.restart().then(async (ok) => { if (ok) await afterReady(); });
     },
     onSelect: (id: EngineId) => {
+      netStore.setSelection({ engine: id });
       void session.select(id).then(async (ok) => { if (ok) await afterReady(); });
     },
   };

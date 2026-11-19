@@ -5,6 +5,7 @@
 import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from '../engines/engine';
 import type { Variant } from '../game/variant';
 import { EngineFailure } from '../engines/protocol';
+import type { EngineWarning, NetOptions } from '../engines/warnings';
 
 const PLACEHOLDER: EngineInfo = {
   id: 'cpp-wasm', labelKey: 'engine.cppWasm', runtime: 'wasm', language: 'C++', version: '', binaryBytes: 0, binaryGzipBytes: 0,
@@ -13,6 +14,9 @@ const PLACEHOLDER: EngineInfo = {
 export class SwitchableEngine implements Engine {
   private inner: Engine | null = null;
   private nodes: number[] | null = null;
+  private net: { model: string | null; netOptions: NetOptions } | null = null;
+  private warningListeners = new Set<() => void>();
+  private unsubscribeInner: (() => void) | null = null;
 
   /** The info of the current engine; a placeholder until the first engine is in use. */
   get info(): EngineInfo {
@@ -23,12 +27,38 @@ export class SwitchableEngine implements Engine {
     return this.inner !== null;
   }
 
+  /** Net engines: the warnings of the engine in use (empty for the others). */
+  get warnings(): readonly EngineWarning[] {
+    return this.inner?.warnings ?? [];
+  }
+
+  /** Calls the listener when the warnings of the engine in use change, also when the engine is replaced. Returns the unsubscribe function. */
+  subscribeWarnings(listener: () => void): () => void {
+    this.warningListeners.add(listener);
+    return () => this.warningListeners.delete(listener);
+  }
+
+  private notifyWarnings = (): void => {
+    for (const l of this.warningListeners) l();
+  };
+
   /** Replaces the engine. The new engine must be initialised. The old one is disposed. */
   async use(engine: Engine, setup: GameSetup): Promise<void> {
     await engine.newGame(this.override(setup));
     const old = this.inner;
+    this.unsubscribeInner?.();
     this.inner = engine;
+    this.unsubscribeInner = engine.subscribeWarnings?.(this.notifyWarnings) ?? null;
     old?.dispose();
+    this.notifyWarnings();
+  }
+
+  /**
+   * Model and search settings for the net engines: every later newGame carries them, so does the one of `use`. null removes them,
+   * and the setup then has no model fields (the classical requests stay as they were).
+   */
+  setNet(net: { model: string | null; netOptions: NetOptions } | null): void {
+    this.net = net;
   }
 
   /** From the next game on (and from the next engine move after `use`), both sides search with this budget. */
@@ -37,7 +67,8 @@ export class SwitchableEngine implements Engine {
   }
 
   private override(setup: GameSetup): GameSetup {
-    return this.nodes ? { ...setup, nodes: this.nodes } : setup;
+    const withNodes = this.nodes ? { ...setup, nodes: this.nodes } : setup;
+    return this.net ? { ...withNodes, model: this.net.model, netOptions: this.net.netOptions } : withNodes;
   }
 
   private get engine(): Engine {
@@ -70,6 +101,8 @@ export class SwitchableEngine implements Engine {
   }
 
   dispose(): void {
+    this.unsubscribeInner?.();
+    this.unsubscribeInner = null;
     this.inner?.dispose();
     this.inner = null;
   }

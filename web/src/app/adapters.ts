@@ -1,14 +1,14 @@
 // Registers the engine adapters of this build and loads engines.json.
 //
 // Each adapter module registers its definitions with registerEngine() when it is imported:
-//   src/engines/cpp/index.ts   (WP7)    src/engines/java/index.ts   (WP6)
+//   src/engines/cpp/index.ts   (WP7)    src/engines/java/index.ts   (WP6)    src/engines/net/index.ts   (net engines)
 // The server adapter (WP8) is loaded only in the online build, from src/engines/server/load.ts, which exports
 // registerServerEngines(). Vite removes that branch from the static build (the constant __ONLINE__ is false there).
 import { loadEnginesManifest } from '../engines/registry';
 import type { EnginesManifest } from '../engines/registry';
 
 // Eager: the modules only register definitions; the engine code itself loads in a worker, on demand.
-import.meta.glob('../engines/{cpp,java}/index.ts', { eager: true });
+import.meta.glob('../engines/{cpp,java,net}/index.ts', { eager: true });
 
 async function registerServer(): Promise<void> {
   if (!__ONLINE__) return;

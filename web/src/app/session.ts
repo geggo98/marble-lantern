@@ -2,6 +2,7 @@
 // went wrong. Framework-free; App subscribes through useSyncExternalStore.
 import { isNetEngine } from '../engines/engine';
 import type { Engine, EngineId, Progress } from '../engines/engine';
+import type { EngineWarning } from '../engines/warnings';
 import { createEngine, describeEngines } from '../engines/registry';
 import type { EngineChoice, EnginesManifest } from '../engines/registry';
 import type { SwitchableEngine } from './switchable-engine';
@@ -22,6 +23,8 @@ export interface SessionState {
   current: EngineChoice | null;
   progress: Progress | null;
   error: SessionError | null;
+  /** Net engines: what the engine in use reports (no model, fallback to random moves, ...). Empty for the other engines. */
+  warnings: readonly EngineWarning[];
 }
 
 export interface SessionDeps {
@@ -33,6 +36,8 @@ export interface SessionDeps {
   nodes: () => number;
   /** The game variant of the game that is on (default: adjacent jumps, two players). An engine that cannot play it is not offered. */
   variant?: () => Variant;
+  /** Model and search settings for the net engines, read when a net engine is loaded and by applyNet. Without it a net engine gets no model. */
+  net?: () => { model: string | null; sims: number; batch?: number };
 }
 
 /**
@@ -51,7 +56,7 @@ export function toSessionError(e: unknown): SessionError {
 }
 
 export class EngineSession {
-  private state: SessionState = { phase: 'discovering', choices: [], current: null, progress: null, error: null };
+  private state: SessionState = { phase: 'discovering', choices: [], current: null, progress: null, error: null, warnings: [] };
   private manifest: EnginesManifest | null = null;
   private listeners = new Set<() => void>();
   private generation = 0;
@@ -59,6 +64,8 @@ export class EngineSession {
 
   constructor(deps: SessionDeps) {
     this.deps = deps;
+    // The warnings of the net engine in use follow its newGame and choose calls.
+    deps.engine.subscribeWarnings(() => this.set({ warnings: deps.engine.warnings }));
   }
 
   getState = (): SessionState => this.state;
@@ -121,6 +128,34 @@ export class EngineSession {
     return this.load(choice);
   }
 
+  /**
+   * The model or the simulations changed: the net engine in use starts over with the new settings (a new newGame, no reload of the
+   * engine). The warnings follow. Resolves true when the engine is ready; false when the engine in use is no net engine.
+   */
+  async applyNet(): Promise<boolean> {
+    const current = this.state.current;
+    if (!current || !isNetEngine(current.info.id) || this.state.phase !== 'ready') return false;
+    const mine = ++this.generation;
+    this.set({ phase: 'loading', progress: null, error: null });
+    try {
+      this.useNetSettings(current);
+      const nodes = this.deps.nodes();
+      const variant = this.variant();
+      await this.deps.engine.newGame({ nodes: [nodes, nodes], ...(isDefault(variant) ? {} : { variant }) });
+      if (mine !== this.generation) return false;
+      this.set({ phase: 'ready' });
+      return true;
+    } catch (e) {
+      if (mine === this.generation) this.set({ phase: 'failed', error: toSessionError(e) });
+      return false;
+    }
+  }
+
+  private useNetSettings(choice: EngineChoice): void {
+    const net = isNetEngine(choice.info.id) ? this.deps.net?.() : undefined;
+    this.deps.engine.setNet(net ? { model: net.model, netOptions: { sims: net.sims, ...(net.batch === undefined ? {} : { batch: net.batch }) } } : null);
+  }
+
   /** Loads the current engine again (after a crash or a damaged table). */
   async restart(): Promise<boolean> {
     const choice = this.state.current ?? defaultChoice(this.state.choices);
@@ -142,6 +177,7 @@ export class EngineSession {
         engine.dispose(); // a newer load took over
         return false;
       }
+      this.useNetSettings(choice);
       const nodes = this.deps.nodes();
       const variant = this.variant();
       await this.deps.engine.use(engine, { nodes: [nodes, nodes], ...(isDefault(variant) ? {} : { variant }) });
