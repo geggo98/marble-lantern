@@ -246,6 +246,7 @@ class ThreeSeatMatchTest {
         Run r = match(shared.resolve("control"), "--control", "ab3", "--vs", "ab3:nodes=100,tt=12", "--openings", "2", "--seed", "3");
         assertEquals(0, r.code, r.err);
         assertTrue(r.out.startsWith("control ab3:nodes=100,tt=12 vs 2 x ab3:nodes=100,tt=12"), r.out);
+        assertTrue(r.out.contains("the three games of an opening are one game"), r.out);
         assertEquals(0, match(shared.resolve("control-long"), "--control", "ab3", "--vs", "ab3:nodes=100,tt=12", "--openings", "2",
                 "--jump", "long").code);
         assertEquals(2, match(shared.resolve("control-bad"), "--control", "ab3", "--vs", "random").code);

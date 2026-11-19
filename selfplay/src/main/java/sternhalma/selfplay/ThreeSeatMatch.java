@@ -183,6 +183,10 @@ final class ThreeSeatMatch {
             sb.append(String.format(Locale.ROOT, "  total:  %s%n", total));
             sb.append(String.format(Locale.ROOT, "  draws (no winner) %.1f%%, of which at the move limit %.1f%%; mean game length"
                     + " %.1f plies%n", 100 * drawShare, 100 * moveLimitShare, meanPlies));
+            if (control && candidate.startsWith("ab3") && candidate.equals(opponent)) {
+                sb.append("  note: the players are identical and deterministic, so the three games of an opening are one game;"
+                        + " only the shares per seat are informative (the total is 1/3 by construction)\n");
+            }
             return sb.toString();
         }
 
