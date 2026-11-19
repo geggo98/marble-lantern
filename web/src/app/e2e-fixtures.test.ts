@@ -1,11 +1,11 @@
 // The fixed games of the browser tests (web/e2e/fixtures.ts) are what their generators give today, and they are legal for the rules
 // the fake move generator knows. A change of the generator or of the board makes this test fail, not the slow browser test.
 import { describe, expect, it } from 'vitest';
-import { LONG_HOP, THREE_PLAYER_LIMIT } from '../../e2e/fixtures';
+import { LONG_HOP, PLAY_ON_WIN, THREE_PLAYER_LIMIT } from '../../e2e/fixtures';
 import { findLongHop } from '../../e2e/long-hop-fixture';
 import { moveFrom, moveTo } from '../engines/engine';
 import { tinyLegalMoves } from '../engines/testing/tiny-moves';
-import { applyMove, initialOwners, outcomeOf } from '../game/board-state';
+import { applyMove, initialOwners, outcomeOf, playState } from '../game/board-state';
 import type { Variant } from '../game/variant';
 import { decodeMoves, encodeMoves } from './game-url';
 
@@ -44,5 +44,19 @@ describe('e2e fixtures', () => {
       regenerated.push(move);
     }
     expect(encodeMoves(regenerated)).toBe(THREE_PLAYER_LIMIT);
+  });
+
+  it('the play-on game: 132 plies end with a win of seat 2 under first-winner rules, and seat 2 is the first seat out under full ranking', () => {
+    const THREE: Variant = { jump: 'adjacent', players: 3 };
+    const FULL: Variant = { ...THREE, ranking: 'full' };
+    const moves = decodeMoves(PLAY_ON_WIN.moves, 300);
+    expect(moves).toHaveLength(PLAY_ON_WIN.plies);
+    const owner = initialOwners(THREE);
+    moves.forEach((m, i) => {
+      expect(tinyLegalMoves(owner, i % 3, THREE), `ply ${i}`).toContain(m);
+      applyMove(owner, m);
+    });
+    expect(outcomeOf(owner, moves, THREE)).toEqual({ kind: 'win', winner: PLAY_ON_WIN.winner });
+    expect(playState(moves, FULL)).toMatchObject({ finishers: [PLAY_ON_WIN.winner], finishedAt: [PLAY_ON_WIN.plies] });
   });
 });

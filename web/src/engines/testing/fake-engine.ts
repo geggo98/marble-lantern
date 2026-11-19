@@ -1,8 +1,9 @@
 // A fake engine for tests: random-ish legal moves from the tiny generator, behind the real worker protocol.
 // Do not import it from production code.
 import { CELLS, cellCentre } from '../../board/cells';
-import { applyMove, goalCells, initialOwners, outcomeOf } from '../../game/board-state';
-import { DEFAULT_VARIANT } from '../../game/variant';
+import { applyMove, goalCells, initialOwners, outcomeOf, playState } from '../../game/board-state';
+import { DEFAULT_VARIANT, moveLimit } from '../../game/variant';
+import type { Player } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import type { AnalysisResult, ChooseResult, EngineInfo, EngineOutcome, LoadReport } from '../engine';
 import { EngineFailure } from '../protocol';
@@ -36,7 +37,7 @@ export function seeded(seed: number): () => number {
 function replayChecked(history: readonly number[], variant: Variant): Int8Array {
   const owner = initialOwners(variant);
   history.forEach((move, ply) => {
-    const side = ply % variant.players;
+    const side = playState(history.slice(0, ply), variant).sideToMove; // a seat that is out (full ranking) is skipped
     if (!tinyLegalMoves(owner, side, variant).includes(move)) throw new Error(`move ${move} at ply ${ply} is not legal for the ${variant.jump} rule`);
     applyMove(owner, move);
   });
@@ -98,7 +99,7 @@ export class FakeEngineCore {
       throw new EngineFailure('illegal-history', String(e));
     }
     if (outcomeOf(owner, history, variant)) return []; // a finished game has no moves
-    return tinyLegalMoves(owner, history.length % variant.players, variant);
+    return tinyLegalMoves(owner, playState(history, variant).sideToMove, variant);
   }
 
   /** Win, move limit (a draw) or no legal move (a draw), like the facade. */
@@ -111,8 +112,16 @@ export class FakeEngineCore {
     }
     const ended = outcomeOf(owner, history, variant);
     if (ended?.kind === 'win') return { kind: 'win', winner: ended.winner };
+    if (ended?.kind === 'ranking') return { kind: 'ranking', ranking: ended.ranking };
     if (ended) return { kind: 'draw' };
-    return tinyLegalMoves(owner, history.length % variant.players, variant).length === 0 ? { kind: 'draw' } : { kind: 'ongoing' };
+    const turn = playState(history, variant);
+    if (variant.ranking === 'full' && history.length >= moveLimit(variant)) {
+      // the move limit under full ranking: the seats that are out keep their ranks, the others follow in seat order (the real engine ranks them by distance)
+      const rest = ([0, 1, 2] as const).filter((p) => !turn.finishers.includes(p));
+      return { kind: 'ranking', ranking: [...turn.finishers, ...rest] as unknown as readonly [Player, Player, Player] };
+    }
+    if (tinyLegalMoves(owner, turn.sideToMove, variant).length === 0) return { kind: 'draw' };
+    return turn.finishers.length > 0 ? { kind: 'ongoing', finished: turn.finishers } : { kind: 'ongoing' };
   }
 
   /** How far a move brings the piece to the goal: rows for two players, distance to the goal corner centre for three. */
@@ -138,7 +147,7 @@ export class FakeEngineCore {
    */
   private analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant): AnalysisResult {
     this.analyseCalls++;
-    const side = history.length % variant.players;
+    const side = playState(history, variant).sideToMove;
     const legal = this.legal(history, variant);
     if (legal.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
     const chosen = moves === null ? legal : [...moves];
@@ -152,7 +161,7 @@ export class FakeEngineCore {
     if (variant.players !== this.gameVariant.players || variant.jump !== this.gameVariant.jump) {
       throw new EngineFailure('internal', 'choose with another variant than newGame');
     }
-    const side = history.length % variant.players;
+    const side = playState(history, variant).sideToMove;
     const moves = this.legal(history, variant);
     if (moves.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
     // Prefer the largest gain towards the goal row, random among equals.

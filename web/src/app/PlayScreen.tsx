@@ -1,7 +1,7 @@
 // The play screen: status bar, board, notices (loading, result, error), controls, engine card, figures, move list.
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { GameController } from '../game/game';
-import { goalCells, initialOwners } from '../game/board-state';
+import { goalCells, initialOwners, playState } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { isDefault, moveLimit, variantKey } from '../game/variant';
 import type { Player } from '../game/variant';
@@ -63,6 +63,8 @@ export interface PlayModel {
   onSwap: () => void;
   onDemo: () => void;
   onUndo: () => void;
+  /** "Play on for 2nd place": the game goes on under full ranking (GameController.continuePlay). */
+  onPlayOn?: () => void;
   onApply: (engine: EngineId, level: number, net?: { modelId: string | null; sims: Sims }) => void;
   /** Loads the model again after a failed load (session.applyNet). */
   onRetryNet?: () => void;
@@ -161,6 +163,18 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     return demo ? t(styleOf(side) === 'a' ? 'side_a' : 'side_b') : t(side === humanSide ? 'side_you' : 'side_engine');
   };
 
+  const rankText = (index: number): string => t(`rank_${index + 1}` as 'rank_1');
+  const turn = useMemo(() => playState(state.history, variant), [state.history, variant]);
+  // full ranking: the rank of each seat that is out, and the move after which it finished
+  const rankOfSeat = new Map<number, string>((state.ranking ?? state.finished).map((seat, i) => [seat, rankText(i)] as const));
+  const rankAfterMove = new Map<number, string>(turn.finishedAt.map((length, i) => [length - 1, rankText(i)] as const));
+  const mainRef = useRef<HTMLElement | null>(null);
+  /** "Play on": the result card (and its button) goes away; the focus moves to the page so that it does not fall back to the body. */
+  const playOn = (): void => {
+    model.onPlayOn?.();
+    mainRef.current?.focus({ preventScroll: true });
+  };
+
   const moves = useMemo(() => describeHistory(state.history, initialOwners(variant)), [state.history, variant]);
   const last = moves[moves.length - 1] ?? null;
 
@@ -170,11 +184,15 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   if (ready) {
     const mover = state.sideToMove;
     if (state.outcome) statusText = t('status_over');
-    else if (three) statusText = views[mover]?.you && !state.thinking ? t('turn_you') : t(state.thinking ? 'thinking_seat' : 'turn_seat', { player: who(mover) });
+    else if (three && state.finished.length > 0) {
+      // full ranking: a seat is out, the game is for the lower ranks
+      statusText = views[mover]?.you && !state.thinking ? t('turn_you_second') : t(state.thinking ? 'thinking_seat_second' : 'turn_seat_second', { player: who(mover) });
+    } else if (three) statusText = views[mover]?.you && !state.thinking ? t('turn_you') : t(state.thinking ? 'thinking_seat' : 'turn_seat', { player: who(mover) });
     else if (state.thinking) statusText = t('engine_thinking');
     else statusText = !demo && state.seats[mover] === 'human' ? t('turn_you') : t('turn_engine');
   }
   if (state.outcome?.kind === 'win') statusStyle = styleOf(state.outcome.winner);
+  if (state.outcome?.kind === 'ranking') statusStyle = styleOf(state.outcome.ranking[0]);
 
   // notice slot: one place for loading, result and errors; a result on a small screen can be closed (it lies over the board)
   const sessionError = s.phase === 'failed' ? s.error : null;
@@ -198,7 +216,45 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         : three
           ? winnerView?.you ? t('result_win_you') : t('result_win_seat', { player: seatName(o.winner) })
           : t(o.winner === humanSide ? 'result_win_you' : 'result_win_engine');
-      notice = <ResultCard winner={styleOf(o.winner)} headline={headline} plies={state.history.length} onClose={onClose} />;
+      notice = (
+        <ResultCard
+          winner={styleOf(o.winner)}
+          headline={headline}
+          plies={state.history.length}
+          onClose={onClose}
+          onPlayOn={three && state.canPlayOn && model.onPlayOn ? playOn : undefined}
+        />
+      );
+    } else if (o.kind === 'ranking') {
+      const goals = goalCells(variant);
+      const ranks = o.ranking.map((seat, i) => ({
+        style: styleOf(seat),
+        label: who(seat),
+        rank: rankText(i),
+        // a seat that still played when the move limit or another ending stopped the game: its distance to the goal (with a complete ranking the last seat has no distance to show)
+        ...(o.reason !== 'complete' && i >= state.finished.length ? { value: approximateDistance(state.owner, seat, goals) } : {}),
+      }));
+      const winner = o.ranking[0];
+      const headline =
+        o.reason === 'complete'
+          ? demo
+            ? t('result_win_side', { side: who(winner) })
+            : views[winner]?.you
+              ? t('result_win_you')
+              : t('result_win_seat', { player: seatName(winner) })
+          : o.reason === 'move-limit'
+            ? t('result_limit')
+            : t('result_nomoves');
+      notice = (
+        <ResultCard
+          winner={o.reason === 'complete' ? styleOf(winner) : null}
+          headline={headline}
+          {...(o.reason === 'move-limit' ? { note: t('result_limit_note') } : {})}
+          plies={o.reason === 'move-limit' ? moveLimit(variant) : state.history.length}
+          ranking={ranks}
+          onClose={onClose}
+        />
+      );
     } else if (o.kind === 'move-limit') {
       const goals = goalCells(variant);
       const order = three ? state.seats.map((_, i) => i) : [aSide, aSide === 0 ? 1 : 0];
@@ -261,7 +317,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // One source of content, two presentations: the side column of a wide screen and the menu of a small one.
   const cards = (
     <>
-      {three && <SeatsCard seats={views.map((v) => ({ style: v.style, name: seatName(v.seat), onMove: !state.outcome && state.sideToMove === v.seat }))} hotSeat={state.seats.filter((k) => k === 'human').length === 2} />}
+      {three && <SeatsCard seats={views.map((v) => ({ style: v.style, name: seatName(v.seat), onMove: !state.outcome && state.sideToMove === v.seat, ...(rankOfSeat.has(v.seat) ? { rank: rankOfSeat.get(v.seat)! } : {}) }))} hotSeat={state.seats.filter((k) => k === 'human').length === 2} />}
       <GuideSettings
         three={three}
         enabled={guidesOn}
@@ -289,12 +345,12 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         />
       )}
       <Telemetry result={state.lastEngine} stale={state.thinking} />
-      <MoveList moves={moves} styleOf={styleOf} defaultOpen={wide} perRow={variant.players} />
+      <MoveList moves={moves} styleOf={styleOf} defaultOpen={wide} perRow={variant.players} ranks={rankAfterMove} />
     </>
   );
 
   return (
-    <main className={noticeKind ? 'ml-play ml-play--net' : 'ml-play'}>
+    <main ref={mainRef} tabIndex={-1} className={noticeKind ? 'ml-play ml-play--net' : 'ml-play'}>
       <div className="ml-play__stage">
         <StatusBar
           state={state.thinking ? 'thinking' : 'ready'}

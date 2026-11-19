@@ -406,3 +406,11 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-result { position: relative; }
 .ml-result__close { position: absolute; top: var(--ml-space-1); inset-inline-end: var(--ml-space-1); }
 .ml-result:has(.ml-result__close) .ml-result__headline { padding-inline-end: var(--ml-size-control); }
+
+/* play on for 2nd place, ranking list */
+.ml-result__actions { display: flex; flex-wrap: wrap; gap: var(--ml-space-2); }
+.ml-ranking { margin: 0; padding: 0; list-style: none; }
+.ml-ranking__rank { font-weight: var(--ml-weight-bold); }
+.ml-moves__move .ml-tag { margin-inline-start: 0.25rem; }
+.ml-seats__row .ml-tag { flex: 0 0 auto; white-space: nowrap; }
+.ml-seats__row > span:not(.ml-tag) { min-width: 0; overflow-wrap: anywhere; }
