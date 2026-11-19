@@ -28,7 +28,7 @@ import sternhalma.tablebase.Rows;
  *
  * <p>Preconditions, checked by {@link #adjudicate} (otherwise it returns null, "not applicable"):
  * <ul>
- *   <li>{@code rules.players() == 2}, {@code blockingStates == NONE} (an {@code ILLEGAL} rule could forbid a plan
+ *   <li>{@code rules.players() == 2}, {@code jumpRule == ADJACENT} (the proof and the race table know only the adjacent hop), {@code blockingStates == NONE} (an {@code ILLEGAL} rule could forbid a plan
  *       move for a reason outside this argument), {@code repetition == MOVE_LIMIT} (under {@code
  *       REPETITION_IS_DRAW} a position of the plan could repeat a position of the game's history, which the position
  *       does not expose; the plan only guarantees that W's own configurations never repeat);</li>
@@ -133,7 +133,8 @@ public final class RaceAdjudication {
 
     /** The rule preconditions of the soundness statement. */
     public static boolean applicable(RuleSet rules) {
-        return rules.players() == 2 && rules.blockingStates() == BlockingStates.NONE
+        return rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
+                && rules.blockingStates() == BlockingStates.NONE
                 && rules.repetition() == Repetition.MOVE_LIMIT;
     }
 
@@ -142,7 +143,7 @@ public final class RaceAdjudication {
      * player 1 (both with all their pieces on the board). Two-player positions only.
      */
     public static boolean passed(Position pos) {
-        if (pos.rules().players() != 2) {
+        if (pos.rules().players() != 2 || pos.rules().jumpRule() != RuleSet.JumpRule.ADJACENT) {
             return false;
         }
         int min0 = Integer.MAX_VALUE;

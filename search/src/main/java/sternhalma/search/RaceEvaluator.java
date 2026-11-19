@@ -116,7 +116,8 @@ public final class RaceEvaluator implements Evaluator {
 
     /** The rule preconditions: two players and no blocking-state rule (the table knows nothing about it). */
     static boolean rulesApply(RuleSet rules) {
-        return rules.players() == 2 && rules.blockingStates() == RuleSet.BlockingStates.NONE;
+        return rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
+                && rules.blockingStates() == RuleSet.BlockingStates.NONE;
     }
 
     /**
