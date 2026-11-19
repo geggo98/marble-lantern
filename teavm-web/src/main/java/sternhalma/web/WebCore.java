@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.search.AlphaBeta;
@@ -14,6 +15,8 @@ import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.RaceTableSource;
 import sternhalma.search.SearchResult;
+import sternhalma.search.ThreePlayerPlayer;
+import sternhalma.search.ThreePlayerSpec;
 import sternhalma.search.Strategies;
 import sternhalma.tablebase.RaceTable;
 
@@ -68,6 +71,8 @@ public final class WebCore {
     private int analysisNodes;
     private int rows1Requests;
     private AlphaBetaPlayer[] players;
+    private ThreePlayerPlayer[] players3;
+    private int gamePlayers = 2;
     private RuleSet.JumpRule gameRule = RuleSet.JumpRule.ADJACENT;
     private RuleSet.JumpRule analysisRule;
 
@@ -85,8 +90,26 @@ public final class WebCore {
         throw new WebFailure("internal", "jump rule must be adjacent or long, got '" + text + "'");
     }
 
+    /**
+     * The player count of a facade argument: null, empty or {@code "2"} is 2, {@code "3"} is 3; anything else fails
+     * with {@code internal}.
+     */
+    public static int parsePlayers(String text) {
+        if (text == null || text.isEmpty() || text.equals("2")) {
+            return 2;
+        }
+        if (text.equals("3")) {
+            return 3;
+        }
+        throw new WebFailure("internal", "players must be 2 or 3, got '" + text + "'");
+    }
+
     private static RuleSet rules(RuleSet.JumpRule jump) {
-        return RuleSet.defaults(2).withJumpRule(jump);
+        return rules(jump, 2);
+    }
+
+    private static RuleSet rules(RuleSet.JumpRule jump, int playerCount) {
+        return RuleSet.defaults(playerCount).withJumpRule(jump);
     }
 
     /**
@@ -114,6 +137,8 @@ public final class WebCore {
         }
         rows2 = table;
         players = null;
+        players3 = null;
+        gamePlayers = 2;
         analysisPlayer = null;
         analysisRule = null;
         return table.states();
@@ -145,7 +170,28 @@ public final class WebCore {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1);
         }
         players = new AlphaBetaPlayer[] {player(nodes0, jump), player(nodes1, jump)};
+        players3 = null;
+        gamePlayers = 2;
         gameRule = jump;
+    }
+
+    /**
+     * Starts a three-player game: one {@link ThreePlayerPlayer} per seat with the given node budgets, each with its own
+     * transposition table. Needs no table; {@link #setTable} is not required and a table that is installed is ignored.
+     */
+    public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump) {
+        if (nodes0 <= 0 || nodes1 <= 0 || nodes2 <= 0) {
+            throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1 + ", " + nodes2);
+        }
+        players3 = new ThreePlayerPlayer[] {player3(nodes0, jump), player3(nodes1, jump), player3(nodes2, jump)};
+        players = null;
+        gamePlayers = 3;
+        gameRule = jump;
+    }
+
+    private static ThreePlayerPlayer player3(int nodes, RuleSet.JumpRule jump) {
+        String base = jump == RuleSet.JumpRule.LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC;
+        return ThreePlayerSpec.parse(base.replace("nodes=20000", "nodes=" + nodes)).create();
     }
 
     /** The legal moves after {@code history}; empty if the game is over. */
@@ -155,8 +201,27 @@ public final class WebCore {
 
     /** {@link #legalMoves(int[])} under the given jump rule; a move of the history that is illegal under it is {@code illegal-history}. */
     public int[] legalMoves(int[] history, RuleSet.JumpRule jump) {
-        Position position = replay(history, jump);
+        return legalMoves(history, jump, 2);
+    }
+
+    /** {@link #legalMoves(int[], RuleSet.JumpRule)} for 2 or 3 players. */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount) {
+        Position position = replay(history, jump, playerCount);
         return position.outcome() != null ? new int[0] : position.legalMoves();
+    }
+
+    /**
+     * The state of the game after {@code history}: {@code null} while it goes on, else the {@link Outcome}. A position
+     * in which the side to move has no legal move is {@link Position#noMovesOutcome()}. At the move limit the rules
+     * score the game by distance, which gives no winner ({@code winner() == -1}); the facade reports that as a draw.
+     */
+    public Outcome outcome(int[] history, RuleSet.JumpRule jump, int playerCount) {
+        Position position = replay(history, jump, playerCount);
+        Outcome outcome = position.outcome();
+        if (outcome == null && position.generate(new int[Position.MAX_MOVES]) == 0) {
+            return position.noMovesOutcome();
+        }
+        return outcome;
     }
 
     /** Searches the position after {@code history} with the player of the side to move. */
@@ -170,16 +235,41 @@ public final class WebCore {
      * play one rule.
      */
     public Choice choose(int[] history, RuleSet.JumpRule jump) {
-        Position position = replay(history, jump);
+        return choose(history, jump, 2);
+    }
+
+    /**
+     * {@link #choose(int[], RuleSet.JumpRule)} for 2 or 3 players. The player count must be the one of the current game,
+     * like the rule. For 3 players the search is {@link ThreePlayerPlayer}; its result has {@code raceMove} false.
+     */
+    public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount) {
+        Position position = replay(history, jump, playerCount);
         if (position.outcome() != null || position.generate(new int[Position.MAX_MOVES]) == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
         }
-        if (players == null) {
-            newGame(DEFAULT_NODES, DEFAULT_NODES, jump);
+        if (players == null && players3 == null) {
+            if (playerCount == 3) {
+                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump);
+            } else {
+                newGame(DEFAULT_NODES, DEFAULT_NODES, jump);
+            }
+        } else if (gamePlayers != playerCount) {
+            throw new WebFailure("internal", "the game has " + gamePlayers + " players, not " + playerCount + "; call newGame first");
         } else if (gameRule != jump) {
             throw new WebFailure("internal", "the game plays the " + gameRule + " rule, not " + jump + "; call newGame first");
         }
+        if (playerCount == 3) {
+            return choose3(players3[position.sideToMove()], position);
+        }
         return choose(players[position.sideToMove()], position);
+    }
+
+    private Choice choose3(ThreePlayerPlayer player, Position position) {
+        long t0 = System.nanoTime();
+        int move = player.choose(position);
+        double ms = (System.nanoTime() - t0) / 1e6;
+        SearchResult result = player.lastResult();
+        return new Choice(move, result.score(), result.depth(), result.nodes(), ms, false, rows1Requests);
     }
 
     private Choice choose(AlphaBetaPlayer player, Position position) {
@@ -211,6 +301,14 @@ public final class WebCore {
      * table. Independent of the rule of the current game.
      */
     public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump) {
+        return analyse(history, moves, nodes, jump, 2);
+    }
+
+    /** {@link #analyse(int[], int[], int, RuleSet.JumpRule)}; three players fail with {@code unsupported}. */
+    public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount) {
+        if (playerCount != 2) {
+            throw new WebFailure("unsupported", "analysis is available for two players only");
+        }
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
@@ -263,17 +361,26 @@ public final class WebCore {
 
     /** {@link #bench(int, int)} under the given jump rule. */
     public Bench bench(int plies, int nodes, RuleSet.JumpRule jump) {
+        return bench(plies, nodes, jump, 2);
+    }
+
+    /** {@link #bench(int, int, RuleSet.JumpRule)} for 2 or 3 players; three players need no table. */
+    public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount) {
         if (plies <= 0 || nodes <= 0) {
             throw new WebFailure("internal", "plies and nodes must be positive: " + plies + ", " + nodes);
         }
-        AlphaBetaPlayer[] pair = {player(nodes, jump), player(nodes, jump)};
-        Position position = Position.initial(rules(jump));
+        AlphaBetaPlayer[] pair = playerCount == 3 ? null : new AlphaBetaPlayer[] {player(nodes, jump), player(nodes, jump)};
+        ThreePlayerPlayer[] trio = playerCount == 3
+                ? new ThreePlayerPlayer[] {player3(nodes, jump), player3(nodes, jump), player3(nodes, jump)} : null;
+        Position position = Position.initial(rules(jump, playerCount));
         List<Choice> played = new ArrayList<>();
         for (int ply = 0; ply < plies; ply++) {
             if (position.outcome() != null) {
                 break;
             }
-            Choice choice = choose(pair[position.sideToMove()], position);
+            Choice choice = playerCount == 3
+                    ? choose3(trio[position.sideToMove()], position)
+                    : choose(pair[position.sideToMove()], position);
             position.make(choice.move());
             played.add(choice);
         }
@@ -295,7 +402,11 @@ public final class WebCore {
     }
 
     private Position replay(int[] history, RuleSet.JumpRule jump) {
-        Position position = Position.initial(rules(jump));
+        return replay(history, jump, 2);
+    }
+
+    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount) {
+        Position position = Position.initial(rules(jump, playerCount));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             if (!contains(position.legalMoves(), move)) {

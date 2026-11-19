@@ -12,11 +12,14 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.Strategies;
+import sternhalma.search.ThreePlayerPlayer;
+import sternhalma.search.ThreePlayerSpec;
 import sternhalma.tablebase.RaceTable;
 
 /** The facade on the JVM: the same code that TeaVM compiles. Expected values come from the JVM engine and from the benchmark plan. */
@@ -252,18 +255,18 @@ class WebFacadeTest {
     @Test
     void theExportedAnalyseAnswersInTheDocumentedFormat() {
         Web.setTable(file, false);
-        String[] reply = Web.analyse("", "", 200, null).split(" ");
+        String[] reply = Web.analyse("", "", 200, null, null).split(" ");
         assertEquals(6, reply.length, Arrays.toString(reply));
         assertEquals("ok", reply[0]);
         assertEquals("0", reply[3]);
         int moves = reply[4].split(",").length;
         assertEquals(moves, reply[5].split(",").length);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, moves);
-        String one = Web.analyse("", reply[4].split(",")[2], 200, null);
+        String one = Web.analyse("", reply[4].split(",")[2], 200, null, null);
         assertEquals("ok", one.split(" ")[0]);
         assertEquals(reply[5].split(",")[2], one.split(" ")[5]);
-        assertTrue(Web.analyse("", "0", 200, null).startsWith("error illegal-move "));
-        assertTrue(Web.analyse("1,x", "", 200, null).startsWith("error illegal-history "));
+        assertTrue(Web.analyse("", "0", 200, null, null).startsWith("error illegal-move "));
+        assertTrue(Web.analyse("1,x", "", 200, null, null).startsWith("error illegal-history "));
     }
 
     // ---- long hop ----
@@ -339,9 +342,9 @@ class WebFacadeTest {
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(prefix, null, 100)).code());
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.choose(prefix, RuleSet.JumpRule.ADJACENT)).code());
         String joined = Arrays.stream(prefix).mapToObj(String::valueOf).collect(java.util.stream.Collectors.joining(","));
-        assertTrue(Web.legalMoves(joined, "adjacent").startsWith("error illegal-history "));
-        assertTrue(Web.legalMoves(joined, null).startsWith("error illegal-history "));
-        assertTrue(Web.legalMoves(joined, "long").startsWith("ok "));
+        assertTrue(Web.legalMoves(joined, "adjacent", null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, "long", null).startsWith("ok "));
     }
 
     @Test
@@ -399,19 +402,19 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceTakesTheJumpRule() {
         Web.setTable(file, false);
-        assertEquals("ok", Web.newGame(500, 500, "long"));
-        String[] choose = Web.choose("", "long").split(" ");
+        assertEquals("ok", Web.newGame(500, 500, "long", null, 0));
+        String[] choose = Web.choose("", "long", null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[7]);
-        assertTrue(Web.choose("", "adjacent").startsWith("error internal "));
-        int longCount = Web.legalMoves("", "long").substring(3).split(",").length;
+        assertTrue(Web.choose("", "adjacent", null).startsWith("error internal "));
+        int longCount = Web.legalMoves("", "long", null).substring(3).split(",").length;
         assertEquals(Position.initial(RuleSet.defaults(2).withJumpRule(LONG)).legalMoves().length, longCount);
-        assertEquals(longCount, Web.analyse("", "", 200, "long").split(" ")[4].split(",").length);
-        assertEquals(4, Web.bench(4, 300, "long").split(" ")[1].split(",").length);
-        assertTrue(Web.newGame(100, 100, "diagonal").startsWith("error internal "));
-        assertEquals("ok", Web.newGame(100, 100, ""));
-        assertEquals(Web.legalMoves("", null), Web.legalMoves("", "adjacent"));
+        assertEquals(longCount, Web.analyse("", "", 200, "long", null).split(" ")[4].split(",").length);
+        assertEquals(4, Web.bench(4, 300, "long", null).split(" ")[1].split(",").length);
+        assertTrue(Web.newGame(100, 100, "diagonal", null, 0).startsWith("error internal "));
+        assertEquals("ok", Web.newGame(100, 100, "", null, 0));
+        assertEquals(Web.legalMoves("", null, null), Web.legalMoves("", "adjacent", null));
     }
 
     @Test
@@ -426,6 +429,241 @@ class WebFacadeTest {
         assertEquals(-1986550544382302149L, checksum);
         assertEquals(800_000L, Arrays.stream(bench.nodes()).sum());
     }
+
+    // ---- three players ----
+
+    private static final RuleSet.JumpRule ADJ = RuleSet.JumpRule.ADJACENT;
+
+    /** Self-play of a three-player game over at most {@code plies} plies; stops early when the game is over. */
+    private static int[] threeGame(WebCore core, RuleSet.JumpRule jump, int plies, int nodes) {
+        core.newGame3(nodes, nodes, nodes, jump);
+        int[] history = new int[plies];
+        for (int ply = 0; ply < plies; ply++) {
+            int[] before = Arrays.copyOf(history, ply);
+            if (core.outcome(before, jump, 3) != null) {
+                return before;
+            }
+            WebCore.Choice c = core.choose(before, jump, 3);
+            history[ply] = c.move();
+            assertFalse(c.raceMove());
+            assertTrue(c.nodes() > 0, "ply " + ply);
+        }
+        return history;
+    }
+
+    private static String csv(int[] moves) {
+        return Arrays.stream(moves).mapToObj(Integer::toString).collect(java.util.stream.Collectors.joining(","));
+    }
+
+    @Test
+    void aThreePlayerGameOf60PliesPlaysLegalMovesOnBothRulesWithoutATable() {
+        for (RuleSet.JumpRule jump : RuleSet.JumpRule.values()) {
+            WebCore core = readyWithoutTable();
+            int[] history = threeGame(core, jump, 60, 400);
+            assertEquals(60, history.length);
+            Position position = Position.initial(RuleSet.defaults(3).withJumpRule(jump));
+            for (int ply = 0; ply < 60; ply++) {
+                int move = history[ply];
+                assertTrue(Arrays.stream(position.legalMoves()).anyMatch(m -> m == move), jump + " ply " + ply);
+                assertArrayEquals(position.legalMoves(), core.legalMoves(Arrays.copyOf(history, ply), jump, 3));
+                position.make(move);
+            }
+            assertEquals(0, core.rows1Requests());
+        }
+    }
+
+    @Test
+    void theThreePlayerMovesEqualThoseOfIndependentPlayersOfTheBrowserSpec() {
+        // oracle: three independent players of the merged Java spec, one per seat
+        for (RuleSet.JumpRule jump : RuleSet.JumpRule.values()) {
+            String spec = (jump == LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC)
+                    .replace("nodes=20000", "nodes=300");
+            int[] history = threeGame(readyWithoutTable(), jump, 30, 300);
+            ThreePlayerPlayer[] seats = {ThreePlayerSpec.parse(spec).create(), ThreePlayerSpec.parse(spec).create(),
+                ThreePlayerSpec.parse(spec).create()};
+            Position oracle = Position.initial(RuleSet.defaults(3).withJumpRule(jump));
+            for (int ply = 0; ply < 30; ply++) {
+                int move = seats[ply % 3].choose(oracle);
+                assertEquals(move, history[ply], jump + " ply " + ply);
+                oracle.make(move);
+            }
+        }
+    }
+
+    @Test
+    void aThreePlayerGameIsDeterministicAndIgnoresAnInstalledTable() {
+        int[] first = threeGame(readyWithoutTable(), ADJ, 24, 300);
+        assertArrayEquals(first, threeGame(readyWithoutTable(), ADJ, 24, 300));
+        WebCore withTable = ready();
+        assertArrayEquals(first, threeGame(withTable, ADJ, 24, 300));
+        assertEquals(0, withTable.rows1Requests());
+    }
+
+    @Test
+    void theSeatsOfAThreePlayerGameHaveTheirOwnBudgets() {
+        WebCore core = readyWithoutTable();
+        core.newGame3(100, 1000, 100, ADJ);
+        int[] history = new int[0];
+        long[] max = new long[3];
+        for (int ply = 0; ply < 9; ply++) {
+            WebCore.Choice c = core.choose(history, ADJ, 3);
+            max[ply % 3] = Math.max(max[ply % 3], c.nodes());
+            history = Arrays.copyOf(history, ply + 1);
+            history[ply] = c.move();
+        }
+        assertTrue(max[0] < 400 && max[2] < 400, Arrays.toString(max));
+        assertTrue(max[1] > 600, Arrays.toString(max));
+    }
+
+    @Test
+    void aThreePlayerHistoryWithAnIllegalMoveIsRejectedWithItsPly() {
+        WebCore core = readyWithoutTable();
+        int[] history = threeGame(core, ADJ, 6, 100);
+        history[4] = 999_999;
+        WebFailure failure = assertThrows(WebFailure.class, () -> core.choose(history, ADJ, 3));
+        assertEquals("illegal-history", failure.code());
+        assertTrue(failure.getMessage().contains("ply 4"), failure.getMessage());
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.outcome(history, ADJ, 3)).code());
+        assertTrue(Web.legalMoves("1,x", null, "3").startsWith("error illegal-history "));
+    }
+
+    @Test
+    void theGameKeepsItsPlayerCount() {
+        WebCore core = ready();
+        core.newGame(100, 100, ADJ);
+        WebFailure two = assertThrows(WebFailure.class, () -> core.choose(new int[0], ADJ, 3));
+        assertEquals("internal", two.code());
+        assertTrue(two.getMessage().contains("2 players"), two.getMessage());
+        core.newGame3(100, 100, 100, ADJ);
+        WebFailure three = assertThrows(WebFailure.class, () -> core.choose(new int[0], ADJ, 2));
+        assertEquals("internal", three.code());
+        assertTrue(three.getMessage().contains("3 players"), three.getMessage());
+        core.newGame(100, 100, ADJ);
+        assertTrue(core.choose(new int[0], ADJ, 2).move() >= 0);
+    }
+
+    @Test
+    void chooseWithoutNewGameStartsAThreePlayerGameWithTheDefaultBudget() {
+        WebCore.Choice c = readyWithoutTable().choose(new int[0], ADJ, 3);
+        assertTrue(c.nodes() > 0 && c.nodes() <= WebCore.DEFAULT_NODES * 2L, "nodes " + c.nodes());
+    }
+
+    @Test
+    void analysisOfThreePlayersIsUnsupported() {
+        WebFailure failure = assertThrows(WebFailure.class, () -> ready().analyse(new int[0], null, 200, ADJ, 3));
+        assertEquals("unsupported", failure.code());
+        assertTrue(Web.analyse("", "", 200, null, "3").startsWith("error unsupported "));
+        assertTrue(Web.analyse("", "", 200, "long", "3").startsWith("error unsupported "));
+    }
+
+    @Test
+    void aBadPlayerCountIsAnInternalError() {
+        assertEquals(2, WebCore.parsePlayers(null));
+        assertEquals(2, WebCore.parsePlayers(""));
+        assertEquals(2, WebCore.parsePlayers("2"));
+        assertEquals(3, WebCore.parsePlayers("3"));
+        assertTrue(Web.legalMoves("", null, "4").startsWith("error internal "));
+        assertTrue(Web.outcome("", null, "three").startsWith("error internal "));
+    }
+
+    @Test
+    void aThreePlayerBenchPlaysAllSeatsAndNeedsNoTable() {
+        WebCore.Bench bench = readyWithoutTable().bench(9, 200, ADJ, 3);
+        assertEquals(9, bench.moves().length);
+        Position oracle = Position.initial(RuleSet.defaults(3));
+        for (int move : bench.moves()) {
+            assertTrue(Arrays.stream(oracle.legalMoves()).anyMatch(m -> m == move));
+            oracle.make(move);
+        }
+        assertArrayEquals(bench.moves(), readyWithoutTable().bench(9, 200, ADJ, 3).moves());
+    }
+
+    @Test
+    void theOutcomeIsOngoingAtTheStart() {
+        WebCore core = readyWithoutTable();
+        assertEquals(null, core.outcome(new int[0], ADJ, 3));
+        assertEquals(null, core.outcome(new int[0], ADJ, 2));
+        assertEquals("ok ongoing", Web.outcome("", null, "3"));
+        assertEquals("ok ongoing", Web.outcome("", "long", "2"));
+    }
+
+    @Test
+    void aThreePlayerGameThatEndsInAWinNamesTheWinnersSide() {
+        // the engine game with 40 nodes per move ends in a win (measured: ply 132, side 2); the oracle is Position.outcome()
+        WebCore core = readyWithoutTable();
+        int[] full = threeGame(core, ADJ, 300, 40);
+        Position oracle = Position.initial(RuleSet.defaults(3));
+        for (int move : full) {
+            oracle.make(move);
+        }
+        Outcome expected = oracle.outcome();
+        assertTrue(expected.hasWinner(), "expected a win, got " + expected);
+        assertEquals(expected, core.outcome(full, ADJ, 3));
+        assertEquals("ok win " + expected.winner(), Web.outcome(csv(full), null, "3"));
+        // a finished game has no moves and cannot be searched
+        assertEquals(0, core.legalMoves(full, ADJ, 3).length);
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.choose(full, ADJ, 3)).code());
+        // one ply earlier it goes on
+        assertEquals(null, core.outcome(Arrays.copyOf(full, full.length - 1), ADJ, 3));
+    }
+
+    @Test
+    void atTheMoveLimitTheOutcomeIsADrawEvenThoughTheRulesScoreByDistance() {
+        // random legal moves with a fixed seed do not win within 300 plies
+        Position oracle = Position.initial(RuleSet.defaults(3));
+        java.util.Random random = new java.util.Random(7);
+        int[] history = new int[300];
+        for (int ply = 0; ply < 300; ply++) {
+            int[] legal = oracle.legalMoves();
+            history[ply] = legal[random.nextInt(legal.length)];
+            oracle.make(history[ply]);
+        }
+        Outcome expected = oracle.outcome();
+        assertEquals(Outcome.Reason.MOVE_LIMIT, expected.reason());
+        assertEquals(-1, expected.winner());
+        WebCore core = readyWithoutTable();
+        assertEquals(expected, core.outcome(history, ADJ, 3));
+        assertEquals("ok draw", Web.outcome(csv(history), null, "3"));
+        assertEquals(null, core.outcome(Arrays.copyOf(history, 299), ADJ, 3));
+    }
+
+    @Test
+    void aWinIsReportedWithItsSideForTwoPlayers() {
+        // oracle: Position.outcome() on a self-played two-player game with the long hop; find a game that ends in a win
+        WebCore core = ready();
+        Position oracle = Position.initial(RuleSet.defaults(2).withJumpRule(LONG));
+        core.newGame(60, 60, LONG);
+        int[] moves = new int[200];
+        int n = 0;
+        while (n < 200 && oracle.outcome() == null) {
+            int move = core.choose(Arrays.copyOf(moves, n), LONG).move();
+            moves[n++] = move;
+            oracle.make(move);
+        }
+        int[] game = Arrays.copyOf(moves, n);
+        Outcome expected = oracle.outcome();
+        assertEquals(expected, core.outcome(game, LONG, 2));
+        assertEquals(expected.hasWinner() ? "ok win " + expected.winner() : "ok draw", Web.outcome(csv(game), "long", null));
+    }
+
+    @Test
+    void theExportedSurfaceTakesThePlayerCount() {
+        assertEquals("ok", Web.newGame(150, 150, "adjacent", "3", 150));
+        String[] choose = Web.choose("", "adjacent", "3").split(" ");
+        assertEquals(8, choose.length, Arrays.toString(choose));
+        assertEquals("ok", choose[0]);
+        assertEquals("0", choose[6]);
+        int count = Web.legalMoves("", "adjacent", "3").substring(3).split(",").length;
+        assertEquals(Position.initial(RuleSet.defaults(3)).legalMoves().length, count);
+        assertEquals("ok ongoing", Web.outcome("", "adjacent", "3"));
+        assertEquals("ok ongoing", Web.outcome("", null, null));
+        assertEquals(3, Web.bench(3, 100, "long", "3").split(" ")[1].split(",").length);
+        // a missing nodes2 is nodes1; a two-player call is not disturbed by it
+        assertEquals("ok", Web.newGame(100, 100, "long", "3", 0));
+        assertEquals("ok", Web.newGame(100, 100, "long", "2", 777));
+        assertTrue(Web.choose("", "long", "3").startsWith("error internal "));
+    }
+
     // ---- corrupt tables ----
 
     @Test
@@ -470,15 +708,15 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceAnswersInTheDocumentedFormat() {
         assertEquals("ok " + RaceTable.rows2().states(), Web.setTable(file, true));
-        assertEquals("ok", Web.newGame(1000, 1000, null));
-        String legal = Web.legalMoves("", null);
+        assertEquals("ok", Web.newGame(1000, 1000, null, null, 0));
+        String legal = Web.legalMoves("", null, null);
         assertTrue(legal.startsWith("ok "), legal);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, legal.substring(3).split(",").length);
-        String[] choose = Web.choose("", null).split(" ");
+        String[] choose = Web.choose("", null, null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[7]);
-        String[] bench = Web.bench(4, 500, null).split(" ");
+        String[] bench = Web.bench(4, 500, null, null).split(" ");
         assertEquals(5, bench.length);
         assertEquals(4, bench[1].split(",").length);
     }
@@ -486,9 +724,9 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceNeverThrows() {
         Web.setTable(file, false);
-        assertTrue(Web.legalMoves("1,x", null).startsWith("error illegal-history "), Web.legalMoves("1,x", null));
-        assertTrue(Web.choose("999999", null).startsWith("error illegal-history "));
-        assertTrue(Web.newGame(0, 5, null).startsWith("error internal "));
+        assertTrue(Web.legalMoves("1,x", null, null).startsWith("error illegal-history "), Web.legalMoves("1,x", null, null));
+        assertTrue(Web.choose("999999", null, null).startsWith("error illegal-history "));
+        assertTrue(Web.newGame(0, 5, null, null, 0).startsWith("error internal "));
         assertTrue(Web.setTable(new byte[3], false).startsWith("error table-truncated "));
         assertTrue(Web.setTable(null, false).startsWith("error internal "), Web.setTable(null, false));
     }
