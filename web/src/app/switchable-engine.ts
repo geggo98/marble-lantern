@@ -17,6 +17,8 @@ export class SwitchableEngine implements Engine {
   private net: { model: string | null; netOptions: NetOptions } | null = null;
   private warningListeners = new Set<() => void>();
   private unsubscribeInner: (() => void) | null = null;
+  /** Counts the calls of use(): a call whose newGame ends after a newer call began is stale. */
+  private useGeneration = 0;
 
   /** The info of the current engine; a placeholder until the first engine is in use. */
   get info(): EngineInfo {
@@ -42,15 +44,25 @@ export class SwitchableEngine implements Engine {
     for (const l of this.warningListeners) l();
   };
 
-  /** Replaces the engine. The new engine must be initialised. The old one is disposed. */
-  async use(engine: Engine, setup: GameSetup): Promise<void> {
+  /**
+   * Replaces the engine. The new engine must be initialised. The old one is disposed. Resolves true when the engine is in use.
+   * A slow newGame (a net engine loads a model) can end after a newer use() began: then this engine is stale, it is disposed
+   * and the newer choice stays; the result is false.
+   */
+  async use(engine: Engine, setup: GameSetup): Promise<boolean> {
+    const mine = ++this.useGeneration;
     await engine.newGame(this.override(setup));
+    if (mine !== this.useGeneration) {
+      engine.dispose();
+      return false;
+    }
     const old = this.inner;
     this.unsubscribeInner?.();
     this.inner = engine;
     this.unsubscribeInner = engine.subscribeWarnings?.(this.notifyWarnings) ?? null;
     old?.dispose();
     this.notifyWarnings();
+    return true;
   }
 
   /**

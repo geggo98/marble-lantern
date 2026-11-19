@@ -18,12 +18,17 @@ class StubEngine implements Engine {
   setups: GameSetup[] = [];
   warnings: readonly EngineWarning[] = [];
   disposed = false;
+  /** A newGame waits for this promise (a slow model load), when set. */
+  hold: Promise<void> | null = null;
+  failNewGame: Error | null = null;
   private listeners = new Set<() => void>();
   constructor(readonly info: EngineInfo, private readonly onNewGame: (setup: GameSetup) => EngineWarning[] = () => []) {}
   subscribeWarnings(l: () => void): () => void { this.listeners.add(l); return () => this.listeners.delete(l); }
   async init(): Promise<LoadReport> { return { fetchMs: 0, inflateMs: 0, verifyMs: 0, instantiateMs: 0, tableInstallMs: 0, totalMs: 0, tableVerifiedBy: 'engine' }; }
   async newGame(setup: GameSetup): Promise<void> {
     this.setups.push(setup);
+    await this.hold;
+    if (this.failNewGame) throw this.failNewGame;
     this.warnings = this.onNewGame(setup);
     for (const l of this.listeners) l();
   }
@@ -35,16 +40,23 @@ class StubEngine implements Engine {
 }
 
 const made: Record<string, StubEngine> = {};
+const holds: Record<string, Promise<void>> = {};
+const failures: Record<string, Error> = {};
 const rule = (setup: GameSetup): EngineWarning[] => (setup.model ? [] : [{ code: 'no-model' }, { code: 'fallback-random' }]);
 function def(id: 'cpp-wasm' | 'net-wasm' | 'net-webgpu'): EngineDefinition {
   return {
     id, labelKey: 'engine.cppWasm', runtime: 'wasm', language: id === 'cpp-wasm' ? 'C++' : 'Java + C++',
     isAvailable: () => true,
-    create: (context) => (made[id] = new StubEngine(context.info, id === 'cpp-wasm' ? undefined : rule)),
+    create: (context) => {
+      const e = (made[id] = new StubEngine(context.info, id === 'cpp-wasm' ? undefined : rule));
+      e.hold = holds[id] ?? null;
+      e.failNewGame = failures[id] ?? null;
+      return e;
+    },
   };
 }
 
-afterEach(() => { clearEngines(); for (const k of Object.keys(made)) delete made[k]; });
+afterEach(() => { clearEngines(); for (const o of [made, holds, failures]) for (const k of Object.keys(o)) delete o[k]; });
 
 function setup(selection: { model: string | null; sims: number } = { model: null, sims: 200 }) {
   registerEngine(def('cpp-wasm'));
@@ -121,6 +133,59 @@ describe('EngineSession with net engines', () => {
     await session.select('net-webgpu');
     await sw.newGame({ nodes: [100, 100] });
     expect(made['net-webgpu']!.setups.at(-1)).toMatchObject({ model: 'm', netOptions: { sims: 200 } });
+  });
+});
+
+describe('engine switch races (F8)', () => {
+  it('a slow net newGame that ends after a newer classical load does not replace the classical engine', async () => {
+    let release: () => void = () => undefined;
+    holds['net-wasm'] = new Promise<void>((r) => { release = r; });
+    const { session, sw } = setup({ model: 'm', sims: 200 });
+    await session.start();
+    const classical1 = made['cpp-wasm']!;
+    const slowNet = session.select('net-wasm'); // waits in newGame
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made['net-wasm']).toBeDefined();
+    const back = session.select('cpp-wasm'); // quick, newer
+    expect(await back).toBe(true);
+    const classical2 = made['cpp-wasm']!;
+    expect(sw.info.id).toBe('cpp-wasm');
+    release();
+    expect(await slowNet).toBe(false);
+    expect(made['net-wasm']!.disposed).toBe(true); // the stale engine is disposed
+    expect(classical2.disposed).toBe(false);
+    expect(classical1.disposed).toBe(true);
+    expect(session.getState().current?.info.id).toBe('cpp-wasm');
+    expect(session.getState().phase).toBe('ready');
+    // and the game goes on with the classical engine, without net fields
+    await sw.newGame({ nodes: [1, 1] });
+    expect('model' in classical2.setups.at(-1)!).toBe(false);
+  });
+
+  it('SwitchableEngine.use reports false for a stale engine and true for the current one', async () => {
+    const sw = new SwitchableEngine();
+    let release: () => void = () => undefined;
+    const slow = new StubEngine({ id: 'net-wasm' } as EngineInfo);
+    slow.hold = new Promise<void>((r) => { release = r; });
+    const quick = new StubEngine({ id: 'cpp-wasm' } as EngineInfo);
+    const first = sw.use(slow, { nodes: [1, 1] });
+    expect(await sw.use(quick, { nodes: [1, 1] })).toBe(true);
+    release();
+    expect(await first).toBe(false);
+    expect(slow.disposed).toBe(true);
+    expect(sw.info.id).toBe('cpp-wasm');
+  });
+
+  it('a failing net load resets the net settings, so the next classical newGame carries no model', async () => {
+    failures['net-wasm'] = new Error('model failed');
+    const { session, sw } = setup({ model: 'm', sims: 200 });
+    await session.start();
+    expect(await session.select('net-wasm')).toBe(false);
+    expect(session.getState().phase).toBe('failed');
+    const classical = made['cpp-wasm']!;
+    await sw.newGame({ nodes: [1, 1] });
+    expect('model' in classical.setups.at(-1)!).toBe(false);
+    expect('netOptions' in classical.setups.at(-1)!).toBe(false);
   });
 });
 

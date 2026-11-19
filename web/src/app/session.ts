@@ -180,12 +180,16 @@ export class EngineSession {
       this.useNetSettings(choice);
       const nodes = this.deps.nodes();
       const variant = this.variant();
-      await this.deps.engine.use(engine, { nodes: [nodes, nodes], ...(isDefault(variant) ? {} : { variant }) });
+      const used = await this.deps.engine.use(engine, { nodes: [nodes, nodes], ...(isDefault(variant) ? {} : { variant }) });
+      if (!used || mine !== this.generation) return false; // a newer load took over; use() disposed the stale engine
       this.set({ phase: 'ready', progress: null });
       return true;
     } catch (e) {
       engine?.dispose();
-      if (mine === this.generation) this.set({ phase: 'failed', progress: null, error: toSessionError(e) });
+      if (mine === this.generation) {
+        this.deps.engine.setNet(null); // the net settings of this failed load must not leak into the next newGame
+        this.set({ phase: 'failed', progress: null, error: toSessionError(e) });
+      }
       return false;
     }
   }
