@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parseSafetensors } from '../../../bench/webgpu/safetensors.js';
+import { parseSafetensors } from './safetensors.js';
 import {
   CELLS,
   FLAVOUR_ORDER,

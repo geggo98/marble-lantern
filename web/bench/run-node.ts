@@ -77,7 +77,7 @@ try {
 } catch (e) {
   expected = die(`cannot use ${values.expected}: ${(e as Error).message}`, 1);
 }
-const wanted = values.engines ? (values.engines as string).split(',').filter(Boolean) : Object.keys(manifest.engines);
+const wanted = values.engines ? (values.engines as string).split(',').filter(Boolean) : Object.keys(manifest.engines).filter((id) => id !== 'net-wasm'); // net-wasm is the network backend (no search to benchmark)
 for (const id of wanted) if (!(id in manifest.engines)) die(`engine ${id} is not in engines.json (has: ${Object.keys(manifest.engines).join(', ')})`, 2);
 if (wanted.length === 0 && !values.jvm) die('no engine selected', 2);
 
