@@ -106,7 +106,7 @@ if(EMSCRIPTEN)
   sh_target(engine-cpp)
   target_link_libraries(engine-cpp PRIVATE sh_search)
   set(sh_wasm_exports
-    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_game_new _shw_jump_rule _shw_side_to_move _shw_ply
+    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_player_new3 _shw_game_new _shw_game_new2 _shw_players _shw_jump_rule _shw_side_to_move _shw_ply
     _shw_owner _shw_cell_count _shw_cell_q _shw_cell_r _shw_legal_moves _shw_play _shw_unmake _shw_outcome _shw_choose
     _shw_last_score _shw_last_depth _shw_last_nodes _shw_has_result _shw_total_nodes _shw_race_moves _shw_rows1_requests)
   list(JOIN sh_wasm_exports "," sh_wasm_exports_csv)

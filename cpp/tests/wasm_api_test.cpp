@@ -1,5 +1,6 @@
 // The C ABI of the browser engine (src/wasm/wasm_api.cpp) called natively: the jump argument of shw_game_new and shw_player_new, the
-// refusal of a game of the other rule, and shw_analyse in a long-hop game. The node tests of cpp/wasm/test run the same calls on the
+// refusal of a game of the other rule, shw_analyse in a long-hop game, and the three-player game (shw_game_new2, shw_players,
+// shw_player_new3, the outcome codes, the refusals, the error code of shw_analyse). The node tests of cpp/wasm/test run the same calls on the
 // WebAssembly build; this test needs no Emscripten and no race table (the long player does not read one).
 #include <array>
 #include <cstddef>
@@ -14,6 +15,13 @@ extern "C" {
 const char* shw_error();
 int shw_player_new(int nodes, int jump);
 int shw_game_new(int jump);
+int shw_game_new2(int jump, int players);
+int shw_players();
+int shw_player_new3(int nodes, int jump);
+int shw_ply();
+int shw_last_depth(int id);
+double shw_total_nodes(int id);
+void shw_player_clear(int id);
 int shw_jump_rule();
 int shw_side_to_move();
 int shw_owner(int cell);
@@ -103,6 +111,99 @@ SH_TEST(analyse_in_a_long_game) {
     CHECK_EQ(shw_analyse(300, nullptr, 0, moves2.data(), scores2.data(), kCap), n);
     CHECK(moves2 == moves_out);
     CHECK(scores2 == scores_out);
+}
+
+SH_TEST(game_new2_takes_players_and_keeps_the_old_call) {
+    CHECK_EQ(shw_game_new(0), 0);
+    CHECK_EQ(shw_players(), 2);
+    CHECK_EQ(shw_game_new2(0, 3), 0);
+    CHECK_EQ(shw_players(), 3);
+    CHECK_EQ(shw_jump_rule(), 0);
+    CHECK_EQ(shw_side_to_move(), 0);
+    CHECK_EQ(shw_outcome(), -1);
+    // the start position of three players: 10 pieces in each of the three start corners, nothing in the others
+    std::array<int, 3> pieces{};
+    for (int c = 0; c < sh::kCells; ++c) {
+        const int o = shw_owner(c);
+        CHECK(o >= -1 && o <= 2);
+        if (o >= 0) ++pieces[static_cast<std::size_t>(o)];
+    }
+    CHECK(pieces == (std::array<int, 3>{10, 10, 10}));
+    CHECK_EQ(shw_game_new2(1, 3), 0);
+    CHECK_EQ(shw_jump_rule(), 1);
+    CHECK_EQ(shw_players(), 3);
+    // refused values leave the game unchanged
+    CHECK_EQ(shw_game_new2(0, 4), -1);
+    CHECK(std::string(shw_error()).find("players must be 2 or 3") != std::string::npos);
+    CHECK_EQ(shw_game_new2(2, 3), -1);
+    CHECK_EQ(shw_players(), 3);
+    CHECK_EQ(shw_jump_rule(), 1);
+    // shw_game_new(jump) is a two-player game again
+    CHECK_EQ(shw_game_new(1), 0);
+    CHECK_EQ(shw_players(), 2);
+    CHECK_EQ(shw_player_new3(100, 5), -1);
+    CHECK_EQ(shw_player_new3(0, 0), -1);
+}
+
+// Three engine seats play a whole game of each rule: every move is found and legal, the side to move cycles 0, 1, 2, the outcome is
+// -1 while the game runs and 0 or 1 + winner (1 to 3) at the end, and the game ends within the move limit.
+SH_TEST(three_engine_seats_play_a_full_game_of_each_rule) {
+    for (const int jump : {0, 1}) {
+        const int player = shw_player_new3(150, jump);
+        CHECK(player >= 0);
+        if (player < 0) continue;
+        CHECK_EQ(shw_game_new2(jump, 3), 0);
+        int ply = 0;
+        while (shw_outcome() == -1 && ply < 400) {
+            CHECK_EQ(shw_side_to_move(), ply % 3);
+            const auto legal = legal_pairs();
+            const int move = shw_choose(player);
+            CHECK(move >= 0);
+            CHECK(legal.contains({move & 0xff, move >> 8}));
+            CHECK_EQ(shw_has_result(player), 1);
+            CHECK(shw_last_depth(player) >= 1);
+            CHECK_EQ(shw_play(move), 0);
+            ++ply;
+        }
+        const int outcome = shw_outcome();
+        CHECK(outcome >= 0 && outcome <= 3);
+        CHECK_EQ(shw_ply(), ply);
+        CHECK(ply <= 300);
+        CHECK(shw_total_nodes(player) > 0.0);
+        CHECK_EQ(shw_race_moves(player), 0.0);
+        shw_player_clear(player);
+        CHECK_EQ(shw_has_result(player), 0);
+    }
+}
+
+SH_TEST(players_and_games_must_match) {
+    const int three = shw_player_new3(100, 0);
+    const int three_long = shw_player_new3(100, 1);
+    const int two_long = shw_player_new(100, 1);
+    CHECK(three >= 0 && three_long >= 0 && two_long >= 0);
+    // a three-player player in a two-player game, a two-player player in a three-player game, a player of the other rule
+    shw_game_new2(0, 2);
+    CHECK_EQ(shw_choose(three), -2);
+    CHECK(std::string(shw_error()).find("2 players") != std::string::npos);
+    shw_game_new2(1, 2);
+    CHECK_EQ(shw_choose(three_long), -2);
+    shw_game_new2(1, 3);
+    CHECK_EQ(shw_choose(two_long), -2);
+    CHECK(std::string(shw_error()).find("3 players") != std::string::npos);
+    CHECK_EQ(shw_choose(three), -2);
+    CHECK(std::string(shw_error()).find("other jump rule") != std::string::npos);
+    CHECK(shw_choose(three_long) >= 0);
+}
+
+SH_TEST(analyse_is_two_player_only) {
+    shw_game_new2(0, 3);
+    std::array<std::int32_t, kCap> moves_out{};
+    std::array<std::int32_t, kCap> scores_out{};
+    CHECK_EQ(shw_analyse(300, nullptr, 0, moves_out.data(), scores_out.data(), kCap), -3);
+    CHECK(std::string(shw_error()).find("two-player") != std::string::npos);
+    CHECK_EQ(shw_analyse(0, nullptr, 0, moves_out.data(), scores_out.data(), kCap), -3);  // the player count is checked first
+    shw_game_new2(1, 2);
+    CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), kCap) > 0);  // two players are unchanged
 }
 
 int main() { return sh::test::run_all(); }
