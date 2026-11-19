@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AnalysisResult } from '../engines/engine';
 import { SKILL_NODES } from '../engines/analysis';
 import { SkillTracker } from './tracker';
+import { browserLedgerStore } from './ledger';
+import type { LedgerStore } from './ledger';
 import type { TrackedGame, TrackerState } from './tracker';
 
 // Moves do not need to be legal here: the tracker only passes prefixes of the history to the engine.
 interface Call { history: number[]; moves: readonly number[] | null; nodes: number; signal?: AbortSignal; resolve: (r: AnalysisResult) => void; reject: (e: unknown) => void }
 
-function setup(history: number[], opts: { thinking?: boolean; engineTurn?: boolean; human?: 0 | 1 | null; quietMs?: number; legal?: number[] } = {}) {
+function setup(history: number[], opts: { thinking?: boolean; engineTurn?: boolean; human?: 0 | 1 | null; quietMs?: number; legal?: number[]; store?: LedgerStore } = {}) {
   const calls: Call[] = [];
   const game = {
     state: { history, thinking: opts.thinking ?? false, outcome: null as unknown, legal: opts.legal ?? [1] },
@@ -27,7 +29,7 @@ function setup(history: number[], opts: { thinking?: boolean; engineTurn?: boole
   };
   let ready = true;
   const tracker = new SkillTracker({
-    engine, game: game as unknown as TrackedGame, humanSide: () => (opts.human === undefined ? 0 : opts.human), isReady: () => ready, quietMs: opts.quietMs ?? 0,
+    engine, game: game as unknown as TrackedGame, humanSide: () => (opts.human === undefined ? 0 : opts.human), isReady: () => ready, quietMs: opts.quietMs ?? 0, ...(opts.store ? { store: opts.store } : {}),
   });
   return { calls, game, tracker, setReady: (r: boolean) => { ready = r; } };
 }
@@ -215,5 +217,80 @@ describe('SkillTracker', () => {
     await flush();
     expect(tracker.getState().status).toBe('error');
     expect(calls).toHaveLength(1);
+  });
+});
+
+
+describe('SkillTracker ledger over many games', () => {
+  const memoryStore = (): LedgerStore => {
+    let kept = { paused: false, entries: [] as [string, number][] };
+    return { load: () => ({ paused: kept.paused, entries: [...kept.entries] }), save: (d) => { kept = { paused: d.paused, entries: [...d.entries] }; } };
+  };
+  const measureAll = async (t: ReturnType<typeof setup>, rounds: number): Promise<void> => {
+    for (let i = 0; i < rounds; i++) {
+      t.tracker.pump();
+      if (t.calls.length === 0) break;
+      const c = t.calls.shift()!;
+      c.resolve(result(t.game.state.history[c.history.length]!, 70));
+      await flush();
+    }
+  };
+
+  it('a second game and a new page visit add to the same ledger', async () => {
+    const store = memoryStore();
+    const one = setup([1, 2, 3, 4, 5], { store });
+    await measureAll(one, 10);
+    expect(one.tracker.getState().ledger).toHaveLength(3);
+    const two = setup([9, 8, 7], { store }); // another game, a new tracker as after a reload
+    expect(two.tracker.getState().ledger).toHaveLength(3); // read back at the start
+    await measureAll(two, 10);
+    expect(two.tracker.getState().ledger).toHaveLength(5);
+    expect(two.tracker.getState().done).toBe(2); // progress counts the current game only
+  });
+
+  it('pause: nothing is analysed or recorded, and moves played meanwhile never count afterwards', async () => {
+    const store = memoryStore();
+    const t = setup([1, 2, 3], { store });
+    t.tracker.setPaused(true);
+    t.tracker.pump();
+    expect(t.calls).toHaveLength(0);
+    expect(t.tracker.getState().paused).toBe(true);
+    expect(store.load().paused).toBe(true); // survives a reload
+    t.game.state.history = [1, 2, 3, 4, 5]; // somebody else plays two more moves
+    t.tracker.setPaused(false);
+    t.tracker.pump();
+    expect(t.calls).toHaveLength(0); // the moves of the pause are not measured later
+    t.game.state.history = [1, 2, 3, 4, 5, 6, 7]; // the person plays again (human side 0: ply 6)
+    t.tracker.pump();
+    expect(t.calls).toHaveLength(1);
+    expect(t.calls[0]!.history).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('pause aborts a running analysis and drops its result', async () => {
+    const t = setup([1, 2, 3], { store: memoryStore() });
+    t.tracker.pump();
+    expect(t.calls).toHaveLength(1);
+    t.tracker.setPaused(true);
+    t.calls[0]!.resolve(result(3, 50));
+    await flush();
+    expect(t.tracker.getState().ledger).toHaveLength(0);
+  });
+
+  it('clear deletes the ledger, also in storage, and does not re-measure the moves played so far', async () => {
+    const store = memoryStore();
+    const t = setup([1, 2, 3, 4, 5], { store });
+    await measureAll(t, 10);
+    expect(t.tracker.getState().ledger).toHaveLength(3);
+    t.tracker.clear();
+    expect(t.tracker.getState().ledger).toHaveLength(0);
+    expect(store.load().entries).toHaveLength(0);
+    t.tracker.pump();
+    expect(t.calls).toHaveLength(0);
+  });
+
+  it('works with the real browser store over a fake storage, and survives a broken one', async () => {
+    const t = setup([1, 2, 3], { store: browserLedgerStore(() => null) });
+    await measureAll(t, 5);
+    expect(t.tracker.getState().ledger.length).toBeGreaterThan(0);
   });
 });

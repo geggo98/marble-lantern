@@ -12,7 +12,7 @@ export function Sprite(): React.JSX.Element {
 
 export type IconName =
   | 'plus' | 'undo' | 'swap' | 'play' | 'offline' | 'online' | 'close' | 'check' | 'alert' | 'copy' | 'tune'
-  | 'sun' | 'moon' | 'auto' | 'ext' | 'menu';
+  | 'sun' | 'moon' | 'auto' | 'ext' | 'menu' | 'pause';
 
 export function Icon({ name }: { name: IconName }): React.JSX.Element {
   return (

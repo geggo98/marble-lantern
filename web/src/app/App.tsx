@@ -23,6 +23,8 @@ import type { Screen } from '../ui/Chrome';
 import { DEFAULT_LEVEL, NODE_LEVELS } from '../ui/Panels';
 import { isPresetLevel, nodesOfLevel } from '../skill/level';
 import { SkillTracker } from '../skill/tracker';
+import { browserLedgerStore } from '../skill/ledger';
+import type { LedgerStore } from '../skill/ledger';
 import { Sprite } from '../ui/primitives';
 import { AboutScreen, BenchScreen } from '../ui/Screens';
 import type { BenchRunner } from '../ui/Screens';
@@ -36,6 +38,8 @@ export interface AppProps {
   manifestLoader?: () => Promise<EnginesManifest>;
   /** The benchmark (WP10). Without it the screen says that the benchmark is not part of this build. */
   benchRunner?: BenchRunner | null;
+  /** Tests replace the place where the skill measurements are kept; the default is localStorage. */
+  ledgerStore?: LedgerStore;
   /** Tests pass a fake history; the default is the browser's. */
   navigation?: NavigationPort;
 }
@@ -78,7 +82,7 @@ function whenIdle(game: GameController): Promise<void> {
   });
 }
 
-export function App({ manifestLoader, benchRunner = null, navigation }: AppProps): React.JSX.Element {
+export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore }: AppProps): React.JSX.Element {
   const nav = useMemo(() => navigation ?? browserNavigation(), [navigation]);
   const [screen, setScreen] = useState<Screen>(() => screenFromHash(nav.hash));
   const [flow, setFlowState] = useState<Flow>(() => flowFromHash(nav.hash));
@@ -126,6 +130,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
       game,
       humanSide: () => humanSideOf(setupRef.current),
       isReady: () => session.getState().phase === 'ready',
+      store: ledgerStore ?? browserLedgerStore(),
     });
     return { engine, game, session, sync, tracker };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one instance for the life of the page
@@ -261,6 +266,7 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
 
   /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
   const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current): void => {
+    if (moves) tracker.startAt(moves.length); // the moves of a link were not necessarily played by this person
     applySetup(humanVsEngine(humanSide, level));
     engine.setNodes(nodesOfLevel(level));
     setFlow({ kind: 'playing' });
@@ -312,9 +318,9 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
     canShare: playing && !demo,
     getUrl: () => nav.href,
     onNewGame: () => {
+      // ask who begins again, like at the start; Escape or "keep my game" returns to the game that runs
       tracker.abort();
-      applySetup(humanVsEngine(lastHuman.current, levelRef.current));
-      void game.newGame({ mode: 'human-vs-engine', humanSide: lastHuman.current });
+      setFlow({ kind: 'begin' });
     },
     onSwap: () => {
       tracker.abort();

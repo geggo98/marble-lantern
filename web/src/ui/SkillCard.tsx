@@ -35,7 +35,7 @@ export function roundNodes(nodes: number): number {
 export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALIBRATION }: SkillCardProps): React.JSX.Element {
   const { t, n } = useT();
   const state = useSyncExternalStore(tracker.subscribe, tracker.getState);
-  const estimate: SkillEstimate = useMemo(() => estimateSkill(state.losses, calibration), [state.losses, calibration]);
+  const estimate: SkillEstimate = useMemo(() => estimateSkill(state.ledger, calibration), [state.ledger, calibration]);
 
   const words = (d: LevelDescription): string => {
     switch (d.kind) {
@@ -47,7 +47,9 @@ export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALI
   };
 
   let body: React.JSX.Element;
-  if (state.status === 'unsupported') {
+  if (state.paused) {
+    body = <p className="ml-skill__note" role="status" data-testid="skill-paused">{t('skill_paused', { n: estimate.n })}</p>;
+  } else if (state.status === 'unsupported') {
     body = <p className="ml-skill__note">{t('skill_unsupported')}</p>;
   } else if (!estimate.enough) {
     body = (
@@ -78,7 +80,7 @@ export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALI
       <p className="ml-kicker">{t('skill_heading')}</p>
       {body}
       {state.status === 'error' && <p className="ml-skill__note" role="status">{t('skill_error')}</p>}
-      {state.status !== 'unsupported' && state.total > state.done && (
+      {!state.paused && state.status !== 'unsupported' && state.total > state.done && (
         <p className="ml-skill__note" role="status" data-testid="skill-progress">{t('skill_progress', { done: state.done, total: state.total })}</p>
       )}
       <div className="ml-skill__actions">
@@ -90,6 +92,13 @@ export function SkillCard({ tracker, level, onMatch, onReset, calibration = CALI
         >
           <Icon name="tune" />
           <span>{t('skill_match')}</span>
+        </button>
+        <button type="button" className="ml-btn" aria-pressed={state.paused} data-testid="skill-pause" onClick={() => tracker.setPaused(!state.paused)}>
+          <Icon name={state.paused ? 'play' : 'pause'} />
+          <span>{t(state.paused ? 'skill_resume' : 'skill_pause')}</span>
+        </button>
+        <button type="button" className="ml-btn ml-btn--quiet" data-testid="skill-clear" disabled={state.ledger.length === 0} onClick={() => tracker.clear()}>
+          <span>{t('skill_clear')}</span>
         </button>
         {isCustomLevel(level) && (
           <button type="button" className="ml-btn ml-btn--quiet" onClick={onReset}>

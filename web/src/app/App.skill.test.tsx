@@ -88,7 +88,7 @@ describe('skill estimate in the app', () => {
     await until(() => (q('.ml-skill')!.textContent ?? '').includes('3 of 8 moves analysed'), 'three moves analysed');
     for (let i = 0; i < 5; i++) await humanMove();
     await until(() => q('[data-testid="skill-estimate"]') !== null, 'the estimate');
-    expect(q('[data-testid="skill-moves"]')!.textContent).toBe('Based on 8 of your moves.');
+    expect(q('[data-testid="skill-moves"]')!.textContent).toContain('Based on 8 of your moves');
     expect(q('.ml-skill')!.textContent).toContain('not a rating');
     expect(button('Match engine to my strength').disabled).toBe(false);
   }, 30_000);

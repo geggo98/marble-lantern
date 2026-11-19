@@ -156,6 +156,17 @@ describe('the play screen', () => {
     const y = Number(own.getAttribute('cy'));
     expect(y).toBeGreaterThan(0);
     await click(all('button').find((b) => b.textContent === 'New game')!);
+    // the side is asked again: Escape keeps the game that runs
+    const yes = (): HTMLElement | null => document.querySelector('[data-choice="begin-yes"]');
+    await until(() => yes() !== null, 'the start question');
+    const before = plies();
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await until(() => yes() === null, 'the dialog closed');
+    expect(plies()).toBe(before);
+    await click(all('button').find((b) => b.textContent === 'New game')!);
+    await until(() => yes() !== null, 'the start question again');
+    await click(yes()!);
+    await until(() => plies() === 0 || plies() === 1, 'a new game');
     await until(() => status() === 'Your move', 'new game');
   });
 });

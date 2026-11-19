@@ -127,6 +127,8 @@ describe('play screen on a small screen', () => {
     await until(() => plies() >= 2 && !q('.ml-status[data-state="thinking"]'), 'the engine answered');
     const bar = q('.ml-play__bar')!;
     await click(all<HTMLButtonElement>('button', bar).find((b) => b.textContent === 'New game')!);
+    await until(() => q('[data-choice="begin-yes"]') !== null, 'the start question'); // the side is asked again
+    await click(q('[data-choice="begin-yes"]')!);
     await until(() => plies() === 0, 'a new game');
   });
 });
