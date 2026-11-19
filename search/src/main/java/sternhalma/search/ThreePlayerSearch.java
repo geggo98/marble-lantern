@@ -21,6 +21,12 @@ import sternhalma.engine.Position;
  * jump chains first). Nodes are counted as in {@link AlphaBeta}: one per call, leaves included; an unfinished
  * iteration is discarded, the first iteration is always finished. Deterministic for equal inputs (without a time
  * limit).
+ *
+ * <p>With {@code ranking=FULL_RANKING} a finished player makes no more moves (the turn order skips it) and the search
+ * goes on until one active player is left. The root player then scores: first place {@code MATE - h}, last place
+ * {@code -(MATE - h)}, second place {@link #SECOND} minus h. While one other player has finished, only one opponent
+ * is active: the search is a two-player zero-sum search of the root player against that opponent, and the
+ * evaluation compares the root player with that opponent alone, minus {@link #NOT_FIRST} because first place is gone.
  */
 final class ThreePlayerSearch {
 
@@ -31,6 +37,11 @@ final class ThreePlayerSearch {
     private static final int UPPER = 2; // score <= stored
     private static final int MATE = AlphaBeta.MATE;
     private static final int MATE_BOUND = MATE - 1000;
+    /** Score of second place (the game is over, the root player finished second), before the height is subtracted. */
+    static final int SECOND = MATE / 2;
+    private static final int SECOND_BOUND = SECOND - 1000;
+    /** Penalty of a position in which another player has already finished first, in {@link LinearWeights#SCALE} units. */
+    static final int NOT_FIRST = 4000;
 
     private final int tableMask;
     private final long[] keys;
@@ -60,6 +71,7 @@ final class ThreePlayerSearch {
     private Position pos;
     private int root;
     private int[][] dist;
+    private boolean playOn;
     private long nodes;
     private long nodeLimit;
     private long deadlineNanos;
@@ -87,6 +99,7 @@ final class ThreePlayerSearch {
         }
         pos = position;
         root = position.sideToMove();
+        playOn = position.rules().playsOnAfterWin();
         dist = LinearEvaluator.DIST[1];
         nodes = 0;
         nodeLimit = maxNodes;
@@ -152,6 +165,20 @@ final class ThreePlayerSearch {
 
     /** The value of the position after the player {@code mover} made a move (not yet unmade). */
     private int after(int mover, int depth, int alpha, int beta, int height) {
+        if (playOn) {
+            int finished = pos.finishedMask();
+            if (finished != 0) {
+                if (pos.isFinished(root)) {
+                    nodes++;
+                    return pos.finishers()[0] == root ? MATE - height : SECOND - height;
+                }
+                if (Integer.bitCount(finished) >= 2) {
+                    nodes++;
+                    return -(MATE - height); // the root player is the last one
+                }
+            }
+            return ab(depth, alpha, beta, height);
+        }
         if (pos.hasWon(mover)) {
             nodes++;
             return mover == root ? MATE - height : -(MATE - height);
@@ -254,11 +281,13 @@ final class ThreePlayerSearch {
     }
 
     private static int toTable(int score, int height) {
-        return score >= MATE_BOUND ? score + height : score <= -MATE_BOUND ? score - height : score;
+        return score >= MATE_BOUND || (score >= SECOND_BOUND && score <= SECOND) ? score + height
+                : score <= -MATE_BOUND ? score - height : score;
     }
 
     private static int fromTable(int score, int height) {
-        return score >= MATE_BOUND ? score - height : score <= -MATE_BOUND ? score + height : score;
+        return score >= MATE_BOUND || (score >= SECOND_BOUND && score <= SECOND) ? score - height
+                : score <= -MATE_BOUND ? score + height : score;
     }
 
     /** The distance the mover gains with the move; jump chains gain several steps at once. */
@@ -266,9 +295,22 @@ final class ThreePlayerSearch {
         return dist[player][Move.from(move)] - dist[player][Move.to(move)];
     }
 
-    /** The score of the current position for player {@code r}: the mean evaluation of r against both opponents. */
+    /** Sets the position that {@link #evaluate} looks at, without a search (tests). */
+    void setPositionForEvaluation(Position position) {
+        pos = position;
+        playOn = position.rules().playsOnAfterWin();
+        dist = LinearEvaluator.DIST[1];
+    }
+
+    /**
+     * The score of the current position for player {@code r}: the mean evaluation of r against the active opponents
+     * (both, unless a player has finished; then the one that is left, minus {@link #NOT_FIRST}).
+     */
     int evaluate(int r) {
         for (int p = 0; p < 3; p++) {
+            if (pos.isFinished(p)) {
+                continue;
+            }
             LinearEvaluator.side(pos, 1, p, sums[p]);
             int lateral = 0;
             for (int i = 0, n = pos.pieceCount(p); i < n; i++) {
@@ -277,14 +319,16 @@ final class ThreePlayerSearch {
             sums[p][LinearEvaluator.LAT] = lateral;
         }
         int total = 0;
+        int opponents = 0;
         for (int q = 0; q < 3; q++) {
-            if (q != r) {
+            if (q != r && !pos.isFinished(q)) {
+                opponents++;
                 LinearEvaluator.combine(sums[r], sums[q], features);
                 features[LinearEvaluator.TEMPO] = 0.0; // no side-to-move bonus: the score is the root player's
                 total += linear.score(features, 0.0);
             }
         }
-        return total / 2;
+        return opponents == 2 ? total / 2 : total - (playOn ? NOT_FIRST : 0);
     }
 
     private static void sortDescending(int[] moves, int[] orderKeys, int n) {
