@@ -55,6 +55,12 @@ public final class WebCore {
      */
     static final String ANALYSIS_SPEC = Strategies.BROWSER_SPEC.replace(",race=1,racerows=2", "") + ",tt=16";
 
+    /**
+     * The analysis spec of the long hop: {@link Strategies#BROWSER_LONG_SPEC} (it has no race parts) with the same small
+     * transposition table. Equals {@link #ANALYSIS_SPEC} apart from the evaluator ({@code linear-r3}) and {@code jump=long}.
+     */
+    static final String ANALYSIS_LONG_SPEC = Strategies.BROWSER_LONG_SPEC + ",tt=16";
+
     private static final int MATE_BOUND = AlphaBeta.MATE - 1000;
 
     private RaceTable rows2;
@@ -62,6 +68,26 @@ public final class WebCore {
     private int analysisNodes;
     private int rows1Requests;
     private AlphaBetaPlayer[] players;
+    private RuleSet.JumpRule gameRule = RuleSet.JumpRule.ADJACENT;
+    private RuleSet.JumpRule analysisRule;
+
+    /**
+     * The jump rule of a facade argument: null, empty or {@code adjacent} is {@link RuleSet.JumpRule#ADJACENT},
+     * {@code long} is {@link RuleSet.JumpRule#LONG}; anything else fails with {@code internal}.
+     */
+    public static RuleSet.JumpRule parseJump(String text) {
+        if (text == null || text.isEmpty() || text.equals("adjacent")) {
+            return RuleSet.JumpRule.ADJACENT;
+        }
+        if (text.equals("long")) {
+            return RuleSet.JumpRule.LONG;
+        }
+        throw new WebFailure("internal", "jump rule must be adjacent or long, got '" + text + "'");
+    }
+
+    private static RuleSet rules(RuleSet.JumpRule jump) {
+        return RuleSet.defaults(2).withJumpRule(jump);
+    }
 
     /**
      * Installs the table from the decompressed file (header and body). Checks magic, version, region and size;
@@ -89,6 +115,7 @@ public final class WebCore {
         rows2 = table;
         players = null;
         analysisPlayer = null;
+        analysisRule = null;
         return table.states();
     }
 
@@ -105,26 +132,52 @@ public final class WebCore {
 
     /** Starts a game: two new players with the given node budgets (side 0, side 1), empty transposition tables. */
     public void newGame(int nodes0, int nodes1) {
+        newGame(nodes0, nodes1, RuleSet.JumpRule.ADJACENT);
+    }
+
+    /**
+     * Starts a game under the given jump rule. ADJACENT: {@link Strategies#BROWSER_SPEC}, needs the table. LONG:
+     * {@link Strategies#BROWSER_LONG_SPEC}, needs no table (race play and the race evaluator are single-jump only), so
+     * it works with and without {@link #setTable}.
+     */
+    public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump) {
         if (nodes0 <= 0 || nodes1 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1);
         }
-        players = new AlphaBetaPlayer[] {player(nodes0), player(nodes1)};
+        players = new AlphaBetaPlayer[] {player(nodes0, jump), player(nodes1, jump)};
+        gameRule = jump;
     }
 
     /** The legal moves after {@code history}; empty if the game is over. */
     public int[] legalMoves(int[] history) {
-        Position position = replay(history);
+        return legalMoves(history, RuleSet.JumpRule.ADJACENT);
+    }
+
+    /** {@link #legalMoves(int[])} under the given jump rule; a move of the history that is illegal under it is {@code illegal-history}. */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule jump) {
+        Position position = replay(history, jump);
         return position.outcome() != null ? new int[0] : position.legalMoves();
     }
 
     /** Searches the position after {@code history} with the player of the side to move. */
     public Choice choose(int[] history) {
-        Position position = replay(history);
+        return choose(history, players == null ? RuleSet.JumpRule.ADJACENT : gameRule);
+    }
+
+    /**
+     * Searches under the given jump rule. The rule must be the one of the current game ({@link #newGame}); a game
+     * that was not started takes it from this call. A different rule fails with {@code internal}: the players of a game
+     * play one rule.
+     */
+    public Choice choose(int[] history, RuleSet.JumpRule jump) {
+        Position position = replay(history, jump);
         if (position.outcome() != null || position.generate(new int[Position.MAX_MOVES]) == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
         }
         if (players == null) {
-            newGame(DEFAULT_NODES, DEFAULT_NODES);
+            newGame(DEFAULT_NODES, DEFAULT_NODES, jump);
+        } else if (gameRule != jump) {
+            throw new WebFailure("internal", "the game plays the " + gameRule + " rule, not " + jump + "; call newGame first");
         }
         return choose(players[position.sideToMove()], position);
     }
@@ -150,10 +203,18 @@ public final class WebCore {
      * parent position.
      */
     public Analysis analyse(int[] history, int[] moves, int nodes) {
+        return analyse(history, moves, nodes, RuleSet.JumpRule.ADJACENT);
+    }
+
+    /**
+     * {@link #analyse(int[], int[], int)} under the given jump rule: LONG uses {@link #ANALYSIS_LONG_SPEC} and needs no
+     * table. Independent of the rule of the current game.
+     */
+    public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump) {
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
-        Position position = replay(history);
+        Position position = replay(history, jump);
         int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
         if (legal.length == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -164,9 +225,11 @@ public final class WebCore {
                 throw new WebFailure("illegal-move", "move " + move + " is not legal after " + history.length + " plies");
             }
         }
-        if (analysisPlayer == null || analysisNodes != nodes) {
-            analysisPlayer = player(ANALYSIS_SPEC + ",nodes=" + nodes);
+        if (analysisPlayer == null || analysisNodes != nodes || analysisRule != jump) {
+            String base = jump == RuleSet.JumpRule.LONG ? ANALYSIS_LONG_SPEC : ANALYSIS_SPEC;
+            analysisPlayer = player(base + ",nodes=" + nodes, jump);
             analysisNodes = nodes;
+            analysisRule = jump;
         }
         long t0 = System.nanoTime();
         int[] scores = new int[chosen.length];
@@ -195,11 +258,16 @@ public final class WebCore {
      * {@code nodes} per move. Does not touch the players of the current game.
      */
     public Bench bench(int plies, int nodes) {
+        return bench(plies, nodes, RuleSet.JumpRule.ADJACENT);
+    }
+
+    /** {@link #bench(int, int)} under the given jump rule. */
+    public Bench bench(int plies, int nodes, RuleSet.JumpRule jump) {
         if (plies <= 0 || nodes <= 0) {
             throw new WebFailure("internal", "plies and nodes must be positive: " + plies + ", " + nodes);
         }
-        AlphaBetaPlayer[] pair = {player(nodes), player(nodes)};
-        Position position = Position.initial(RuleSet.defaults(2));
+        AlphaBetaPlayer[] pair = {player(nodes, jump), player(nodes, jump)};
+        Position position = Position.initial(rules(jump));
         List<Choice> played = new ArrayList<>();
         for (int ply = 0; ply < plies; ply++) {
             if (position.outcome() != null) {
@@ -226,8 +294,8 @@ public final class WebCore {
         return rows1Requests;
     }
 
-    private Position replay(int[] history) {
-        Position position = Position.initial(RuleSet.defaults(2));
+    private Position replay(int[] history, RuleSet.JumpRule jump) {
+        Position position = Position.initial(rules(jump));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             if (!contains(position.legalMoves(), move)) {
@@ -247,18 +315,35 @@ public final class WebCore {
         return false;
     }
 
-    private AlphaBetaPlayer player(int nodes) {
-        return player(Strategies.BROWSER_SPEC + ",nodes=" + nodes);
+    private AlphaBetaPlayer player(int nodes, RuleSet.JumpRule jump) {
+        String base = jump == RuleSet.JumpRule.LONG ? Strategies.BROWSER_LONG_SPEC : Strategies.BROWSER_SPEC;
+        return player(base + ",nodes=" + nodes, jump);
     }
 
     /** A player of any spec over the installed table; a spec that needs rows>=1 fails with rows1-requested. */
     AlphaBetaPlayer player(String spec) {
+        return player(spec, RuleSet.JumpRule.ADJACENT);
+    }
+
+    /**
+     * A player of the given spec. For LONG no table is needed or touched: the source fails with {@code internal} if a
+     * long-hop spec asks for one (PlayerSpec already rejects such specs). For ADJACENT the table must be installed.
+     */
+    AlphaBetaPlayer player(String spec, RuleSet.JumpRule jump) {
+        if (jump == RuleSet.JumpRule.LONG) {
+            RaceTableSource none = RaceTableSource.ofTables(rows -> noTable(), rows -> noTable());
+            return PlayerSpec.parse(spec).create(none);
+        }
         if (rows2 == null) {
             throw new WebFailure("internal", "no table installed");
         }
         RaceTableSource.Table table = new RaceTableSource.Table(rows2, 2);
         RaceTableSource source = RaceTableSource.ofTables(rows -> forRows(table, rows), rows -> forRows(table, rows));
         return PlayerSpec.parse(spec).create(source);
+    }
+
+    private static RaceTableSource.Table noTable() {
+        throw new WebFailure("internal", "a race table was requested by a long-hop player");
     }
 
     private RaceTableSource.Table forRows(RaceTableSource.Table table, int rows) {

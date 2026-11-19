@@ -252,20 +252,180 @@ class WebFacadeTest {
     @Test
     void theExportedAnalyseAnswersInTheDocumentedFormat() {
         Web.setTable(file, false);
-        String[] reply = Web.analyse("", "", 200).split(" ");
+        String[] reply = Web.analyse("", "", 200, null).split(" ");
         assertEquals(6, reply.length, Arrays.toString(reply));
         assertEquals("ok", reply[0]);
         assertEquals("0", reply[3]);
         int moves = reply[4].split(",").length;
         assertEquals(moves, reply[5].split(",").length);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, moves);
-        String one = Web.analyse("", reply[4].split(",")[2], 200);
+        String one = Web.analyse("", reply[4].split(",")[2], 200, null);
         assertEquals("ok", one.split(" ")[0]);
         assertEquals(reply[5].split(",")[2], one.split(" ")[5]);
-        assertTrue(Web.analyse("", "0", 200).startsWith("error illegal-move "));
-        assertTrue(Web.analyse("1,x", "", 200).startsWith("error illegal-history "));
+        assertTrue(Web.analyse("", "0", 200, null).startsWith("error illegal-move "));
+        assertTrue(Web.analyse("1,x", "", 200, null).startsWith("error illegal-history "));
     }
 
+    // ---- long hop ----
+
+    private static final RuleSet.JumpRule LONG = RuleSet.JumpRule.LONG;
+
+    /** A core without a table: the long hop needs none. */
+    private static WebCore readyWithoutTable() {
+        return new WebCore();
+    }
+
+    /** Self-play of a long-hop game over {@code plies} plies. */
+    private static int[] longGame(WebCore core, int plies, int nodes) {
+        core.newGame(nodes, nodes, LONG);
+        int[] history = new int[plies];
+        for (int ply = 0; ply < plies; ply++) {
+            WebCore.Choice c = core.choose(Arrays.copyOf(history, ply), LONG);
+            history[ply] = c.move();
+            assertFalse(c.raceMove());
+            assertEquals(0, c.rows1Requests());
+        }
+        return history;
+    }
+
+    @Test
+    void aLongHopGameOf40PliesPlaysLegalMovesAndReplays() {
+        WebCore core = readyWithoutTable();
+        int[] history = longGame(core, 40, 1500);
+        Position position = Position.initial(RuleSet.defaults(2).withJumpRule(LONG));
+        for (int ply = 0; ply < 40; ply++) {
+            int move = history[ply];
+            assertTrue(Arrays.stream(position.legalMoves()).anyMatch(m -> m == move), "ply " + ply);
+            assertArrayEquals(position.legalMoves(), core.legalMoves(Arrays.copyOf(history, ply), LONG));
+            position.make(move);
+        }
+        // oracle: the same game by independent players of the long spec
+        AlphaBetaPlayer[] pair = {PlayerSpec.parse(Strategies.BROWSER_LONG_SPEC + ",nodes=1500").create(),
+            PlayerSpec.parse(Strategies.BROWSER_LONG_SPEC + ",nodes=1500").create()};
+        Position oracle = Position.initial(RuleSet.defaults(2).withJumpRule(LONG));
+        for (int ply = 0; ply < 40; ply++) {
+            int move = pair[ply % 2].choose(oracle);
+            assertEquals(move, history[ply], "ply " + ply);
+            oracle.make(move);
+        }
+    }
+
+    @Test
+    void aLongHopGameWorksAlsoWithTheTableInstalled() {
+        WebCore withTable = ready();
+        assertArrayEquals(longGame(readyWithoutTable(), 12, 800), longGame(withTable, 12, 800));
+        assertEquals(0, withTable.rows1Requests());
+    }
+
+    @Test
+    void aLongHopMoveInAnAdjacentGameIsAnIllegalHistory() {
+        WebCore core = ready();
+        int[] history = longGame(core, 40, 800);
+        Position adjacent = Position.initial(RuleSet.defaults(2));
+        int bad = -1;
+        for (int ply = 0; ply < history.length && bad < 0; ply++) {
+            int move = history[ply];
+            if (Arrays.stream(adjacent.legalMoves()).anyMatch(m -> m == move)) {
+                adjacent.make(move);
+            } else {
+                bad = ply;
+            }
+        }
+        assertTrue(bad >= 0, "the long-hop game never used a long hop in 40 plies");
+        int[] prefix = Arrays.copyOf(history, bad + 1);
+        WebFailure f = assertThrows(WebFailure.class, () -> core.legalMoves(prefix));
+        assertEquals("illegal-history", f.code());
+        assertTrue(f.getMessage().contains("ply " + bad), f.getMessage());
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(prefix, null, 100)).code());
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.choose(prefix, RuleSet.JumpRule.ADJACENT)).code());
+        String joined = Arrays.stream(prefix).mapToObj(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+        assertTrue(Web.legalMoves(joined, "adjacent").startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, "long").startsWith("ok "));
+    }
+
+    @Test
+    void longHopAnalysisScoresAreConsistentAndDeterministic() {
+        WebCore core = readyWithoutTable();
+        int[] history = longGame(core, 14, 600);
+        WebCore.Analysis a = core.analyse(history, null, 800, LONG);
+        assertArrayEquals(core.legalMoves(history, LONG), a.moves());
+        Position position = Position.initial(RuleSet.defaults(2).withJumpRule(LONG));
+        for (int move : history) {
+            position.make(move);
+        }
+        // oracle: an independent player with the long analysis spec on the child position, negated
+        for (int i = 0; i < a.moves().length; i += 4) {
+            AlphaBetaPlayer oracle = PlayerSpec.parse(WebCore.ANALYSIS_LONG_SPEC + ",nodes=800").create();
+            Position child = position.copy();
+            child.make(a.moves()[i]);
+            oracle.choose(child);
+            int expected = -oracle.lastResult().score();
+            assertEquals(expected, a.scores()[i], "move " + a.moves()[i]);
+        }
+        // determinism: after another budget, and in a fresh core
+        core.analyse(history, null, 300, LONG);
+        assertArrayEquals(a.scores(), core.analyse(history, null, 800, LONG).scores());
+        assertArrayEquals(a.scores(), readyWithoutTable().analyse(history, null, 800, LONG).scores());
+        // a subset keeps order and scores
+        int[] picks = {a.moves()[2], a.moves()[0]};
+        assertArrayEquals(new int[] {a.scores()[2], a.scores()[0]}, core.analyse(history, picks, 800, LONG).scores());
+        // an adjacent analysis in between (with a table) does not change it
+        WebCore both = ready();
+        both.analyse(new int[0], null, 200);
+        assertArrayEquals(a.scores(), both.analyse(history, null, 800, LONG).scores());
+        both.analyse(new int[0], null, 200);
+        assertArrayEquals(a.scores(), both.analyse(history, null, 800, LONG).scores());
+    }
+
+    @Test
+    void theAnalysisSpecOfTheLongHopHasNoRacePartsAndTheAdjacentOneIsUnchanged() {
+        assertTrue(WebCore.ANALYSIS_LONG_SPEC.contains("jump=long"));
+        assertFalse(WebCore.ANALYSIS_LONG_SPEC.contains("race"));
+        assertEquals(Strategies.BROWSER_SPEC.replace(",race=1,racerows=2", "") + ",tt=16", WebCore.ANALYSIS_SPEC);
+    }
+
+    @Test
+    void anAdjacentGameStillNeedsTheTableAndOneGamePlaysOneRule() {
+        assertEquals("internal", assertThrows(WebFailure.class, () -> new WebCore().newGame(100, 100)).code());
+        assertEquals("internal", assertThrows(WebFailure.class, () -> new WebCore().analyse(new int[0], null, 100)).code());
+        WebCore core = ready();
+        core.newGame(300, 300, LONG);
+        assertEquals("internal", assertThrows(WebFailure.class, () -> core.choose(new int[0], RuleSet.JumpRule.ADJACENT)).code());
+        core.newGame(300, 300);
+        core.choose(new int[0]);
+    }
+
+    @Test
+    void theExportedSurfaceTakesTheJumpRule() {
+        Web.setTable(file, false);
+        assertEquals("ok", Web.newGame(500, 500, "long"));
+        String[] choose = Web.choose("", "long").split(" ");
+        assertEquals(8, choose.length, Arrays.toString(choose));
+        assertEquals("ok", choose[0]);
+        assertEquals("0", choose[7]);
+        assertTrue(Web.choose("", "adjacent").startsWith("error internal "));
+        int longCount = Web.legalMoves("", "long").substring(3).split(",").length;
+        assertEquals(Position.initial(RuleSet.defaults(2).withJumpRule(LONG)).legalMoves().length, longCount);
+        assertEquals(longCount, Web.analyse("", "", 200, "long").split(" ")[4].split(",").length);
+        assertEquals(4, Web.bench(4, 300, "long").split(" ")[1].split(",").length);
+        assertTrue(Web.newGame(100, 100, "diagonal").startsWith("error internal "));
+        assertEquals("ok", Web.newGame(100, 100, ""));
+        assertEquals(Web.legalMoves("", null), Web.legalMoves("", "adjacent"));
+    }
+
+    @Test
+    void theAdjacentFingerprintIsUnchangedByLongGamesOnTheSameCore() {
+        WebCore core = ready();
+        longGame(core, 6, 300);
+        WebCore.Bench bench = core.bench(40, 20_000);
+        long checksum = 0;
+        for (int move : bench.moves()) {
+            checksum = checksum * 31 + move;
+        }
+        assertEquals(-1986550544382302149L, checksum);
+        assertEquals(800_000L, Arrays.stream(bench.nodes()).sum());
+    }
     // ---- corrupt tables ----
 
     @Test
@@ -310,15 +470,15 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceAnswersInTheDocumentedFormat() {
         assertEquals("ok " + RaceTable.rows2().states(), Web.setTable(file, true));
-        assertEquals("ok", Web.newGame(1000, 1000));
-        String legal = Web.legalMoves("");
+        assertEquals("ok", Web.newGame(1000, 1000, null));
+        String legal = Web.legalMoves("", null);
         assertTrue(legal.startsWith("ok "), legal);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, legal.substring(3).split(",").length);
-        String[] choose = Web.choose("").split(" ");
+        String[] choose = Web.choose("", null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[7]);
-        String[] bench = Web.bench(4, 500).split(" ");
+        String[] bench = Web.bench(4, 500, null).split(" ");
         assertEquals(5, bench.length);
         assertEquals(4, bench[1].split(",").length);
     }
@@ -326,9 +486,9 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceNeverThrows() {
         Web.setTable(file, false);
-        assertTrue(Web.legalMoves("1,x").startsWith("error illegal-history "), Web.legalMoves("1,x"));
-        assertTrue(Web.choose("999999").startsWith("error illegal-history "));
-        assertTrue(Web.newGame(0, 5).startsWith("error internal "));
+        assertTrue(Web.legalMoves("1,x", null).startsWith("error illegal-history "), Web.legalMoves("1,x", null));
+        assertTrue(Web.choose("999999", null).startsWith("error illegal-history "));
+        assertTrue(Web.newGame(0, 5, null).startsWith("error internal "));
         assertTrue(Web.setTable(new byte[3], false).startsWith("error table-truncated "));
         assertTrue(Web.setTable(null, false).startsWith("error internal "), Web.setTable(null, false));
     }

@@ -32,11 +32,14 @@ public final class Web {
         }
     }
 
-    /** {@code ok}. */
+    /**
+     * {@code ok}. {@code jump} is {@code "adjacent"} or {@code "long"}; null or empty means adjacent. A long-hop game
+     * needs no table. Every entry point below with a {@code jump} argument takes it the same way.
+     */
     @JSExport
-    public static String newGame(int nodes0, int nodes1) {
+    public static String newGame(int nodes0, int nodes1, String jump) {
         try {
-            CORE.newGame(nodes0, nodes1);
+            CORE.newGame(nodes0, nodes1, WebCore.parseJump(jump));
             return "ok";
         } catch (RuntimeException e) {
             return error(e);
@@ -45,9 +48,9 @@ public final class Web {
 
     /** {@code ok <moves>}, the moves comma separated (empty when the game is over). */
     @JSExport
-    public static String legalMoves(String history) {
+    public static String legalMoves(String history, String jump) {
         try {
-            return "ok " + join(CORE.legalMoves(parse(history)));
+            return "ok " + join(CORE.legalMoves(parse(history), WebCore.parseJump(jump)));
         } catch (RuntimeException e) {
             return error(e);
         }
@@ -55,9 +58,9 @@ public final class Web {
 
     /** {@code ok <move> <score> <depth> <nodes> <ms> <raceMove 0|1> <rows1Requests>}. */
     @JSExport
-    public static String choose(String history) {
+    public static String choose(String history, String jump) {
         try {
-            WebCore.Choice c = CORE.choose(parse(history));
+            WebCore.Choice c = CORE.choose(parse(history), WebCore.parseJump(jump));
             return "ok " + c.move() + " " + c.score() + " " + c.depth() + " " + c.nodes() + " " + c.ms() + " "
                     + (c.raceMove() ? 1 : 0) + " " + c.rows1Requests();
         } catch (RuntimeException e) {
@@ -70,9 +73,10 @@ public final class Web {
      * {@code moves} is a comma separated list of the moves to score, or empty for all legal moves.
      */
     @JSExport
-    public static String analyse(String history, String moves, int nodes) {
+    public static String analyse(String history, String moves, int nodes, String jump) {
         try {
-            WebCore.Analysis a = CORE.analyse(parse(history), moves == null || moves.isEmpty() ? null : parse(moves), nodes);
+            WebCore.Analysis a = CORE.analyse(parse(history), moves == null || moves.isEmpty() ? null : parse(moves), nodes,
+                    WebCore.parseJump(jump));
             return "ok " + a.nodes() + " " + a.ms() + " " + a.rows1Requests() + " " + join(a.moves()) + " " + join(a.scores());
         } catch (RuntimeException e) {
             return error(e);
@@ -81,9 +85,9 @@ public final class Web {
 
     /** {@code ok <moves> <nodes per ply> <ms per ply> <rows1Requests>}, the three lists comma separated. */
     @JSExport
-    public static String bench(int plies, int nodes) {
+    public static String bench(int plies, int nodes, String jump) {
         try {
-            WebCore.Bench b = CORE.bench(plies, nodes);
+            WebCore.Bench b = CORE.bench(plies, nodes, WebCore.parseJump(jump));
             StringBuilder ms = new StringBuilder();
             for (int i = 0; i < b.ms().length; i++) {
                 ms.append(i == 0 ? "" : ",").append(b.ms()[i]);
