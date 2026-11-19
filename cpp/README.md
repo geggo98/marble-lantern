@@ -242,6 +242,21 @@ Measured on 2026-11-15 (M3 Max, Metal), all far below 1.0, so no extra term:
 Two runs of `goldenExport` gave files with equal SHA-256 (also the references of `VectorNetwork`, which repeated bit for bit in
 the process).
 
+### Plane set classic1v and format version 3 (C++)
+
+The C++ network code in `src/nn` knows `PlaneSet::Classic1V`: 15 input planes, residual priors on, value head width 3. Planes 0 to 12 match classic1, plane 13 is 1 under the jump rule LONG, and plane 14 is 1 in a three-player game. The file format is described in [docs/network.md](../docs/network.md), section "Format version 3 (variants)".
+
+- `config_from_metadata` accepts format version 3 only with `planes=classic1v`, `players=3` and `input_planes=15`. It rejects classic1v in version 2 and version 3 with any other plane set, the same rules as the Java reader (docs/network.md, "File format rules"). Versions 1 and 2 load as before.
+- C++ has no input encoder; it runs the forward pass on inputs that Java encodes. The reference net, the SIMD net and the CUDA and Metal backends read plane count and players from the config, so they needed no change.
+- Plane 12 (eval) is 0 under LONG and with three players, so the value prior `k*eval` switches itself off there. The policy prior `beta*16*dist_own` stays active in all four variants.
+- `sh::nn::absolute_values` (`src/nn/priors.hpp`) maps network outputs to absolute players: in an n-player position with mover m, player a gets output `(a-m) mod n`. A classic1v net serves n=2 and n=3 from the first n of its 3 outputs. The Java counterpart is `Evaluator`.
+
+`./gradlew --no-build-cache :nn:goldenExport` also writes `nn-weights-tiny-v3`, `nn-weights-small-v3`, `nn-inputs-v3`, `nn-ref-tiny-v3` and `nn-ref-small-v3`. The inputs hold 64 positions, 16 each for two and three players with adjacent and LONG jumps, so every mover occurs; the tensors are `inputs`, `players`, `mover` and `long`. The refs hold `logits`, `values`, `vlogits`, `vvalues` and `absolute` (values from the Java `Evaluator`). The export appends rows to `expected-golden-sha256.tsv` (weights and inputs "must", refs "info") and leaves existing rows unchanged.
+
+`tests/nn_test.cpp` checks that the reference net matches Java with bit-identical logits and values within 1 ulp, and that the SIMD net stays within `|fast-ref| <= 1e-4 + 1e-3*|ref|`. It also checks the structure of planes 12 to 14, `absolute_values` against the Java `Evaluator`, and the prior switch-off. Not covered: the CUDA backend on a real device (only the emulated tests run) and any Metal-specific v3 test beyond the generic code path.
+
+Run `:nn:goldenExport` after `:search:goldenExport`, because the latter rewrites `golden/MANIFEST.tsv` without the `nn-` lines.
+
 ### The Java benchmark and its schedule
 
 `./gradlew --no-build-cache :nn-tornado:printRunCommand` writes the full `java` command of `CrossBench` and of `GpuFeedBenchmark`
