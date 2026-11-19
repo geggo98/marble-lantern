@@ -36,9 +36,14 @@ constexpr const char* kBrowserSpecPrefix =
 // and budget are separate, so analysis never changes what shw_choose returns.
 constexpr const char* kAnalysisSpecPrefix =
     "ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,tt=16,nodes=";
+// The long-hop (jump=long) players: kBrowserLongSpec (BROWSER_LONG_SPEC of Java: no race play, eval linear-r3) plus the node budget, and
+// the analysis spec of the same search with tt=16. The race table and the racelin-r3 evaluator count single jumps only.
+constexpr const char* kAnalysisLongSpecPrefix =
+    "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,tt=16,jump=long,nodes=";
 std::string g_error;
 std::unique_ptr<sh::AlphaBetaPlayer> g_analysis;
 int g_analysis_nodes = 0;
+bool g_analysis_long = false;
 std::int64_t g_analysis_visited = 0;
 std::optional<sh::Position> g_pos;
 std::vector<std::unique_ptr<sh::AlphaBetaPlayer>> g_players;
@@ -63,9 +68,14 @@ SHW_API int shw_load_rows2(const std::uint8_t* bytes, std::size_t len, int verif
     return 0;
 }
 
-// A BROWSER_SPEC player with a node budget per move; returns its id (>= 0) or -1.
-SHW_API int shw_player_new(int nodes) {
-    const auto spec = sh::PlayerSpec::parse(kBrowserSpecPrefix + std::to_string(nodes));
+// A BROWSER_SPEC player with a node budget per move; returns its id (>= 0) or -1. jump = 0: the adjacent jump rule (BROWSER_SPEC, race
+// play with the rows >= 2 table); jump = 1: the Halma long hop (BROWSER_LONG_SPEC, no race play, no table needed); any other jump: -1.
+// A player plays games of its own rule only (shw_choose returns -2 for a game of the other rule). A call without the second argument
+// from JavaScript passes jump = 0.
+SHW_API int shw_player_new(int nodes, int jump) {
+    if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
+    const auto spec = sh::PlayerSpec::parse(jump == 1 ? std::string(sh::kBrowserLongSpec) + ",nodes=" + std::to_string(nodes)
+                                                      : kBrowserSpecPrefix + std::to_string(nodes));
     if (!spec) { g_error = spec.error(); return -1; }
     auto player = spec->create();
     if (!player) { g_error = player.error(); return -1; }
@@ -74,7 +84,16 @@ SHW_API int shw_player_new(int nodes) {
 }
 SHW_API void shw_player_clear(int id) { g_players.at(static_cast<std::size_t>(id))->clear_search(); }
 
-SHW_API void shw_game_new() { g_pos.emplace(sh::Position::initial(sh::RuleSet::defaults())); }
+// Starts a new game from the start position. jump = 0: the adjacent jump rule, 1: the Halma long hop. Returns 0, or -1 for another value
+// of jump (the game is then unchanged). A call without an argument from JavaScript passes jump = 0.
+SHW_API int shw_game_new(int jump) {
+    if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
+    const auto rules = sh::RuleSet::defaults().with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent);
+    g_pos.emplace(sh::Position::initial(*rules));
+    return 0;
+}
+// The jump rule of the current game: 0 adjacent, 1 long.
+SHW_API int shw_jump_rule() { return g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long ? 1 : 0; }
 SHW_API int shw_side_to_move() { return g_pos->side_to_move(); }
 SHW_API int shw_ply() { return g_pos->ply(); }
 SHW_API int shw_owner(int cell) { return g_pos->owner(cell); }
@@ -101,8 +120,13 @@ SHW_API int shw_outcome() {
     if (!o) return g_pos->generate(g_moves) > 0 ? -1 : 0;
     return o->has_winner() ? 1 + o->winner : 0;
 }
-// The engine's move for the side to move (-1 if none); the search is synchronous and blocks for the node budget.
-SHW_API int shw_choose(int player_id) { return g_players.at(static_cast<std::size_t>(player_id))->choose(*g_pos); }
+// The engine's move for the side to move (-1 if none, -2 if the player plays the other jump rule than the game); the search is
+// synchronous and blocks for the node budget.
+SHW_API int shw_choose(int player_id) {
+    auto& player = *g_players.at(static_cast<std::size_t>(player_id));
+    if (!player.plays(*g_pos)) { g_error = "player " + player.name() + " cannot play a game of the other jump rule"; return -2; }
+    return player.choose(*g_pos);
+}
 SHW_API int shw_last_score(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? r->score : 0; }
 SHW_API int shw_last_depth(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? r->depth : 0; }
 SHW_API double shw_last_nodes(int id) { const auto& r = g_players.at(static_cast<std::size_t>(id))->last_result(); return r ? static_cast<double>(r->nodes) : 0; }
@@ -114,7 +138,8 @@ SHW_API double shw_race_moves(int id) { return static_cast<double>(g_players.at(
 // search scale, from the point of view of the side that makes the move, higher is better). Each move is made, the child position is
 // searched with `nodes` nodes by the analysis player (cleared before each move), and the score is negated. A win or loss found by the
 // search is one ply farther from the root than from the child, so mate scores move one step towards 0 (a move that wins at once scores
-// kMate - 1, as in a search of the parent). Returns the number of moves scored, or -1 a move in the list is not legal, -2 the game is
+// kMate - 1, as in a search of the parent). The analysis player follows the jump rule of the game: the analysis spec of the browser, or
+// for a long-hop game the same search with eval=linear-r3 and jump=long (no race arithmetic). Returns the number of moves scored, or -1 a move in the list is not legal, -2 the game is
 // over, -3 cap too small, -4 the player could not be created (shw_error), -5 nodes < 1.
 SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
     if (nodes < 1) return -5;
@@ -137,13 +162,15 @@ SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::
         }
     }
     if (n > cap) return -3;
-    if (!g_analysis || g_analysis_nodes != nodes) {
-        const auto spec = sh::PlayerSpec::parse(kAnalysisSpecPrefix + std::to_string(nodes));
+    const bool long_hop = pos.rules().jump_rule() == sh::RuleSet::JumpRule::Long;
+    if (!g_analysis || g_analysis_nodes != nodes || g_analysis_long != long_hop) {
+        const auto spec = sh::PlayerSpec::parse((long_hop ? kAnalysisLongSpecPrefix : kAnalysisSpecPrefix) + std::to_string(nodes));
         if (!spec) { g_error = spec.error(); return -4; }
         auto player = spec->create();
         if (!player) { g_error = player.error(); return -4; }
         g_analysis = std::move(*player);
         g_analysis_nodes = nodes;
+        g_analysis_long = long_hop;
     }
     const std::span<std::int32_t> out_moves(moves_out, static_cast<std::size_t>(cap));
     const std::span<std::int32_t> out_scores(scores_out, static_cast<std::size_t>(cap));

@@ -20,6 +20,8 @@ public:
     enum class Repetition : std::uint8_t { MoveLimit, RepetitionIsDraw };
     enum class DrawHandling : std::uint8_t { Draw, ScoreByDistance };
     enum class Ranking : std::uint8_t { FirstWinnerOnly, FullRanking };
+    // How a piece jumps: Adjacent = over one adjacent piece to the cell right behind it (default); Long = the Halma long hop (docs/rules.md, "Jump rule").
+    enum class JumpRule : std::uint8_t { Adjacent, Long };
 
     // The fields of a rule set before validation; the defaults are the project defaults of docs/rules.md (200 plies for two players).
     struct Spec {
@@ -32,6 +34,7 @@ public:
         Repetition repetition = Repetition::MoveLimit;
         DrawHandling draw_handling = DrawHandling::ScoreByDistance;
         Ranking ranking = Ranking::FirstWinnerOnly;
+        JumpRule jump_rule = JumpRule::Adjacent;
         friend bool operator==(const Spec&, const Spec&) = default;
     };
 
@@ -48,6 +51,7 @@ public:
     Repetition repetition() const { return spec_.repetition; }
     DrawHandling draw_handling() const { return spec_.draw_handling; }
     Ranking ranking() const { return spec_.ranking; }
+    JumpRule jump_rule() const { return spec_.jump_rule; }
     const Spec& spec() const { return spec_; }
 
     // Copies with one switch changed; the result is validated again (move limit must stay positive).
@@ -56,6 +60,7 @@ public:
     std::expected<RuleSet, std::string> with_blockade_rule(BlockadeRule value) const;
     std::expected<RuleSet, std::string> with_suicide_moves(SuicideMoves value) const;
     std::expected<RuleSet, std::string> with_draw_handling(DrawHandling value) const;
+    std::expected<RuleSet, std::string> with_jump_rule(JumpRule value) const;
 
     friend bool operator==(const RuleSet&, const RuleSet&) = default;
 

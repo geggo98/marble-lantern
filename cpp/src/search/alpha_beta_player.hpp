@@ -17,9 +17,11 @@ namespace sh {
 class AlphaBetaPlayer {
 public:
     AlphaBetaPlayer(std::unique_ptr<Evaluator> evaluator, int max_depth, std::int64_t time_limit_millis, std::int64_t max_nodes,
-                    int table_bits, const std::string& evaluator_name, const SearchOptions& options, std::unique_ptr<RaceMove> race = nullptr);
+                    int table_bits, const std::string& evaluator_name, const SearchOptions& options, std::unique_ptr<RaceMove> race = nullptr,
+                    RuleSet::JumpRule jump_rule = RuleSet::JumpRule::Adjacent);
 
-    // Chooses a move for the side to move of `position` (-1 if there is none).
+    // Chooses a move for the side to move of `position` (-1 if there is none). Throws std::invalid_argument if the position has another
+    // jump rule than the player (the Java player throws IllegalArgumentException); callers that cannot throw check plays() first.
     int choose(const Position& position);
 
     // The search result of the last choose() call; empty before the first call or after clear_search().
@@ -35,6 +37,9 @@ public:
     void clear_search();
 
     const std::string& name() const { return name_; }
+    // The jump rule of the games this player plays; race play is never combined with Long (the constructor refuses it).
+    RuleSet::JumpRule jump_rule() const { return jump_rule_; }
+    bool plays(const Position& position) const { return position.rules().jump_rule() == jump_rule_; }
     std::int64_t total_nodes() const { return total_nodes_; }
     std::chrono::nanoseconds total_time() const { return total_time_; }
     std::int64_t moves() const { return moves_; }
@@ -46,6 +51,7 @@ private:
     AlphaBeta search_;
     std::unique_ptr<RaceMove> race_;
     std::string name_;
+    RuleSet::JumpRule jump_rule_;
     int max_depth_;
     std::int64_t time_limit_millis_;
     std::int64_t max_nodes_;

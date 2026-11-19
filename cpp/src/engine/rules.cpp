@@ -56,4 +56,10 @@ std::expected<RuleSet, std::string> RuleSet::with_draw_handling(DrawHandling val
     return create(s);
 }
 
+std::expected<RuleSet, std::string> RuleSet::with_jump_rule(JumpRule value) const {
+    Spec s = spec_;
+    s.jump_rule = value;
+    return create(s);
+}
+
 }  // namespace sh

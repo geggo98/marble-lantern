@@ -37,7 +37,8 @@ std::uint64_t bit_of(int cell) { return std::uint64_t{1} << (cell & 63); }  // J
 std::uint64_t Position::side_key(int player) { return kKeys.side[sz(player)]; }
 std::uint64_t Position::piece_key(int player, int cell) { return kKeys.piece[sz(player)][sz(cell)]; }
 
-Position::Position(const RuleSet& rules) : rules_(rules), hash_(kKeys.side[0]), moves_(65), hashes_(65) {
+Position::Position(const RuleSet& rules)
+    : rules_(rules), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), hash_(kKeys.side[0]), moves_(65), hashes_(65) {
     owner_.fill(-1);
 }
 
@@ -222,7 +223,9 @@ int Position::generate(std::span<int, kMaxMoves> out) {
                 out[sz(count++)] = Move::of(from, n);
             }
         }
-        count = add_jumps(p, from, out, count, jumps, stay_in_goal ? goal : kNoCorner, suicide_check);
+        const int required_corner = stay_in_goal ? goal : kNoCorner;
+        count = long_jump_ ? add_long_jumps(p, from, out, count, required_corner, suicide_check)
+                           : add_jumps(p, from, out, count, jumps, required_corner, suicide_check);
         owner_[sz(from)] = static_cast<std::int8_t>(p);
     }
     return count;
@@ -273,6 +276,62 @@ int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int coun
         }
     }
     return count;
+}
+
+// The long-hop variant of add_jumps (JumpRule::Long): the same depth-first search, visited set and order, another landing rule (see
+// long_landing). There is at most one landing per direction; for k = 1 it is the single jump of add_jumps.
+int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, int required_corner, bool suicide_check) {
+    int count = count_in;
+    std::uint64_t low = 0;
+    std::uint64_t high = 0;
+    if (from < 64) {
+        low = bit_of(from);
+    } else {
+        high = bit_of(from);
+    }
+    int top = 0;
+    stack_[sz(top++)] = from;
+    while (top > 0) {
+        const int c = stack_[sz(--top)];
+        for (int d = 0; d < kDirections; ++d) {
+            const int land = long_landing(p, c, d);
+            if (land < 0) continue;
+            const std::uint64_t bit = bit_of(land);
+            if (land < 64) {
+                if ((low & bit) != 0) continue;
+                low |= bit;
+            } else {
+                if ((high & bit) != 0) continue;
+                high |= bit;
+            }
+            stack_[sz(top++)] = land;
+            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) &&
+                (!suicide_check || !hands_opponent_the_win(p, from, land))) {
+                out[sz(count++)] = Move::of(from, land);
+            }
+        }
+    }
+    return count;
+}
+
+// The landing of the long hop from cell c in direction d, or -1. The piece walks over empty cells to the first piece P, k steps away
+// (k >= 1); the landing is the cell k steps behind P (the mirror of c across P). The k - 1 cells between c and P, the k - 1 cells
+// between P and the landing and the landing itself must be empty and on the board, and player p must be allowed on the landing.
+int Position::long_landing(int p, int c, int d) const {
+    const auto steps = geometry::step_table();
+    int over = c;
+    int k = 0;
+    do {
+        over = steps[sz(over * kDirections + d)];
+        ++k;
+        if (over < 0) return -1;
+    } while (owner_[sz(over)] < 0);
+    int land = over;
+    for (int i = 0; i < k; ++i) {
+        land = steps[sz(land * kDirections + d)];
+        if (land < 0 || owner_[sz(land)] >= 0) return -1;
+    }
+    return layout().allowed(p, land) ? land : -1;
 }
 
 // Whether the move would meet the winning condition of another player.
