@@ -39,6 +39,21 @@ public:
     // always completes); move is -1 if the side to move has no legal move.
     SearchResult search(const Position& position, int max_depth, std::int64_t time_limit_millis = kNoLimit, std::int64_t max_nodes = kNoLimit);
 
+    // Empties the table and the killers, so that the next search runs as with a new object (Java: ThreePlayerSearch.clear).
+    void clear();
+
+    // The score of `move` for the player who makes it (Java: ThreePlayerSearch.searchAfter): the move is made on a copy, the child is
+    // searched with iterative deepening for the mover as root player, and mate scores count from the position before the move (a move
+    // that wins at once scores kMate - 1). move is -1 in the result; depth 0 and 1 node for an immediate win. The move must be legal.
+    SearchResult search_after(const Position& position, int move, int max_depth, std::int64_t max_nodes = kNoLimit);
+
+    // Iterative deepening on `position` for the root player `root_player`, who need not be the side to move (Java: searchAs). No time
+    // limit. A win of the root player that is already on the board scores kMate.
+    SearchResult search_as(const Position& position, int root_player, int max_depth, std::int64_t max_nodes = kNoLimit);
+
+    // The static score for each absolute player 0, 1, 2 (Java: evaluateAll).
+    std::array<int, 3> evaluate_all(const Position& position);
+
     // The score of the position for player r (the mean evaluation of r against both opponents), as the leaves of the search use it.
     int evaluate(const Position& position, int r);
 

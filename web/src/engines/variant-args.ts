@@ -22,7 +22,7 @@ export function seatNodes(setup: GameSetup): number[] {
   return out;
 }
 
-/** Analysis is available for two players only. */
-export function requireAnalysable(variant: Variant): void {
-  if (variant.players === 3) throw new EngineFailure('unsupported', 'analysis is available for two players only');
+/** The static evaluation vector (Engine.evaluate3) exists for three players only. */
+export function requireThreePlayers(variant: Variant): void {
+  if (variant.players !== 3) throw new EngineFailure('unsupported', 'the static evaluation vector is available for three players only');
 }

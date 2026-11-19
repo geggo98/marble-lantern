@@ -124,6 +124,10 @@ export class WorkerEngine implements Engine {
     return (await this.abortable(request, signal)) as AnalysisResult;
   }
 
+  async evaluate3(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<number[]> {
+    return (await this.call({ type: 'evaluate3', history: [...history], variant })) as number[];
+  }
+
   /** A long request that the caller may abort: cancel means terminate the worker and start a new one. */
   private async abortable(request: RequestBody, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) throw abortError();

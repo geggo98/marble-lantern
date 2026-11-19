@@ -1,5 +1,5 @@
 // The three-player game on the flat C ABI: shw_game_new2(jump, players), shw_players, shw_player_new3(nodes, jump), shw_choose for the side to
-// move, the outcome codes (-1 running, 0 draw, 1 + winner), the refusals (-2 for a player that does not match the game, -3 from shw_analyse).
+// move, the outcome codes (-1 running, 0 draw, 1 + winner), the refusals (-2 for a player that does not match the game), shw_analyse for three players and shw_evaluate3.
 // Three engine seats (three players with different budgets) play a whole game of each jump rule; every move must be legal, the sides must
 // move in the order 0, 1, 2, the game must end within the move limit of 300 plies, and a second run must give the same moves. The
 // three-player player reads no race table, so this test loads none; it also checks that no table was requested.
@@ -97,8 +97,35 @@ m._shw_game_new2(1, 3);
 if (m._shw_choose(twoLong) !== -2 || !errorText().includes('3 players')) fail('a two-player player played a three-player game');
 if (m._shw_choose(three) !== -2 || !errorText().includes('other jump rule')) fail('the adjacent three-player player played a long-hop game');
 if (m._shw_choose(threeLong) < 0) fail('the long three-player player did not play its game');
-m._shw_game_new2(0, 3);
-if (m._shw_analyse(300, 0, 0, movesP, scoresP, CAP) !== -3 || !errorText().includes('two-player')) fail('shw_analyse in a three-player game is not -3');
+// ---- analysis and the static vector work for three players ----
+for (const jump of [0, 1]) {
+  m._shw_game_new2(jump, 3);
+  const all = legal();
+  const n = m._shw_analyse(300, 0, 0, movesP, scoresP, CAP);
+  if (n !== all.length) fail(`jump ${jump}: shw_analyse scored ${n} of ${all.length} moves`);
+  const moves = ints(movesP, n), scores = ints(scoresP, n);
+  if (moves.join() !== all.join()) fail(`jump ${jump}: the analysed moves are not the legal moves in order`);
+  if (new Set(scores).size < 2) fail(`jump ${jump}: all analysis scores are equal`);
+  if (!(m._shw_analysis_nodes() > 0)) fail(`jump ${jump}: no nodes counted`);
+  if (m._shw_analyse(300, 0, 0, movesP, scoresP, CAP) !== n || ints(scoresP, n).join() !== scores.join()) fail(`jump ${jump}: three-player analysis is not deterministic`);
+  m.HEAP32.set([moves[3], moves[1]], inP >> 2);
+  m._shw_analyse(100, 0, 0, movesP, scoresP, CAP); // another budget in between
+  if (m._shw_analyse(300, inP, 2, movesP, scoresP, CAP) !== 2) fail(`jump ${jump}: a subset of two moves was not scored`);
+  if (ints(scoresP, 2).join() !== [scores[3], scores[1]].join()) fail(`jump ${jump}: a subset in another order gives other scores`);
+  m.HEAP32.set([moves[0], 0], inP >> 2);
+  if (m._shw_analyse(300, inP, 2, movesP, scoresP, CAP) !== -1) fail(`jump ${jump}: an illegal move is not -1`);
+  if (m._shw_analyse(300, 0, 0, movesP, scoresP, 3) !== -3) fail(`jump ${jump}: a small capacity is not -3`);
+  if (m._shw_analyse(0, 0, 0, movesP, scoresP, CAP) !== -5) fail(`jump ${jump}: nodes 0 is not -5`);
+  if (m._shw_evaluate3(movesP) !== 0) fail(`jump ${jump}: shw_evaluate3 failed`);
+  const v = ints(movesP, 3);
+  if (v[0] !== v[1] || v[1] !== v[2]) fail(`jump ${jump}: the start vector is not symmetric: ${v}`);
+  for (let ply = 0; ply < 30; ply++) { const l = legal(); m._shw_play(l[(ply * 7) % l.length]); }
+  m._shw_evaluate3(movesP);
+  const w = ints(movesP, 3);
+  if (w[0] === w[1] && w[1] === w[2]) fail(`jump ${jump}: the vector after 30 plies is still symmetric`);
+}
+m._shw_game_new2(0, 2);
+if (m._shw_evaluate3(movesP) !== -1 || !errorText().includes('three-player')) fail('shw_evaluate3 in a two-player game is not -1');
 m._shw_game_new(0);
 if (m._shw_rows1_requests() !== 0) fail('rows1 was requested');
 console.error(`threeplayer: ok (${summary.join('; ')})`);

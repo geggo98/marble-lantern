@@ -69,6 +69,9 @@ public final class WebCore {
     private RaceTable rows2;
     private AlphaBetaPlayer analysisPlayer;
     private int analysisNodes;
+    private ThreePlayerPlayer analysisPlayer3;
+    private int analysisNodes3;
+    private RuleSet.JumpRule analysisRule3;
     private int rows1Requests;
     private AlphaBetaPlayer[] players;
     private ThreePlayerPlayer[] players3;
@@ -304,15 +307,18 @@ public final class WebCore {
         return analyse(history, moves, nodes, jump, 2);
     }
 
-    /** {@link #analyse(int[], int[], int, RuleSet.JumpRule)}; three players fail with {@code unsupported}. */
+    /**
+     * {@link #analyse(int[], int[], int, RuleSet.JumpRule)} for 2 or 3 players. For 3 players the moves are scored by a
+     * dedicated {@link ThreePlayerPlayer} (the browser spec with the given node budget, its table cleared before every
+     * move): the move is made, the child position is searched for the mover with {@code nodes} nodes, and the score is
+     * the paranoid score from the mover's point of view (it needs no negation: see {@link ThreePlayerPlayer#analyseMove}).
+     * Needs no table.
+     */
     public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount) {
-        if (playerCount != 2) {
-            throw new WebFailure("unsupported", "analysis is available for two players only");
-        }
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
-        Position position = replay(history, jump);
+        Position position = replay(history, jump, playerCount);
         int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
         if (legal.length == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -322,6 +328,9 @@ public final class WebCore {
             if (!contains(legal, move)) {
                 throw new WebFailure("illegal-move", "move " + move + " is not legal after " + history.length + " plies");
             }
+        }
+        if (playerCount == 3) {
+            return analyse3(position, chosen, nodes, jump);
         }
         if (analysisPlayer == null || analysisNodes != nodes || analysisRule != jump) {
             String base = jump == RuleSet.JumpRule.LONG ? ANALYSIS_LONG_SPEC : ANALYSIS_SPEC;
@@ -349,6 +358,39 @@ public final class WebCore {
         }
         double ms = (System.nanoTime() - t0) / 1e6;
         return new Analysis(chosen.clone(), scores, visited, ms, rows1Requests);
+    }
+
+    private Analysis analyse3(Position position, int[] chosen, int nodes, RuleSet.JumpRule jump) {
+        if (analysisPlayer3 == null || analysisNodes3 != nodes || analysisRule3 != jump) {
+            analysisPlayer3 = player3(nodes, jump);
+            analysisNodes3 = nodes;
+            analysisRule3 = jump;
+        }
+        long t0 = System.nanoTime();
+        int[] scores = new int[chosen.length];
+        long visited = 0;
+        for (int i = 0; i < chosen.length; i++) {
+            SearchResult result = analysisPlayer3.analyseMove(position, chosen[i]);
+            scores[i] = result.score();
+            visited += result.nodes();
+        }
+        double ms = (System.nanoTime() - t0) / 1e6;
+        return new Analysis(chosen.clone(), scores, visited, ms, rows1Requests);
+    }
+
+    /**
+     * The static evaluation of the position after {@code history} for a three-player game: three integers, one per
+     * absolute player (0, 1, 2), each the leaf score of the three-player search for that player (see
+     * {@link ThreePlayerPlayer#evaluation}). No search, no table; a finished game is evaluated like any position.
+     */
+    public int[] evaluate3(int[] history, RuleSet.JumpRule jump) {
+        Position position = replay(history, jump, 3);
+        if (analysisPlayer3 == null || analysisRule3 != jump) {
+            analysisPlayer3 = player3(analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES, jump);
+            analysisNodes3 = analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES;
+            analysisRule3 = jump;
+        }
+        return analysisPlayer3.evaluation(position);
     }
 
     /**

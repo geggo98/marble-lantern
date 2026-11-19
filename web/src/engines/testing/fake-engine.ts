@@ -82,6 +82,9 @@ export class FakeEngineCore {
         return this.choose(request.history, request.variant ?? this.gameVariant);
       case 'analyse':
         return this.analyse(request.history, request.moves, request.nodes, request.variant ?? DEFAULT_VARIANT);
+      case 'evaluate3':
+        if (request.variant.players !== 3) throw new EngineFailure('unsupported', 'evaluate3 is for three players');
+        return [0, 0, 0];
       case 'bench':
         throw new EngineFailure('internal', 'bench is not implemented by the fake engine');
     }
@@ -135,8 +138,7 @@ export class FakeEngineCore {
    */
   private analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant): AnalysisResult {
     this.analyseCalls++;
-    if (variant.players === 3) throw new EngineFailure('unsupported', 'analysis is available for two players only');
-    const side = history.length % 2;
+    const side = history.length % variant.players;
     const legal = this.legal(history, variant);
     if (legal.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
     const chosen = moves === null ? legal : [...moves];

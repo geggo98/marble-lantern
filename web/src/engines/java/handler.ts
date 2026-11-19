@@ -89,6 +89,8 @@ export class JavaRequestHandler {
         return this.ready().choose(request.history, request.variant);
       case 'analyse':
         return this.ready().analyse(request.history, request.moves, request.nodes, request.variant);
+      case 'evaluate3':
+        return this.ready().evaluate3(request.history, request.variant);
       case 'outcome':
         return this.ready().outcome(request.history, request.variant);
       case 'bench':

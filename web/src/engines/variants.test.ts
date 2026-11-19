@@ -54,12 +54,16 @@ describe('WorkerEngine with variants', () => {
     expect(again.move).toBeGreaterThan(0);
   });
 
-  it('analyse of a long-hop game passes the variant; for three players it rejects with unsupported', async () => {
+  it('analyse passes the variant (long hop, three players) and evaluate3 reaches the worker', async () => {
     const { engine } = await workerEngine();
     await engine.newGame({ nodes: [10, 10], variant: LONG });
     const long = await engine.analyse([], null, 10, undefined, LONG);
     expect(long.scores.length).toBeGreaterThan(0);
-    await expect(engine.analyse([], null, 10, undefined, THREE)).rejects.toMatchObject({ code: 'unsupported' });
+    await engine.newGame({ nodes: [10, 10, 10], variant: THREE });
+    const three = await engine.analyse([], null, 10, undefined, THREE);
+    expect(three.scores.length).toBeGreaterThan(0);
+    expect(await engine.evaluate3([], THREE)).toHaveLength(3);
+    await expect(engine.evaluate3([], LONG)).rejects.toMatchObject({ code: 'unsupported' });
   });
 });
 

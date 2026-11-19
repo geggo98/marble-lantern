@@ -63,6 +63,42 @@ public final class ThreePlayerPlayer implements Player {
         return result;
     }
 
+    /**
+     * The analysis score of one legal move of {@code position}: the move is made and the child position is searched
+     * for the mover (paranoid score, higher is better for the mover) within this player's node budget. The table is
+     * cleared first, so the score depends on the position and the move only, not on earlier calls. A win found by the
+     * search counts from {@code position}, see {@link ThreePlayerSearch#searchAfter}. The move must be legal.
+     */
+    public SearchResult analyseMove(Position position, int move) {
+        checkPlays(position);
+        search.clear();
+        long t0 = System.nanoTime();
+        SearchResult result = search.searchAfter(position, move, maxDepth, maxNodes);
+        totalNanos += System.nanoTime() - t0;
+        totalNodes += result.nodes();
+        return result;
+    }
+
+    /**
+     * The static score of the position for each absolute player, index 0, 1, 2: the leaf evaluation of the search for
+     * that player (mean over both opponents of the linear "own minus opponent" score), no search. Higher is better
+     * for that player. The side to move plays no part.
+     */
+    public int[] evaluation(Position position) {
+        checkPlays(position);
+        return search.evaluateAll(position);
+    }
+
+    private void checkPlays(Position position) {
+        if (position.rules().players() != 3) {
+            throw new IllegalArgumentException("player " + name + " plays three players");
+        }
+        if (position.rules().jumpRule() != jumpRule) {
+            throw new IllegalArgumentException("player " + name + " plays jump=" + jumpRule.name().toLowerCase(Locale.ROOT)
+                    + " but the position has jump=" + position.rules().jumpRule().name().toLowerCase(Locale.ROOT));
+        }
+    }
+
     /** The result of the last {@link #choose} or {@link #analyse}, or null. */
     public SearchResult lastResult() {
         return lastResult;

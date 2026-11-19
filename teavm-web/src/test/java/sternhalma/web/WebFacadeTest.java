@@ -17,6 +17,7 @@ import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.PlayerSpec;
+import sternhalma.search.SearchResult;
 import sternhalma.search.Strategies;
 import sternhalma.search.ThreePlayerPlayer;
 import sternhalma.search.ThreePlayerSpec;
@@ -549,11 +550,77 @@ class WebFacadeTest {
     }
 
     @Test
-    void analysisOfThreePlayersIsUnsupported() {
-        WebFailure failure = assertThrows(WebFailure.class, () -> ready().analyse(new int[0], null, 200, ADJ, 3));
-        assertEquals("unsupported", failure.code());
-        assertTrue(Web.analyse("", "", 200, null, "3").startsWith("error unsupported "));
-        assertTrue(Web.analyse("", "", 200, "long", "3").startsWith("error unsupported "));
+    void analysisOfThreePlayersScoresEveryMoveLikeTheSearchPlayerAndNeedsNoTable() {
+        for (RuleSet.JumpRule jump : RuleSet.JumpRule.values()) {
+            WebCore core = readyWithoutTable();
+            int[] history = threeGame(core, jump, 20, 200);
+            Position position = Position.initial(RuleSet.defaults(3).withJumpRule(jump));
+            for (int move : history) {
+                position.make(move);
+            }
+            WebCore.Analysis a = core.analyse(history, null, 700, jump, 3);
+            assertArrayEquals(position.legalMoves(), a.moves());
+            assertEquals(a.moves().length, a.scores().length);
+            ThreePlayerPlayer oracle = ThreePlayerSpec.parse((jump == LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC)
+                    .replace("nodes=20000", "nodes=700")).create();
+            long nodes = 0;
+            for (int i = 0; i < a.moves().length; i++) {
+                SearchResult r = oracle.analyseMove(position, a.moves()[i]);
+                assertEquals(r.score(), a.scores()[i], jump + " move " + a.moves()[i]);
+                nodes += r.nodes();
+            }
+            assertEquals(nodes, a.nodes());
+            assertEquals(0, core.rows1Requests());
+            // a subset in another order, another budget in between, and a running game do not change the scores
+            int[] picks = {a.moves()[2], a.moves()[0]};
+            core.analyse(history, picks, 100, jump, 3);
+            assertArrayEquals(new int[] {a.scores()[2], a.scores()[0]}, core.analyse(history, picks, 700, jump, 3).scores());
+            core.newGame3(50, 50, 50, jump);
+            assertArrayEquals(a.scores(), core.analyse(history, null, 700, jump, 3).scores());
+        }
+    }
+
+    @Test
+    void analysisOfThreePlayersRejectsABadMoveABadBudgetAndAFinishedGame() {
+        WebCore core = readyWithoutTable();
+        int[] legal = core.legalMoves(new int[0], ADJ, 3);
+        assertEquals("illegal-move", assertThrows(WebFailure.class, () -> core.analyse(new int[0], new int[] {legal[0], 0}, 100, ADJ, 3)).code());
+        assertEquals("internal", assertThrows(WebFailure.class, () -> core.analyse(new int[0], null, 0, ADJ, 3)).code());
+        int[] game = threeGame(core, ADJ, 2000, 100);
+        assertTrue(core.outcome(game, ADJ, 3) != null);
+        assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(game, null, 100, ADJ, 3)).code());
+        assertTrue(Web.analyse("", "0", 100, null, "3").startsWith("error illegal-move "));
+    }
+
+    @Test
+    void theThreePlayerFacadeReplyHasTheFieldsOfTheTwoPlayerReply() {
+        String[] reply = Web.analyse("", "", 200, "long", "3").split(" ");
+        assertEquals("ok", reply[0]);
+        int[] legal = readyWithoutTable().legalMoves(new int[0], LONG, 3);
+        assertEquals(legal.length, reply[4].split(",").length);
+        assertEquals(legal.length, reply[5].split(",").length);
+        assertTrue(Long.parseLong(reply[1]) > 0);
+    }
+
+    @Test
+    void evaluate3IsTheStaticVectorPerAbsolutePlayer() {
+        for (RuleSet.JumpRule jump : RuleSet.JumpRule.values()) {
+            WebCore core = readyWithoutTable();
+            int[] start = core.evaluate3(new int[0], jump);
+            assertEquals(3, start.length);
+            assertEquals(start[0], start[1]);
+            assertEquals(start[1], start[2]);
+            int[] history = threeGame(core, jump, 40, 200);
+            Position position = Position.initial(RuleSet.defaults(3).withJumpRule(jump));
+            for (int move : history) {
+                position.make(move);
+            }
+            ThreePlayerPlayer oracle = ThreePlayerSpec.parse(jump == LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC).create();
+            assertArrayEquals(oracle.evaluation(position), core.evaluate3(history, jump));
+            int[] e = core.evaluate3(history, jump);
+            assertEquals("ok " + e[0] + " " + e[1] + " " + e[2], Web.evaluate3(csv(history), jump == LONG ? "long" : "adjacent"));
+        }
+        assertTrue(Web.evaluate3("1,x", null).startsWith("error illegal-history "));
     }
 
     @Test

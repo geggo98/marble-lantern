@@ -6,7 +6,7 @@
 import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
 import { DEFAULT_VARIANT } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
-import { needsTable, requireAnalysable, seatNodes, variantOf } from '../variant-args';
+import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
@@ -24,6 +24,8 @@ export interface JavaModule {
   analyse(history: string, moves: string, nodes: number, jump: string, players: string): string;
   /** `ok ongoing`, `ok win <side>` or `ok draw`. */
   outcome(history: string, jump: string, players: string): string;
+  /** `ok <e0> <e1> <e2>`: the static evaluation of a three-player position, one integer per absolute player. */
+  evaluate3(history: string, jump: string): string;
 }
 
 const CODES: ReadonlySet<string> = new Set<ErrorCode>([
@@ -118,7 +120,6 @@ export class JavaCore {
    * `nodes` is the budget for each scored move.
    */
   analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant = DEFAULT_VARIANT): AnalysisResult {
-    requireAnalysable(variant);
     this.requireTable(variant);
     if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
     if (moves !== null && (moves.length === 0 || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
@@ -135,6 +136,21 @@ export class JavaCore {
     }
     if (rows1 > 0) throw new EngineFailure('rows1-requested', `${rows1} request(s) for rows1.bin (ADR 0001)`);
     return { scores, moves: scored, position: Math.max(...scores), nodes: visited, ms };
+  }
+
+  /**
+   * The static evaluation of the three-player position after `history`: three integers, one per absolute player (seat 0, 1,
+   * 2), each the leaf score of the three-player search for that seat (see analysis.ts). No search. Rejects with code
+   * unsupported for two players.
+   */
+  evaluate3(history: readonly number[], variant: Variant): number[] {
+    requireThreePlayers(variant);
+    const f = fields(this.m.evaluate3(this.encode(history), variant.jump));
+    const values = f.map(Number);
+    if (values.length !== 3 || !values.every(Number.isInteger)) {
+      throw new EngineFailure('internal', `unexpected evaluate3 reply: ${f.join(' ').slice(0, 120)}`);
+    }
+    return values;
   }
 
   /**

@@ -46,6 +46,11 @@ std::unique_ptr<sh::AlphaBetaPlayer> g_analysis;
 int g_analysis_nodes = 0;
 bool g_analysis_long = false;
 std::int64_t g_analysis_visited = 0;
+// The three-player analysis player (BROWSER_3P_SPEC with the budget of the call, its own table cleared before every scored move), separate
+// from the game players and from the two-player analysis player.
+std::unique_ptr<sh::ThreePlayerPlayer> g_analysis3;
+int g_analysis3_nodes = 0;
+bool g_analysis3_long = false;
 std::optional<sh::Position> g_pos;
 // A player of the table: a two-player player (two) or a three-player player (three); exactly one is set.
 struct PlayerSlot {
@@ -177,16 +182,44 @@ SHW_API double shw_total_nodes(int id) {
 }
 // Moves played by race arithmetic instead of search; always 0 for a three-player player.
 SHW_API double shw_race_moves(int id) { PlayerSlot& s = slot(id); return s.two ? static_cast<double>(s.two->race_moves()) : 0.0; }
+namespace {
+// The scoring of a three-player position: the moves `chosen` (legal, checked by the caller), each searched by the analysis player of the
+// three-player browser spec with `nodes` nodes (ThreePlayerPlayer::analyse_move: the move is made, the child is searched for the mover, the
+// table is cleared first). Writes the moves and scores; returns the number of moves, or -4 (player could not be created).
+int analyse3(sh::Position& pos, int nodes, bool long_hop, std::span<const int> chosen, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
+    if (!g_analysis3 || g_analysis3_nodes != nodes || g_analysis3_long != long_hop) {
+        const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (long_hop ? ",jump=long" : ""));
+        if (!spec) { g_error = spec.error(); return -4; }
+        auto player = spec->create();
+        if (!player) { g_error = player.error(); return -4; }
+        g_analysis3 = std::move(*player);
+        g_analysis3_nodes = nodes;
+        g_analysis3_long = long_hop;
+    }
+    const std::span<std::int32_t> out_moves(moves_out, static_cast<std::size_t>(cap));
+    const std::span<std::int32_t> out_scores(scores_out, static_cast<std::size_t>(cap));
+    g_analysis_visited = 0;
+    for (std::size_t i = 0; i < chosen.size(); ++i) {
+        const sh::SearchResult r = g_analysis3->analyse_move(pos, chosen[i]);
+        g_analysis_visited += r.nodes;
+        out_moves[i] = chosen[i];
+        out_scores[i] = r.score;
+    }
+    return static_cast<int>(chosen.size());
+}
+}  // namespace
+
 // Scores moves of the current position for the side to move. `moves_in` (n_in entries) lists the moves to score, or is null for all legal
 // moves; the moves scored are written to `moves_out` and their scores to `scores_out` (capacity `cap` each; scores are integers of the
-// search scale, from the point of view of the side that makes the move, higher is better). Each move is made, the child position is
-// searched with `nodes` nodes by the analysis player (cleared before each move), and the score is negated. A win or loss found by the
-// search is one ply farther from the root than from the child, so mate scores move one step towards 0 (a move that wins at once scores
+// search scale, from the point of view of the side that makes the move, higher is better). Two players: each move is made, the child
+// position is searched with `nodes` nodes by the analysis player (cleared before each move), and the score is negated. A win or loss found
+// by the search is one ply farther from the root than from the child, so mate scores move one step towards 0 (a move that wins at once scores
 // kMate - 1, as in a search of the parent). The analysis player follows the jump rule of the game: the analysis spec of the browser, or
-// for a long-hop game the same search with eval=linear-r3 and jump=long (no race arithmetic). Returns the number of moves scored, or -1 a move in the list is not legal, -2 the game is
-// over, -3 cap too small or (with shw_error() set) the game has three players: analysis is two-player only, -4 the player could not be created (shw_error), -5 nodes < 1.
+// for a long-hop game the same search with eval=linear-r3 and jump=long (no race arithmetic). Three players: the same contract with the
+// paranoid three-player search (ThreePlayerPlayer::analyse_move, spec of shw_player_new3 with this node budget): the child is searched for
+// the mover as root player, so no negation is needed, and the same mate shift applies. Returns the number of moves scored, or -1 a move in
+// the list is not legal, -2 the game is over, -3 cap too small, -4 the player could not be created (shw_error), -5 nodes < 1.
 SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
-    if (g_pos->rules().players() != 2) { g_error = "analysis is available for two-player games only"; return -3; }
     if (nodes < 1) return -5;
     sh::Position& pos = *g_pos;
     std::array<int, sh::kMaxMoves> legal{};
@@ -208,6 +241,9 @@ SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::
     }
     if (n > cap) return -3;
     const bool long_hop = pos.rules().jump_rule() == sh::RuleSet::JumpRule::Long;
+    if (pos.rules().players() == 3) {
+        return analyse3(pos, nodes, long_hop, std::span<const int>(chosen).first(static_cast<std::size_t>(n)), moves_out, scores_out, cap);
+    }
     if (!g_analysis || g_analysis_nodes != nodes || g_analysis_long != long_hop) {
         const auto spec = sh::PlayerSpec::parse((long_hop ? kAnalysisLongSpecPrefix : kAnalysisSpecPrefix) + std::to_string(nodes));
         if (!spec) { g_error = spec.error(); return -4; }
@@ -235,6 +271,21 @@ SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::
         out_scores[static_cast<std::size_t>(i)] = score;
     }
     return n;
+}
+// The static evaluation of the current three-player position: three integers, one per absolute player 0, 1, 2 (Java: ThreePlayerPlayer.evaluation),
+// written to out3[0..2]. No search. Returns 0, or -1 if the game does not have three players (shw_error() tells), -2 the rule cannot be
+// served (never at present).
+SHW_API int shw_evaluate3(std::int32_t* out3) {
+    if (g_pos->rules().players() != 3) { g_error = "the static three-player evaluation needs a three-player game"; return -1; }
+    const bool long_hop = g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long;
+    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=1,nodes=1") + (long_hop ? ",jump=long" : ""));
+    if (!spec) { g_error = spec.error(); return -2; }
+    auto player = spec->create();
+    if (!player) { g_error = player.error(); return -2; }
+    const std::array<int, 3> e = (*player)->evaluation(*g_pos);
+    const std::span<std::int32_t> out(out3, 3);
+    for (std::size_t i = 0; i < 3; ++i) out[i] = e[i];
+    return 0;
 }
 // Nodes searched by the last shw_analyse call, all moves together.
 SHW_API double shw_analysis_nodes() { return static_cast<double>(g_analysis_visited); }

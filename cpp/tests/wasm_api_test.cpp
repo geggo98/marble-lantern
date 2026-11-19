@@ -33,6 +33,7 @@ int shw_has_result(int id);
 double shw_race_moves(int id);
 int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap);
 double shw_analysis_nodes();
+int shw_evaluate3(std::int32_t* out3);
 }
 
 namespace {
@@ -195,15 +196,69 @@ SH_TEST(players_and_games_must_match) {
     CHECK(shw_choose(three_long) >= 0);
 }
 
-SH_TEST(analyse_is_two_player_only) {
-    shw_game_new2(0, 3);
+// shw_analyse in a three-player game scores every legal move with the paranoid three-player search, deterministically, a subset in any
+// order gives the values of the full list, and the error codes are those of two players. The bit-exact comparison with Java is in
+// three_player_search_test (the golden file); here the ABI.
+SH_TEST(analyse_scores_three_players) {
+    for (const int jump : {0, 1}) {
+        CHECK_EQ(shw_game_new2(jump, 3), 0);
+        std::array<std::int32_t, kCap> moves_out{};
+        std::array<std::int32_t, kCap> scores_out{};
+        const int legal_count = static_cast<int>(legal_pairs().size());
+        const int n = shw_analyse(300, nullptr, 0, moves_out.data(), scores_out.data(), kCap);
+        CHECK_EQ(n, legal_count);
+        CHECK(shw_analysis_nodes() > 0);
+        std::array<std::int32_t, kCap> moves2{};
+        std::array<std::int32_t, kCap> scores2{};
+        CHECK_EQ(shw_analyse(300, nullptr, 0, moves2.data(), scores2.data(), kCap), n);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
+            CHECK_EQ(moves_out[i], moves2[i]);
+            CHECK_EQ(scores_out[i], scores2[i]);
+        }
+        // a subset in reverse order, after another budget
+        std::array<std::int32_t, 2> pick{moves_out[3], moves_out[1]};
+        CHECK_EQ(shw_analyse(100, nullptr, 0, moves2.data(), scores2.data(), kCap), n);
+        CHECK_EQ(shw_analyse(300, pick.data(), 2, moves2.data(), scores2.data(), kCap), 2);
+        CHECK_EQ(moves2[0], moves_out[3]);
+        CHECK_EQ(scores2[0], scores_out[3]);
+        CHECK_EQ(scores2[1], scores_out[1]);
+        // error codes
+        std::array<std::int32_t, 2> bad{moves_out[0], 0};
+        CHECK_EQ(shw_analyse(300, bad.data(), 2, moves2.data(), scores2.data(), kCap), -1);
+        CHECK_EQ(shw_analyse(300, nullptr, 0, moves2.data(), scores2.data(), 3), -3);
+        CHECK_EQ(shw_analyse(0, nullptr, 0, moves2.data(), scores2.data(), kCap), -5);
+        // the analysis changes no game player
+        const int player = shw_player_new3(200, jump);
+        CHECK(shw_choose(player) >= 0);
+        const double nodes_before = shw_total_nodes(player);
+        CHECK(shw_analyse(300, nullptr, 0, moves2.data(), scores2.data(), kCap) > 0);
+        CHECK_EQ(shw_total_nodes(player), nodes_before);
+    }
+    shw_game_new2(1, 2);
     std::array<std::int32_t, kCap> moves_out{};
     std::array<std::int32_t, kCap> scores_out{};
-    CHECK_EQ(shw_analyse(300, nullptr, 0, moves_out.data(), scores_out.data(), kCap), -3);
-    CHECK(std::string(shw_error()).find("two-player") != std::string::npos);
-    CHECK_EQ(shw_analyse(0, nullptr, 0, moves_out.data(), scores_out.data(), kCap), -3);  // the player count is checked first
-    shw_game_new2(1, 2);
     CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), kCap) > 0);  // two players are unchanged
+}
+
+SH_TEST(evaluate3_gives_one_integer_per_absolute_player) {
+    std::array<std::int32_t, 3> e{};
+    CHECK_EQ(shw_game_new2(0, 2), 0);
+    CHECK_EQ(shw_evaluate3(e.data()), -1);
+    CHECK(std::string(shw_error()).find("three-player") != std::string::npos);
+    for (const int jump : {0, 1}) {
+        CHECK_EQ(shw_game_new2(jump, 3), 0);
+        CHECK_EQ(shw_evaluate3(e.data()), 0);
+        CHECK_EQ(e[0], e[1]);  // the start position is symmetric
+        CHECK_EQ(e[1], e[2]);
+        std::array<std::int32_t, kCap> buf{};
+        for (int ply = 0; ply < 30; ++ply) {
+            const int n = shw_legal_moves(buf.data(), kCap);
+            CHECK(n > 0);
+            CHECK_EQ(shw_play(buf[static_cast<std::size_t>((ply * 7) % n)]), 0);
+        }
+        CHECK_EQ(shw_evaluate3(e.data()), 0);
+        CHECK(e[0] != e[1] || e[1] != e[2]);
+    }
 }
 
 int main() { return sh::test::run_all(); }

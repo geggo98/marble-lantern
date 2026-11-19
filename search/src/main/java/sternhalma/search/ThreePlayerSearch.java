@@ -123,6 +123,85 @@ final class ThreePlayerSearch {
         return new SearchResult(bestMove, bestScore, doneDepth, nodes, complete);
     }
 
+    /** Empties the transposition table and the killers, so that the next search runs as with a new object. */
+    void clear() {
+        Arrays.fill(keys, 0L);
+        Arrays.fill(scores, 0);
+        Arrays.fill(meta, 0);
+        Arrays.fill(bestMoves, 0);
+        for (int[] k : killers) {
+            Arrays.fill(k, 0);
+        }
+    }
+
+    /**
+     * The score of {@code move} for the player who makes it: the move is made, the child position is searched with
+     * iterative deepening (root player = the mover, who is not the side to move of the child) and the position is
+     * restored. Iteration 1 always finishes; later iterations stop at {@code maxNodes} nodes in all. Mate scores are
+     * counted from the position before the move, as a search of that position counts them: a move that wins at once
+     * scores {@code MATE - 1}. The result has move -1, the score, the last finished depth and the nodes.
+     */
+    SearchResult searchAfter(Position position, int move, int maxDepth, long maxNodes) {
+        if (position.rules().players() != 3) {
+            throw new IllegalArgumentException("three-player search needs a three-player position");
+        }
+        int mover = position.sideToMove();
+        position.make(move);
+        try {
+            SearchResult child = searchAs(position, mover, maxDepth, maxNodes);
+            int score = child.score();
+            score = score >= MATE_BOUND ? score - 1 : score <= -MATE_BOUND ? score + 1 : score;
+            return new SearchResult(-1, score, child.depth(), child.nodes(), child.complete());
+        } finally {
+            position.unmake();
+        }
+    }
+
+    /**
+     * Iterative deepening on {@code position} for the root player {@code rootPlayer}, who need not be the side to move.
+     * The score is the paranoid score for {@code rootPlayer}; a win of {@code rootPlayer} that is already on the board
+     * scores {@code MATE}. No move is chosen (move -1).
+     */
+    SearchResult searchAs(Position position, int rootPlayer, int maxDepth, long maxNodes) {
+        pos = position;
+        root = rootPlayer;
+        dist = LinearEvaluator.DIST[1];
+        nodes = 0;
+        nodeLimit = maxNodes;
+        aborted = false;
+        deadlineNanos = Long.MAX_VALUE;
+        for (int[] k : killers) {
+            Arrays.fill(k, 0);
+        }
+        if (position.hasWon(rootPlayer)) {
+            return new SearchResult(-1, MATE, 0, 1, true);
+        }
+        int score = 0;
+        int doneDepth = 0;
+        boolean complete = true;
+        int top = Math.min(maxDepth, MAX_DEPTH);
+        for (int depth = 1; depth <= top; depth++) {
+            limited = depth > 1;
+            int s = ab(depth, -MATE - 1, MATE + 1, 0);
+            if (aborted) {
+                complete = false;
+                break;
+            }
+            score = s;
+            doneDepth = depth;
+            if (Math.abs(score) >= MATE_BOUND) {
+                break;
+            }
+        }
+        return new SearchResult(-1, score, doneDepth, nodes, complete);
+    }
+
+    /** The static score of the position for each player (0, 1, 2), see {@link #evaluate}. */
+    int[] evaluateAll(Position position) {
+        pos = position;
+        return new int[] {evaluate(0), evaluate(1), evaluate(2)};
+    }
+
     private int[] searchRoot(int[] ordered, int depth, int previousBest) {
         int n = ordered.length;
         int[] orderKeys = new int[n];

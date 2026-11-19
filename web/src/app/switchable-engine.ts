@@ -108,6 +108,13 @@ export class SwitchableEngine implements Engine {
     return await this.engine.analyse(history, moves, nodes, signal, variant);
   }
 
+  /** The static three-player vector of the current engine; rejects with unsupported for an engine that has none. */
+  async evaluate3(history: readonly number[], variant?: Variant): Promise<number[]> {
+    const inner = this.engine;
+    if (!inner.evaluate3) throw new EngineFailure('unsupported', 'this engine has no static evaluation vector');
+    return await inner.evaluate3(history, variant);
+  }
+
   async outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome> {
     return await this.engine.outcome(history, variant);
   }

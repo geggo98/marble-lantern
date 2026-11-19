@@ -124,9 +124,16 @@ export interface Engine {
    * players: their tables, budgets and choose() results stay as they are). `moves` null means all legal moves. `nodes` is
    * the node budget for each scored move. Rejects with an AbortError when the signal fires; the adapter then restarts its worker.
    * Rejects with code illegal-move if a move is not legal, illegal-history if the game is over.
-   * Rejects with code unsupported for three players (analysis is two-player only).
+   * Works for two and three players on the classical engines. With three players the scores are paranoid scores from the
+   * mover's point of view (see analysis.ts). The net engines and the server engines reject with code unsupported.
    */
   analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant?: Variant): Promise<AnalysisResult>;
+  /**
+   * The static evaluation of the three-player position after `history`: three integers, one per absolute player (seat 0, 1,
+   * 2), higher is better for that seat, no search (see analysis.ts). Offered by the classical engines (C++ and Java); absent on
+   * the others. Rejects with code unsupported for two players, illegal-history for an illegal history.
+   */
+  evaluate3?(history: readonly number[], variant?: Variant): Promise<number[]>;
   /** Whether the game after `history` goes on, is won (by which seat) or drawn. Rejects with illegal-history for an illegal history. */
   outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome>;
   dispose(): void;

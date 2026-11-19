@@ -94,7 +94,21 @@ public final class Web {
     }
 
     /**
-     * {@code ok ongoing}, {@code ok win <side>} (side 0, 1 or 2) or {@code ok draw}. A draw is every end without a
+     * {@code ok <e0> <e1> <e2>}: the static evaluation of a three-player position, one integer per absolute player,
+     * see {@link WebCore#evaluate3}. A two-player game has no such vector; use {@link #analyse}.
+     */
+    @JSExport
+    public static String evaluate3(String history, String jump) {
+        try {
+            int[] e = CORE.evaluate3(parse(history), WebCore.parseJump(jump));
+            return "ok " + e[0] + " " + e[1] + " " + e[2];
+        } catch (RuntimeException e) {
+            return error(e);
+        }
+    }
+
+    /**
+     * {@code ok ongoing},{@code ok win <side>} (side 0, 1 or 2) or {@code ok draw}. A draw is every end without a
      * winner: the move limit (the rules then score by distance, which names no winner), repetition and a side
      * without legal moves.
      */

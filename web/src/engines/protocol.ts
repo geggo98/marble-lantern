@@ -20,6 +20,8 @@ export type Request =
   | { id: number; type: 'choose'; history: number[]; variant?: Variant }
   /** moves: null scores all legal moves. */
   | { id: number; type: 'analyse'; history: number[]; moves: number[] | null; nodes: number; variant?: Variant }
+  /** The static evaluation vector of a three-player position: three integers, one per absolute player (the classical engines only). */
+  | { id: number; type: 'evaluate3'; history: number[]; variant: Variant }
   /** Ongoing, won or drawn after the history. */
   | { id: number; type: 'outcome'; history: number[]; variant?: Variant }
   /** Runs the benchmark game inside the worker. */

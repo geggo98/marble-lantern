@@ -108,6 +108,8 @@ export class NetRequestHandler {
         return this.ready().choose(request.history, undefined, request.variant);
       case 'analyse':
         return this.ready().analyse();
+      case 'evaluate3':
+        throw new EngineFailure('unsupported', 'the net engines have no static evaluation vector');
       case 'outcome':
         return this.ready().outcome(request.history, request.variant);
       case 'bench':

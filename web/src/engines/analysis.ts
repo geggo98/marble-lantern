@@ -23,6 +23,12 @@ export const SCORE = {
  */
 export const scoreScale = 80;
 
+// Three players: Engine.analyse scores are paranoid scores of the three-player search from the point of view of the mover (the
+// mover maximises, both others minimise), in the same units and with the same mate bounds as above: the mean over both opponents
+// of the linear "own minus opponent" evaluation, so about 30 points per step of progress. scoreScale was fitted for two players;
+// for three it is not calibrated, so use differences between moves and the ranking, not the probability. Engine.evaluate3 gives
+// the static leaf score of each absolute seat (index = seat), higher is better for that seat.
+
 /** Default node budget per scored move for move guides: all legal moves of a mid-game position take about 0.1 to 0.2 s on cpp-wasm. */
 export const GUIDE_NODES = 4000;
 
