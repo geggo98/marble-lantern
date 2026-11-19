@@ -10,8 +10,11 @@ import type { EngineId } from '../engines/engine';
 import type { Sims } from '../engines/warnings';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
+import { AdvantageBar3 } from '../ui/AdvantageBar3';
 import { GuideSettings } from '../ui/GuideSettings';
 import { useGuides } from '../guides/useGuides';
+import { useAdvantage3 } from '../guides/useAdvantage3';
+import type { Evaluate3Fn } from '../guides/useAdvantage3';
 import { loadGuidesPreference, saveGuidesPreference } from '../guides/preference';
 import type { AnalyseFn } from '../guides/analyser';
 import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
@@ -45,6 +48,8 @@ export interface PlayModel {
   netSelection?: NetSelectionStore;
   /** The engine's analyse method, for the move guides. */
   analyse: AnalyseFn;
+  /** The static evaluation per seat (three players), for the advantage indicator; engines without it reject with code unsupported. */
+  evaluate3?: Evaluate3Fn;
   humanSide: Side;
   demo: boolean;
   level: number;
@@ -119,15 +124,23 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const styleOf = (side: number): SideStyle => views[side]?.style ?? 'b';
   const aSide: Player = (views.find((v) => v.style === 'a')?.seat ?? 1) as Player;
   const rotated = !three && aSide === 0; // the person at the top corner sees the board turned; three players never turn it
-  // the analysis behind the move guides and the skill estimate exists for two players only
-  const analysable = variant.players === 2;
+  // the skill estimate is for two players only; the move guides and the advantage indicator work for both player counts
+  const skillable = variant.players === 2;
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
   const [guidesOn, setGuidesOn] = useState(loadGuidesPreference);
+  const guideScope = s.current ? s.current.info.id + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
   const guides = useGuides({
     analyse: model.analyse,
-    scope: s.current ? s.current.info.id + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null,
-    enabled: guidesOn && !demo && analysable,
+    scope: guideScope,
+    enabled: guidesOn && !demo,
     humanTurn,
+    history: state.history,
+  });
+  const evaluate3 = model.evaluate3;
+  const advantage3 = useAdvantage3({
+    evaluate3: evaluate3 ?? (() => Promise.reject(new Error('no static evaluation'))),
+    scope: guideScope,
+    enabled: guidesOn && !demo && three && evaluate3 !== undefined,
     history: state.history,
   });
   const boardGuides = useMemo(() => (guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guides.view]);
@@ -249,16 +262,15 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const cards = (
     <>
       {three && <SeatsCard seats={views.map((v) => ({ style: v.style, name: seatName(v.seat), onMove: !state.outcome && state.sideToMove === v.seat }))} hotSeat={state.seats.filter((k) => k === 'human').length === 2} />}
-      {analysable && (
-        <GuideSettings
-          enabled={guidesOn}
-          status={guides.status}
-          onChange={(on) => {
-            setGuidesOn(on);
-            saveGuidesPreference(on);
-          }}
-        />
-      )}
+      <GuideSettings
+        three={three}
+        enabled={guidesOn}
+        status={guides.status}
+        onChange={(on) => {
+          setGuidesOn(on);
+          saveGuidesPreference(on);
+        }}
+      />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
       <EngineCard
         info={s.current?.info ?? null}
@@ -268,7 +280,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         {...(netBackend ? { net: { sims: model.netSelection?.selection.sims ?? DEFAULT_SIMS, backend: netBackend } } : {})}
         onWarningAction={{ 'choose-model': () => setSheetFocus('model'), 'choose-other': () => setSheetFocus('model'), ...(model.onRetryNet ? { retry: model.onRetryNet } : {}) }}
       />
-      {!demo && analysable && s.current && (
+      {!demo && skillable && s.current && (
         <SkillCard
           tracker={model.tracker}
           level={model.level}
@@ -314,10 +326,14 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           />
           {!wide && notice && <div className="ml-play__notice">{notice}</div>}
         </div>
-        {guidesOn && !demo && analysable && (
+        {guidesOn && !demo && (
           // the slot keeps its place on a small screen while the first analysis runs: the board does not jump
           <div className="ml-play__adv">
-            {guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
+            {three
+              ? advantage3.shares && (
+                  <AdvantageBar3 shares={advantage3.shares} names={views.map((v) => seatName(v.seat))} styles={views.map((v) => v.style)} stale={advantage3.stale} />
+                )
+              : guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
           </div>
         )}
         <p className="ml-visually-hidden" role="status" aria-live="polite">

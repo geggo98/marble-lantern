@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 // The app with game variants through the start hook (`initialSetup`) and through game links: no dialog for three players, the
-// address carries the variant, hot-seat has no swap button, move guides and skill card are for two players only. The engine is the
+// address carries the variant, hot-seat has no swap button, the skill card is for two players only (move guides and the advantage indicator: App.guides3.test.tsx). The engine is the
 // fake engine, the history is a fake history.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkerEngine } from '../engines/client';
+import { GUIDE_NODES } from '../engines/analysis';
 import { clearEngines } from '../engines/registry';
 import type { EnginesManifest } from '../engines/registry';
 import { seeded } from '../engines/testing/fake-engine';
@@ -119,26 +120,28 @@ describe('three players through the start hook', () => {
     expect(nav.entries.length).toBeGreaterThan(1); // the human's move is an entry of its own
   });
 
-  it('move guides and the skill card are not offered for three players', async () => {
+  it('the skill card is not offered for three players; the guide switch is', async () => {
     const nav = new FakeNavigation('');
     await mount(nav, humanVsTwoEngines(1, 2));
     await until(() => plies() === 1, 'the game runs');
-    expect(q('[data-guides-toggle]')).toBeNull();
+    expect(q('[data-guides-toggle]')).not.toBeNull();
     expect(q('[data-testid="skill-pause"]')).toBeNull();
     expect(q('[data-testid="skill-estimate"]')).toBeNull();
   });
 
-  it('even with the guides switched on and measuring running, a three-player game sends no analysis request; a long-hop game does, with its variant', async () => {
+  it('with the guides on, a three-player game sends analysis requests for the guides only (guide budget, three players); a long-hop game sends them with its variant', async () => {
     localStorage.setItem('ml.guides', 'on');
     const spy = vi.spyOn(WorkerEngine.prototype, 'analyse');
     try {
       await mount(new FakeNavigation(''), humanVsTwoEngines(1, 2));
       await until(() => plies() === 1 && status() === 'Your move', 'started');
       await new Promise((r) => setTimeout(r, 1200)); // longer than the quiet period of the skill tracker
-      expect(spy).not.toHaveBeenCalled();
+      expect(spy.mock.calls.length).toBeGreaterThan(0); // the guides analyse the position of the human
+      expect(spy.mock.calls.every((call) => call[2] === GUIDE_NODES && call[4]?.players === 3)).toBe(true); // none of the skill estimate (SKILL_NODES)
       await act(async () => root.unmount());
       host.remove();
 
+      spy.mockClear();
       await mount(new FakeNavigation(''), humanVsEngine(1, 2, 'long'));
       await until(() => spy.mock.calls.length > 0, 'an analysis of the long-hop game');
       expect(spy.mock.calls.every((call) => call[4]?.jump === 'long' && call[4].players === 2)).toBe(true);

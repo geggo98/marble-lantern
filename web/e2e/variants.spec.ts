@@ -34,8 +34,8 @@ test('three players: the human on seat 0, two engines answer in turn, the addres
   await waitForHumanTurn(page);
   const hash = new URL(page.url()).hash;
   expect(hash).toMatch(/^#g=v1\.[A-Za-z0-9_-]+&l=0&p=3&s=hee$/);
-  // no move guides and no skill estimate for three players
-  await expect(page.locator('[data-guides-toggle]')).toHaveCount(0);
+  // move guides for three players (e2e/guides3.spec.ts), but no skill estimate
+  await expect(page.locator('[data-guides-toggle]')).toHaveCount(1);
   await expect(page.locator('[data-testid="skill-pause"]')).toHaveCount(0);
   errors.expectNone();
 });
