@@ -6,6 +6,11 @@
 // q (the 12 features as "r minus q", without the tempo term), in kScale units. A win of r at search height h scores kMate - h, a win
 // of an opponent the negative. No race table: the search works for both jump rules.
 //
+// With ranking=FULL_RANKING (Java: the same class) a finished player makes no more moves and the search goes on until one active player
+// is left. The root player then scores: first place kMate - h, last place -(kMate - h), second place kSecond - h. While one other player
+// has finished, only one opponent is active: the search is a two-player zero-sum search of the root player against that opponent, and
+// the evaluation compares the root player with that opponent alone, minus kNotFirst because first place is gone.
+//
 // Iterative deepening, a transposition table keyed by position hash and root player, killer moves and a gain-first move order. The
 // search tree and the node count are those of the Java class, node for node: nodes are counted per call, leaves included; an unfinished
 // iteration is discarded, the first iteration always finishes. Every score is an integer and the evaluation uses the same operations as
@@ -29,6 +34,10 @@ class ThreePlayerSearch {
 public:
     static constexpr int kMaxDepth = 40;
     static constexpr std::int64_t kNoLimit = std::numeric_limits<std::int64_t>::max();
+    // Score of second place (the game is over, the root player finished second), before the height is subtracted.
+    static constexpr int kSecond = scores::kMate / 2;
+    // Penalty of a position in which another player has already finished first, in kScale units.
+    static constexpr int kNotFirst = 4000;
 
     // `weights`: the 12 feature weights of the evaluation; `table_bits`: log2 of the number of table entries (0..30; the player
     // spec checks the range). Throws std::invalid_argument if the weights are not 12 or the table size is out of range.

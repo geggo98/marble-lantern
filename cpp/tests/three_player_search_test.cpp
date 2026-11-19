@@ -2,6 +2,8 @@
 //  - The Java golden file search/src/test/resources/three-player-choose-golden.tsv (path from CMake, SH_THREE_PLAYER_CHOOSE_GOLDEN),
 //    all 26 rows: a new player with the spec of the row, at nodes=5000 and nodes=20000, gives Java's move, score, depth, node count and
 //    completeness bit for bit. The positions come from the seeded playouts of the file. A missing file fails the test (never skips).
+//  - The Java golden file search/src/test/resources/three-player-ranking-choose-golden.tsv (SH_THREE_PLAYER_RANKING_CHOOSE_GOLDEN), all 16
+//    rows: the same for positions of ranking=FULL_RANKING with finished players (the continued phase).
 //  - The spec: keys, defaults, the browser constants, errors for unknown keys, values and evaluators.
 //  - The player: determinism, clear_search equals a fresh player, refusal of other players and jump rules, a full game of three engine
 //    seats ends legally.
@@ -134,6 +136,70 @@ SH_TEST(java_choose_golden_all_rows) {
         }
     }
     CHECK_EQ(rows, 26);
+}
+
+// The position of a row of the ranking golden file: the seeded greedy playout of its header, with ranking=FULL_RANKING.
+Position ranking_position_of_row(int id) {
+    const RuleSet rules = *RuleSet::defaults(3)
+                               .with_ranking(RuleSet::Ranking::FullRanking)
+                               .and_then([](const RuleSet& r) { return r.with_move_limit(600); })
+                               .and_then([id](const RuleSet& r) {
+                                   return r.with_jump_rule(id % 2 == 0 ? RuleSet::JumpRule::Adjacent : RuleSet::JumpRule::Long);
+                               });
+    Position pos = Position::initial(rules);
+    SplittableRandom rng(std::uint64_t{0xC0DF0000} + static_cast<std::uint64_t>(id));
+    int first_finished = -1;
+    const int extra = 2 * (id / 2);
+    while (!pos.outcome().has_value() && !(first_finished >= 0 && pos.ply() >= first_finished + extra)) {
+        const std::vector<int> moves = sorted_moves(pos);
+        if (moves.empty()) break;
+        const std::vector<int> candidates = best_gain(pos, moves);
+        pos.make(candidates[(rng.next_long() >> 1) % candidates.size()]);
+        if (first_finished < 0 && pos.finished_mask() != 0) first_finished = pos.ply();
+    }
+    if (pos.outcome().has_value()) pos.unmake();  // one ply before the end
+    return pos;
+}
+
+// All rows of the Java golden file of the continued phase (ranking=FULL_RANKING), bit for bit.
+SH_TEST(java_ranking_choose_golden_all_rows) {
+    std::ifstream in(SH_THREE_PLAYER_RANKING_CHOOSE_GOLDEN);
+    CHECK(in.good());
+    int rows = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line.front() == '#') continue;
+        const auto f = split(line, '\t');
+        CHECK_EQ(f.size(), std::size_t{19});
+        if (f.size() != 19) continue;
+        const int id = std::stoi(std::string(f[0]));
+        CHECK_EQ(id, rows);
+        ++rows;
+        const bool long_hop = f[1] == "LONG";
+        Position pos = ranking_position_of_row(id);
+        CHECK_EQ(pos.ply(), std::stoi(std::string(f[3])));
+        CHECK_EQ(pos.side_to_move(), std::stoi(std::string(f[4])));
+        CHECK_EQ(pos.finished_mask(), std::stoi(std::string(f[5])));
+        for (int p = 0; p < 3; ++p) CHECK_EQ(pieces_text(pos, p), std::string(f[static_cast<std::size_t>(6 + p)]));
+        const std::array<std::int64_t, 2> budgets{5000, 20000};
+        for (std::size_t b = 0; b < budgets.size(); ++b) {
+            const std::size_t at = 9 + 5 * b;
+            const auto spec = ThreePlayerSpec::parse(spec_text(budgets[b], long_hop));
+            CHECK(spec.has_value());
+            auto player = spec->create();
+            CHECK(player.has_value());
+            const int move = (*player)->choose(pos);
+            const auto& r = (*player)->last_result();
+            CHECK(r.has_value());
+            if (!r) continue;
+            CHECK_EQ(std::to_string(Move::from(move)) + "-" + std::to_string(Move::to(move)), std::string(f[at]));
+            CHECK_EQ(r->score, std::stoi(std::string(f[at + 1])));
+            CHECK_EQ(r->depth, std::stoi(std::string(f[at + 2])));
+            CHECK_EQ(r->nodes, std::stoll(std::string(f[at + 3])));
+            CHECK_EQ(r->complete, f[at + 4] == "true");
+        }
+    }
+    CHECK_EQ(rows, 16);
 }
 
 SH_TEST(spec_keys_defaults_and_errors) {

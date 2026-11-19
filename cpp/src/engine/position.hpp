@@ -39,6 +39,9 @@ public:
     std::expected<void, std::string> put(int player, int cell);
     std::expected<void, std::string> put(int player, int q, int r);
     std::expected<void, std::string> set_side_to_move(int player);
+    // Declares a player finished with the next free rank, as if the player had filled the goal (FullRanking with three players only).
+    // If the player is to move, the turn passes to the next player who has not finished. Java: Position.finish.
+    std::expected<void, std::string> finish(int player);
 
     // ---- accessors ----
 
@@ -47,7 +50,11 @@ public:
     int side_to_move() const { return side_; }
     // Number of plies played since the position was set up.
     int ply() const { return ply_; }
-    // Zobrist hash of the pieces and the side to move.
+    // Whether the player has finished (filled the goal with ranking FullRanking, three players); the set as bits; the finishers by rank.
+    bool is_finished(int player) const { return (finished_mask_ & (1 << player)) != 0; }
+    int finished_mask() const { return finished_mask_; }
+    std::span<const int> finishers() const { return std::span<const int>(finishers_).first(static_cast<std::size_t>(finished_count_)); }
+    // Zobrist hash of the pieces, the side to move and the set of finished players.
     std::uint64_t hash() const { return hash_; }
     // Owner of a cell, or -1 if it is empty.
     int owner(int cell) const { return owner_[static_cast<std::size_t>(cell)]; }
@@ -91,6 +98,7 @@ public:
     // The Zobrist keys (tests compare them with the Java ones).
     static std::uint64_t side_key(int player);
     static std::uint64_t piece_key(int player, int cell);
+    static std::uint64_t finished_key(int player);
 
 private:
     explicit Position(const RuleSet& rules);
@@ -106,10 +114,16 @@ private:
     bool is_win(int occupied, int own) const;
     bool is_repeated() const;
     std::array<double, 3> draw_values() const;
+    void mark_finished(int player);
+    int next_active(int p) const;
+    void record_finishers(int p);
+    std::optional<Outcome> play_on_outcome(bool no_moves) const;
+    Outcome unfinished_outcome(Outcome::Reason reason) const;
 
     RuleSet rules_;
     const Layout* layout_;  // the shared layout of rules_.players()
     bool long_jump_ = false;  // rules_.jump_rule() == Long, cached for generate()
+    bool play_on_ = false;    // rules_.plays_on_after_win(), cached
     std::array<std::int8_t, kCells> owner_{};
     std::array<int, Layout::kMaxPlayers> goal_occupied_{};  // cells of goal(p) that hold any piece
     std::array<int, Layout::kMaxPlayers> goal_own_{};       // cells of goal(p) that hold a piece of p
@@ -121,6 +135,11 @@ private:
     std::uint64_t hash_ = 0;
     std::vector<int> moves_;
     std::vector<std::uint64_t> hashes_;
+    std::vector<int> movers_;        // per ply: the player who made the move
+    std::vector<int> masks_before_;  // per ply: the set of finished players before the move
+    int finished_mask_ = 0;
+    std::array<int, 3> finishers_{};  // the finished players by rank; finished_count_ entries are valid
+    int finished_count_ = 0;
     std::array<int, kCells> stack_{};  // scratch space for move generation
 };
 

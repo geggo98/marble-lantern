@@ -399,7 +399,7 @@ SH_TEST(rule_sets_outside_the_port_are_refused) {
     CHECK(!RuleSet::create(blocking).has_value());
     RuleSet::Spec ranking = spec;
     ranking.ranking = RuleSet::Ranking::FullRanking;
-    CHECK(!RuleSet::create(ranking).has_value());
+    CHECK(RuleSet::create(ranking).has_value());  // FULL_RANKING is supported now
     RuleSet::Spec limit = spec;
     limit.move_limit = 0;
     CHECK(!RuleSet::create(limit).has_value());

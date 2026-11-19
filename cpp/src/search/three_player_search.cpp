@@ -1,6 +1,7 @@
 #include "three_player_search.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <iterator>
 #include <cstdlib>
 #include <stdexcept>
@@ -20,6 +21,7 @@ constexpr std::size_t u(int i) { return static_cast<std::size_t>(i); }
 
 constexpr int kMate = scores::kMate;
 constexpr int kMateBound = scores::kMateBound;
+constexpr int kSecondBound = ThreePlayerSearch::kSecond - 1000;
 constexpr int kExact = 0;
 constexpr int kLower = 1;  // score >= stored
 constexpr int kUpper = 2;  // score <= stored
@@ -226,6 +228,20 @@ bool ThreePlayerSearch::search_root(std::vector<int>& ordered, int depth, int pr
 
 // The value of the position after the player `mover` made a move (not yet unmade).
 int ThreePlayerSearch::after(int mover, int depth, int alpha, int beta, int height) {
+    if (pos_->rules().plays_on_after_win()) {
+        const int finished = pos_->finished_mask();
+        if (finished != 0) {
+            if (pos_->is_finished(root_)) {
+                ++nodes_;
+                return pos_->finishers()[0] == root_ ? kMate - height : kSecond - height;
+            }
+            if (std::popcount(static_cast<unsigned>(finished)) >= 2) {
+                ++nodes_;
+                return -(kMate - height);  // the root player is the last one
+            }
+        }
+        return ab(depth, alpha, beta, height);
+    }
     if (pos_->has_won(mover)) {
         ++nodes_;
         return mover == root_ ? kMate - height : -(kMate - height);
@@ -239,8 +255,16 @@ bool ThreePlayerSearch::stop() {
     return (nodes_ & 1023) == 0 && has_deadline_ && std::chrono::steady_clock::now() > deadline_;
 }
 
-static int to_table(int score, int height) { return score >= kMateBound ? score + height : score <= -kMateBound ? score - height : score; }
-static int from_table(int score, int height) { return score >= kMateBound ? score - height : score <= -kMateBound ? score + height : score; }
+static int to_table(int score, int height) {
+    return score >= kMateBound || (score >= kSecondBound && score <= ThreePlayerSearch::kSecond) ? score + height
+           : score <= -kMateBound                                                                  ? score - height
+                                                                                                   : score;
+}
+static int from_table(int score, int height) {
+    return score >= kMateBound || (score >= kSecondBound && score <= ThreePlayerSearch::kSecond) ? score - height
+           : score <= -kMateBound                                                                  ? score + height
+                                                                                                   : score;
+}
 
 int ThreePlayerSearch::ab(int depth, int alpha_in, int beta_in, int height) {
     int alpha = alpha_in;
@@ -327,16 +351,22 @@ int ThreePlayerSearch::gain(int player, int move) const {
 }
 
 int ThreePlayerSearch::evaluate(const Position& position, int r) {
-    for (int p = 0; p < 3; ++p) side3(position, p, sums_[u(p)]);
+    const bool play_on = position.rules().plays_on_after_win();
+    for (int p = 0; p < 3; ++p) {
+        if (position.is_finished(p)) continue;
+        side3(position, p, sums_[u(p)]);
+    }
     int total = 0;
+    int opponents = 0;
     for (int q = 0; q < 3; ++q) {
-        if (q != r) {
+        if (q != r && !position.is_finished(q)) {
+            ++opponents;
             LinearEvaluator::combine(sums_[u(r)], sums_[u(q)], features_);
             features_[u(LinearEvaluator::kTempo)] = 0.0;  // no side-to-move bonus: the score is the root player's
             total += linear_->score(features_, 0.0);
         }
     }
-    return total / 2;
+    return opponents == 2 ? total / 2 : total - (play_on ? kNotFirst : 0);
 }
 
 }  // namespace sh
