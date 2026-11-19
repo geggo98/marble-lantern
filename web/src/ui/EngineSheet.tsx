@@ -215,11 +215,10 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
         {isNet && (
           <>
             <NetWarnings warnings={evaluation.warnings} live onAction={{ 'choose-model': focusModels, 'choose-other': focusModels }} />
-            <ModelGroup variant={variant} all={listModels()} models={evaluation.compatibleModels} modelId={modelId} onChange={setModelId} />
-            <SimsGroup sims={sims} onChange={setSims} />
+            <ModelGroup variant={variant} all={listModels()} models={evaluation.compatibleModels} modelId={modelId} sims={sims} onChange={setModelId} />
+            <SimsGroup sims={sims} backend={engine === 'net-webgpu' ? 'webgpu' : 'wasm'} onChange={setSims} />
           </>
         )}
-        {!isNet && <p className="ml-hint" data-net-only-note>{t('net.classical.note')}</p>}
         {!isNet && <div className="ml-strength">
           <p className="ml-kicker" id="ml-strength-label">{t('strength')}</p>
           <div className="ml-strength__readout">

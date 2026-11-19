@@ -84,14 +84,14 @@ describe('groups by engine', () => {
     expect(q('[data-net-group="model"]')).not.toBeNull();
     expect(q('[data-net-group="sims"]')).not.toBeNull();
     expect(q('input[type="range"]')).toBeNull();
-    expect(q('[data-net-only-note]')).toBeNull();
+    expect(q('[data-net-group="model"] [data-net-only-note]')).not.toBeNull(); // the hint that only net engines use a model lives here
   });
 
-  it('a classical engine keeps the slider, hides both groups and says that only net engines use a model', async () => {
+  it('a classical engine keeps the slider and hides both groups; the sheet carries no note about models (M3/L1: nothing new on the default path)', async () => {
     await open({ engine: 'cpp-wasm' });
     expect(q('input[type="range"]')).not.toBeNull();
     expect(q('[data-net-group]')).toBeNull();
-    expect(q('[data-net-only-note]')).not.toBeNull();
+    expect(q('[data-net-only-note]')).toBeNull();
     expect(warnings()).toEqual([]);
   });
 

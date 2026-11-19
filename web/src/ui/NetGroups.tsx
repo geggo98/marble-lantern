@@ -11,13 +11,13 @@ import type { TextKey } from './texts';
 import './net.css';
 
 /**
- * Time per move on the CPU backend at 50, 200 and 800 simulations, measured with the C++ WebAssembly forward pass on a fast desktop
- * (docs/web-ui.md, "Net engines"). A phone is slower; WebGPU only helps from 800 simulations.
+ * Typical time per move in ms at 50, 200 and 800 simulations: CPU backend, a fast desktop CPU, measured with the expert model in node.
+ * Shown for the CPU backend only, marked as typical; a phone is slower and there is no figure for WebGPU. Strength is not stated per
+ * preset: only the per-model figures of the manifest say how strong a model is (model-strength.ts).
  */
 export const SIMS_MS: Readonly<Record<Sims, number>> = { 50: 15, 200: 58, 800: 241 };
-/** Elo gain over 50 simulations (about the strongest classical web level), measured in the same series. */
-export const SIMS_ELO: Readonly<Record<Sims, number>> = { 50: 0, 200: 255, 800: 390 };
-const SIMS_LABEL: Readonly<Record<Sims, TextKey>> = { 50: 'net.sims.fast', 200: 'net.sims.strong', 800: 'net.sims.vstrong' };
+
+const signed = (v: number, n: (v: number) => string): string => `${v > 0 ? '+' : ''}${n(v)}`;
 
 export const MODEL_GROUP = 'model';
 export const SIMS_GROUP = 'sims';
@@ -29,6 +29,8 @@ export function ModelGroup(props: {
   /** The models that may play the variant (what is offered). */
   models: readonly ModelInfo[];
   modelId: string | null;
+  /** The selected simulations per move: of several measurements of one model, the one made at these simulations is shown. */
+  sims: Sims;
   onChange: (modelId: string | null) => void;
 }): React.JSX.Element {
   const { t, n } = useT();
@@ -47,7 +49,8 @@ export function ModelGroup(props: {
       <legend className="ml-kicker">{t('net.group.model')}</legend>
       {radio(null, t('net.model.none'), <span className="ml-choice__desc">{t('net.model.none.hint')}</span>)}
       {props.models.map((m) => {
-        const facts = strengthFacts(m);
+        const facts = strengthFacts(m, props.variant.players, props.sims);
+        const players = t('net.variant.players', { players: n(props.variant.players) });
         return radio(
           m.id,
           t(m.labelKey as TextKey),
@@ -55,23 +58,27 @@ export function ModelGroup(props: {
             <span className="ml-choice__desc">{t(m.descriptionKey as TextKey)}</span>
             <span className="ml-choice__meta ml-data">{t('net.model.size', { kb: n(Math.round(m.packedBytes / 1000)) })}</span>
             {facts.length === 0 ? (
-              <span className="ml-choice__desc">{t('net.model.strength.none')}</span>
+              <span className="ml-choice__desc" data-strength-none>{t('net.model.strength.none', { players })}</span>
             ) : (
-              facts.map((f) => (
-                <span key={f.jump} className="ml-choice__desc" data-strength-fact={f.jump}>
-                  {t('net.model.strength', {
-                    elo: `${f.elo > 0 ? '+' : ''}${n(f.elo)}`,
-                    ci: f.ci95 === undefined ? '' : `±${n(f.ci95)}`,
-                    opp: n(f.opponent),
-                    jump: t(f.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent'),
-                    sims: n(f.sims),
-                  })}
-                </span>
-              ))
+              facts.map((f) => {
+                const common = { players, opp: n(f.opponent), jump: t(f.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent'), sims: n(f.sims) };
+                const text =
+                  f.score !== undefined
+                    ? t('net.model.strength.score', { ...common, score: `${n(Math.round(f.score * 100))} %`, count: n(f.opponents) })
+                    : f.ci95 === undefined
+                      ? t('net.model.strength.noci', { ...common, elo: signed(f.elo ?? 0, n) })
+                      : t('net.model.strength', { ...common, elo: signed(f.elo ?? 0, n), ci: `±${n(f.ci95)}` });
+                return (
+                  <span key={f.jump} className="ml-choice__desc" data-strength-fact={f.jump} data-players={f.players}>
+                    {text}
+                  </span>
+                );
+              })
             )}
           </>,
         );
       })}
+      <p className="ml-hint" data-net-only-note>{t('net.model.hint')}</p>
       {hidden && (
         <p className="ml-hint" data-net-hidden-note>
           {t('net.model.hidden', { variant: variantText(props.variant, t) })}
@@ -81,7 +88,7 @@ export function ModelGroup(props: {
   );
 }
 
-export function SimsGroup(props: { sims: Sims; onChange: (sims: Sims) => void }): React.JSX.Element {
+export function SimsGroup(props: { sims: Sims; /** What plays: the typical time per move is shown for the CPU backend only. */ backend: 'wasm' | 'webgpu'; onChange: (sims: Sims) => void }): React.JSX.Element {
   const { t, n } = useT();
   return (
     <fieldset className="ml-fieldset ml-netgroup" data-net-group={SIMS_GROUP}>
@@ -90,11 +97,12 @@ export function SimsGroup(props: { sims: Sims; onChange: (sims: Sims) => void })
         <label key={s} className="ml-choice" data-sims={s} {...(props.sims === s ? { 'data-checked': '' } : {})}>
           <input type="radio" name="ml-net-sims" value={s} checked={props.sims === s} onChange={() => props.onChange(s)} />
           <span className="ml-choice__main">
-            <span className="ml-choice__name">{t(SIMS_LABEL[s])}</span>
-            <span className="ml-choice__meta ml-data">
-              {t('net.sims.count', { sims: n(s) })} · ≈ {t('net.sims.time', { ms: n(SIMS_MS[s]) })}
-            </span>
-            <span className="ml-choice__desc">{s === 50 ? t('net.sims.elo.base') : t('net.sims.elo', { sims: n(s), elo: `+${n(SIMS_ELO[s])}` })}</span>
+            <span className="ml-choice__name">{t('net.sims.option', { sims: n(s) })}</span>
+            {props.backend === 'wasm' && (
+              <span className="ml-choice__meta ml-data" data-sims-time={s}>
+                {t('net.sims.time.typical', { ms: n(SIMS_MS[s]) })}
+              </span>
+            )}
           </span>
         </label>
       ))}

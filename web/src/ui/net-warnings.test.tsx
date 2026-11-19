@@ -10,7 +10,7 @@ import type { EngineInfo } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { StartDialog } from './StartDialog';
 import { EngineCard, Telemetry } from './Panels';
-import { NetNotice, NetWarnings, describeWarnings } from './net-warnings';
+import { NetNotice, NetWarnings, describeWarnings, variantText } from './net-warnings';
 import { translate } from './texts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,6 +31,13 @@ async function render(node: React.JSX.Element): Promise<void> {
 }
 const q = (sel: string): HTMLElement | null => document.body.querySelector<HTMLElement>(sel);
 const V2 = { jump: 'adjacent', players: 2 } as const;
+
+describe('variantText', () => {
+  it('names the players with a catalog text, never a bare number after the jump rule (L6)', () => {
+    expect(variantText({ jump: 'adjacent', players: 3 }, translate)).toBe(`${translate('start_jump_adjacent')} · ${translate('net.variant.players', { players: '3' })}`);
+    expect(variantText(undefined, translate)).toBe('');
+  });
+});
 
 describe('describeWarnings', () => {
   const t = translate;

@@ -19,7 +19,7 @@ export interface DescribedWarning {
 /** The jump rule and the number of players of a variant as short data text. */
 export function variantText(variant: Variant | undefined, t: Translate): string {
   if (!variant) return '';
-  return `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${variant.players}`;
+  return `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
 }
 
 export function modelName(id: string | undefined, t: Translate): string {
