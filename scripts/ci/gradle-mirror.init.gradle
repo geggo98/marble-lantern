@@ -33,6 +33,11 @@ gradle.settingsEvaluated { settings ->
         content {
             // group: any (the group of a marker is the plugin id); module: "<plugin id>.gradle.plugin"
             excludeModuleByRegex('.*', '.*\\.gradle\\.plugin')
+            // Vaadin publishes its Gradle plugins to the portal and to Maven Central with different bytes (measured:
+            // the poms and jars below differ from the checksums in gradle/verification-metadata.xml, which come from the portal).
+            excludeModule('com.vaadin', 'vaadin-gradle-plugin')
+            excludeModule('com.vaadin', 'flow-gradle-plugin')
+            excludeModule('com.vaadin', 'hilla-gradle-plugin')
         }
     }
     pluginRepos.remove(pluginMirror)
