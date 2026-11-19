@@ -8,15 +8,20 @@
 // on HTTP 404; the mirror answers 404 for what it lacks (new releases, plugins that live only on the Gradle plugin
 // portal), and Maven Central or the plugin portal then answer.
 def mirrorUrl = '@MIRROR_URL@'
+def allowInsecure = @ALLOW_INSECURE@ // true only in the local fault-injection harness
 
 gradle.settingsEvaluated { settings ->
-    // (a) Plugin resolution: the mirror goes AFTER the plugin portal and BEFORE mavenCentral(), never first. Reason
-    // (measured): the plugin marker poms on the portal differ from the ones on Maven Central (same coordinates,
-    // other bytes), and gradle/verification-metadata.xml holds the portal's checksums. A marker taken from the
-    // mirror would fail strict verification, and a verification failure does not fall through, it fails the build.
-    // So the portal keeps answering for plugins; the mirror replaces Maven Central as the fallback behind it.
+    // (a) Plugin resolution: the mirror goes FIRST, ahead of the plugin portal, but never for plugin marker modules.
+    // Why first: the portal answers requests for non-plugin artifacts (a plugin's own jar and its libraries) with a
+    // redirect to Maven Central, so a portal in front sends every plugin dependency to Maven Central. With the mirror
+    // first, those come from the mirror; the mirror answers 404 for what it lacks and the portal then answers.
+    // Why markers excluded: a marker module is named "<plugin id>.gradle.plugin". Marker poms on the portal differ in
+    // bytes from the ones on Maven Central and the mirror (same coordinates, other bytes), and
+    // gradle/verification-metadata.xml holds the portal's checksums. A marker taken from the mirror fails strict
+    // verification, and a verification failure does not fall through, it fails the build. With the exclusion Gradle
+    // skips the mirror for markers, so the portal serves them.
     // A settings file without pluginManagement.repositories (build-logic) resolves plugins from the portal
-    // implicitly; the portal is added explicitly there so the mirror can stand behind it.
+    // implicitly; the portal is added explicitly there so the mirror can stand in front of it.
     def pluginRepos = settings.pluginManagement.repositories
     if (pluginRepos.isEmpty()) {
         pluginRepos.gradlePluginPortal()
@@ -24,10 +29,14 @@ gradle.settingsEvaluated { settings ->
     def pluginMirror = pluginRepos.maven {
         name = 'ciMirror'
         url = mirrorUrl
+        allowInsecureProtocol = allowInsecure
+        content {
+            // group: any (the group of a marker is the plugin id); module: "<plugin id>.gradle.plugin"
+            excludeModuleByRegex('.*', '.*\\.gradle\\.plugin')
+        }
     }
     pluginRepos.remove(pluginMirror)
-    def central = pluginRepos.findIndexOf { it.name == 'MavenRepo' } // name of mavenCentral()
-    pluginRepos.add(central >= 0 ? central : pluginRepos.size(), pluginMirror)
+    pluginRepos.addFirst(pluginMirror)
 
     // (b) Dependency resolution, also of build-logic's own code. Compatible with FAIL_ON_PROJECT_REPOS: the repositories
     // stay in the settings. addFirst puts the mirror in front of mavenCentral().
@@ -35,6 +44,7 @@ gradle.settingsEvaluated { settings ->
     def depMirror = depRepos.maven {
         name = 'ciMirror'
         url = mirrorUrl
+        allowInsecureProtocol = allowInsecure
     }
     depRepos.remove(depMirror)
     depRepos.addFirst(depMirror)
