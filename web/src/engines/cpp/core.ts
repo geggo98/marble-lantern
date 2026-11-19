@@ -4,7 +4,7 @@
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
 import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
-import { DEFAULT_VARIANT } from '../../game/variant';
+import { DEFAULT_VARIANT, playsOn, rankingOf } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
 import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
@@ -27,6 +27,12 @@ export interface CppModule {
   _shw_player_clear(id: number): void;
   /** jump: 0 adjacent, 1 long; players: 2 or 3. Returns 0, or -1 for other values. */
   _shw_game_new2(jump: number, players: number): number;
+  /** As _shw_game_new2 with a ranking rule: 0 first winner only, 1 full ranking; -1 for other values. */
+  _shw_game_new3(jump: number, players: number, ranking: number): number;
+  /** The absolute seat of rank i (0 = first place), or -1 if that rank is not decided. */
+  _shw_rank(i: number): number;
+  /** The seats that are out (full ranking) as bits: bit p for seat p. */
+  _shw_finished_mask(): number;
   /** -1 running, 0 draw, 1 + winner. */
   _shw_outcome(): number;
   _shw_side_to_move(): number;
@@ -161,11 +167,15 @@ export class CppCore {
     };
   }
 
-  /** `ongoing`, a winner (seat 0, 1 or 2) or `draw` (move limit, repetition, no legal move). */
+  /**
+   * `ongoing` (with the seats that are out, in full ranking), a winner (seat 0, 1 or 2), `draw` (move limit, repetition, no
+   * legal move) or, in a full-ranking game of three players, the final `ranking`.
+   */
   outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
     this.requireTable(variant);
     this.replay(history, variant);
     const code = this.m._shw_outcome();
+    if (playsOn(variant)) return this.fullOutcome(code);
     if (code === -1) return { kind: 'ongoing' };
     if (code === 0) return { kind: 'draw' };
     if (code >= 1 && code <= variant.players) return { kind: 'win', winner: (code - 1) as Player };
@@ -257,6 +267,19 @@ export class CppCore {
 
   // ---- internals ----
 
+  /** The outcome of a full-ranking game of three players: no draw exists, an ended game always has all three ranks. */
+  private fullOutcome(code: number): EngineOutcome {
+    const mask = this.m._shw_finished_mask();
+    if (code === -1) {
+      const finished = ([0, 1, 2] as const).filter((p) => (mask >> p & 1) === 1);
+      return finished.length === 0 ? { kind: 'ongoing' } : { kind: 'ongoing', finished };
+    }
+    const order = [0, 1, 2].map((i) => this.m._shw_rank(i));
+    const seats = order.filter((p): p is Player => p === 0 || p === 1 || p === 2);
+    if (seats.length !== 3 || new Set(seats).size !== 3) throw new EngineFailure('internal', `shw_rank gave ${order.join(' ')} for outcome ${code}`);
+    return { kind: 'ranking', ranking: [seats[0]!, seats[1]!, seats[2]!] };
+  }
+
   /** Only the adjacent two-player game needs the race table (see needsTable). */
   private requireTable(variant: Variant = DEFAULT_VARIANT): void {
     if (needsTable(variant) && !this.tableInstalled) throw new EngineFailure('internal', 'the race table is not installed');
@@ -289,8 +312,8 @@ export class CppCore {
   /** Replays the history in the module's global game. A move the engine rejects is an illegal history. */
   private replay(history: readonly number[], variant: Variant): void {
     if (history.length > MAX_PLIES) throw new EngineFailure('illegal-history', `history has ${history.length} plies`);
-    if (this.m._shw_game_new2(variant.jump === 'long' ? 1 : 0, variant.players) !== 0) {
-      throw new EngineFailure('internal', `shw_game_new2: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    if (this.m._shw_game_new3(variant.jump === 'long' ? 1 : 0, variant.players, rankingOf(variant) === 'full' ? 1 : 0) !== 0) {
+      throw new EngineFailure('internal', `shw_game_new3: ${this.m.UTF8ToString(this.m._shw_error())}`);
     }
     history.forEach((move, ply) => {
       if (!Number.isInteger(move) || this.m._shw_play(move) !== 0) {

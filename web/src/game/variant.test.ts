@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CELLS, cellId } from '../board/cells';
 import { applyMove, goalCells, hasWon, initialOwners, outcomeOf, replay, startCells } from './board-state';
 import { makeMove } from '../engines/engine';
-import { DEFAULT_VARIANT, isDefault, moveLimit, sameVariant, sideAt, sidesOf, variantKey } from './variant';
+import { DEFAULT_VARIANT, isDefault, moveLimit, playsOn, rankingOf, sameVariant, sideAt, sidesOf, variantKey, withRanking } from './variant';
 import type { Variant } from './variant';
 
 const THREE: Variant = { jump: 'adjacent', players: 3 };
@@ -97,5 +97,37 @@ describe('board state for three players', () => {
   it('two-player start and goals are unchanged', () => {
     expect(initialOwners(DEFAULT_VARIANT)).toEqual(initialOwners());
     expect(startCells(DEFAULT_VARIANT)).toHaveLength(2);
+  });
+});
+
+describe('ranking rule of a variant', () => {
+  const FULL: Variant = { jump: 'adjacent', players: 3, ranking: 'full' };
+
+  it('a missing field is first-winner rules, and the default variant keeps its shape', () => {
+    expect(rankingOf(THREE)).toBe('first');
+    expect(rankingOf(FULL)).toBe('full');
+    expect(DEFAULT_VARIANT).toEqual({ jump: 'adjacent', players: 2 });
+    expect(isDefault({ jump: 'adjacent', players: 2, ranking: 'first' })).toBe(true);
+    expect(isDefault({ jump: 'adjacent', players: 2, ranking: 'full' })).toBe(false);
+  });
+
+  it('the ranking takes part in equality and in the key, and a first-winner key is unchanged', () => {
+    expect(sameVariant(THREE, { ...THREE, ranking: 'first' })).toBe(true);
+    expect(sameVariant(THREE, FULL)).toBe(false);
+    expect(variantKey(THREE)).toBe('adjacent-3');
+    expect(variantKey({ ...THREE, ranking: 'first' })).toBe('adjacent-3');
+    expect(variantKey(FULL)).toBe('adjacent-3-full');
+  });
+
+  it('a seat plays on after a first winner only with full ranking and three players', () => {
+    expect(playsOn(FULL)).toBe(true);
+    expect(playsOn(THREE)).toBe(false);
+    expect(playsOn({ jump: 'long', players: 2, ranking: 'full' })).toBe(false);
+  });
+
+  it('withRanking sets or drops the field', () => {
+    expect(withRanking(THREE, 'full')).toEqual(FULL);
+    expect(withRanking(FULL, 'first')).toEqual(THREE);
+    expect('ranking' in withRanking(FULL, 'first')).toBe(false);
   });
 });

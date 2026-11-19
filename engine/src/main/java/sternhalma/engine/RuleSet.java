@@ -5,8 +5,8 @@ import java.util.Objects;
 /**
  * The rule switches of docs/rules.md. Immutable.
  *
- * <p>Values that the rules document reserves or does not define yet are rejected with an
- * {@link UnsupportedOperationException} instead of being ignored silently.
+ * <p>Values that the rules document reserves or does not define yet ({@code blockingStates=ILLEGAL}) are
+ * rejected with an {@link UnsupportedOperationException} instead of being ignored silently.
  */
 public record RuleSet(
         int players,
@@ -68,9 +68,6 @@ public record RuleSet(
             throw new UnsupportedOperationException(
                     "blockingStates=ILLEGAL needs an exact definition of 'unreachable' for 10 pieces (docs/rules.md)");
         }
-        if (ranking == Ranking.FULL_RANKING) {
-            throw new UnsupportedOperationException("ranking=FULL_RANKING is reserved and not implemented");
-        }
     }
 
     /** The project defaults of docs/rules.md: 200 plies for two players, 300 for three. */
@@ -116,6 +113,19 @@ public record RuleSet(
     public RuleSet withDrawHandling(DrawHandling value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
                 repetition, value, ranking, jumpRule);
+    }
+
+    public RuleSet withRanking(Ranking value) {
+        return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
+                repetition, drawHandling, value, jumpRule);
+    }
+
+    /**
+     * Whether a player who fills the goal leaves the game while the others play on for the lower ranks
+     * ({@link Ranking#FULL_RANKING} with three players). With two players the ranking switch has no effect.
+     */
+    public boolean playsOnAfterWin() {
+        return ranking == Ranking.FULL_RANKING && players > 2;
     }
 
     public RuleSet withJumpRule(JumpRule value) {

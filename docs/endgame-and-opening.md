@@ -61,7 +61,7 @@ With 3 players the game is not zero-sum (reported; see [Three-player specifics](
 A race endgame still splits into independent solitaire problems, one per player.
 The project decided that a three-player game ends at the first winner and that the players move clockwise around the star (project decision, 2026-11-07).
 With these two rules, the winner follows from the remaining-move counts and the turn order (project reasoning; no cited source states this for 3 players).
-A later option `ranking = FULL_RANKING`, which plays on to rank second place, is reserved but not implemented. It would need more than the first-finisher comparison.
+TODO-OPUS endgame.ranking {FULL_RANKING is implemented in the engines; the race table and openings only use the first-finisher comparison}
 
 ## The endgame database principle
 
