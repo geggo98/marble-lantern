@@ -52,6 +52,8 @@ public final class Position {
     /** Per player the layout's step and jump tables with the allowed cells folded in (shared, read-only). */
     private final int[][] stepTo;
     private final int[][] jumpTo;
+    /** Whether the rules use the Halma long hop ({@link RuleSet.JumpRule#LONG}). */
+    private final boolean longJump;
     private int sideToMove;
     private int ply;
     private long hash;
@@ -64,6 +66,7 @@ public final class Position {
     private Position(RuleSet rules) {
         this.rules = rules;
         this.layout = Layout.of(rules.players());
+        this.longJump = rules.jumpRule() == RuleSet.JumpRule.LONG;
         this.goalOccupied = new int[rules.players()];
         this.goalOwn = new int[rules.players()];
         this.pieceCells = new int[rules.players()][PIECES];
@@ -372,7 +375,10 @@ public final class Position {
                     out[count++] = Move.of(from, n);
                 }
             }
-            count = addJumps(p, from, out, count, jumps, stayInGoal ? goal : NO_CORNER, suicideCheck);
+            int requiredCorner = stayInGoal ? goal : NO_CORNER;
+            count = longJump
+                    ? addLongJumps(p, from, out, count, requiredCorner, suicideCheck)
+                    : addJumps(p, from, out, count, jumps, requiredCorner, suicideCheck);
             owner[from] = (byte) p;
         }
         return count;
@@ -436,6 +442,75 @@ public final class Position {
             }
         }
         return count;
+    }
+
+    /**
+     * The long-hop variant of {@link #addJumps} ({@link RuleSet.JumpRule#LONG}): the same depth-first search, visited
+     * set and order, with another landing rule. From cell c in direction d the piece walks over empty cells until the
+     * first piece P, k steps away (k &gt;= 1); the landing is the cell k steps behind P, the mirror of c across P. The
+     * k - 1 cells between c and P and the k - 1 cells between P and the landing must be empty, the landing too, and
+     * the player must be allowed to stand on it. For k = 1 this is exactly the single jump of {@link #addJumps}.
+     * There is at most one landing per direction.
+     */
+    private int addLongJumps(int p, int from, int[] out, int countIn, int requiredCorner, boolean suicideCheck) {
+        int count = countIn;
+        long low = 0;
+        long high = 0;
+        if (from < 64) {
+            low = 1L << from;
+        } else {
+            high = 1L << from;
+        }
+        int top = 0;
+        stack[top++] = from;
+        while (top > 0) {
+            int c = stack[--top];
+            for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                int land = longLanding(p, c, d);
+                if (land < 0) {
+                    continue;
+                }
+                long bit = 1L << land;
+                if (land < 64) {
+                    if ((low & bit) != 0) {
+                        continue;
+                    }
+                    low |= bit;
+                } else {
+                    if ((high & bit) != 0) {
+                        continue;
+                    }
+                    high |= bit;
+                }
+                stack[top++] = land;
+                if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                        && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
+                    out[count++] = Move.of(from, land);
+                }
+            }
+        }
+        return count;
+    }
+
+    /** The landing cell of the long hop from {@code c} in direction {@code d}, or -1 if there is none. */
+    private int longLanding(int p, int c, int d) {
+        int over = c;
+        int k = 0;
+        do {
+            over = Geometry.STEP[over * Geometry.DIRECTIONS + d];
+            k++;
+            if (over < 0) {
+                return -1;
+            }
+        } while (owner[over] < 0);
+        int land = over;
+        for (int i = 0; i < k; i++) {
+            land = Geometry.STEP[land * Geometry.DIRECTIONS + d];
+            if (land < 0 || owner[land] >= 0) {
+                return -1;
+            }
+        }
+        return layout.allowed(p, land) ? land : -1;
     }
 
     /** Whether the move would meet the winning condition of another player (Definition 2). */
@@ -557,6 +632,7 @@ public final class Position {
         return o instanceof Position other
                 && sideToMove == other.sideToMove
                 && rules.players() == other.rules.players()
+                && rules.jumpRule() == other.rules.jumpRule()
                 && Arrays.equals(owner, other.owner);
     }
 
