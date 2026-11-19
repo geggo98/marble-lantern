@@ -35,12 +35,28 @@ import sternhalma.engine.Position;
 public final class Evaluator {
 
     private final ForwardPass network;
+    private final NetworkConfig config;
 
     /**
      * @throws NullPointerException if network is null
      */
     public Evaluator(ForwardPass network) {
-        this.network = Objects.requireNonNull(network, "network");
+        this(Objects.requireNonNull(network, "network"), network.config());
+    }
+
+    /**
+     * An evaluator without a network, for a caller that runs the forward pass elsewhere (the browser engine): only
+     * {@link #encode} and {@link #decode} work, {@link #evaluate} throws {@link IllegalStateException}.
+     *
+     * @throws NullPointerException if config is null
+     */
+    public static Evaluator withoutNetwork(NetworkConfig config) {
+        return new Evaluator(null, Objects.requireNonNull(config, "config"));
+    }
+
+    private Evaluator(ForwardPass network, NetworkConfig config) {
+        this.network = network;
+        this.config = config;
     }
 
     /**
@@ -65,13 +81,31 @@ public final class Evaluator {
      *                                  inside the forward pass
      */
     public List<Evaluation> evaluate(List<Position> positions) {
-        int netPlayers = network.config().players();
-        boolean variants = network.config().planes().variants();
+        if (network == null) {
+            throw new IllegalStateException("this evaluator has no network; use encode and decode");
+        }
+        float[] input = encode(positions);
+        int batch = positions.size();
+        float[] policy = new float[batch * Encoder.POLICY_SIZE];
+        float[] values = new float[batch * config.players()];
+        network.forward(input, batch, policy, values);
+        return decode(positions, policy, values);
+    }
+
+    /**
+     * The input of {@link ForwardPass#forward} for the positions: {@code batch * inputSize} floats, position b at
+     * {@code b * inputSize}. The first half of {@link #evaluate}.
+     *
+     * @throws IllegalArgumentException as {@link #evaluate}
+     */
+    public float[] encode(List<Position> positions) {
+        int netPlayers = config.players();
+        boolean variants = config.planes().variants();
         int batch = positions.size();
         if (batch == 0) {
             throw new IllegalArgumentException("no positions to evaluate");
         }
-        PlaneSet planes = network.config().planes();
+        PlaneSet planes = config.planes();
         int inputSize = planes.inputSize();
         float[] input = new float[batch * inputSize];
         for (int b = 0; b < batch; b++) {
@@ -83,10 +117,25 @@ public final class Evaluator {
             }
             Encoder.encode(planes, position, input, b * inputSize);
         }
-        float[] policy = new float[batch * Encoder.POLICY_SIZE];
-        float[] values = new float[batch * netPlayers];
-        network.forward(input, batch, policy, values);
+        return input;
+    }
 
+    /**
+     * Turns the raw outputs of a forward pass into evaluations: the softmax over the legal moves and the values in
+     * absolute order. The second half of {@link #evaluate}.
+     *
+     * @param policy {@code batch * Encoder.POLICY_SIZE} floats, the logits of the forward pass
+     * @param values {@code batch * config().players()} floats, relative players
+     * @throws IllegalArgumentException if an array is too short for the batch
+     * @throws IllegalStateException    as {@link #evaluate}
+     */
+    public List<Evaluation> decode(List<Position> positions, float[] policy, float[] values) {
+        int netPlayers = config.players();
+        int batch = positions.size();
+        if (policy.length < batch * Encoder.POLICY_SIZE || values.length < batch * netPlayers) {
+            throw new IllegalArgumentException("outputs too short for " + batch + " positions: policy " + policy.length
+                    + ", values " + values.length);
+        }
         List<Evaluation> result = new ArrayList<>(batch);
         for (int b = 0; b < batch; b++) {
             Position position = positions.get(b);

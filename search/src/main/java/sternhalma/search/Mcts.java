@@ -5,12 +5,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.random.RandomGenerator;
-import java.util.random.RandomGeneratorFactory;
 
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.nn.Evaluation;
 import sternhalma.nn.ForwardPass;
+import sternhalma.nn.NetworkConfig;
 import sternhalma.tablebase.RaceTable;
 
 /**
@@ -73,22 +73,56 @@ public final class Mcts {
     private final sternhalma.nn.Evaluator evaluator;
     private final MctsOptions options;
     private final RaceAdjudication s1;
-    private final RandomGenerator random;
+    private final SearchRandom random;
     private MctsNode root;
     private MctsNode[] pathNodes = new MctsNode[256];
     private int[] pathEdges = new int[256];
     private int exactLeaves;
 
+    // The search in progress (begin, prepare, apply, result); see "Stepwise search".
+    private enum Phase { IDLE, ROOT, SIM, DONE }
+
+    private Phase phase = Phase.IDLE;
+    private Position pos;
+    private MctsNode start;
+    private int[] rootMoves;
+    private int done;
+    private long deadline;
+    private List<Leaf> batch = new ArrayList<>();
+    private List<Position> pending = List.of();
+    private MctsResult finished;
+
     /**
      * @param network the network, two players or as many as the positions will have
      * @param options the options
-     * @param seed    seeds the noise and the sampling of moves
+     * @param seed    seeds the noise and the sampling of moves (the stream of {@code SplittableRandom(seed)})
      */
     public Mcts(ForwardPass network, MctsOptions options, long seed) {
-        this.evaluator = new sternhalma.nn.Evaluator(Objects.requireNonNull(network, "network"));
+        this(new sternhalma.nn.Evaluator(Objects.requireNonNull(network, "network")), options,
+                SearchRandom.splittable(seed), options.s1() ? RaceTable.rows2() : null);
+    }
+
+    /**
+     * A search whose forward pass runs elsewhere, for the browser engine: the caller drives it with {@link #begin},
+     * {@link #prepare}, {@link #pendingInputs}, {@link #apply} and {@link #result}; {@link #search} is not
+     * available. Reads no file: the race table for S1 is passed in.
+     *
+     * @param config  the size and planes of the network that the caller evaluates with
+     * @param s1Table the rows&gt;=2 race table, needed if and only if {@code options.s1()}
+     * @throws IllegalArgumentException if S1 is on and the table is null
+     */
+    public Mcts(NetworkConfig config, MctsOptions options, SearchRandom random, RaceTable s1Table) {
+        this(sternhalma.nn.Evaluator.withoutNetwork(config), options, random, s1Table);
+        if (options.s1() && s1Table == null) {
+            throw new IllegalArgumentException("S1 is on but no race table is installed");
+        }
+    }
+
+    private Mcts(sternhalma.nn.Evaluator evaluator, MctsOptions options, SearchRandom random, RaceTable s1Table) {
+        this.evaluator = evaluator;
         this.options = Objects.requireNonNull(options, "options");
-        this.s1 = options.s1() ? new RaceAdjudication(RaceTable.rows2()) : null;
-        this.random = RandomGeneratorFactory.of("SplittableRandom").create(seed);
+        this.s1 = options.s1() && s1Table != null ? new RaceAdjudication(s1Table) : null;
+        this.random = Objects.requireNonNull(random, "random");
     }
 
     public MctsOptions options() {
@@ -101,40 +135,200 @@ public final class Mcts {
     }
 
     /**
-     * Searches the position and chooses a move. The position is not changed.
+     * Searches the position and chooses a move. The position is not changed. Runs the stepwise search below with the
+     * evaluator's own network, so the synchronous and the stepwise path are the same code.
      *
      * @throws IllegalArgumentException if the game is over in the position or there is no legal move
      * @throws IllegalStateException    if the network gives non-finite outputs
      */
     public MctsResult search(Position position) {
-        Position pos = position.copy();
-        if (pos.outcome() != null) {
+        begin(position);
+        try {
+            while (prepare() > 0) {
+                applyEvaluations(evaluator.evaluate(pending));
+            }
+        } catch (RuntimeException | Error e) {
+            abort();
+            throw e;
+        }
+        return result();
+    }
+
+    // ---- stepwise search ----
+
+    /**
+     * Starts a stepwise search: {@link #search} split at the forward pass, so that the pass may run asynchronously
+     * (in the browser, on the GPU). The sequence is {@code begin(position)}, then {@code while (prepare() > 0)}
+     * { evaluate {@link #pendingInputs()}, {@link #apply} the outputs }, then {@link #result()}. The first
+     * {@code prepare()} asks for the root (one position) unless the tree of the last search has it; every further one
+     * returns the leaves of one batch, at most {@code options.batch()}, with virtual loss on their paths until
+     * {@code apply}. {@code prepare()} is idempotent until {@code apply} is called. A failure inside a step drops
+     * the tree and leaves the search idle ({@link #abort}). The position is copied.
+     *
+     * @throws IllegalArgumentException if the game is over in the position or there is no legal move
+     */
+    public void begin(Position position) {
+        Position copy = position.copy();
+        if (copy.outcome() != null) {
             throw new IllegalArgumentException("the game is over in this position");
         }
-        int[] legal = pos.legalMoves();
+        int[] legal = copy.legalMoves();
         if (legal.length == 0) {
             throw new IllegalArgumentException("the position has no legal move");
         }
         exactLeaves = 0;
+        done = 0;
+        finished = null;
+        batch = new ArrayList<>(options.batch());
+        pending = List.of();
         try {
-            MctsNode start = reusableRoot(pos);
-            if (start == null) {
-                start = new MctsNode(pos.sideToMove(), pos.hash(), pos.ply());
+            pos = copy;
+            rootMoves = legal;
+            MctsNode reused = reusableRoot(copy);
+            if (reused == null) {
+                start = new MctsNode(copy.sideToMove(), copy.hash(), copy.ply());
                 root = start;
-                expand(start, pos, evaluator.evaluate(pos));
+                phase = Phase.ROOT;
+                pending = List.of(copy);
+            } else {
+                start = reused;
+                startSimulation();
             }
-            root = start;
-            if (legal.length == 1) {
-                return result(start, 0, 0); // the root's only move
-            }
-            start.searchPrior = options.noise() > 0 ? noisy(start.prior) : null;
-            int done = simulate(pos, start);
-            start.searchPrior = null;
-            return result(start, done, chooseEdge(start));
         } catch (RuntimeException | Error e) {
-            root = null; // a failure inside a batch leaves virtual loss and pending nodes behind
+            abort();
             throw e;
         }
+    }
+
+    /**
+     * The next positions for the network.
+     *
+     * @return their number; 0 when the search is finished and {@link #result()} may be called
+     * @throws IllegalStateException if no search was begun
+     */
+    public int prepare() {
+        if (phase == Phase.IDLE) {
+            throw new IllegalStateException("no search in progress; call begin");
+        }
+        try {
+            while (pending.isEmpty() && phase == Phase.SIM) {
+                if (done >= options.sims() || (done > 0 && System.nanoTime() >= deadline)) {
+                    start.searchPrior = null;
+                    phase = Phase.DONE;
+                    break;
+                }
+                boolean collided = false;
+                while (!collided && batch.size() < options.batch() && done + batch.size() < options.sims()) {
+                    switch (descend(pos, start, batch)) {
+                        case EXACT -> done++;
+                        case LEAF -> { }
+                        case COLLISION -> collided = true;
+                    }
+                }
+                if (!batch.isEmpty()) {
+                    List<Position> positions = new ArrayList<>(batch.size());
+                    for (Leaf leaf : batch) {
+                        positions.add(leaf.position());
+                    }
+                    pending = positions;
+                }
+            }
+        } catch (RuntimeException | Error e) {
+            abort();
+            throw e;
+        }
+        return pending.size();
+    }
+
+    /** The number of positions that {@link #prepare} returned and {@link #apply} has not taken yet. */
+    public int pendingCount() {
+        return pending.size();
+    }
+
+    /**
+     * The encoded input of the positions that {@link #prepare} returned: {@code n * inputSize} floats, in the layout
+     * of {@link ForwardPass#forward} (canonical orientation, channels last).
+     *
+     * @throws IllegalStateException if nothing is pending
+     */
+    public float[] pendingInputs() {
+        if (pending.isEmpty()) {
+            throw new IllegalStateException("no positions are pending");
+        }
+        return evaluator.encode(pending);
+    }
+
+    /**
+     * Hands in the raw outputs of the forward pass for the pending positions, in the layout of
+     * {@link ForwardPass#forward}: {@code policyLogits} is [n][121][2], {@code values} is [n][width] with relative
+     * players. The softmax over the legal moves and the mapping to absolute players happen here.
+     *
+     * @throws IllegalStateException if nothing is pending, or the outputs are not finite (the tree is dropped)
+     */
+    public void apply(float[] policyLogits, float[] values) {
+        if (pending.isEmpty()) {
+            throw new IllegalStateException("no positions are pending");
+        }
+        try {
+            applyEvaluations(evaluator.decode(pending, policyLogits, values));
+        } catch (RuntimeException | Error e) {
+            abort();
+            throw e;
+        }
+    }
+
+    private void applyEvaluations(List<Evaluation> evaluations) {
+        if (phase == Phase.ROOT) {
+            expand(start, pos, evaluations.get(0));
+            pending = List.of();
+            startSimulation();
+            return;
+        }
+        for (int i = 0; i < batch.size(); i++) {
+            finish(batch.get(i), evaluations.get(i));
+        }
+        done += batch.size();
+        batch = new ArrayList<>(options.batch());
+        pending = List.of();
+    }
+
+    /** The root is expanded: a single legal move ends the search, else the simulations start. */
+    private void startSimulation() {
+        root = start;
+        if (rootMoves.length == 1) {
+            phase = Phase.DONE; // the root's only move, no search
+            return;
+        }
+        start.searchPrior = options.noise() > 0 ? noisy(start.prior) : null;
+        deadline = options.millis() == Long.MAX_VALUE ? Long.MAX_VALUE
+                : System.nanoTime() + options.millis() * 1_000_000L;
+        phase = Phase.SIM;
+    }
+
+    /** Drops the search in progress and the tree: a failure inside a batch leaves virtual loss and pending nodes behind. */
+    public void abort() {
+        root = null;
+        start = null;
+        phase = Phase.IDLE;
+        pending = List.of();
+        batch = new ArrayList<>();
+    }
+
+    /**
+     * The result of the finished search: the most visited move and the statistics of the root. The same object on
+     * every call until the next {@link #begin}.
+     *
+     * @throws IllegalStateException if the search is not finished ({@link #prepare} returned more than 0)
+     */
+    public MctsResult result() {
+        if (finished != null) {
+            return finished;
+        }
+        if (phase != Phase.DONE) {
+            throw new IllegalStateException("the search is not finished");
+        }
+        finished = rootMoves.length == 1 ? result(start, 0, 0) : result(start, done, chooseEdge(start));
+        return finished;
     }
 
     // ---- simulations ----
@@ -143,39 +337,6 @@ public final class Mcts {
 
     /** A position waiting for the network, with the path of its descent. */
     private record Leaf(MctsNode node, MctsNode[] nodes, int[] edges, Position position) {
-    }
-
-    private int simulate(Position pos, MctsNode start) {
-        long deadline = options.millis() == Long.MAX_VALUE ? Long.MAX_VALUE
-                : System.nanoTime() + options.millis() * 1_000_000L;
-        int done = 0;
-        while (done < options.sims()) {
-            if (done > 0 && System.nanoTime() >= deadline) {
-                break;
-            }
-            List<Leaf> batch = new ArrayList<>(options.batch());
-            boolean collided = false;
-            while (!collided && batch.size() < options.batch() && done + batch.size() < options.sims()) {
-                switch (descend(pos, start, batch)) {
-                    case EXACT -> done++;
-                    case LEAF -> { }
-                    case COLLISION -> collided = true;
-                }
-            }
-            if (!batch.isEmpty()) {
-                List<Position> positions = new ArrayList<>(batch.size());
-                for (Leaf leaf : batch) {
-                    positions.add(leaf.position());
-                }
-                List<Evaluation> evaluations = evaluator.evaluate(positions);
-                for (int i = 0; i < batch.size(); i++) {
-                    Leaf leaf = batch.get(i);
-                    finish(leaf, evaluations.get(i));
-                }
-                done += batch.size();
-            }
-        }
-        return done;
     }
 
     /** One walk from the root; the position is back at the root when it returns. */
@@ -340,6 +501,11 @@ public final class Mcts {
 
     /** A Gamma(alpha, 1) sample (Marsaglia and Tsang; for alpha below 1 via alpha + 1). */
     static double gamma(RandomGenerator random, double alpha) {
+        return gamma(SearchRandom.of(random), alpha);
+    }
+
+    /** {@link #gamma(RandomGenerator, double)} on a {@link SearchRandom}. */
+    static double gamma(SearchRandom random, double alpha) {
         if (alpha < 1) {
             double u;
             do {
