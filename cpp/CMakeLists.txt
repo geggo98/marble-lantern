@@ -105,7 +105,7 @@ if(EMSCRIPTEN)
   sh_target(engine-cpp)
   target_link_libraries(engine-cpp PRIVATE sh_search)
   set(sh_wasm_exports
-    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_game_new _shw_side_to_move _shw_ply
+    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_game_new _shw_jump_rule _shw_side_to_move _shw_ply
     _shw_owner _shw_cell_count _shw_cell_q _shw_cell_r _shw_legal_moves _shw_play _shw_unmake _shw_outcome _shw_choose
     _shw_last_score _shw_last_depth _shw_last_nodes _shw_has_result _shw_total_nodes _shw_race_moves _shw_rows1_requests)
   list(JOIN sh_wasm_exports "," sh_wasm_exports_csv)
@@ -121,6 +121,10 @@ if(EMSCRIPTEN)
   target_link_options(engine-cpp PRIVATE -Wno-version-check)
   return()
 endif()
+
+# The C ABI of the browser engine, built natively as well so that wasm_api_test can call it without Emscripten.
+sh_library(sh_wasm_api src/wasm/wasm_api.cpp)
+target_link_libraries(sh_wasm_api PUBLIC sh_search)
 
 sh_library(sh_nn
   src/nn/config.cpp src/nn/safetensors.cpp src/nn/parameters.cpp src/nn/gather.cpp
@@ -175,6 +179,7 @@ sh_test(tablebase_test sh_tablebase)
 sh_test(race_table_bytes_test sh_search)
 sh_test(eval_test sh_search)
 sh_test(search_test sh_search)
+sh_test(wasm_api_test sh_wasm_api)
 sh_test(nn_test sh_nn)
 target_include_directories(nn_test PRIVATE tests)
 # WP10: the object code proves the two variants of the SIMD forward pass (fused instructions in one, none in the other).
