@@ -211,7 +211,7 @@ describe('NetSelectionStore', () => {
 
   it('probes WebGPU once, when net-webgpu is selected, and exposes the answer and the evaluation', async () => {
     let probes = 0;
-    const store = new NetSelectionStore({ storage: mem().storage, wasm: true, probe: async () => { probes++; return { available: false, reason: 'no adapter' }; } });
+    const store = new NetSelectionStore({ storage: mem().storage, wasm: true, probe: async () => { probes++; return { available: false, reason: 'webgpu-no-adapter' as const, detail: 'no adapter' }; } });
     expect(store.getState().availability.webgpu).toBeNull();
     store.setSelection({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' });
     expect(probes).toBe(0);
@@ -219,7 +219,7 @@ describe('NetSelectionStore', () => {
     store.setSelection({ sims: 50 });
     await store.probeWebGpu();
     expect(probes).toBe(1);
-    expect(store.getState().availability).toEqual({ wasm: true, webgpu: false, webgpuReason: 'no adapter' });
+    expect(store.getState().availability).toEqual({ wasm: true, webgpu: false, webgpuReason: 'webgpu-no-adapter', webgpuDetail: 'no adapter' });
     const e = store.evaluate({ jump: 'adjacent', players: 2 });
     expect(e.warnings.map((w) => w.code)).toEqual(['backend-unavailable']);
     expect(e.effectiveBackend).toBe('wasm');
@@ -228,6 +228,6 @@ describe('NetSelectionStore', () => {
   it('a probe that throws counts as not available', async () => {
     const store = new NetSelectionStore({ storage: mem().storage, wasm: true, probe: async () => { throw new Error('probe broke'); } });
     await store.probeWebGpu();
-    expect(store.getState().availability).toMatchObject({ webgpu: false, webgpuReason: 'probe broke' });
+    expect(store.getState().availability).toMatchObject({ webgpu: false, webgpuReason: 'unknown', webgpuDetail: 'probe broke' });
   });
 });

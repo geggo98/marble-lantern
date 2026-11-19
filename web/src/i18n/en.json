@@ -317,5 +317,16 @@
   "net.model.strength.noci": "TODO-OPUS net.model.strength.noci {elo} {opp} {jump} {sims} {players}",
   "net.model.strength.score": "TODO-OPUS net.model.strength.score {score} {count} {opp} {jump} {sims} {players}",
   "net.sims.option": "TODO-OPUS net.sims.option {sims}",
-  "net.sims.time.typical": "TODO-OPUS net.sims.time.typical {ms}"
+  "net.sims.time.typical": "TODO-OPUS net.sims.time.typical {ms}",
+  "net.reason.no-model-id": "TODO-OPUS net.reason.no-model-id {model} {variant}",
+  "net.reason.variant-not-supported": "TODO-OPUS net.reason.variant-not-supported {model} {variant}",
+  "net.reason.webassembly-unavailable": "TODO-OPUS net.reason.webassembly-unavailable {model} {variant}",
+  "net.reason.webgpu-no-api": "TODO-OPUS net.reason.webgpu-no-api {model} {variant}",
+  "net.reason.webgpu-no-adapter": "TODO-OPUS net.reason.webgpu-no-adapter {model} {variant}",
+  "net.reason.webgpu-device-failed": "TODO-OPUS net.reason.webgpu-device-failed {model} {variant}",
+  "net.reason.webgpu-lost": "TODO-OPUS net.reason.webgpu-lost {model} {variant}",
+  "net.reason.load-failed": "TODO-OPUS net.reason.load-failed {model} {variant}",
+  "net.reason.verify-failed": "TODO-OPUS net.reason.verify-failed {model} {variant}",
+  "net.reason.unknown": "TODO-OPUS net.reason.unknown {model} {variant}",
+  "net.details.summary": "TODO-OPUS net.details.summary"
 }

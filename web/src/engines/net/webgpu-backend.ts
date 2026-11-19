@@ -12,6 +12,7 @@
 //
 // The kernels are the tiled variant of web/bench/webgpu (webgpu-shaders.ts). The naive variant of the benchmark is not part
 // of production. The optional WebGPU features shader-f16 and subgroups are not used: see docs/web-ui.md.
+import type { ProbeResult, ReasonCode } from '../warnings';
 import { BackendError, type NetBackend, type NetOutputs } from './backend';
 import { parseSafetensors } from './safetensors';
 import {
@@ -19,10 +20,9 @@ import {
   transposeWeights, valueShader, type NetConfig,
 } from './webgpu-shaders';
 
-export interface WebGpuProbe {
-  available: boolean;
-  /** Why WebGPU is not usable. Set when `available` is false. */
-  reason?: string;
+export interface WebGpuProbe extends ProbeResult {
+  /** Why WebGPU is not usable (a code; the technical text is in `detail`). Set when `available` is false. */
+  reason?: ReasonCode;
   /** What the adapter reports (empty strings where the browser hides a field). Set when `available` is true. */
   adapterInfo?: { vendor: string; architecture: string; device: string; description: string; isFallbackAdapter: boolean };
 }
@@ -43,10 +43,10 @@ function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
 
 async function probeOnce(): Promise<WebGpuProbe> {
   const gpu = gpuOf();
-  if (!gpu) return { available: false, reason: 'navigator.gpu is undefined (no WebGPU in this browser, or not a secure context)' };
+  if (!gpu) return { available: false, reason: 'webgpu-no-api', detail: 'navigator.gpu is undefined (no WebGPU in this browser, or not a secure context)' };
   try {
     const adapter = await withTimeout(gpu.requestAdapter(), 'requestAdapter()');
-    if (!adapter) return { available: false, reason: 'requestAdapter() returned null (no usable GPU or WebGPU blocked)' };
+    if (!adapter) return { available: false, reason: 'webgpu-no-adapter', detail: 'requestAdapter() returned null (no usable GPU or WebGPU blocked)' };
     const device = await withTimeout(adapter.requestDevice(), 'requestDevice()');
     device.destroy();
     const info = adapter.info;
@@ -58,7 +58,7 @@ async function probeOnce(): Promise<WebGpuProbe> {
       },
     };
   } catch (e) {
-    return { available: false, reason: `requesting a WebGPU device failed: ${e instanceof Error ? e.message : String(e)}` };
+    return { available: false, reason: 'webgpu-device-failed', detail: `requesting a WebGPU device failed: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
@@ -186,7 +186,7 @@ export class WebGpuBackend implements NetBackend {
     void device.lost.then((info) => {
       if (info.reason === 'destroyed') return;
       const error = new BackendError('device-lost', `the GPU device was lost (${info.reason}): ${info.message}`);
-      probeCache = Promise.resolve({ available: false, reason: error.message });
+      probeCache = Promise.resolve({ available: false, reason: 'webgpu-lost', detail: error.message });
       if (this.device === device) this.fail(error);
     });
     this.device = device;

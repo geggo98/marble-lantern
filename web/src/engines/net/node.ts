@@ -67,7 +67,7 @@ export function nodeDeps(webnet: WebNetModule, o: NodeDepsOptions): NetCoreDeps 
         if (kind !== 'wasm') throw new Error('no WebGPU in node');
         return createWasmBackend({ maxBatch, factory: (f: Flavour) => importFlavour(pathToFileURL(join(netDir, `engine-net-nn-${f}.js`)).href) });
       }),
-    probeWebGpu: o.probeWebGpu ?? (async () => ({ available: false, reason: 'node has no WebGPU' })),
+    probeWebGpu: o.probeWebGpu ?? (async () => ({ available: false, reason: 'webgpu-no-api' as const, detail: 'node has no WebGPU' })),
     loadModel: loadModelFromDisk(o.modelsDir),
     random: o.random ?? mulberry32(12345),
     seed: () => o.seed ?? 1,

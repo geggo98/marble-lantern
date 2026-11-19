@@ -32,7 +32,7 @@ describe('evaluateSelection', () => {
     expect(evaluateSelection(sel('net-wasm', EXPERT), ADJ2, all)).toMatchObject({ usable: true, warnings: [], effectiveBackend: 'wasm' });
     const bad = evaluateSelection(sel('net-wasm', EXPERT), ADJ3, all);
     expect(codes(bad.warnings)).toEqual(['model-variant-mismatch', 'fallback-random']);
-    expect(bad.warnings[0]).toMatchObject({ modelId: EXPERT, variant: ADJ3 });
+    expect(bad.warnings[0]).toMatchObject({ modelId: EXPERT, variant: ADJ3, reason: 'variant-not-supported' });
     expect(bad.effectiveBackend).toBe('random');
   });
 
@@ -47,7 +47,8 @@ describe('evaluateSelection', () => {
   it('an unknown model id: model-load-failed', () => {
     const e = evaluateSelection(sel('net-wasm', 'ghost'), ADJ2, all);
     expect(codes(e.warnings)).toEqual(['model-load-failed', 'fallback-random']);
-    expect(e.warnings[0]).toMatchObject({ modelId: 'ghost' });
+    expect(e.warnings[0]).toMatchObject({ modelId: 'ghost', reason: 'no-model-id' });
+    expect(e.warnings[0]!.detail).toContain('ghost');
   });
 
   it('lists the compatible models for the variant', () => {
@@ -65,10 +66,10 @@ describe('evaluateSelection', () => {
   });
 
   it('net-webgpu with a model but no WebGPU: the CPU net plays, with backend-unavailable only', () => {
-    const e = evaluateSelection(sel('net-webgpu', EXPERT), ADJ2, { wasm: true, webgpu: false, webgpuReason: 'no adapter' });
+    const e = evaluateSelection(sel('net-webgpu', EXPERT), ADJ2, { wasm: true, webgpu: false, webgpuReason: 'webgpu-no-adapter', webgpuDetail: 'no adapter' });
     expect(e).toMatchObject({ usable: true, effectiveBackend: 'wasm' });
     expect(codes(e.warnings)).toEqual(['backend-unavailable']);
-    expect(e.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'no adapter', modelId: EXPERT });
+    expect(e.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'webgpu-no-adapter', detail: 'no adapter', modelId: EXPERT });
   });
 
   it('net-webgpu without a model and without WebGPU names the missing model only (no net would run anyway)', () => {
@@ -77,10 +78,18 @@ describe('evaluateSelection', () => {
   });
 
   it('no WebAssembly at all: backend-unavailable and random, also for net-webgpu without WebGPU', () => {
-    expect(codes(evaluateSelection(sel('net-wasm', EXPERT), ADJ2, { wasm: false, webgpu: false }).warnings)).toEqual(['backend-unavailable', 'fallback-random']);
+    const noWasm = evaluateSelection(sel('net-wasm', EXPERT), ADJ2, { wasm: false, webgpu: false });
+    expect(codes(noWasm.warnings)).toEqual(['backend-unavailable', 'fallback-random']);
+    expect(noWasm.warnings[0]).toMatchObject({ reason: 'webassembly-unavailable' });
     const e = evaluateSelection(sel('net-webgpu', EXPERT), ADJ2, { wasm: false, webgpu: false });
     expect(e.effectiveBackend).toBe('random');
-    expect(e.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'random' });
+    expect(e.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'random', reason: 'webgpu-no-adapter' });
+  });
+
+  it('a missing probe reason is the unknown-adapter code, not an English text', () => {
+    const e = evaluateSelection(sel('net-webgpu', EXPERT), ADJ2, { wasm: true, webgpu: false });
+    expect(e.warnings[0]).toMatchObject({ reason: 'webgpu-no-adapter' });
+    expect(e.warnings[0]!.detail).toBeUndefined();
   });
 
   it('a different set of models changes the answer (the argument is used, not the bundled list)', () => {

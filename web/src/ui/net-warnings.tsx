@@ -2,7 +2,7 @@
 // colour alone (icon + text). The same list serves the engine sheet (live, from evaluateSelection), the start dialog and the engine
 // card (from the session). The wording lives in the i18n catalogs (keys net.warn.*).
 import { listModels } from '../engines/net/model-manifest';
-import type { EngineWarning } from '../engines/warnings';
+import type { EngineWarning, ReasonCode } from '../engines/warnings';
 import type { Variant } from '../game/variant';
 import { Icon } from './primitives';
 import { useT } from './texts';
@@ -14,12 +14,33 @@ export interface DescribedWarning {
   code: EngineWarning['code'];
   text: string;
   action?: WarningAction;
+  /** 'info': the net still plays (the CPU replaces the GPU); 'alert': random moves or a failed load. */
+  tone: 'info' | 'alert';
+  /** The technical cause in English, for the collapsed "Details" only. */
+  detail?: string;
 }
 
 /** The jump rule and the number of players of a variant as short data text. */
 export function variantText(variant: Variant | undefined, t: Translate): string {
   if (!variant) return '';
   return `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
+}
+
+/** The localized text of a reason code (catalog keys net.reason.<code>); empty for no code. */
+export function reasonText(code: ReasonCode | undefined, t: Translate, model = '', variant = ''): string {
+  return code ? t(`net.reason.${code}` as TextKey, { model, variant }) : '';
+}
+
+/** The technical English text behind a message, folded away: a native Details, so it works without script and by keyboard. */
+export function ReasonDetails({ detail }: { detail: string | undefined }): React.JSX.Element | null {
+  const { t } = useT();
+  if (!detail) return null;
+  return (
+    <details className="ml-netwarn__details" data-net-details>
+      <summary>{t('net.details.summary')}</summary>
+      <code lang="en" translate="no">{detail}</code>
+    </details>
+  );
 }
 
 export function modelName(id: string | undefined, t: Translate): string {
@@ -36,20 +57,27 @@ export function describeWarnings(warnings: readonly EngineWarning[], t: Translat
   const causes = warnings.filter((w) => w.code !== 'fallback-random');
   const shown = causes.length > 0 ? causes : warnings;
   return shown.map((w): DescribedWarning => {
-    const values = { model: modelName(w.modelId, t), variant: variantText(w.variant, t), reason: w.reason ?? '' };
-    switch (w.code) {
-      case 'no-model':
-        return { code: w.code, text: t('net.warn.no-model', values), action: 'choose-model' };
-      case 'model-variant-mismatch':
-        return { code: w.code, text: t('net.warn.model-variant-mismatch', values), action: 'choose-other' };
-      case 'backend-unavailable':
-        return { code: w.code, text: t(w.fallback === 'wasm' ? 'net.warn.backend-cpu' : 'net.warn.backend-random', values) };
-      case 'model-load-failed':
-        return { code: w.code, text: t('net.warn.model-load-failed', values), action: 'retry' };
-      default:
-        return { code: w.code, text: t('net.warn.fallback-random', values) };
-    }
+    const model = modelName(w.modelId, t);
+    const variant = variantText(w.variant, t);
+    const values = { model, variant, reason: reasonText(w.reason, t, model, variant) };
+    const detail = w.detail ? { detail: w.detail } : {};
+    return { ...describeOne(w, values, t), tone: w.code === 'backend-unavailable' && w.fallback === 'wasm' ? 'info' : 'alert', ...detail };
   });
+}
+
+function describeOne(w: EngineWarning, values: { model: string; variant: string; reason: string }, t: Translate): Pick<DescribedWarning, 'code' | 'text' | 'action'> {
+  switch (w.code) {
+    case 'no-model':
+      return { code: w.code, text: t('net.warn.no-model', values), action: 'choose-model' };
+    case 'model-variant-mismatch':
+      return { code: w.code, text: t('net.warn.model-variant-mismatch', values), action: 'choose-other' };
+    case 'backend-unavailable':
+      return { code: w.code, text: t(w.fallback === 'wasm' ? 'net.warn.backend-cpu' : 'net.warn.backend-random', values) };
+    case 'model-load-failed':
+      return { code: w.code, text: t('net.warn.model-load-failed', values), action: 'retry' };
+    default:
+      return { code: w.code, text: t('net.warn.fallback-random', values) };
+  }
 }
 
 export interface NetWarningsProps {
@@ -70,9 +98,10 @@ export function NetWarnings({ warnings, onAction, live = false }: NetWarningsPro
       {items.map((w) => {
         const handler = w.action ? onAction?.[w.action] : undefined;
         return (
-          <li key={w.code} className="ml-netwarn__item" data-net-warning={w.code}>
-            <Icon name="alert" />
+          <li key={w.code} className="ml-netwarn__item" data-net-warning={w.code} data-tone={w.tone}>
+            <Icon name={w.tone} />
             <span className="ml-netwarn__text">{w.text}</span>
+            <ReasonDetails detail={w.detail} />
             {w.action && handler && (
               <button type="button" className="ml-btn" data-warning-action={w.action} onClick={handler}>
                 {t(w.action === 'choose-model' ? 'net.action.choose-model' : w.action === 'choose-other' ? 'net.action.choose-other' : 'net.action.retry')}

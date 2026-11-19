@@ -70,21 +70,23 @@ describe('isWebGpuAvailable', () => {
     setNavigatorGpu(undefined);
     const p = await isWebGpuAvailable();
     expect(p.available).toBe(false);
-    expect(p.reason).toMatch(/navigator\.gpu is undefined/);
+    expect(p.reason).toBe('webgpu-no-api');
+    expect(p.detail).toMatch(/navigator\.gpu is undefined/);
     expect(p.adapterInfo).toBeUndefined();
   });
 
   it('reports unavailable when requestAdapter returns null', async () => {
     setNavigatorGpu(fakeGpu({ adapter: false }).gpu);
     const p = await isWebGpuAvailable();
-    expect(p).toEqual({ available: false, reason: expect.stringMatching(/requestAdapter\(\) returned null/) });
+    expect(p).toEqual({ available: false, reason: 'webgpu-no-adapter', detail: expect.stringMatching(/requestAdapter\(\) returned null/) });
   });
 
   it('reports unavailable, with the cause, when requestDevice throws', async () => {
     setNavigatorGpu(fakeGpu({ deviceError: new Error('no device for you') }).gpu);
     const p = await isWebGpuAvailable();
     expect(p.available).toBe(false);
-    expect(p.reason).toMatch(/no device for you/);
+    expect(p.reason).toBe('webgpu-device-failed');
+    expect(p.detail).toMatch(/no device for you/);
   });
 
   it('does a real requestAdapter and requestDevice, returns the adapter info and destroys the probe device', async () => {
@@ -196,7 +198,8 @@ describe('WebGpuBackend', () => {
     await expect(b.load(net())).rejects.toMatchObject({ code: 'device-lost' });
     const probe = await isWebGpuAvailable();
     expect(probe.available).toBe(false);
-    expect(probe.reason).toMatch(/lost/);
+    expect(probe.reason).toBe('webgpu-lost');
+    expect(probe.detail).toMatch(/lost/);
   });
 
   it('a loss reported as "destroyed" (our own destroy) is not an error', async () => {

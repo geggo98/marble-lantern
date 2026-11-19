@@ -7,6 +7,7 @@ import type { Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NetSelectionStore } from '../app/net-selection';
 import type { EngineChoice } from '../engines/registry';
+import type { ProbeResult } from '../engines/warnings';
 import type { Variant } from '../game/variant';
 import { EngineSheet } from './EngineSheet';
 import type { SheetProps } from './EngineSheet';
@@ -37,7 +38,7 @@ interface Opts {
   modelId?: string | null;
   sims?: 50 | 200 | 800;
   variant?: Variant;
-  probe?: () => Promise<{ available: boolean; reason?: string }>;
+  probe?: () => Promise<ProbeResult>;
   onApply?: SheetProps['onApply'];
   onClose?: () => void;
 }
@@ -161,9 +162,10 @@ describe('live warnings', () => {
   });
 
   it('net-webgpu without WebGPU: backend-unavailable (the CPU net plays), no random-move text', async () => {
-    await open({ engine: 'net-webgpu', modelId: EXPERT, probe: () => Promise.resolve({ available: false, reason: 'no adapter' }) });
+    await open({ engine: 'net-webgpu', modelId: EXPERT, probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
     expect(warnings()).toEqual(['backend-unavailable']);
-    expect(q('[data-net-warning="backend-unavailable"]')!.textContent).toContain('no adapter');
+    expect(q('[data-net-warning="backend-unavailable"]')!.textContent).toContain('net.reason.webgpu-no-adapter');
+    expect(q('[data-net-warning="backend-unavailable"]')!.getAttribute('data-tone')).toBe('info');
     expect(q('[data-warning-action]')).toBeNull();
   });
 
@@ -180,14 +182,18 @@ describe('WebGPU row', () => {
     let done: (r: { available: boolean }) => void = () => undefined;
     await open({ probe: () => new Promise((r) => (done = r)) });
     expect(status()).toBe('checking');
+    expect(q('[data-webgpu-status] use')!.getAttribute('href'), 'a neutral icon while the probe runs, no check mark').toBe('#i-wait');
     await act(async () => done({ available: true }));
     expect(status()).toBe('available');
+    expect(q('[data-webgpu-status] use')!.getAttribute('href')).toBe('#i-check');
   });
 
   it('says unavailable with the reason from the probe', async () => {
-    await open({ probe: () => Promise.resolve({ available: false, reason: 'no adapter' }) });
+    await open({ probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
     expect(status()).toBe('unavailable');
-    expect(q('[data-webgpu-status]')!.textContent).toContain('no adapter');
+    expect(q('[data-webgpu-status]')!.textContent).toContain('net.reason.webgpu-no-adapter'); // the localized text of the code
+    expect(q<HTMLDetailsElement>('[data-webgpu-status] details')!.open).toBe(false); // the English technical text is folded away
+    expect(q('[data-webgpu-status] details')!.textContent).toContain('no adapter');
   });
 
   it('is not probed when no WebGPU row is listed', async () => {

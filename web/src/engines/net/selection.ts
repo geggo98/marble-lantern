@@ -5,7 +5,7 @@ import type { Variant } from '../../game/variant';
 import type { EngineId } from '../engine';
 import { isNetEngine } from '../engine';
 import { DEFAULT_SIMS, SIMS_PRESETS } from '../warnings';
-import type { EngineWarning, Sims } from '../warnings';
+import type { EngineWarning, ReasonCode, Sims } from '../warnings';
 import { listModels, modelFits, modelsFor } from './model-manifest';
 import type { ModelInfo } from './model-manifest';
 
@@ -27,8 +27,10 @@ export interface NetAvailability {
   wasm: boolean;
   /** The WebGPU probe (isWebGpuAvailable): true or false, or null while it has not answered yet (treated as available). */
   webgpu: boolean | null;
-  /** Why WebGPU is not usable, from the probe. */
-  webgpuReason?: string;
+  /** Why WebGPU is not usable, from the probe, as a code. */
+  webgpuReason?: ReasonCode;
+  /** The technical English text of the cause (the collapsed "Details"). */
+  webgpuDetail?: string;
 }
 
 export interface SelectionEvaluation {
@@ -59,24 +61,24 @@ export function evaluateSelection(
   });
   if (selection.modelId === null) return random({ code: 'no-model', variant });
   const info = models.find((m) => m.id === selection.modelId);
-  if (!info) return random({ code: 'model-load-failed', modelId: selection.modelId, variant, reason: `no model with the id ${selection.modelId}` });
+  if (!info) return random({ code: 'model-load-failed', modelId: selection.modelId, variant, reason: 'no-model-id', detail: `no model with the id ${selection.modelId}` });
   if (!modelFits(info, variant)) {
-    return random({ code: 'model-variant-mismatch', modelId: info.id, variant, reason: `the model ${info.id} does not play this variant` });
+    return random({ code: 'model-variant-mismatch', modelId: info.id, variant, reason: 'variant-not-supported', detail: `the model ${info.id} does not play this variant` });
   }
   const warnings: EngineWarning[] = [];
   if (selection.engine === 'net-webgpu') {
     // null (the probe has not answered) counts as available: the engine itself asks again and falls back if it is wrong.
     if (availability.webgpu !== false) return { usable: true, warnings, effectiveBackend: 'webgpu', compatibleModels };
     // No WebGPU: the CPU net plays, if it can.
-    const reason = availability.webgpuReason ?? 'WebGPU is not available';
+    const why = { reason: availability.webgpuReason ?? 'webgpu-no-adapter', ...(availability.webgpuDetail ? { detail: availability.webgpuDetail } : {}) } as const;
     if (availability.wasm) {
-      warnings.push({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', modelId: info.id, variant, reason });
+      warnings.push({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', modelId: info.id, variant, ...why });
       return { usable: true, warnings, effectiveBackend: 'wasm', compatibleModels };
     }
-    return random({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'random', modelId: info.id, variant, reason });
+    return random({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'random', modelId: info.id, variant, ...why });
   }
   if (!availability.wasm) {
-    return random({ code: 'backend-unavailable', backend: 'wasm', fallback: 'random', modelId: info.id, variant, reason: 'WebAssembly is not available' });
+    return random({ code: 'backend-unavailable', backend: 'wasm', fallback: 'random', modelId: info.id, variant, reason: 'webassembly-unavailable', detail: 'WebAssembly is not available' });
   }
   return { usable: true, warnings, effectiveBackend: 'wasm', compatibleModels };
 }

@@ -11,7 +11,7 @@ import { DEFAULT_VARIANT } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { NetSelectionStore, useNetSelection } from '../app/net-selection';
 import { MODEL_GROUP, ModelGroup, SimsGroup } from './NetGroups';
-import { NetWarnings } from './net-warnings';
+import { NetWarnings, ReasonDetails, reasonText } from './net-warnings';
 import { Icon, Tag } from './primitives';
 import { DEFAULT_LEVEL, NODE_LEVELS, levelKey, runtimeTag } from './Panels';
 import { useT } from './texts';
@@ -156,13 +156,14 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                 </span>
                 {id === 'net-webgpu' && c.available && (
                   <p className="ml-option__reason" data-webgpu-status={net.availability.webgpu === null ? 'checking' : net.availability.webgpu ? 'available' : 'unavailable'}>
-                    <Icon name={net.availability.webgpu === false ? 'alert' : 'check'} />
+                    <Icon name={net.availability.webgpu === null ? 'wait' : net.availability.webgpu ? 'check' : 'alert'} />
                     <span>
                       {net.availability.webgpu === null
                         ? t('net.webgpu.checking')
                         : net.availability.webgpu
                           ? t('net.webgpu.available')
-                          : t('net.webgpu.unavailable', { reason: net.availability.webgpuReason ?? '' })}
+                          : t('net.webgpu.unavailable', { reason: reasonText(net.availability.webgpuReason ?? 'unknown', t) })}
+                      <ReasonDetails detail={net.availability.webgpu === false ? net.availability.webgpuDetail : undefined} />
                     </span>
                   </p>
                 )}

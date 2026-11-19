@@ -5,6 +5,7 @@ import { DEFAULT_VARIANT } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import { BackendError } from './backend';
 import type { NetBackend, NetOutputs } from './backend';
+import type { ProbeResult } from '../warnings';
 import { NetCore } from './core';
 import type { BackendKind, NetCoreDeps } from './core';
 import type { ModelInfo } from './models';
@@ -91,7 +92,7 @@ interface Rig {
   backends: FakeBackend[];
   loads: string[];
   probes: boolean[];
-  gpu: { available: boolean; reason?: string };
+  gpu: ProbeResult;
   createFails: Partial<Record<BackendKind, Error>>;
   loadFails: Map<string, Error>;
   deps: NetCoreDeps;
@@ -315,7 +316,7 @@ describe('NetCore: fallback to random legal moves (IC4)', () => {
     const core = new NetCore('wasm', r.deps);
     const w = await core.newGame({ nodes: [1, 1], model: 'expert' });
     expect(codes(w)).toEqual(['model-load-failed', 'fallback-random']);
-    expect(w[0]).toMatchObject({ modelId: 'expert', reason: 'sha256 differs' });
+    expect(w[0]).toMatchObject({ modelId: 'expert', reason: 'load-failed', detail: 'sha256 differs' });
     expect((await core.choose([])).net.backend).toBe('random');
   });
 
@@ -325,7 +326,8 @@ describe('NetCore: fallback to random legal moves (IC4)', () => {
     const core = new NetCore('wasm', r.deps);
     const w = await core.newGame({ nodes: [1, 1], model: 'expert' });
     expect(codes(w)).toEqual(['model-load-failed', 'fallback-random']);
-    expect(w[0]!.reason).toContain('not a net');
+    expect(w[0]).toMatchObject({ reason: 'load-failed' });
+    expect(w[0]!.detail).toContain('not a net');
   });
 
   it('no CPU backend: backend-unavailable (fallback random) then fallback-random', async () => {
@@ -345,7 +347,8 @@ describe('NetCore: fallback to random legal moves (IC4)', () => {
     const res = await core.choose([]);
     expect(res.net.backend).toBe('random');
     expect(codes(res.warnings)).toEqual(['model-variant-mismatch', 'fallback-random']);
-    expect(res.warnings[0]!.reason).toContain('3 players');
+    expect(res.warnings[0]).toMatchObject({ reason: 'variant-not-supported' });
+    expect(res.warnings[0]!.detail).toContain('3 players');
     r.web.beginError = null;
     expect((await core.choose([])).net.backend).toBe('random'); // stays random until the next newGame
     expect((await core.newGame({ nodes: [1, 1], model: 'expert' })).length).toBe(0); // and clears with it
@@ -388,11 +391,11 @@ describe('NetCore: WebGPU', () => {
 
   it('net-webgpu with a valid model but no WebGPU falls back to the CPU net and warns backend-unavailable only', async () => {
     const r = rig();
-    r.gpu = { available: false, reason: 'no adapter' };
+    r.gpu = { available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' };
     const core = new NetCore('webgpu', r.deps);
     const w = await core.newGame({ nodes: [1, 1], model: 'expert', netOptions: { sims: 200 } });
     expect(codes(w)).toEqual(['backend-unavailable']);
-    expect(w[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'no adapter', modelId: 'expert' });
+    expect(w[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'webgpu-no-adapter', detail: 'no adapter', modelId: 'expert' });
     expect(r.backends.map((b) => b.kind)).toEqual(['wasm']);
     expect(r.web.created.at(-1)!.batch).toBe(1); // the CPU batch, not the GPU one
     expect((await core.choose([])).net.backend).toBe('wasm');
@@ -400,7 +403,7 @@ describe('NetCore: WebGPU', () => {
 
   it('net-webgpu without a model plays random, with no-model; the missing GPU is not blamed when no net would run anyway', async () => {
     const r = rig();
-    r.gpu = { available: false, reason: 'no adapter' };
+    r.gpu = { available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' };
     const core = new NetCore('webgpu', r.deps);
     const w = await core.newGame({ nodes: [1, 1] });
     expect(codes(w)).toEqual(['no-model', 'fallback-random']);
@@ -413,7 +416,8 @@ describe('NetCore: WebGPU', () => {
     const core = new NetCore('webgpu', r.deps);
     const w = await core.newGame({ nodes: [1, 1], model: 'expert' });
     expect(codes(w)).toEqual(['backend-unavailable']);
-    expect(w[0]!.reason).toContain('requestDevice failed');
+    expect(w[0]).toMatchObject({ reason: 'webgpu-device-failed' });
+    expect(w[0]!.detail).toContain('requestDevice failed');
     expect((await core.choose([])).net.backend).toBe('wasm');
   });
 
@@ -436,7 +440,7 @@ describe('NetCore: WebGPU', () => {
     expect(res.net.backend).toBe('wasm');
     expect(res.move).toBe(30);
     expect(codes(res.warnings)).toEqual(['backend-unavailable']);
-    expect(res.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'GPU reset' });
+    expect(res.warnings[0]).toMatchObject({ backend: 'webgpu', fallback: 'wasm', reason: 'webgpu-lost', detail: 'GPU reset' });
     expect(r.backends.map((b) => b.kind)).toEqual(['webgpu', 'wasm']);
     expect((await core.choose([])).warnings).toHaveLength(1); // the warning stays for the rest of the game
     r.onCreate.webgpu = () => undefined;
@@ -488,7 +492,8 @@ describe('NetCore: errors of a backend that are not typed backend errors (F1)', 
     expect(res.net.backend).toBe('random');
     expect(LEGAL).toContain(res.move);
     expect(codes(res.warnings)).toEqual(['backend-unavailable', 'fallback-random']);
-    expect(res.warnings[0]!.reason).toContain('unreachable executed');
+    expect(res.warnings[0]).toMatchObject({ reason: 'unknown' });
+    expect(res.warnings[0]!.detail).toContain('unreachable executed');
   });
 
   it('a DOMException AbortError of the GPU while the signal is not aborted falls back to the CPU net', async () => {
@@ -526,7 +531,7 @@ describe('NetCore: errors of a backend that are not typed backend errors (F1)', 
 
   it('degrading keeps the warning of the plan (no GPU) next to the degradation', async () => {
     const r = rig();
-    r.gpu = { available: false, reason: 'no adapter' };
+    r.gpu = { available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' };
     r.onCreate.wasm = (b) => { b.failEvaluateWith = trap(); };
     const core = new NetCore('webgpu', r.deps);
     await core.newGame({ nodes: [1, 1], model: 'expert' });

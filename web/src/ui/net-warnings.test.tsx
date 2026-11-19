@@ -11,6 +11,8 @@ import type { EngineWarning } from '../engines/warnings';
 import { StartDialog } from './StartDialog';
 import { EngineCard, Telemetry } from './Panels';
 import { NetNotice, NetWarnings, describeWarnings, variantText } from './net-warnings';
+import de from '../i18n/de.json';
+import en from '../i18n/en.json';
 import { translate } from './texts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,18 +47,48 @@ describe('describeWarnings', () => {
     const w: EngineWarning[] = [
       { code: 'no-model', variant: V2 },
       { code: 'model-variant-mismatch', modelId: 'small-shared-all', variant: V2 },
-      { code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', reason: 'r1' },
-      { code: 'backend-unavailable', backend: 'webgpu', fallback: 'random', reason: 'r2' },
-      { code: 'model-load-failed', modelId: 'small-shared-all', reason: 'r3' },
+      { code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', reason: 'webgpu-no-adapter', detail: 'requestAdapter() returned null' },
+      { code: 'backend-unavailable', backend: 'webgpu', fallback: 'random', reason: 'webgpu-lost', detail: 'GPU reset' },
+      { code: 'model-load-failed', modelId: 'small-shared-all', reason: 'verify-failed', detail: 'sha256 differs' },
     ];
     const d = w.map((x) => describeWarnings([x], t)[0]!);
     expect(d.map((x) => x.action)).toEqual(['choose-model', 'choose-other', undefined, undefined, 'retry']);
     expect(new Set(d.map((x) => x.text)).size).toBe(5); // five different texts: the two backend texts differ by fallback
-    expect(d[2]!.text).toBe(t('net.warn.backend-cpu', { model: '', variant: '', reason: 'r1' }));
-    expect(d[3]!.text).toBe(t('net.warn.backend-random', { model: '', variant: '', reason: 'r2' }));
-    expect(d[2]!.text).toContain('r1');
-    expect(d[3]!.text).toContain('r2');
-    expect(d[4]!.text).toContain('r3');
+    expect(d[2]!.text).toContain('net.warn.backend-cpu');
+    expect(d[3]!.text).toContain('net.warn.backend-random');
+    expect(d[2]!.text).toContain('net.reason.webgpu-no-adapter');
+    expect(d[3]!.text).toContain('net.reason.webgpu-lost');
+    expect(d[4]!.text).toContain('net.reason.verify-failed');
+    // the English technical text is data of the collapsed details, never part of the message
+    expect(d.map((x) => x.detail)).toEqual([undefined, undefined, 'requestAdapter() returned null', 'GPU reset', 'sha256 differs']);
+    for (const x of d) expect(x.text).not.toMatch(/requestAdapter|GPU reset|sha256 differs/);
+  });
+
+  it.each(['no-model-id', 'variant-not-supported', 'webassembly-unavailable', 'webgpu-no-api', 'webgpu-no-adapter', 'webgpu-device-failed', 'webgpu-lost', 'load-failed', 'verify-failed', 'unknown'] as const)(
+    'reason code %s has its own catalog text',
+    (code) => {
+      const text = `net.reason.${code}`;
+      expect(Object.keys(en), 'the catalog has the key').toContain(text);
+      expect(Object.keys(de), 'the German catalog has the key').toContain(text);
+      const [d] = describeWarnings([{ code: 'model-load-failed', reason: code }], t);
+      expect(d!.text).toContain(text);
+    },
+  );
+
+  it('the harmless CPU fallback gets the info tone, random moves and failed loads the alert tone (L5)', () => {
+    const tone = (w: EngineWarning): string => describeWarnings([w], t)[0]!.tone;
+    expect(tone({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm' })).toBe('info');
+    expect(tone({ code: 'backend-unavailable', backend: 'wasm', fallback: 'random' })).toBe('alert');
+    expect(tone({ code: 'no-model' })).toBe('alert');
+    expect(tone({ code: 'model-load-failed' })).toBe('alert');
+    expect(tone({ code: 'fallback-random' })).toBe('alert');
+  });
+
+  it('draws the icon of the tone', async () => {
+    await render(<NetWarnings warnings={[{ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm' }]} />);
+    expect(q('[data-net-warning] use')!.getAttribute('href')).toBe('#i-info');
+    await render(<NetWarnings warnings={[{ code: 'no-model' }]} />);
+    expect(document.body.querySelector('[data-net-warning="no-model"] use')!.getAttribute('href')).toBe('#i-alert');
   });
 
   it('names the model and the variant in the mismatch text', () => {
@@ -85,10 +117,21 @@ describe('NetWarnings', () => {
 
   it('shows no button for an action without handler, and retry for a failed load', async () => {
     const onRetry = vi.fn();
-    await render(<NetWarnings warnings={[{ code: 'no-model' }, { code: 'model-load-failed', reason: 'x' }]} onAction={{ retry: onRetry }} />);
+    await render(<NetWarnings warnings={[{ code: 'no-model' }, { code: 'model-load-failed', reason: 'unknown', detail: 'x' }]} onAction={{ retry: onRetry }} />);
     expect(q('[data-net-warning="no-model"] button')).toBeNull();
     await act(async () => q('[data-warning-action="retry"]')!.click());
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it('shows the technical English text only in a collapsed native Details, none when there is no detail', async () => {
+    await render(<NetWarnings warnings={[{ code: 'model-load-failed', reason: 'load-failed', detail: 'sha256 differs' }, { code: 'no-model' }]} />);
+    const details = document.body.querySelectorAll<HTMLDetailsElement>('[data-net-warning] details');
+    expect(details).toHaveLength(1);
+    expect(details[0]!.open).toBe(false);
+    expect(details[0]!.querySelector('summary')).not.toBeNull();
+    expect(details[0]!.textContent).toContain('sha256 differs');
+    expect(details[0]!.querySelector('[lang="en"]')).not.toBeNull();
+    expect(q('[data-net-warning="model-load-failed"] .ml-netwarn__text')!.textContent).not.toContain('sha256 differs');
   });
 
   it('renders nothing for an empty list', async () => {

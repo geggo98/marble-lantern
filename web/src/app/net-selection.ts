@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { DEFAULT_SELECTION, evaluateSelection, loadSelection, saveSelection } from '../engines/net/selection';
 import type { NetAvailability, NetSelection, SelectionEvaluation } from '../engines/net/selection';
+import type { ProbeResult } from '../engines/warnings';
 import type { Variant } from '../game/variant';
 
 export interface NetState {
@@ -24,7 +25,7 @@ export class NetSelectionStore {
   private listeners = new Set<() => void>();
   private probing: Promise<void> | null = null;
   private readonly storage: Pick<Storage, 'setItem'> | null;
-  private readonly probe: () => Promise<{ available: boolean; reason?: string }>;
+  private readonly probe: () => Promise<ProbeResult>;
 
   /** `initial` replaces what storage holds (tests); `probe` replaces the WebGPU probe (tests). */
   constructor(options: { initial?: NetSelection; storage?: (Pick<Storage, 'getItem' | 'setItem'>) | null; probe?: NetSelectionStore['probe']; wasm?: boolean } = {}) {
@@ -63,8 +64,8 @@ export class NetSelectionStore {
   /** Asks the browser whether WebGPU works, once (the probe caches). Never rejects. */
   probeWebGpu = (): Promise<void> => {
     this.probing ??= this.probe().then(
-      (r) => this.set({ ...this.state, availability: { ...this.state.availability, webgpu: r.available, ...(r.reason ? { webgpuReason: r.reason } : {}) } }),
-      (e: unknown) => this.set({ ...this.state, availability: { ...this.state.availability, webgpu: false, webgpuReason: e instanceof Error ? e.message : String(e) } }),
+      (r) => this.set({ ...this.state, availability: { ...this.state.availability, webgpu: r.available, ...(r.reason ? { webgpuReason: r.reason } : {}), ...(r.detail ? { webgpuDetail: r.detail } : {}) } }),
+      (e: unknown) => this.set({ ...this.state, availability: { ...this.state.availability, webgpu: false, webgpuReason: 'unknown', webgpuDetail: e instanceof Error ? e.message : String(e) } }),
     );
     return this.probing;
   };

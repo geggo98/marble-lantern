@@ -18,7 +18,7 @@ import type { AnalysisResult, ChooseResult, EngineOutcome, GameSetup } from '../
 import { EngineFailure } from '../protocol';
 import { variantOf } from '../variant-args';
 import { defaultBatch, DEFAULT_SIMS } from '../warnings';
-import type { EngineWarning, NetOptions } from '../warnings';
+import type { EngineWarning, NetOptions, ProbeResult, ReasonCode } from '../warnings';
 import { BackendError } from './backend';
 import type { NetBackend, NetOutputs } from './backend';
 import { modelFits } from './models';
@@ -36,7 +36,7 @@ export interface NetCoreDeps {
   /** Creates a backend. `maxBatch` is the batch of the search; the wasm backend may allocate more. Throws a backend error. */
   createBackend(kind: BackendKind, maxBatch: number): Promise<NetBackend>;
   /** Whether WebGPU works. `fresh` asks the browser again (after a device loss). */
-  probeWebGpu(fresh: boolean): Promise<{ available: boolean; reason?: string }>;
+  probeWebGpu(fresh: boolean): Promise<ProbeResult>;
   /** The F32 safetensors bytes of a model (loadModel of models.ts). Throws on a missing, damaged or wrong file. */
   loadModel(info: ModelInfo): Promise<Uint8Array>;
   /** Uniform in [0, 1): picks the random fallback move. */
@@ -100,6 +100,24 @@ const isAnyBackendError = (e: unknown): boolean => {
   return name === 'BackendError' || name === 'NetBackendError';
 };
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * The reason code and the English detail of an error: a lost device, a missing backend, a file that does not verify; anything else
+ * gets `fallback`.
+ */
+function reasonOf(e: unknown, backend: BackendKind | null, fallback: ReasonCode): { reason: ReasonCode; detail: string } {
+  const code = codeOf(e);
+  const name = (e as { name?: unknown } | null)?.name;
+  let reason = fallback;
+  if (name === 'BackendError' || name === 'NetBackendError') {
+    if (code === 'device-lost') reason = 'webgpu-lost';
+    else if (code === 'unavailable') reason = backend === 'webgpu' ? 'webgpu-device-failed' : 'webassembly-unavailable';
+    else if (code === 'unsupported-model' || code === 'invalid-weights') reason = 'load-failed';
+  } else if (name === 'ModelError') {
+    reason = code === 'model-checksum' || code === 'model-mismatch' ? 'verify-failed' : 'load-failed';
+  }
+  return { reason, detail: text(e) };
+}
 
 interface Plan {
   variantKey: string;
@@ -210,7 +228,7 @@ export class NetCore {
         if (isAbort(e) && signal?.aborted) throw e;
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
           plan = this.settle(plan, [
-            { code: 'model-variant-mismatch', modelId: plan.model?.id, variant: v, reason: e.message },
+            { code: 'model-variant-mismatch', modelId: plan.model?.id, variant: v, reason: 'variant-not-supported', detail: e.message },
             { code: 'fallback-random', modelId: plan.model?.id, variant: v },
           ]);
         } else if (isAnyBackendError(e)) {
@@ -263,7 +281,7 @@ export class NetCore {
     this.held?.backend.dispose();
     this.held = null;
     const fallback = dead === 'webgpu' ? 'wasm' : 'random';
-    this.degraded = { code: 'backend-unavailable', backend: dead, modelId: plan.model?.id, variant: v, reason: text(e), fallback };
+    this.degraded = { code: 'backend-unavailable', backend: dead, modelId: plan.model?.id, variant: v, ...(dead === 'wasm' ? { reason: 'unknown' as const, detail: text(e) } : reasonOf(e, dead, 'unknown')), fallback };
     if (dead === 'wasm') {
       return this.settle(plan, [{ code: 'fallback-random', modelId: plan.model?.id, variant: v }]);
     }
@@ -287,9 +305,9 @@ export class NetCore {
     });
     if (s.modelId === null) return random(...lead, { code: 'no-model', variant: v });
     const info = this.d.models.find((m) => m.id === s.modelId);
-    if (!info) return random(...lead, { code: 'model-load-failed', modelId: s.modelId, variant: v, reason: `no model with the id ${s.modelId}` });
+    if (!info) return random(...lead, { code: 'model-load-failed', modelId: s.modelId, variant: v, reason: 'no-model-id', detail: `no model with the id ${s.modelId}` });
     if (!modelFits(info, v)) {
-      return random(...lead, { code: 'model-variant-mismatch', modelId: info.id, variant: v, reason: `the model ${info.id} does not play this variant` });
+      return random(...lead, { code: 'model-variant-mismatch', modelId: info.id, variant: v, reason: 'variant-not-supported', detail: `the model ${info.id} does not play this variant` });
     }
 
     // The backends to try, best first. A dead GPU leaves the CPU.
@@ -299,7 +317,7 @@ export class NetCore {
       const probe = await this.d.probeWebGpu(this.gpuNeedsFreshProbe);
       this.gpuNeedsFreshProbe = false;
       if (probe.available) tries.push('webgpu');
-      else warnings.push({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', modelId: info.id, variant: v, reason: probe.reason ?? 'WebGPU is not available' });
+      else warnings.push({ code: 'backend-unavailable', backend: 'webgpu', fallback: 'wasm', modelId: info.id, variant: v, reason: probe.reason ?? 'webgpu-no-adapter', ...(probe.detail ? { detail: probe.detail } : {}) });
     }
     tries.push('wasm');
 
@@ -307,7 +325,7 @@ export class NetCore {
     try {
       bytes = await this.modelBytes(info);
     } catch (e) {
-      return random(...warnings, { code: 'model-load-failed', modelId: info.id, variant: v, reason: text(e) });
+      return random(...warnings, { code: 'model-load-failed', modelId: info.id, variant: v, ...reasonOf(e, null, 'load-failed') });
     }
 
     for (const kind of tries) {
@@ -318,11 +336,11 @@ export class NetCore {
       } catch (e) {
         if (isBackendError(e) || !isAnyBackendError(e)) {
           // The backend itself failed (no adapter, no flavour, out of memory) or something unforeseen: next backend.
-          warnings.push({ code: 'backend-unavailable', backend: kind, fallback: kind === 'webgpu' ? 'wasm' : 'random', modelId: info.id, variant: v, reason: text(e) });
+          warnings.push({ code: 'backend-unavailable', backend: kind, fallback: kind === 'webgpu' ? 'wasm' : 'random', modelId: info.id, variant: v, ...reasonOf(e, kind, kind === 'webgpu' ? 'webgpu-device-failed' : 'webassembly-unavailable') });
           continue;
         }
         // The backend works but rejected this net.
-        return random(...warnings, { code: 'model-load-failed', modelId: info.id, variant: v, reason: text(e) });
+        return random(...warnings, { code: 'model-load-failed', modelId: info.id, variant: v, ...reasonOf(e, kind, 'load-failed') });
       }
       try {
         const f = (r: unknown): string[] => fields(r);
@@ -330,7 +348,7 @@ export class NetCore {
         f(this.d.webnet.setWeightsInfo(info.planeSet, held.backend.valueWidth));
       } catch (e) {
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
-          return random(...warnings, { code: 'model-variant-mismatch', modelId: info.id, variant: v, reason: e.message });
+          return random(...warnings, { code: 'model-variant-mismatch', modelId: info.id, variant: v, reason: 'variant-not-supported', detail: e.message });
         }
         throw asFailure(e);
       }

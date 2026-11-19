@@ -14,14 +14,40 @@ export type WarningCode =
   /** Consequence of one of the causes above: the engine plays random legal moves. */
   | 'fallback-random';
 
+/**
+ * Why a warning happened, as a code the UI turns into a localized text (net.reason.<code>). The technical cause in English goes in
+ * `detail`, which the UI shows only in a collapsed "Details".
+ */
+export type ReasonCode =
+  | 'no-model-id' // the selected model id is not in models.json
+  | 'variant-not-supported' // the model does not play this variant, or its planes or players do not fit
+  | 'webassembly-unavailable' // no WebAssembly or no CPU backend
+  | 'webgpu-no-api' // no navigator.gpu (no WebGPU in this browser, or not a secure context)
+  | 'webgpu-no-adapter' // requestAdapter() gave nothing, or timed out
+  | 'webgpu-device-failed' // requesting or creating the GPU device failed
+  | 'webgpu-lost' // the GPU device was lost
+  | 'load-failed' // the model file could not be fetched or read, or the backend rejected the weights
+  | 'verify-failed' // the model file does not match its checksum or manifest entry
+  | 'unknown';
+
+/** What a WebGPU probe says: usable or not, and when not, why. */
+export interface ProbeResult {
+  available: boolean;
+  reason?: ReasonCode;
+  /** English text of the technical cause, for the collapsed "Details". */
+  detail?: string;
+}
+
 export interface EngineWarning {
   code: WarningCode;
   /** The selected model, when there is one. */
   modelId?: string;
   /** The variant of the game. */
   variant?: Variant;
-  /** English text of the technical cause, for the message and the log. */
-  reason?: string;
+  /** The cause as a code; the message text per code is a catalog entry. */
+  reason?: ReasonCode;
+  /** English text of the technical cause, for the log and the collapsed "Details" of the message. */
+  detail?: string;
   /** backend-unavailable: the backend that was wanted. */
   backend?: 'wasm' | 'webgpu';
   /**
