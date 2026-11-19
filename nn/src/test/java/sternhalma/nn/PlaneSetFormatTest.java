@@ -149,7 +149,7 @@ class PlaneSetFormatTest {
             Path file = dir.resolve(planes.id() + ".safetensors");
             p.save(file);
             Safetensors.Contents contents = Safetensors.read(file);
-            assertEquals(planes == PlaneSet.PLAIN ? "1" : "2", contents.metadata().get("format_version"));
+            assertEquals(planes == PlaneSet.PLAIN ? "1" : planes == PlaneSet.CLASSIC1V ? "3" : "2", contents.metadata().get("format_version"));
             Parameters loaded = Parameters.load(file);
             assertEquals(p.config(), loaded.config());
             assertEquals("12", loaded.extraMetadata().get("step"));
