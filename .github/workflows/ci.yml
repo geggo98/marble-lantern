@@ -46,6 +46,13 @@ jobs:
         # The scripts start with #!/bin/zsh; the Ubuntu runner has no zsh, devenv provides one.
         run: devenv shell -- scripts/ci/provide-zsh.sh
 
+      - name: Prefer the Gradle mirror when it is healthy
+        # Maven Central is run by a non-profit and rate-limits shared runners (HTTP 429), so Gradle asks a mirror first
+        # and Maven Central only for what the mirror lacks. The script probes the mirror (a pom and a module file, sha256
+        # checked against gradle/verification-metadata.xml) and installs the init script only if the probe passes;
+        # otherwise it prints a warning and the build resolves from Maven Central. Dependency verification stays strict.
+        run: scripts/ci/select-gradle-repos.zsh
+
       - name: Read the LFS object id of rows2.bin
         id: rows2
         run: devenv shell -- scripts/ci/fetch-rows2.zsh --github-output
@@ -113,6 +120,13 @@ jobs:
       - name: Provide /bin/zsh for the scripts
         # The scripts start with #!/bin/zsh; the Ubuntu runner has no zsh, devenv provides one.
         run: devenv shell -- scripts/ci/provide-zsh.sh
+
+      - name: Prefer the Gradle mirror when it is healthy
+        # Maven Central is run by a non-profit and rate-limits shared runners (HTTP 429), so Gradle asks a mirror first
+        # and Maven Central only for what the mirror lacks. The script probes the mirror (a pom and a module file, sha256
+        # checked against gradle/verification-metadata.xml) and installs the init script only if the probe passes;
+        # otherwise it prints a warning and the build resolves from Maven Central. Dependency verification stays strict.
+        run: scripts/ci/select-gradle-repos.zsh
 
       - name: Read the LFS object id of rows2.bin
         id: rows2
