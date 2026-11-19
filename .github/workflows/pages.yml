@@ -83,7 +83,7 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'build-logic/gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-deps-${{ runner.os }}-
 
@@ -91,7 +91,7 @@ jobs:
         # web:ci runs the engine tests, builds, web tests, bundle checks, benchmark smoke test and browser tests.
         # BASE_PATH is derived from REPO_NAME by scripts/web/ci.zsh (the project path of the Pages site, e.g. /marble-lantern/).
         # ci.zsh runs every step itself; --mode single stops devenv from running the "after" tasks of web:ci first.
-        run: devenv tasks run --mode single web:ci
+        run: scripts/ci/run-with-mirror-fallback.zsh -- devenv tasks run --mode single web:ci
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

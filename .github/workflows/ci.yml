@@ -76,7 +76,7 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'build-logic/gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-deps-${{ runner.os }}-
 
@@ -85,8 +85,13 @@ jobs:
         # Without them the build fails with TS2307 "Cannot find module 'react'". --mode single: install only, no "after" tasks.
         run: devenv tasks run --mode single web:install
 
+      - name: Test the mirror fallback wrapper (stub command, no network)
+        run: scripts/ci/test/run-with-mirror-fallback.test.zsh
+
       - name: Gradle build (TornadoVM tests skip without the SDK, as on a developer machine)
-        run: devenv shell -- ./gradlew --no-build-cache build
+        # The wrapper reruns the build once against Maven Central when the mirror fails in the middle of the build
+        # (never after a dependency verification failure or a test failure).
+        run: scripts/ci/run-with-mirror-fallback.zsh -- devenv shell -- ./gradlew --no-build-cache build
 
   web:
     name: Web build and tests
@@ -151,14 +156,14 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'build-logic/gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/verification-metadata.xml', 'gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-deps-${{ runner.os }}-
 
       - name: Test and build the offline UI
         # The same command as the Pages build, without upload and deploy. scripts/web/ci.zsh derives BASE_PATH from REPO_NAME.
         # ci.zsh runs every step itself; --mode single stops devenv from running the "after" tasks of web:ci first.
-        run: devenv tasks run --mode single web:ci
+        run: scripts/ci/run-with-mirror-fallback.zsh -- devenv tasks run --mode single web:ci
 
       - name: Upload browser test reports
         if: always()
