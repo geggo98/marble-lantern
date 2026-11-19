@@ -387,6 +387,9 @@ SH_TEST(config_metadata_rules_of_format_version_3) {
         m["input_planes"] = std::to_string(plane_count(other == std::string("plain") ? PlaneSet::Plain : PlaneSet::Classic1));
         CHECK(!config_from_metadata(m));                            // v3 with another plane set
     }
+    for (const char* other : {"plain", "classic1", "classic1-planes", "classic2"}) {
+        CHECK(!config_from_metadata(with("planes", other)));        // input_planes 15 and players 3 as in a valid v3 file
+    }
     auto no_planes = good;
     no_planes.erase("planes");
     CHECK(!config_from_metadata(no_planes));
