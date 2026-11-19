@@ -20,6 +20,11 @@ import {
   transposeWeights, valueShader, type NetConfig,
 } from './webgpu-shaders';
 
+// The numeric values of the WebGPU buffer-usage and map-mode flags (WebGPU spec). The global enums GPUBufferUsage and GPUMapMode are
+// not used because not every TypeScript configuration of this repository (the Hilla app build) has the WebGPU type declarations.
+const BufferUsage = { MAP_READ: 0x0001, COPY_SRC: 0x0004, COPY_DST: 0x0008, UNIFORM: 0x0040, STORAGE: 0x0080 } as const;
+const MapMode = { READ: 0x0001 } as const;
+
 export interface WebGpuProbe extends ProbeResult {
   /** Why WebGPU is not usable (a code; the technical text is in `detail`). Set when `available` is false. */
   reason?: ReasonCode;
@@ -239,7 +244,7 @@ export class WebGpuBackend implements NetBackend {
       return b;
     };
     const constant = (data: Float32Array | Uint32Array): GPUBuffer => {
-      const b = makeBuffer(data.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      const b = makeBuffer(data.byteLength, BufferUsage.STORAGE | BufferUsage.COPY_DST);
       device.queue.writeBuffer(b, 0, data as Uint32Array<ArrayBuffer>);
       return b;
     };
@@ -281,13 +286,13 @@ export class WebGpuBackend implements NetBackend {
 
       const slots: Slot[] = [];
       for (let s = 0; s < this.depth; s++) {
-        const uniform = makeBuffer(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-        const input = makeBuffer(maxBatch * ROWS * I * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-        const A = makeBuffer(actBytes, GPUBufferUsage.STORAGE);
-        const B = makeBuffer(actBytes, GPUBufferUsage.STORAGE);
-        const T = makeBuffer(actBytes, GPUBufferUsage.STORAGE);
-        const out = makeBuffer(outFloats * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-        const staging = makeBuffer(outFloats * 4, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+        const uniform = makeBuffer(16, BufferUsage.UNIFORM | BufferUsage.COPY_DST);
+        const input = makeBuffer(maxBatch * ROWS * I * 4, BufferUsage.STORAGE | BufferUsage.COPY_DST);
+        const A = makeBuffer(actBytes, BufferUsage.STORAGE);
+        const B = makeBuffer(actBytes, BufferUsage.STORAGE);
+        const T = makeBuffer(actBytes, BufferUsage.STORAGE);
+        const out = makeBuffer(outFloats * 4, BufferUsage.STORAGE | BufferUsage.COPY_SRC);
+        const staging = makeBuffer(outFloats * 4, BufferUsage.MAP_READ | BufferUsage.COPY_DST);
         const groups: GPUBindGroup[] = [];
         groups.push(device.createBindGroup({ layout: pIn.getBindGroupLayout(0), entries: entries(uniform, input, gIn, gBIn, nbr, null, A) }));
         let cur = A;
@@ -358,7 +363,7 @@ export class WebGpuBackend implements NetBackend {
     enc.copyBufferToBuffer(slot.out, valOffset, slot.staging, valOffset, valBytes);
     device.queue.submit([enc.finish()]);
     try {
-      await slot.staging.mapAsync(GPUMapMode.READ);
+      await slot.staging.mapAsync(MapMode.READ);
     } catch (e) {
       // mapAsync rejects with an AbortError or OperationError when the device dies, often before device.lost has fired.
       throw this.failure ?? new BackendError('device-lost', `mapAsync failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
