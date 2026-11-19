@@ -91,11 +91,10 @@ export interface Engine {
   init(onProgress?: (p: Progress) => void): Promise<LoadReport>;
   newGame(setup: GameSetup): Promise<void>;
   /**
-   * `variant` (default: adjacent jumps, two players) is passed with every call that replays a history, so the call is
-   * stateless; `choose` without a variant uses the variant of the last `newGame`. Engines that cannot play a variant reject
-   * with code unsupported.
+   * The history is the whole game state: moves from the start position, oldest first. `variant` (default: adjacent jumps, two
+   * players) is passed with every call that replays a history, so the call is stateless; `choose` without a variant uses the
+   * variant of the last `newGame`. Engines that cannot play a variant reject with code unsupported.
    */
-  /** The history is the whole game state: moves from the start position, oldest first. */
   legalMoves(history: readonly number[], variant?: Variant): Promise<number[]>;
   /** Rejects with an AbortError when the signal fires; the adapter then restarts its worker. */
   choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult>;
