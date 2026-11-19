@@ -16,7 +16,7 @@ import { GameController } from '../game/game';
 import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withHumanSeat, withLevel } from '../game/setup';
-import { DEFAULT_VARIANT } from '../game/variant';
+import { rankingOf, variantKey, withRanking } from '../game/variant';
 import type { Player } from '../game/variant';
 import { loadChoice, saveChoice, setupOfChoice } from './start-choice';
 import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
@@ -79,7 +79,7 @@ function screenFromHash(hash: string): Screen {
 /** The controller's options for a setup: who plays each seat, and the variant. */
 const controllerOptions = (setup: GameSetup) => ({ seats: controllerSeats(setup), variant: variantOf(setup) });
 
-const variantKeyOf = (setup: GameSetup): string => `${variantOf(setup).jump}-${variantOf(setup).players}`;
+const variantKeyOf = (setup: GameSetup): string => variantKey(variantOf(setup));
 
 function flowFromHash(hash: string): Flow {
   const parsed = parseHash(hash);
@@ -273,6 +273,11 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   useEffect(() => {
     let seen = game.state.history;
     return game.subscribe((state) => {
+      // The controller decides the ranking rule (Play on, or undo back before the win): the setup follows it.
+      if (rankingOf(state.variant) !== rankingOf(variantOf(setupRef.current))) {
+        const current = setupRef.current;
+        applySetup({ ...current, variant: withRanking(variantOf(current), rankingOf(state.variant)) });
+      }
       if (state.history === seen) return; // a patch (thinking, figures), not a move
       seen = state.history;
       if (flowRef.current.kind !== 'playing' || isDemo(setupRef.current)) return;
@@ -414,6 +419,12 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         await game.newGame(controllerOptions(demoSetup));
         await game.runEngineVsEngine();
       })();
+    },
+    onPlayOn: () => {
+      if (!game.state.canPlayOn) return;
+      tracker.abort();
+      // the address gets a new entry for the same moves (r=full); the listener above writes it when the controller has switched
+      void game.continuePlay().catch(() => undefined);
     },
     onUndo: () => {
       tracker.abort();

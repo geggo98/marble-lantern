@@ -1,6 +1,6 @@
 // The game in the URL fragment (docs/web-ui.md, section "Game URL"). Pure: no DOM, no engine.
 //
-//   #g=v1.<payload>[&h=0|1][&l=<level>][&j=long][&p=3&s=<seats>]
+//   #g=v1.<payload>[&h=0|1][&l=<level>][&j=long][&p=3&s=<seats>][&r=full]
 //
 // payload: every move as 14 bits (from 7 bit, to 7 bit, cells 0 to 120), big-endian bit stream, zero-padded to whole
 //          bytes, base64url without padding.
@@ -8,10 +8,12 @@
 // j:       the jump rule, only "long" (omitted for the adjacent rule).  p: the player count, only "3" (omitted for two players).
 // s:       three players only, and then required: one character per seat, "h" a human and "e" an engine, e.g. "hhe" (hot-seat) or "hee";
 //          at least one and at most two humans. Two players keep h; three players have no h.
+// r:       the ranking rule, only "full" (omitted for first-winner rules), and only with p=3: after a win the game goes on for the
+//          lower ranks (Play on for 2nd place). Without it the moves after a win are illegal, as before.
 //
 // Parsing is strict: a link that is not exactly what the encoder writes is reported as broken, never repaired.
 import type { Side } from '../game/board-state';
-import { DEFAULT_VARIANT, isDefault, moveLimit } from '../game/variant';
+import { DEFAULT_VARIANT, isDefault, moveLimit, rankingOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import type { ControllerSeat } from '../game/game';
 import { makeMove, moveFrom, moveTo } from '../engines/engine';
@@ -148,6 +150,9 @@ export function formatGameFragment(link: GameLink): string {
   if (variant.players === 3) {
     if (!link.seats) throw new GameUrlError('field', 'a three-player link needs its seats');
     out += `&p=3&s=${formatSeats(link.seats, 3)}`;
+    if (rankingOf(variant) === 'full') out += '&r=full';
+  } else if (rankingOf(variant) === 'full') {
+    throw new GameUrlError('field', 'full ranking is for three players');
   }
   return out;
 }
@@ -175,6 +180,7 @@ export function parseGameFragment(fragment: string): GameLink {
   const link: { moves: number[]; humanSide?: Side; level?: number; variant?: Variant; seats?: ControllerSeat[] } = { moves };
   let jump: Variant['jump'] = 'adjacent';
   let players: Variant['players'] = 2;
+  let ranking: Variant['ranking'] = 'first';
   let seatText: string | null = null;
   const seen = new Set<string>();
   for (const field of fields.slice(1)) {
@@ -187,6 +193,7 @@ export function parseGameFragment(fragment: string): GameLink {
     else if (key === 'l' && /^(0|[1-9]\d{0,6})$/.test(value) && isValidLevel(Number(value))) link.level = Number(value);
     else if (key === 'j' && value === 'long') jump = 'long';
     else if (key === 'p' && value === '3') players = 3;
+    else if (key === 'r' && value === 'full') ranking = 'full';
     else if (key === 's' && /^[he]{3}$/.test(value)) seatText = value;
     else throw new GameUrlError('field', `bad value in "${field}"`);
   }
@@ -199,7 +206,8 @@ export function parseGameFragment(fragment: string): GameLink {
   } else if (seen.has('s')) {
     throw new GameUrlError('field', 's is for three players; two players use h');
   }
-  const variant: Variant = { jump, players };
+  if (ranking === 'full' && players !== 3) throw new GameUrlError('field', 'r=full is for three players');
+  const variant: Variant = ranking === 'full' ? { jump, players, ranking } : { jump, players };
   if (!isDefault(variant)) link.variant = variant;
   if (moves.length > moveLimit(variant)) throw new GameUrlError('too-long', `${moves.length} moves, the limit is ${moveLimit(variant)}`);
   return link;

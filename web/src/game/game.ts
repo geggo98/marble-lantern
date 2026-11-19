@@ -6,9 +6,9 @@
 // moves in a row (three players with two engines) play one after another with a short pause between them, so that the
 // person can follow the board.
 import type { ChooseResult, Engine } from '../engines/engine';
-import { applyMove, initialOwners, outcomeOf, replay } from './board-state';
+import { applyMove, initialOwners, outcomeOf, playState, replay } from './board-state';
 import type { Outcome, Side } from './board-state';
-import { DEFAULT_VARIANT, moveLimit } from './variant';
+import { DEFAULT_VARIANT, moveLimit, playsOn, rankingOf, withRanking } from './variant';
 import type { Player, Variant } from './variant';
 
 /** Legacy two-player modes; `seats` expresses every mode. */
@@ -38,6 +38,15 @@ export interface GameState {
   variant: Variant;
   /** Who plays each seat: `seats[side]`. */
   seats: readonly ControllerSeat[];
+  /** The seats that are out under full ranking (they filled their goal), by rank, first place first. Empty otherwise. */
+  finished: readonly Player[];
+  /** The seats by rank, first place first, once a full-ranking game is over; null otherwise. */
+  ranking: readonly Player[] | null;
+  /**
+   * "Play on for 2nd place" may be offered: a three-player game under first-winner rules ended with a win, and the move limit is
+   * not reached. continuePlay() then switches the game to full ranking.
+   */
+  canPlayOn: boolean;
   /** The swap button may be offered: at most one human seat. With two human seats (hot-seat) swapping makes no sense. */
   canSwap: boolean;
 }
@@ -90,6 +99,8 @@ export class GameController {
   /** Bumped by newGame, undo and cancel; an engine reply from an older generation is dropped. */
   private generation = 0;
   private busy = false;
+  /** Full ranking only: the history length at which the first seat finished; undo below it returns to first-winner rules. */
+  private playOnAt: number | null = null;
   private run: Promise<void> | null = null;
 
   constructor(options: GameOptions) {
@@ -142,9 +153,32 @@ export class GameController {
     await this.idle();
     this.generation++;
     this.configure(options);
+    // a new game starts under first-winner rules; full ranking comes from continuePlay or from a link (loadGame)
+    if (!options?.variant) this.variant = withRanking(this.variant, 'first');
+    this.playOnAt = null;
     await this.engine.newGame(this.engineSetup());
     await this.resetTo([], null);
     if (this.mode === 'human-vs-engine') await this.playEngineTurns();
+  }
+
+  /**
+   * "Play on for 2nd place": after a win in a three-player game the game goes on under full ranking. History and seats stay;
+   * the winner keeps rank 1 and is out (it makes no moves, its pieces stay on the board and block), the other two seats play for
+   * rank 2. Engine seats play on at once (with the usual pause), a human seat gets its turn as usual.
+   * Rejects when `state.canPlayOn` is false. Undo: taking moves back keeps the full ranking; taking back the winning move (or
+   * any earlier move) returns the game to first-winner rules. The variant of the state changes (`ranking: 'full'`).
+   */
+  async continuePlay(): Promise<void> {
+    if (!this.current.canPlayOn) throw new Error('play on is offered after a win in a three-player game before the move limit');
+    this.cancel();
+    await this.idle();
+    this.generation++;
+    const history = [...this.current.history];
+    this.variant = withRanking(this.variant, 'full');
+    this.playOnAt = history.length;
+    await this.engine.newGame(this.engineSetup());
+    await this.resetTo(history, null);
+    await this.playEngineTurns();
   }
 
   /** A person plays a move; the engines answer. Rejects with IllegalMoveError if the move is not legal. */
@@ -211,10 +245,14 @@ export class GameController {
     const history = [...this.current.history];
     if (history.length === 0) return;
     const anyHuman = this.seats.includes('human');
-    const players = this.variant.players;
     do {
       history.pop();
-    } while (anyHuman && history.length > 0 && this.seats[history.length % players] !== 'human');
+    } while (anyHuman && history.length > 0 && this.seats[playState(history, this.variant).sideToMove] !== 'human');
+    // full ranking: taking back the winning move returns to first-winner rules (the game has no winner again)
+    if (rankingOf(this.variant) === 'full' && this.playOnAt !== null && history.length < this.playOnAt) {
+      this.variant = withRanking(this.variant, 'first');
+      this.playOnAt = null;
+    }
     await this.engine.newGame(this.engineSetup());
     await this.resetTo(history, null);
   }
@@ -240,6 +278,7 @@ export class GameController {
     else if (options?.humanSide !== undefined) next.humanSide = options.humanSide;
     else if (!this.seats.includes('human') && variant.players === 2) next.humanSide = this.lastHumanSide;
     this.configure(next);
+    this.playOnAt = playState(history, this.variant).firstFinishAt;
     await this.engine.newGame(this.engineSetup());
     await this.resetTo([...history], null);
     if (this.mode === 'human-vs-engine') await this.playEngineTurns();
@@ -366,10 +405,10 @@ export class GameController {
         this.patch({ legal: [], outcome: { kind: 'win', winner: verdict.winner } });
         return;
       }
-      // Full ranking is an engine-level field so far (the URL and the controller do not carry it): a finished ranking is
-      // reported as the win of its first seat until the controller shows ranks.
       if (verdict.kind === 'ranking') {
-        this.patch({ legal: [], outcome: { kind: 'win', winner: verdict.ranking[0] } });
+        const finished = state.finished.length;
+        const reason = finished >= 2 ? 'complete' : state.history.length >= moveLimit(this.variant) ? 'move-limit' : 'stalled';
+        this.patch({ legal: [], outcome: { kind: 'ranking', ranking: verdict.ranking, reason } });
         return;
       }
       const legal = await this.engine.legalMoves(state.history, this.variant);
@@ -397,12 +436,17 @@ export class GameController {
     owner: Int8Array | null,
     previous?: GameState,
   ): GameState {
+    const turn = playState(history, this.variant);
+    const ranking = outcome?.kind === 'ranking' ? outcome.ranking : null;
     return {
       history,
       owner: owner ?? initialOwners(this.variant),
-      sideToMove: (history.length % this.variant.players) as Player,
+      sideToMove: turn.sideToMove,
       legal,
       outcome,
+      finished: ranking ? ranking.slice(0, turn.finishers.length) : turn.finishers,
+      ranking,
+      canPlayOn: this.canPlayOnAfter(outcome, history),
       thinking: false,
       lastEngine: previous?.lastEngine ?? null,
       error: null,
@@ -412,8 +456,19 @@ export class GameController {
     };
   }
 
+  private canPlayOnAfter(outcome: Outcome | null, history: readonly number[]): boolean {
+    return outcome?.kind === 'win' && this.variant.players === 3 && !playsOn(this.variant) && history.length < moveLimit(this.variant);
+  }
+
   private patch(change: Partial<GameState>): void {
     this.current = { ...this.current, ...change };
+    // the outcome can come from the engine (patch): keep the fields derived from it in step
+    if ('outcome' in change) {
+      const outcome = this.current.outcome;
+      const ranking = outcome?.kind === 'ranking' ? outcome.ranking : null;
+      const finished = ranking ? ranking.slice(0, playState(this.current.history, this.variant).finishers.length) : this.current.finished;
+      this.current = { ...this.current, ranking, finished, canPlayOn: this.canPlayOnAfter(outcome, this.current.history) };
+    }
     this.emit();
   }
 

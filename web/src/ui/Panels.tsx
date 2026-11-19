@@ -193,6 +193,8 @@ export function MoveList(props: {
   defaultOpen: boolean;
   /** Moves per row: one round of the game (2 or 3 players). */
   perRow?: number;
+  /** Full ranking: the rank text of the seat that finished with move number `index` (0-based), e.g. the text of 1st place. */
+  ranks?: ReadonlyMap<number, string>;
 }): React.JSX.Element {
   const per = props.perRow ?? 2;
   const { t } = useT();
@@ -222,6 +224,7 @@ export function MoveList(props: {
                     part
                   ),
                 )}
+                {props.ranks?.has(r * per + c) && <Tag solid>{props.ranks.get(r * per + c)}</Tag>}
               </span>
             ))}
             {row.length === 1 && per === 2 && <span />}
@@ -290,6 +293,10 @@ export function ResultCard(props: {
   leadText?: string | undefined;
   /** Present on a small screen, where the card lies over the board: a close button. */
   onClose?: (() => void) | undefined;
+  /** Full ranking: the seats by rank, first place first; `value` is the distance of a seat that still played when the game ended. */
+  ranking?: { style: SideStyle; label: string; rank: string; value?: number }[];
+  /** Present when "Play on for 2nd place" is offered (a three-player win under first-winner rules). */
+  onPlayOn?: (() => void) | undefined;
 }): React.JSX.Element {
   const { t, n } = useT();
   return (
@@ -306,6 +313,27 @@ export function ResultCard(props: {
       <p className="ml-result__meta">
         {props.note ?? t('result_after')} <span className="ml-data">{n(props.plies)}</span> {t('plies')}
       </p>
+      {props.ranking && (
+        <ol className="ml-score ml-ranking" aria-label={t('ranking_heading')}>
+          {props.ranking.map((r, i) => (
+            <li key={r.label} className="ml-score__row" data-rank={i + 1} {...(i === 0 ? { 'data-ahead': 'true' } : {})}>
+              <Swatch style={r.style} />
+              <span>
+                <span className="ml-ranking__rank">{r.rank}</span> · {r.label}
+              </span>
+              <span className="ml-score__value">{r.value === undefined ? '' : n(r.value)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {props.onPlayOn && (
+        <div className="ml-result__actions">
+          <button type="button" className="ml-btn" data-play-on onClick={props.onPlayOn}>
+            <Icon name="play" />
+            <span>{t('play_on')}</span>
+          </button>
+        </div>
+      )}
       {props.distances && (
         <div className="ml-score" role="list" aria-label={t('distance_heading')}>
           {props.distances.map((d) => (
@@ -352,7 +380,7 @@ export function AlertCard(props: { title: string; body: string; code: string; ac
 
 /** The seats of a three-player game: marble, name and whose turn it is. */
 export function SeatsCard(props: {
-  seats: readonly { style: SideStyle; name: string; onMove: boolean }[];
+  seats: readonly { style: SideStyle; name: string; onMove: boolean; rank?: string }[];
   hotSeat: boolean;
 }): React.JSX.Element {
   const { t } = useT();
@@ -361,9 +389,10 @@ export function SeatsCard(props: {
       <p className="ml-kicker">{t('seats_heading')}</p>
       <ul className="ml-seats__list">
         {props.seats.map((seat) => (
-          <li key={seat.name} className="ml-seats__row" {...(seat.onMove ? { 'aria-current': 'true' as const, 'data-on-move': '' } : {})}>
+          <li key={seat.name} className="ml-seats__row" {...(seat.rank !== undefined ? { 'data-rank-text': seat.rank } : {})} {...(seat.onMove ? { 'aria-current': 'true' as const, 'data-on-move': '' } : {})}>
             <Swatch style={seat.style} />
             <span>{seat.name}</span>
+            {seat.rank !== undefined && <Tag solid>{seat.rank}</Tag>}
             {seat.onMove && <Tag solid>{t('seat_on_move')}</Tag>}
           </li>
         ))}

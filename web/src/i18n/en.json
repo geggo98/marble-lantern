@@ -328,5 +328,13 @@
   "net.reason.load-failed": "The model file could not be downloaded, read or used.",
   "net.reason.verify-failed": "The model file does not match its checksum.",
   "net.reason.unknown": "The cause is not known.",
-  "net.details.summary": "Details"
+  "net.details.summary": "Details",
+  "play_on": "TODO-OPUS play_on: button in the result card after a win in a three-player game; the game goes on for 2nd place; short label",
+  "ranking_heading": "TODO-OPUS ranking_heading: accessible name of the final ranking list",
+  "rank_1": "TODO-OPUS rank_1: first place, short ordinal badge",
+  "rank_2": "TODO-OPUS rank_2: second place, short ordinal badge",
+  "rank_3": "TODO-OPUS rank_3: third place, short ordinal badge",
+  "turn_seat_second": "TODO-OPUS turn_seat_second {player}: status row, a seat is out, {player} is to move, game for 2nd place",
+  "thinking_seat_second": "TODO-OPUS thinking_seat_second {player}: status row, {player} (engine) is thinking, game for 2nd place",
+  "turn_you_second": "TODO-OPUS turn_you_second: status row, the person is to move, game for 2nd place"
 }

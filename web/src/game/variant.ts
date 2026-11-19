@@ -5,7 +5,7 @@ export type PlayerCount = 2 | 3;
 /**
  * What happens after a seat has filled its goal (RuleSet.Ranking of the engine). `first`: the game ends, that seat has
  * won. `full`: the seat is out, the others play on for the lower ranks (three players; with two players the two values
- * play the same game). Only the engines know the field so far; the game URL and the controller do not carry it yet.
+ * play the same game). The game URL carries it as `r=full`; the controller switches to it after a win (GameController.continuePlay).
  */
 export type RankingRule = 'first' | 'full';
 
@@ -55,7 +55,10 @@ export function sameVariant(a: Variant, b: Variant): boolean {
   return a.jump === b.jump && a.players === b.players && rankingOf(a) === rankingOf(b);
 }
 
-/** The side to move after `ply` plies. */
+/**
+ * The side to move after `ply` plies in a game without seats that are out. Wrong for full ranking (`playsOn`): a seat that
+ * is out is skipped there. Use `playState(history, variant).sideToMove` (board-state.ts) for every game.
+ */
 export function sideAt(ply: number, variant: Variant): Player {
   return (ply % variant.players) as Player;
 }

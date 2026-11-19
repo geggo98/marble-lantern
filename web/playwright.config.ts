@@ -2,7 +2,7 @@
 // Chromium and Firefox are gates; WebKit is informative (Playwright's WebKit is not Safari; scripts/web/e2e.zsh runs it apart).
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+const PORT = Number(process.env.E2E_PORT ?? 4173); // another checkout may hold 4173
 const BASE_PATH = '/marble-lantern/';
 
 export default defineConfig({
