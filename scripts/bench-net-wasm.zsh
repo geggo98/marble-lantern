@@ -41,7 +41,7 @@ done
 mkdir -p $out
 data=$root/build/netbench
 mkdir -p $data
-ref=$data/ref-$(basename ${net:h}).safetensors
+ref=$data/ref-$(shasum $net | cut -c1-10).safetensors
 [[ -n $quick ]] && export NB_QUICK=1
 stop=
 trap 'stop=1' INT TERM
@@ -57,10 +57,12 @@ wait_for_load() {
   (( $(load1) <= maxload )) || print -u2 "bench-net-wasm: WARNING load $(load1) > $maxload after 30 minutes; the numbers are indicative only"
 }
 
+if [[ ! -s $ref ]]; then
+  print -u2 "bench-net-wasm: reference file (Java scalar Network on 64 golden positions)"
+  ./gradlew --no-build-cache -q :nn:wasmBenchExport --args="$net $ref 64 1" >&2
+fi
 print -u2 "bench-net-wasm: machine $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, load $(load1), net $net"
 if [[ $build == 1 ]]; then
-  print -u2 "bench-net-wasm: reference file (Java scalar Network on the golden positions)"
-  ./gradlew --no-build-cache -q :nn:wasmBenchExport --args="$net $ref 64 1" >&2
   print -u2 "bench-net-wasm: TeaVM (Wasm GC and JS)"
   ./gradlew --no-build-cache -q :teavm-nn-bench:generateWasmGC :teavm-nn-bench:copyWasmGCRuntime :teavm-nn-bench:generateJavaScript >&2
   print -u2 "bench-net-wasm: C++ native and WebAssembly (scalar, simd128, simd128 + relaxed-simd)"
