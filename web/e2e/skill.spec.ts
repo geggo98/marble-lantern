@@ -17,7 +17,7 @@ test('the estimate appears after 8 moves; "Match engine to my strength" sets a c
   const estimate = page.locator('[data-testid="skill-estimate"]');
   await expect(estimate).toBeVisible({ timeout: 90_000 });
   await expect(estimate).toHaveText(/level|Level/);
-  await expect(page.locator('[data-testid="skill-moves"]')).toHaveText(/^Based on (8|9) of your moves\.$/);
+  await expect(page.locator('[data-testid="skill-moves"]')).toHaveText(/^Based on (8|9) of your moves, counted over all games on this device\.$/);
   await expect(skill).toContainText('not a rating');
 
   const levelBefore = new URL(page.url()).hash.match(/&l=(\d+)$/)?.[1];
