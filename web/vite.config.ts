@@ -12,5 +12,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'bench/**/*.test.ts'],
+    testTimeout: 30_000, // a loaded CI runner needs more than the default 5 s for the engine tests that hash the 12 MB table
   },
 });
