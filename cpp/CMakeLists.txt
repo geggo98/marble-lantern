@@ -168,6 +168,9 @@ endif()
 
 sh_test(java_compat_test sh_core)
 sh_test(engine_test sh_engine)
+sh_test(long_jump_test sh_engine)
+# The Java golden file of the long hop is read in place, so that the two sides cannot drift apart.
+target_compile_definitions(long_jump_test PRIVATE SH_LONG_JUMP_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/long-jump-golden.tsv")
 sh_test(tablebase_test sh_tablebase)
 sh_test(race_table_bytes_test sh_search)
 sh_test(eval_test sh_search)
