@@ -199,7 +199,7 @@ describe('loadModel (synthetic net)', () => {
     expect(out.meta.planes).toBe('classic1v');
   });
 
-  it('works without crypto.subtle (lengths only) and with a body the server already inflated', async () => {
+  it('works without crypto.subtle (pure-JS sha256) and with a body the server already inflated', async () => {
     expect(floatsOf(await load(gzGood, info, null)).a).toEqual(expectedValues.a);
     expect(floatsOf(await load(rawGood)).b).toEqual(expectedValues.b);
   });
@@ -217,8 +217,16 @@ describe('loadModel (synthetic net)', () => {
     const bad = gzGood.slice();
     bad[bad.length >> 1] = (bad[bad.length >> 1] ?? 0) ^ 0x55;
     expect(await codeOf(load(bad))).toBe('model-checksum');
-    // Without crypto.subtle the sha256 check is gone; gzip's own CRC32 must still stop it.
-    expect(await codeOf(load(bad, info, null))).toBe('model-corrupt');
+    // Without crypto.subtle the pure-JS sha256 still checks the packed file (before F7 only gzip's CRC32 stopped it: model-corrupt).
+    expect(await codeOf(load(bad, info, null))).toBe('model-checksum');
+  });
+
+  it('without crypto.subtle a wrong sha256 of the packed or the inflated file is model-checksum, a right one passes', async () => {
+    expect(await codeOf(load(gzGood, { ...info, sha256Packed: '0'.repeat(64) }, null))).toBe('model-checksum');
+    expect(await codeOf(load(gzGood, { ...info, sha256Raw: '0'.repeat(64) }, null))).toBe('model-checksum');
+    // a body the server already inflated: only the raw check applies
+    expect(await codeOf(load(rawGood, { ...info, sha256Raw: '0'.repeat(64) }, null))).toBe('model-checksum');
+    expect(floatsOf(await load(gzGood, info, null)).a).toEqual(expectedValues.a);
   });
 
   it('wrong sha256Raw in the manifest is model-checksum', async () => {

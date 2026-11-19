@@ -5,6 +5,7 @@ import manifestJson from '../../../models/models.json';
 import type { Variant } from '../../game/variant';
 import { sameVariant } from '../../game/variant';
 import { sha256Hex } from '../tables';
+import { sha256HexJs } from './sha256';
 
 export type ModelErrorCode =
   | 'manifest-truncated' // the manifest text is not valid JSON
@@ -315,7 +316,7 @@ function checkLength(actual: number, expected: number, what: string): void {
 export interface LoadModelOptions {
   /** Directory of the packed files with a trailing slash. Default: `${BASE_URL}models/`. */
   baseUrl?: string;
-  /** For tests. Default: crypto.subtle; null models an insecure context (then only the lengths are checked). */
+  /** For tests. Default: crypto.subtle; null models an insecure context (then the pure-JS SHA-256 of sha256.ts checks the files, so verification never disappears). */
   subtle?: SubtleCrypto | null;
 }
 
@@ -331,7 +332,7 @@ export async function loadModel(
 ): Promise<Uint8Array> {
   const subtle = options.subtle === undefined ? (globalThis.crypto?.subtle ?? null) : options.subtle;
   const hex = async (b: Uint8Array): Promise<string> =>
-    sha256Hex(subtle as SubtleCrypto, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    subtle ? sha256Hex(subtle, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer) : sha256HexJs(b);
   const url = `${options.baseUrl ?? `${import.meta.env.BASE_URL}models/`}${info.file}`;
   const response = await doFetch(url);
   if (!response.ok) throw new ModelError('model-http', `${url}: HTTP ${response.status}`);
@@ -341,13 +342,13 @@ export async function loadModel(
   let raw: Uint8Array = body;
   if (startsWith(body, GZIP_MAGIC)) {
     checkLength(body.length, info.packedBytes, 'packed model');
-    if (subtle && (await hex(body)) !== info.sha256Packed) {
+    if ((await hex(body)) !== info.sha256Packed) {
       throw new ModelError('model-checksum', `packed model ${info.id}: sha256 differs from the manifest`);
     }
     raw = await gunzip(body);
   }
   checkLength(raw.length, info.rawBytes, 'model');
-  if (subtle && (await hex(raw)) !== info.sha256Raw) {
+  if ((await hex(raw)) !== info.sha256Raw) {
     throw new ModelError('model-checksum', `model ${info.id}: sha256 of the inflated file differs from the manifest`);
   }
 
