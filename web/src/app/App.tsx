@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { EngineSession } from './session';
 import { loadManifest } from './adapters';
 import { SwitchableEngine } from './switchable-engine';
-import { NetSelectionStore } from './net-selection';
+import { DEFAULT_SELECTION, NetSelectionStore } from './net-selection';
 import { GameUrlSync, browserNavigation, isOwnEntry } from './game-nav';
 import type { NavEvent, NavigationPort, UrlSnapshot } from './game-nav';
 import { formatGameFragment, parseHash, variantOfLink } from './game-url';
@@ -149,6 +149,9 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 1, nodes: [nodes, nodes] });
     const baseUrl = import.meta.env.BASE_URL;
     const netStore = netSelection ?? new NetSelectionStore();
+    // The session always starts with a classical engine (never a net engine, defaultChoice): the stored net engine does not play, so it
+    // must not warn. Model and simulations stay; the engine in the store follows what is really loaded (the effect below).
+    if (isNetEngine(netStore.selection.engine)) netStore.setSelection({ engine: DEFAULT_SELECTION.engine });
     const session = new EngineSession({
       net: () => ({ model: netStore.selection.modelId, sims: netStore.selection.sims }),
       engine,
@@ -171,6 +174,12 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   }, []);
   const { engine, game, session, sync, tracker, netStore } = parts;
   const sessionState = useSyncExternalStore(session.subscribe, session.getState);
+  // The store names the engine in use, not the one that was wanted last: after a load that ended in another engine (a failed load, a
+  // variant that the engine cannot play) the start dialog and the sheet judge what plays.
+  const loadedId = sessionState.phase === 'ready' ? sessionState.current?.info.id : undefined;
+  useEffect(() => {
+    if (loadedId && netStore.selection.engine !== loadedId) netStore.setSelection({ engine: loadedId });
+  }, [loadedId, netStore]);
 
   const snapshot = (): UrlSnapshot => snapshotOf(game.state.history, setupRef.current, lastHuman.current, levelRef.current);
 
