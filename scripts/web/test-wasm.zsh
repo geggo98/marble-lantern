@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Node tests of the C++ WebAssembly engine (cpp/wasm/test/): the benchmark game fingerprint, the error codes of damaged tables, the analysis, the long hop and the three-player game.
+# Node tests of the C++ WebAssembly engine (cpp/wasm/test/): the benchmark game fingerprint, the error codes of damaged tables, the analysis, the long hop, the three-player game and the full-ranking game.
 # Run through `devenv tasks run wasm:test` (after wasm:build and web:tables).
 #
 # usage: test-wasm.zsh [--engine DIR] [--tables DIR]
@@ -50,4 +50,6 @@ print -u2 -- "--- long hop"
 node $dir/longhop.mjs --engine $engine --tables $tables
 print -u2 -- "--- three players"
 node $dir/threeplayer.mjs --engine $engine --tables $tables
+print -u2 -- "--- full ranking"
+node $dir/ranking.mjs --engine $engine --tables $tables
 print -u2 "test-wasm: all tests passed"

@@ -92,7 +92,7 @@ async function playTogether(variant: Variant, nodes: number): Promise<Played> {
     if (verdict.kind === 'win') expect(local, `ply ${ply}`).toEqual({ kind: 'win', winner: verdict.winner });
     if (verdict.kind === 'ongoing') expect(local, `ply ${ply}`).toBeNull();
     if (verdict.kind !== 'ongoing') {
-      for (const { core } of all) expect(core.legalMoves(history, variant), 'a finished game has no legal move').toEqual([]);
+      for (const { name, core } of all) expect(core.legalMoves(history, variant), name + ': a finished game has no legal move').toEqual([]);
       return { history, outcome: verdict };
     }
     const legal = all.map(({ core }) => core.legalMoves(history, variant));
@@ -197,6 +197,86 @@ describe.skipIf(!present)('three-player game: the three engines agree', () => {
       expect(failureCode(() => core.legalMoves(h, DEFAULT_VARIANT)), `${name}: as a two-player game`).toBe('illegal-history');
       core.newGame({ nodes: [100, 100, 100], variant: three });
       expect(failureCode(() => core.choose([], DEFAULT_VARIANT)), `${name}: choose with two players`).not.toBe('no error');
+    }
+  }, 120_000);
+});
+
+/**
+ * Plays a full-ranking game on every engine at once until the ranking is complete. Every ply all engines agree on the outcome
+ * (including the seats that are out), the legal moves and the whole choose() result. The board of the app does not know the
+ * rule yet, so it is not consulted. Returns the history, the ranking and the plies at which a seat first was out.
+ */
+async function playRankingTogether(variant: Variant, nodes: number): Promise<{ history: number[]; ranking: readonly number[]; firstOut: number }> {
+  const all = await engines();
+  for (const { core } of all) core.newGame({ nodes: [nodes, nodes + 100, nodes + 200], variant });
+  const history: number[] = [];
+  let firstOut = -1;
+  for (let ply = 0; ply < 400; ply++) {
+    const verdicts = all.map(({ core }) => core.outcome(history, variant));
+    for (const v of verdicts) expect(v, `outcome at ply ${ply}`).toEqual(verdicts[0]);
+    const verdict = verdicts[0]!;
+    if (verdict.kind === 'ranking') {
+      for (const { name, core } of all) expect(core.legalMoves(history, variant), name + ': a finished game has no legal move').toEqual([]);
+      return { history, ranking: verdict.ranking, firstOut };
+    }
+    expect(verdict.kind, `a full-ranking game of three has no draw (ply ${ply})`).toBe('ongoing');
+    if (verdict.kind === 'ongoing' && verdict.finished) {
+      if (firstOut < 0) firstOut = ply;
+      expect(verdict.finished, 'one seat is out while the others play on').toHaveLength(1);
+    }
+    const legal = all.map(({ core }) => core.legalMoves(history, variant));
+    for (const l of legal) expect(l, `legal moves at ply ${ply}`).toEqual(legal[0]);
+    const choices = all.map(({ core }) => core.choose(history, variant));
+    for (const c of choices) {
+      expect({ move: c.move, score: c.score, depth: c.depth, nodes: c.nodes, race: c.raceMove }, `choose at ply ${ply}`).toEqual({
+        move: choices[0]!.move, score: choices[0]!.score, depth: choices[0]!.depth, nodes: choices[0]!.nodes, race: false,
+      });
+    }
+    expect(legal[0]).toContain(choices[0]!.move);
+    history.push(choices[0]!.move);
+  }
+  throw new Error('the ranking was not complete within 400 plies');
+}
+
+describe.skipIf(!present)('three-player game with full ranking: the three engines agree to the end of the ranking', () => {
+  for (const jump of ['adjacent', 'long'] as const) {
+    const variant: Variant = { jump, players: 3, ranking: 'full' };
+
+    it(`${jump} jumps: a whole game, same moves, scores and nodes per seat, same ranking`, async () => {
+      const game = await playRankingTogether(variant, 100);
+      // the ranking is a permutation of the three seats, and a seat was out before the game ended (the continued phase ran)
+      expect([...game.ranking].sort()).toEqual([0, 1, 2]);
+      expect(game.firstOut, 'a seat filled its goal and the others played on').toBeGreaterThanOrEqual(0);
+      expect(game.history.length).toBeGreaterThan(game.firstOut);
+      expect(game.history.length).toBeLessThanOrEqual(300);
+    }, 300_000);
+
+    it(`${jump} jumps: the same history is over in first-winner rules at the first finisher, and bench plays the same moves`, async () => {
+      const all = await engines();
+      const first: Variant = { jump, players: 3 };
+      const benches = all.map(({ core }) => core.bench(12, 120, variant));
+      for (const b of benches) expect(b.moves).toEqual(benches[0]!.moves);
+      expect(benches[0]!.moves).toHaveLength(12);
+      for (const { name, core } of all) {
+        expect(failureCode(() => core.analyse([], null, 100, variant)), `${name} analyse`).toBe('unsupported');
+        // no ranking field and 'first' are the same game
+        expect(core.outcome([], first), name).toEqual({ kind: 'ongoing' });
+        expect(core.outcome([], { ...first, ranking: 'first' }), name).toEqual({ kind: 'ongoing' });
+        expect(core.outcome([], variant), name).toEqual({ kind: 'ongoing' });
+      }
+    }, 120_000);
+  }
+
+  it('two players: full ranking plays the same game as first-winner rules', async () => {
+    const all = await engines();
+    const two: Variant = { jump: 'long', players: 2 };
+    const twoFull: Variant = { jump: 'long', players: 2, ranking: 'full' };
+    for (const { name, core } of all) {
+      expect(core.legalMoves([], twoFull), name).toEqual(core.legalMoves([], two));
+      expect(core.outcome([], twoFull), name).toEqual({ kind: 'ongoing' });
+      const a = core.bench(8, 150, two);
+      const b = core.bench(8, 150, twoFull);
+      expect(b.moves, name).toEqual(a.moves);
     }
   }, 120_000);
 });

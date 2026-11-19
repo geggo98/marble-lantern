@@ -147,8 +147,10 @@ SHW_API int shw_owner(int cell) { return g_pos->owner(cell); }
 SHW_API int shw_cell_count() { return sh::kCells; }
 SHW_API int shw_cell_q(int cell) { return sh::geometry::q(cell); }
 SHW_API int shw_cell_r(int cell) { return sh::geometry::r(cell); }
-// Writes the legal moves (from | to << 8) of the side to move into the heap array `out` (capacity `cap`); returns their number.
+// Writes the legal moves (from | to << 8) of the side to move into the heap array `out` (capacity `cap`); returns their number. A game that
+// is over has none (as in the Java facade): with a full-ranking game the finished players' goals no longer block the others' moves.
 SHW_API int shw_legal_moves(std::int32_t* out, int cap) {
+    if (g_pos->outcome().has_value()) return 0;
     const int n = g_pos->generate(g_moves);
     const std::span<std::int32_t> dest(out, static_cast<std::size_t>(cap));
     for (int i = 0; i < n && i < cap; ++i) dest[static_cast<std::size_t>(i)] = g_moves[static_cast<std::size_t>(i)];

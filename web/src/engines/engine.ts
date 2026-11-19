@@ -49,8 +49,21 @@ export interface GameSetup {
   netOptions?: NetOptions;
 }
 
-/** What Engine.outcome reports: the game goes on, a seat has won, or it ended without a winner (move limit, repetition, no legal move). */
-export type EngineOutcome = { kind: 'ongoing' } | { kind: 'win'; winner: Player } | { kind: 'draw' };
+/**
+ * What Engine.outcome reports.
+ * - `ongoing`: the game goes on. `finished` is present only with full ranking, after a seat has filled its goal: the seats
+ *   that are out, in finishing order (the others play for the lower ranks).
+ * - `win`: a seat has won; the game is over (first-winner rules, and every two-player game).
+ * - `draw`: the game ended without a winner (move limit, repetition, no legal move); first-winner rules only.
+ * - `ranking`: a full-ranking game of three players is over. The seats by rank, first place first. A move limit, a
+ *   repetition and a seat without a legal move end such a game with a ranking too: the seats that are not out are ranked by
+ *   their distance to the goal.
+ */
+export type EngineOutcome =
+  | { kind: 'ongoing'; finished?: readonly Player[] }
+  | { kind: 'win'; winner: Player }
+  | { kind: 'draw' }
+  | { kind: 'ranking'; ranking: readonly [Player, Player, Player] };
 
 export interface ChooseResult {
   move: number;
