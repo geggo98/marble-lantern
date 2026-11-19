@@ -110,6 +110,21 @@ export class GameController {
     await this.playEngineTurns(1);
   }
 
+  /**
+   * Swaps who plays which side without touching the board: the person takes over `humanSide`, the engine plays the
+   * other side from the current position. A running search is dropped (the engine restarts its worker). Also leaves
+   * engine-versus-engine mode. Pressing it again and again lets the engine play both sides in turn.
+   */
+  async swapSides(humanSide: Side): Promise<void> {
+    this.cancel();
+    await this.idle();
+    this.generation++;
+    this.mode = 'human-vs-engine';
+    this.humanSide = humanSide;
+    this.patch({ thinking: false, error: null });
+    await this.playEngineTurns();
+  }
+
   /** Stops a running search. The engine restarts its worker; the game state stays. */
   cancel(): void {
     this.abort?.abort();

@@ -89,6 +89,36 @@ describe('GameController against the fake engine', () => {
     expect(game.state.sideToMove).toBe(0);
   });
 
+  it('swapSides keeps the board and history; the engine takes over the side that was the human\x27s', async () => {
+    const { engine } = await fakeEngine();
+    const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 0, nodes: [1, 1] });
+    await game.newGame();
+    await game.play(game.state.legal[0]!); // human (side 0), engine answers: ply 2, side 0 on move
+    const before = [...game.state.history];
+    expect(game.state.sideToMove).toBe(0);
+    await game.swapSides(1); // the engine now plays side 0 and moves at once
+    expect(game.state.history.slice(0, before.length)).toEqual(before);
+    expect(game.state.history).toHaveLength(before.length + 1);
+    expect(game.state.sideToMove).toBe(1);
+    expect(game.isEngineTurn()).toBe(false);
+    await game.play(game.state.legal[0]!); // the human plays side 1 now; the engine answers
+    expect(game.state.history).toHaveLength(before.length + 3);
+  });
+
+  it('swapSides leaves engine-versus-engine mode and works again and again', async () => {
+    const { engine } = await fakeEngine();
+    const game = new GameController({ engine, mode: 'engine-vs-engine', nodes: [1, 1] });
+    await game.newGame();
+    await game.stepEngine();
+    const plies = game.state.history.length;
+    await game.swapSides(0);
+    expect(game.state.history.length).toBeGreaterThanOrEqual(plies);
+    expect(game.isEngineTurn()).toBe(false);
+    await game.swapSides(1);
+    expect(game.state.history.length).toBeGreaterThan(plies);
+    expect(game.state.outcome).toBeNull();
+  });
+
   it('refuses a human move in engine-versus-engine mode and while it is not the human\'s turn', async () => {
     const { engine } = await fakeEngine();
     const evE = new GameController({ engine, mode: 'engine-vs-engine', nodes: [1, 1] });

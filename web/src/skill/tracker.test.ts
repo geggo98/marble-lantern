@@ -53,6 +53,16 @@ describe('SkillTracker', () => {
     expect(calls[1]!.history).toEqual([1, 2]);
   });
 
+  it('startAt: moves before the swap are not the person\x27s; only later ones count', async () => {
+    const { calls, tracker } = setup([1, 2, 3, 4, 5], { human: 1 }); // human side 1: plies 1 and 3
+    tracker.startAt(4);
+    tracker.pump();
+    expect(calls).toHaveLength(0); // no human move at ply >= 4 on side 1
+    tracker.startAt(0);
+    tracker.pump();
+    expect(calls[0]!.history).toEqual([1, 2, 3]); // newest human move first: ply 3
+  });
+
   it('records the loss of the move played against the best score, and reports progress', async () => {
     const { calls, tracker } = setup([1, 2, 3]);
     let state: TrackerState = tracker.getState();

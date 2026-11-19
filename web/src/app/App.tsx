@@ -320,7 +320,9 @@ export function App({ manifestLoader, benchRunner = null, navigation }: AppProps
       tracker.abort();
       const next: Side = lastHuman.current === 1 ? 0 : 1;
       applySetup(humanVsEngine(next, levelRef.current));
-      void game.newGame({ mode: 'human-vs-engine', humanSide: next });
+      tracker.startAt(game.state.history.length); // the moves so far were not all the person's
+      if (playing) sync.observe(snapshot()); // the address shows the new side, same position
+      void game.swapSides(next);
     },
     onDemo: () => {
       if (demo && (game.state.thinking || game.isEngineTurn())) {

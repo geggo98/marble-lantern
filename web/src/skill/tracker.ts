@@ -55,6 +55,8 @@ export class SkillTracker {
   private listeners = new Set<() => void>();
   private lastChange = -Infinity;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Plies before this index were not played by the person at the board (the sides were swapped later). */
+  private floor = 0;
 
   constructor(deps: TrackerDeps) {
     this.deps = deps;
@@ -85,6 +87,13 @@ export class SkillTracker {
     if (!r) return;
     this.running = null;
     r.controller.abort();
+    this.refresh();
+  }
+
+  /** Counts only the moves from ply `index` on: the sides were swapped there, so earlier moves are not the person's. */
+  startAt(index: number): void {
+    this.abort();
+    this.floor = index;
     this.refresh();
   }
 
@@ -152,7 +161,8 @@ export class SkillTracker {
     const { history } = this.deps.game.state;
     if (side === null) return [];
     const out: { index: number; move: number; key: string }[] = [];
-    for (let i = side; i < history.length; i += 2) out.push({ index: i, move: history[i]!, key: history.slice(0, i + 1).join(',') });
+    const from = Math.min(this.floor, history.length);
+    for (let i = from + ((((side - from) % 2) + 2) % 2); i < history.length; i += 2) out.push({ index: i, move: history[i]!, key: history.slice(0, i + 1).join(',') });
     return out;
   }
 

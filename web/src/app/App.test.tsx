@@ -142,14 +142,15 @@ describe('the play screen', () => {
     expect(all('[data-cell][tabindex="0"]')).toHaveLength(1);
   });
 
-  it('undo takes back the human move, new game starts again, swap sides rotates the board', async () => {
+  it('undo takes back the human move, new game starts again, swap sides keeps the board and lets the engine take the other side', async () => {
     await selectMovablePiece();
     await click(targetCells()[0]!);
     await until(() => plies() === 3, 'ply 3');
     await click(all('button').find((b) => b.textContent === 'Undo')!);
     await until(() => plies() === 1, 'undo back to ply 1');
     await click(all('button').find((b) => b.textContent === 'Swap sides')!);
-    await until(() => status() === 'Your move' && plies() === 0, 'a new game with the human on the other side');
+    // the board stays; the engine (now side 1) answers at once, then the human is on move again as side 0
+    await until(() => status() === 'Your move' && plies() === 2, 'the engine played the other side');
     // The human now plays side 0 (the top corner), so the board is rotated: the human's marbles are amber and at the bottom.
     const own = ownPieces()[0]!;
     const y = Number(own.getAttribute('cy'));
