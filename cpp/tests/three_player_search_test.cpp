@@ -136,6 +136,54 @@ SH_TEST(java_choose_golden_all_rows) {
     CHECK_EQ(rows, 26);
 }
 
+// All rows of the Java analysis golden file (search/src/test/resources/three-player-analyse-golden.tsv, path from CMake,
+// SH_THREE_PLAYER_ANALYSE_GOLDEN): the static evaluation vector and, at nodes=2000 and nodes=5000, score, depth and nodes of every legal
+// move, bit for bit. A subset of the moves in reverse order gives the same values (the table is cleared before every move).
+SH_TEST(java_analyse_golden_all_rows) {
+    std::ifstream in(SH_THREE_PLAYER_ANALYSE_GOLDEN);
+    CHECK(in.good());
+    int rows = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line.front() == '#') continue;
+        const auto f = split(line, '\t');
+        CHECK_EQ(f.size(), std::size_t{9});
+        if (f.size() != 9) continue;
+        const int id = std::stoi(std::string(f[0]));
+        CHECK_EQ(id, rows);
+        ++rows;
+        const bool long_hop = f[1] == "LONG";
+        Position pos = position_of_row(id);
+        CHECK_EQ(pos.side_to_move(), std::stoi(std::string(f[2])));
+        for (int p = 0; p < 3; ++p) CHECK_EQ(pieces_text(pos, p), std::string(f[static_cast<std::size_t>(3 + p)]));
+        auto evaluator = *ThreePlayerSpec::parse(spec_text(1, long_hop))->create();
+        const std::array<int, 3> e = evaluator->evaluation(pos);
+        CHECK_EQ(std::to_string(e[0]) + "," + std::to_string(e[1]) + "," + std::to_string(e[2]), std::string(f[6]));
+        const std::array<std::int64_t, 2> budgets{2000, 5000};
+        for (std::size_t b = 0; b < budgets.size(); ++b) {
+            auto player = *ThreePlayerSpec::parse(spec_text(budgets[b], long_hop))->create();
+            const auto cells = split(f[7 + b], ',');
+            std::vector<int> moves;
+            for (const std::string_view cell : cells) {
+                const auto c = split(cell, ':');
+                CHECK_EQ(c.size(), std::size_t{4});
+                const auto ft = split(c[0], '-');
+                moves.push_back(Move::of(std::stoi(std::string(ft[0])), std::stoi(std::string(ft[1]))));
+            }
+            // reverse order first: it must give the same values as the Java order
+            for (std::size_t k = cells.size(); k-- > 0;) {
+                const auto c = split(cells[k], ':');
+                const SearchResult r = player->analyse_move(pos, moves[k]);
+                CHECK_EQ(r.score, std::stoi(std::string(c[1])));
+                CHECK_EQ(r.depth, std::stoi(std::string(c[2])));
+                CHECK_EQ(r.nodes, std::stoll(std::string(c[3])));
+                CHECK_EQ(r.move, -1);
+            }
+        }
+    }
+    CHECK_EQ(rows, 26);
+}
+
 SH_TEST(spec_keys_defaults_and_errors) {
     const auto d = ThreePlayerSpec::parse("ab3");
     CHECK(d.has_value());

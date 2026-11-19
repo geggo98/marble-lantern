@@ -34,6 +34,15 @@ public:
     // The search result of the last choose() call, or empty (before the first call or after clear_search()).
     const std::optional<SearchResult>& last_result() const { return last_result_; }
 
+    // The analysis score of one legal move of `position` (Java: ThreePlayerPlayer.analyseMove): the move is made and the child position is
+    // searched for the mover within this player's node budget (paranoid score, higher is better for the mover). The table is cleared
+    // first, so the score depends on the position and the move only. Throws std::invalid_argument like choose(). Does not touch
+    // last_result(); counts the nodes in total_nodes() and the time.
+    SearchResult analyse_move(const Position& position, int move);
+
+    // The static score of the position for each absolute player 0, 1, 2 (Java: ThreePlayerPlayer.evaluation), no search. Throws like choose().
+    std::array<int, 3> evaluation(const Position& position);
+
     // Forgets the table, the killers and the last result, so that the next game plays as with a fresh player of the same spec.
     // The counters keep counting.
     void clear_search();
@@ -46,6 +55,8 @@ public:
     std::int64_t moves() const { return moves_; }
 
 private:
+    void check_plays(const Position& position) const;
+
     std::vector<double> weights_;
     int table_bits_;
     ThreePlayerSearch search_;

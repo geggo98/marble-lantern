@@ -185,6 +185,58 @@ SearchResult ThreePlayerSearch::search(const Position& position, int max_depth, 
     return SearchResult{best_move, best_score, done_depth, nodes_, complete};
 }
 
+void ThreePlayerSearch::clear() {
+    std::ranges::fill(table_, Entry{});
+    for (auto& k : killers_) k = {0, 0};
+}
+
+SearchResult ThreePlayerSearch::search_after(const Position& position, int move, int max_depth, std::int64_t max_nodes) {
+    if (position.rules().players() != 3) throw std::invalid_argument("three-player search needs a three-player position");
+    Position work = position.copy();
+    const int mover = work.side_to_move();
+    work.make(move);
+    const SearchResult child = search_as(work, mover, max_depth, max_nodes);
+    int score = child.score;
+    score = score >= kMateBound ? score - 1 : score <= -kMateBound ? score + 1 : score;
+    return SearchResult{-1, score, child.depth, child.nodes, child.complete};
+}
+
+SearchResult ThreePlayerSearch::search_as(const Position& position, int root_player, int max_depth, std::int64_t max_nodes) {
+    Position work = position.copy();
+    pos_ = &work;
+    root_ = root_player;
+    nodes_ = 0;
+    node_limit_ = max_nodes;
+    aborted_ = false;
+    has_deadline_ = false;
+    for (auto& k : killers_) k = {0, 0};
+    if (work.has_won(root_player)) {
+        pos_ = nullptr;
+        return SearchResult{-1, kMate, 0, 1, true};
+    }
+    int score = 0;
+    int done_depth = 0;
+    bool complete = true;
+    const int top = std::min(max_depth, kMaxDepth);
+    for (int depth = 1; depth <= top; ++depth) {
+        limited_ = depth > 1;
+        const int s = ab(depth, -kMate - 1, kMate + 1, 0);
+        if (aborted_) {
+            complete = false;
+            break;
+        }
+        score = s;
+        done_depth = depth;
+        if (std::abs(score) >= kMateBound) break;
+    }
+    pos_ = nullptr;
+    return SearchResult{-1, score, done_depth, nodes_, complete};
+}
+
+std::array<int, 3> ThreePlayerSearch::evaluate_all(const Position& position) {
+    return {evaluate(position, 0), evaluate(position, 1), evaluate(position, 2)};
+}
+
 bool ThreePlayerSearch::search_root(std::vector<int>& ordered, int depth, int previous_best, int& best_move, int& best_score_out) {
     const std::size_t n = ordered.size();
     std::vector<int> order_keys(n);

@@ -64,12 +64,31 @@ ThreePlayerPlayer::ThreePlayerPlayer(std::span<const double> weights, const std:
       time_limit_millis_(time_limit_millis),
       max_nodes_(max_nodes) {}
 
-int ThreePlayerPlayer::choose(const Position& position) {
+void ThreePlayerPlayer::check_plays(const Position& position) const {
     if (position.rules().players() != 3) throw std::invalid_argument("player " + name_ + " plays three players");
     if (!plays(position)) {
         throw std::invalid_argument("player " + name_ + " plays jump=" + (jump_rule_ == RuleSet::JumpRule::Long ? "long" : "adjacent") +
                                     " but the position has jump=" + (position.rules().jump_rule() == RuleSet::JumpRule::Long ? "long" : "adjacent"));
     }
+}
+
+SearchResult ThreePlayerPlayer::analyse_move(const Position& position, int move) {
+    check_plays(position);
+    search_.clear();
+    const auto t0 = std::chrono::steady_clock::now();
+    const SearchResult result = search_.search_after(position, move, max_depth_, max_nodes_);
+    total_time_ += std::chrono::steady_clock::now() - t0;
+    total_nodes_ += result.nodes;
+    return result;
+}
+
+std::array<int, 3> ThreePlayerPlayer::evaluation(const Position& position) {
+    check_plays(position);
+    return search_.evaluate_all(position);
+}
+
+int ThreePlayerPlayer::choose(const Position& position) {
+    check_plays(position);
     const auto t0 = std::chrono::steady_clock::now();
     const SearchResult result = search_.search(position, max_depth_, time_limit_millis_, max_nodes_);
     total_time_ += std::chrono::steady_clock::now() - t0;
