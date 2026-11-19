@@ -110,6 +110,7 @@
   "default": "voreingestellt",
   "reason_unsupported": "Dieser Browser kann diese Engine nicht ausführen.",
   "reason_not_shipped": "Dieser Build enthält diese Engine nicht.",
+  "reason_variant": "Diese Engine spielt nur das Standardspiel.",
   "strength": "Spielstärke",
   "strength_hint": "Erwartete Zeit pro Zug mit dieser Engine:",
   "cancel": "Abbrechen",

@@ -56,6 +56,20 @@ export const BOTTOM_CORNER: readonly number[] = CELLS.filter((c) => c.r > 4).map
 export const START_CELLS: readonly [readonly number[], readonly number[]] = [TOP_CORNER, BOTTOM_CORNER];
 export const GOAL_CELLS: readonly [readonly number[], readonly number[]] = [BOTTOM_CORNER, TOP_CORNER];
 
+/** Three players, clockwise (docs/rules.md, "Screen orientation and clockwise order"): player 0 starts at r < -4, player 1 at s < -4, player 2 at q < -4. Each goal is the opposite corner. */
+const cornerWhere = (test: (q: number, r: number, s: number) => boolean): readonly number[] =>
+  CELLS.filter((c) => test(c.q, c.r, -c.q - c.r)).map((c) => c.id);
+export const START_CELLS_3: readonly [readonly number[], readonly number[], readonly number[]] = [
+  cornerWhere((_q, r) => r < -4),
+  cornerWhere((_q, _r, s) => s < -4),
+  cornerWhere((q) => q < -4),
+];
+export const GOAL_CELLS_3: readonly [readonly number[], readonly number[], readonly number[]] = [
+  cornerWhere((_q, r) => r > 4),
+  cornerWhere((_q, _r, s) => s > 4),
+  cornerWhere((q) => q > 4),
+];
+
 /** Screen position of a cell centre for a unit length u (design-notes.md, section 6): pointy-top layout. */
 export function cellCentre(id: number, unit = 20): { x: number; y: number } {
   const c = cellAt(id);

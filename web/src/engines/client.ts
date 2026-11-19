@@ -1,5 +1,7 @@
 // Wraps a Worker into an Engine: id counter, pending map, progress routing, terminate-and-restart on abort.
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from './engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from './engine';
+import { DEFAULT_VARIANT } from '../game/variant';
+import type { Variant } from '../game/variant';
 import { isEvent, EngineFailure } from './protocol';
 import type { AssetUrls, Reply, Request, RequestBody, WorkerOut } from './protocol';
 import type { LoadedTable } from './tables';
@@ -78,16 +80,21 @@ export class WorkerEngine implements Engine {
     return this.call({ type: 'newGame', setup }).then(() => undefined);
   }
 
-  legalMoves(history: readonly number[]): Promise<number[]> {
-    return this.call({ type: 'legalMoves', history: [...history] }) as Promise<number[]>;
+  legalMoves(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<number[]> {
+    return this.call({ type: 'legalMoves', history: [...history], variant }) as Promise<number[]>;
   }
 
-  async choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult> {
-    return (await this.abortable({ type: 'choose', history: [...history] }, signal)) as ChooseResult;
+  async outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<EngineOutcome> {
+    return (await this.call({ type: 'outcome', history: [...history], variant })) as EngineOutcome;
   }
 
-  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult> {
-    const request: RequestBody = { type: 'analyse', history: [...history], moves: moves === null ? null : [...moves], nodes };
+  async choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult> {
+    const v = variant ?? this.setup?.variant ?? DEFAULT_VARIANT;
+    return (await this.abortable({ type: 'choose', history: [...history], variant: v }, signal)) as ChooseResult;
+  }
+
+  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant: Variant = DEFAULT_VARIANT): Promise<AnalysisResult> {
+    const request: RequestBody = { type: 'analyse', history: [...history], moves: moves === null ? null : [...moves], nodes, variant };
     return (await this.abortable(request, signal)) as AnalysisResult;
   }
 

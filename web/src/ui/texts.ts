@@ -97,6 +97,7 @@ export const uiEn = {
   default: 'default',
   reason_unsupported: 'This browser cannot run this engine.',
   reason_not_shipped: 'This build does not include this engine.',
+  reason_variant: 'This engine plays only the standard game.',
   strength: 'Strength',
   strength_hint: 'Time per move with this engine:',
   cancel: 'Cancel',

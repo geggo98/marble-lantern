@@ -84,13 +84,15 @@ export class JavaRequestHandler {
         this.ready().newGame(request.setup);
         return null;
       case 'legalMoves':
-        return this.ready().legalMoves(request.history);
+        return this.ready().legalMoves(request.history, request.variant);
       case 'choose':
-        return this.ready().choose(request.history);
+        return this.ready().choose(request.history, request.variant);
       case 'analyse':
-        return this.ready().analyse(request.history, request.moves, request.nodes);
+        return this.ready().analyse(request.history, request.moves, request.nodes, request.variant);
+      case 'outcome':
+        return this.ready().outcome(request.history, request.variant);
       case 'bench':
-        return this.ready().bench(request.plies, request.nodes);
+        return this.ready().bench(request.plies, request.nodes, request.variant);
     }
   }
 

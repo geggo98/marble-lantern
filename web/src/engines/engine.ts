@@ -1,6 +1,8 @@
 // The one interface every engine adapter implements (C++ Wasm, TeaVM Wasm GC, TeaVM JS, server).
 // Moves use the engine's own encoding: from | (to << 8), cell ids 0 to 120 (sternhalma.engine.Move).
 
+import type { Player, Variant } from '../game/variant';
+
 export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js' | `server:${string}`;
 
 export interface EngineInfo {
@@ -28,9 +30,14 @@ export interface LoadReport {
 }
 
 export interface GameSetup {
-  /** Node budget per move for side 0 and side 1. */
-  nodes: [number, number];
+  /** Node budget per move for each seat: two entries for two players, three for three (a missing third entry is the second). */
+  nodes: readonly number[];
+  /** The game variant; missing means the default (adjacent jumps, two players). */
+  variant?: Variant;
 }
+
+/** What Engine.outcome reports: the game goes on, a seat has won, or it ended without a winner (move limit, repetition, no legal move). */
+export type EngineOutcome = { kind: 'ongoing' } | { kind: 'win'; winner: Player } | { kind: 'draw' };
 
 export interface ChooseResult {
   move: number;
@@ -83,17 +90,25 @@ export interface Engine {
   readonly info: EngineInfo;
   init(onProgress?: (p: Progress) => void): Promise<LoadReport>;
   newGame(setup: GameSetup): Promise<void>;
+  /**
+   * `variant` (default: adjacent jumps, two players) is passed with every call that replays a history, so the call is
+   * stateless; `choose` without a variant uses the variant of the last `newGame`. Engines that cannot play a variant reject
+   * with code unsupported.
+   */
   /** The history is the whole game state: moves from the start position, oldest first. */
-  legalMoves(history: readonly number[]): Promise<number[]>;
+  legalMoves(history: readonly number[], variant?: Variant): Promise<number[]>;
   /** Rejects with an AbortError when the signal fires; the adapter then restarts its worker. */
-  choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult>;
+  choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult>;
   /**
    * Scores moves of the position after `history` for the side to move, with a dedicated analysis player (never the game
    * players: their tables, budgets and choose() results stay as they are). `moves` null means all legal moves. `nodes` is
    * the node budget for each scored move. Rejects with an AbortError when the signal fires; the adapter then restarts its worker.
    * Rejects with code illegal-move if a move is not legal, illegal-history if the game is over.
+   * Rejects with code unsupported for three players (analysis is two-player only).
    */
-  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult>;
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant?: Variant): Promise<AnalysisResult>;
+  /** Whether the game after `history` goes on, is won (by which seat) or drawn. Rejects with illegal-history for an illegal history. */
+  outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome>;
   dispose(): void;
 }
 

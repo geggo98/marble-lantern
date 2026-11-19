@@ -1,5 +1,6 @@
 // Worker message protocol: one request, one reply, matched by id. Progress events carry the id of the running request.
-import type { BenchResult, GameSetup, Progress } from './engine';
+import type { BenchResult, EngineOutcome, GameSetup, Progress } from './engine';
+import type { Variant } from '../game/variant';
 
 export interface AssetUrls {
   /** URLs of the engine files, in the order the worker glue expects. */
@@ -12,12 +13,14 @@ export type Request =
   /** table: bytes the main thread already holds (transferred), or null to fetch them in the worker. */
   | { id: number; type: 'init'; assets: AssetUrls; table: ArrayBuffer | null }
   | { id: number; type: 'newGame'; setup: GameSetup }
-  | { id: number; type: 'legalMoves'; history: number[] }
-  | { id: number; type: 'choose'; history: number[] }
+  | { id: number; type: 'legalMoves'; history: number[]; variant?: Variant }
+  | { id: number; type: 'choose'; history: number[]; variant?: Variant }
   /** moves: null scores all legal moves. */
-  | { id: number; type: 'analyse'; history: number[]; moves: number[] | null; nodes: number }
+  | { id: number; type: 'analyse'; history: number[]; moves: number[] | null; nodes: number; variant?: Variant }
+  /** Ongoing, won or drawn after the history. */
+  | { id: number; type: 'outcome'; history: number[]; variant?: Variant }
   /** Runs the benchmark game inside the worker. */
-  | { id: number; type: 'bench'; plies: number; nodes: number };
+  | { id: number; type: 'bench'; plies: number; nodes: number; variant?: Variant };
 
 export type ErrorCode =
   | 'table-checksum'
@@ -28,6 +31,7 @@ export type ErrorCode =
   | 'illegal-history'
   | 'illegal-move'
   | 'rows1-requested'
+  | 'unsupported'
   | 'aborted'
   | 'internal';
 
@@ -37,7 +41,7 @@ export interface EngineError {
   message: string;
 }
 
-/** result: LoadReport, number[], ChooseResult, AnalysisResult, BenchResult, or null. */
+/** result: LoadReport, number[], ChooseResult, AnalysisResult, EngineOutcome, BenchResult, or null. */
 export type Reply =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: EngineError };

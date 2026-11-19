@@ -2,7 +2,8 @@
 // change the engine and the strength in the middle of a game. This wrapper forwards to the current engine and can swap it.
 // The move history is the whole game state, so the new engine needs no copy of the position: it replays the history
 // on the next call (design-notes.md, section 12, point 4).
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engines/engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from '../engines/engine';
+import type { Variant } from '../game/variant';
 import { EngineFailure } from '../engines/protocol';
 
 const PLACEHOLDER: EngineInfo = {
@@ -11,7 +12,7 @@ const PLACEHOLDER: EngineInfo = {
 
 export class SwitchableEngine implements Engine {
   private inner: Engine | null = null;
-  private nodes: [number, number] | null = null;
+  private nodes: number[] | null = null;
 
   /** The info of the current engine; a placeholder until the first engine is in use. */
   get info(): EngineInfo {
@@ -36,7 +37,7 @@ export class SwitchableEngine implements Engine {
   }
 
   private override(setup: GameSetup): GameSetup {
-    return this.nodes ? { nodes: this.nodes } : setup;
+    return this.nodes ? { ...setup, nodes: this.nodes } : setup;
   }
 
   private get engine(): Engine {
@@ -52,16 +53,20 @@ export class SwitchableEngine implements Engine {
     return await this.engine.newGame(this.override(setup));
   }
 
-  async legalMoves(history: readonly number[]): Promise<number[]> {
-    return await this.engine.legalMoves(history);
+  async legalMoves(history: readonly number[], variant?: Variant): Promise<number[]> {
+    return await this.engine.legalMoves(history, variant);
   }
 
-  async choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult> {
-    return await this.engine.choose(history, signal);
+  async choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult> {
+    return await this.engine.choose(history, signal, variant);
   }
 
-  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal): Promise<AnalysisResult> {
-    return await this.engine.analyse(history, moves, nodes, signal);
+  async analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, signal?: AbortSignal, variant?: Variant): Promise<AnalysisResult> {
+    return await this.engine.analyse(history, moves, nodes, signal, variant);
+  }
+
+  async outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome> {
+    return await this.engine.outcome(history, variant);
   }
 
   dispose(): void {

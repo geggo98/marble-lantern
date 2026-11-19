@@ -2,6 +2,7 @@
 // Vite removes the branch from the static build, so the offline bundle contains no endpoint code
 // (CI check: `grep -c 'connect/' web/dist/assets/*.js` prints 0 for every file).
 import { registerEngine } from '../registry';
+import { isDefault } from '../../game/variant';
 import { ServerEngineAdapter } from './client';
 import type { ServerApi } from './client';
 
@@ -19,6 +20,7 @@ export async function registerServerEngines(): Promise<void> {
         runtime: 'server',
         language: 'Java',
         isAvailable: () => true,
+        supportsVariant: isDefault,
         create: () => new ServerEngineAdapter(entry, api),
       });
     }

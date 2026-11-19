@@ -1,6 +1,9 @@
 // The online adapter: the Engine interface on top of the Hilla endpoint GameEndpoint (app/.../GameEndpoint.java).
 // It knows nothing about Hilla: the generated client is injected as a ServerApi (see load.ts), so tests run without it.
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport, Progress } from '../engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from '../engine';
+import { replay, outcomeOf } from '../../game/board-state';
+import { DEFAULT_VARIANT, isDefault } from '../../game/variant';
+import type { Variant } from '../../game/variant';
 
 /** What the server lists in engines(): ServerEngine.java. */
 export interface ServerEngineEntry {
@@ -38,6 +41,11 @@ export function toServerError(e: unknown): Error {
   if (name === 'ConnectionFailureError' || e instanceof TypeError) return new ServerError('server-unreachable', message);
   if (message.includes('illegal-history')) return new ServerError('illegal-history', message);
   return new ServerError('internal', message);
+}
+
+/** The server plays the default game only (adjacent jumps, two players): every other variant is `unsupported`. */
+function requireDefault(variant: Variant | undefined): void {
+  if (variant !== undefined && !isDefault(variant)) throw new ServerError('unsupported', `the server engines play adjacent jumps with two players only, not ${variant.jump} with ${variant.players}`);
 }
 
 export function isAbort(e: unknown): boolean {
@@ -81,10 +89,12 @@ export class ServerEngineAdapter implements Engine {
   }
 
   async newGame(setup: GameSetup): Promise<void> {
-    this.nodes = [setup.nodes[0], setup.nodes[1]];
+    requireDefault(setup.variant);
+    this.nodes = [setup.nodes[0] ?? 20_000, setup.nodes[1] ?? setup.nodes[0] ?? 20_000];
   }
 
-  async legalMoves(history: readonly number[]): Promise<number[]> {
+  async legalMoves(history: readonly number[], variant?: Variant): Promise<number[]> {
+    requireDefault(variant);
     try {
       return (await this.api.legalMoves([...history])) ?? [];
     } catch (e) {
@@ -92,7 +102,8 @@ export class ServerEngineAdapter implements Engine {
     }
   }
 
-  async choose(history: readonly number[], signal?: AbortSignal): Promise<ChooseResult> {
+  async choose(history: readonly number[], signal?: AbortSignal, variant?: Variant): Promise<ChooseResult> {
+    requireDefault(variant);
     // The side to move is fixed by the parity of the history: side 0 starts.
     const nodes = this.nodes[history.length % 2] ?? this.nodes[0];
     try {
@@ -108,8 +119,23 @@ export class ServerEngineAdapter implements Engine {
    * Not offered by the server endpoint yet: GameEndpoint has no analysis method. It rejects with code "unsupported" so that a
    * caller can hide move guides and skill estimates for this engine.
    */
-  async analyse(_history: readonly number[], _moves: readonly number[] | null, _nodes: number, _signal?: AbortSignal): Promise<AnalysisResult> {
+  async analyse(_history: readonly number[], _moves: readonly number[] | null, _nodes: number, _signal?: AbortSignal, _variant?: Variant): Promise<AnalysisResult> {
     throw new ServerError('unsupported', 'the server engines have no analysis endpoint');
+  }
+
+  /** The endpoint has no outcome method: the board rules decide a win and the move limit, the legal moves decide the rest. */
+  async outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<EngineOutcome> {
+    requireDefault(variant);
+    let owner;
+    try {
+      owner = replay(history);
+    } catch (e) {
+      throw new ServerError('illegal-history', String(e));
+    }
+    const ended = outcomeOf(owner, history);
+    if (ended?.kind === 'win') return { kind: 'win', winner: ended.winner };
+    if (ended) return { kind: 'draw' };
+    return (await this.legalMoves(history)).length === 0 ? { kind: 'draw' } : { kind: 'ongoing' };
   }
 
   /** A request in flight ends with its signal; there is no worker to stop. */

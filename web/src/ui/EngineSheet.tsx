@@ -132,7 +132,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
                 {!c.available && (
                   <p className="ml-option__reason">
                     <Icon name="alert" />
-                    <span>{t(c.reason === 'not-shipped' ? 'reason_not_shipped' : 'reason_unsupported')}</span>
+                    <span>{t(c.reason === 'not-shipped' ? 'reason_not_shipped' : c.reason === 'variant' ? 'reason_variant' : 'reason_unsupported')}</span>
                   </p>
                 )}
               </div>

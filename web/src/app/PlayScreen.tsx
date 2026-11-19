@@ -136,7 +136,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   } else if (state.outcome) {
     const o = state.outcome;
     if (o.kind === 'win') {
-      const headline = demo ? t('result_win_side', { side: who(o.winner) }) : t(o.winner === humanSide ? 'result_win_you' : 'result_win_engine');
+      const headline = demo ? t('result_win_side', { side: who(o.winner as Side) }) : t(o.winner === humanSide ? 'result_win_you' : 'result_win_engine');
       notice = <ResultCard winner={styleOf(o.winner)} headline={headline} plies={state.history.length} />;
     } else if (o.kind === 'move-limit') {
       const rows = ([aSide, aSide === 0 ? 1 : 0] as Side[]).map((side) => {
@@ -154,7 +154,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
 
   const halo =
     state.outcome?.kind === 'win'
-      ? GOAL_CELLS[state.outcome.winner].filter((c) => state.owner[c] === (state.outcome as { winner: Side }).winner)
+      ? (GOAL_CELLS[state.outcome.winner as Side] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Side }).winner)
       : [];
 
   const controls = (part: 'all' | 'secondary'): React.JSX.Element => (

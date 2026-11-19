@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WorkerEngine } from '../engines/client';
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport } from '../engines/engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport } from '../engines/engine';
 import { FAKE_INFO, FakeEngineCore, FakeWorker } from '../engines/testing/fake-engine';
 import { tinyLegalMoves } from '../engines/testing/tiny-moves';
 import { replay, sideToMove } from './board-state';
@@ -226,6 +226,7 @@ class ScriptedEngine implements Engine {
     return { move, score: 0, depth: 1, nodes: 1, ms: 0, raceMove: false, rows1Requests: 0 };
   }
   async analyse(): Promise<AnalysisResult> { throw new Error('unused'); }
+  async outcome(): Promise<EngineOutcome> { return { kind: 'ongoing' }; }
   dispose(): void {}
 }
 

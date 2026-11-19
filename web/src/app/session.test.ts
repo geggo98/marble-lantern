@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, GameSetup, LoadReport } from '../engines/engine';
+import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport } from '../engines/engine';
 import { EngineFailure } from '../engines/protocol';
 import { clearEngines, registerEngine } from '../engines/registry';
 import type { EngineDefinition, EnginesManifest } from '../engines/registry';
@@ -29,6 +29,7 @@ class StubEngine implements Engine {
   async legalMoves(): Promise<number[]> { return []; }
   async choose(): Promise<ChooseResult> { throw new Error('not used'); }
   async analyse(): Promise<AnalysisResult> { throw new Error('not used'); }
+  async outcome(): Promise<EngineOutcome> { return { kind: 'ongoing' }; }
   dispose(): void { this.disposed = true; }
 }
 

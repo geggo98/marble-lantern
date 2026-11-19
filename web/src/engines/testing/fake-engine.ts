@@ -1,8 +1,10 @@
 // A fake engine for tests: random-ish legal moves from the tiny generator, behind the real worker protocol.
 // Do not import it from production code.
-import { CELLS } from '../../board/cells';
-import { replay, sideToMove } from '../../game/board-state';
-import type { AnalysisResult, ChooseResult, EngineInfo, LoadReport } from '../engine';
+import { CELLS, cellCentre } from '../../board/cells';
+import { goalCells, outcomeOf, replay } from '../../game/board-state';
+import { DEFAULT_VARIANT } from '../../game/variant';
+import type { Variant } from '../../game/variant';
+import type { AnalysisResult, ChooseResult, EngineInfo, EngineOutcome, LoadReport } from '../engine';
 import { EngineFailure } from '../protocol';
 import type { Request, WorkerOut } from '../protocol';
 import type { WorkerLike } from '../client';
@@ -31,7 +33,9 @@ export function seeded(seed: number): () => number {
 }
 
 export class FakeEngineCore {
-  private nodes: [number, number] = [1000, 1000];
+  private nodes: readonly number[] = [1000, 1000, 1000];
+  /** The variant of the last newGame. */
+  private gameVariant: Variant = DEFAULT_VARIANT;
   private random: () => number;
   initCalls = 0;
   analyseCalls = 0;
@@ -46,7 +50,7 @@ export class FakeEngineCore {
     switch (request.type) {
       case 'init': {
         this.initCalls++;
-        this.nodes = [1000, 1000]; // a fresh worker has no game setup until newGame arrives
+        this.nodes = [1000, 1000, 1000]; this.gameVariant = DEFAULT_VARIANT; // a fresh worker has no game setup until newGame arrives
         this.tableReceived = request.table ? request.table.byteLength : null;
         const report: LoadReport = {
           fetchMs: 0, inflateMs: 0, verifyMs: 0, instantiateMs: 1, tableInstallMs: 1, totalMs: 2,
@@ -57,61 +61,94 @@ export class FakeEngineCore {
       case 'newGame':
         this.newGameCalls++;
         this.nodes = request.setup.nodes;
+        this.gameVariant = request.setup.variant ?? DEFAULT_VARIANT;
         return null;
       case 'legalMoves':
-        return this.legal(request.history);
+        return this.legal(request.history, request.variant ?? DEFAULT_VARIANT);
+      case 'outcome':
+        return this.outcome(request.history, request.variant ?? DEFAULT_VARIANT);
       case 'choose':
-        return this.choose(request.history);
+        return this.choose(request.history, request.variant ?? this.gameVariant);
       case 'analyse':
-        return this.analyse(request.history, request.moves, request.nodes);
+        return this.analyse(request.history, request.moves, request.nodes, request.variant ?? DEFAULT_VARIANT);
       case 'bench':
         throw new EngineFailure('internal', 'bench is not implemented by the fake engine');
     }
   }
 
-  private legal(history: readonly number[]): number[] {
+  private legal(history: readonly number[], variant: Variant): number[] {
     let owner;
     try {
-      owner = replay(history);
+      owner = replay(history, variant);
     } catch (e) {
       throw new EngineFailure('illegal-history', String(e));
     }
-    return tinyLegalMoves(owner, sideToMove(history.length));
+    if (outcomeOf(owner, history, variant)) return []; // a finished game has no moves
+    return tinyLegalMoves(owner, history.length % variant.players, variant);
+  }
+
+  /** Win, move limit (a draw) or no legal move (a draw), like the facade. */
+  private outcome(history: readonly number[], variant: Variant): EngineOutcome {
+    let owner;
+    try {
+      owner = replay(history, variant);
+    } catch (e) {
+      throw new EngineFailure('illegal-history', String(e));
+    }
+    const ended = outcomeOf(owner, history, variant);
+    if (ended?.kind === 'win') return { kind: 'win', winner: ended.winner };
+    if (ended) return { kind: 'draw' };
+    return tinyLegalMoves(owner, history.length % variant.players, variant).length === 0 ? { kind: 'draw' } : { kind: 'ongoing' };
+  }
+
+  /** How far a move brings the piece to the goal: rows for two players, distance to the goal corner centre for three. */
+  private gain(move: number, side: number, variant: Variant): number {
+    if (variant.players === 2) {
+      const dr = CELLS[move >>> 8]!.r - CELLS[move & 0xff]!.r;
+      return side === 0 ? dr : -dr;
+    }
+    const goal = goalCells(variant)[side]!;
+    const centre = { x: 0, y: 0 };
+    for (const c of goal) {
+      const p = cellCentre(c);
+      centre.x += p.x / goal.length;
+      centre.y += p.y / goal.length;
+    }
+    const dist = (id: number): number => Math.hypot(cellCentre(id).x - centre.x, cellCentre(id).y - centre.y);
+    return Math.round((dist(move & 0xff) - dist(move >>> 8)) * 100);
   }
 
   /**
    * Scores for tests: 30 points for each row a move gains towards the goal row, from the point of view of the mover (30 is
    * the unit of the real evaluator's progress step). `nodes` is only echoed, per move.
    */
-  private analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
+  private analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant): AnalysisResult {
     this.analyseCalls++;
-    const side = sideToMove(history.length);
-    const legal = this.legal(history);
+    if (variant.players === 3) throw new EngineFailure('unsupported', 'analysis is available for two players only');
+    const side = history.length % 2;
+    const legal = this.legal(history, variant);
     if (legal.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
     const chosen = moves === null ? legal : [...moves];
     if (chosen.length === 0) throw new EngineFailure('illegal-move', 'no moves to score');
     for (const m of chosen) if (!legal.includes(m)) throw new EngineFailure('illegal-move', `move ${m} is not legal`);
-    const scores = chosen.map((m) => {
-      const dr = CELLS[m >>> 8]!.r - CELLS[m & 0xff]!.r;
-      return 30 * (side === 0 ? dr : -dr);
-    });
+    const scores = chosen.map((m) => 30 * this.gain(m, side, variant));
     return { scores, moves: chosen, position: Math.max(...scores), nodes: nodes * chosen.length, ms: 0 };
   }
 
-  private choose(history: readonly number[]): ChooseResult {
-    const side = sideToMove(history.length);
-    const moves = this.legal(history);
+  private choose(history: readonly number[], variant: Variant): ChooseResult {
+    if (variant.players !== this.gameVariant.players || variant.jump !== this.gameVariant.jump) {
+      throw new EngineFailure('internal', 'choose with another variant than newGame');
+    }
+    const side = history.length % variant.players;
+    const moves = this.legal(history, variant);
     if (moves.length === 0) throw new EngineFailure('illegal-history', 'no legal move');
     // Prefer the largest gain towards the goal row, random among equals.
-    const gain = (m: number): number => {
-      const dr = CELLS[m >>> 8]!.r - CELLS[m & 0xff]!.r;
-      return side === 0 ? dr : -dr;
-    };
+    const gain = (m: number): number => this.gain(m, side, variant);
     const best = Math.max(...moves.map(gain));
     const pool = moves.filter((m) => gain(m) === best);
     const move = pool[Math.floor(this.random() * pool.length)]!;
     return {
-      move, score: 0, depth: 1, nodes: this.nodes[side], ms: 0, raceMove: false, rows1Requests: 0,
+      move, score: 0, depth: 1, nodes: this.nodes[side] ?? this.nodes[0] ?? 0, ms: 0, raceMove: false, rows1Requests: 0,
     };
   }
 }

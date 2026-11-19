@@ -3,7 +3,10 @@
 //
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
-import type { AnalysisResult, BenchResult, ChooseResult, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
+import { DEFAULT_VARIANT } from '../../game/variant';
+import type { Player, Variant } from '../../game/variant';
+import { needsTable, requireAnalysable, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
@@ -17,9 +20,15 @@ export interface CppModule {
   _free(ptr: number): void;
   _shw_load_rows2(ptr: number, len: number, verify: number): number;
   _shw_error(): number;
-  _shw_player_new(nodes: number): number;
+  /** jump: 0 adjacent, 1 long. */
+  _shw_player_new(nodes: number, jump: number): number;
+  /** The three-player player. */
+  _shw_player_new3(nodes: number, jump: number): number;
   _shw_player_clear(id: number): void;
-  _shw_game_new(): void;
+  /** jump: 0 adjacent, 1 long; players: 2 or 3. Returns 0, or -1 for other values. */
+  _shw_game_new2(jump: number, players: number): number;
+  /** -1 running, 0 draw, 1 + winner. */
+  _shw_outcome(): number;
   _shw_side_to_move(): number;
   _shw_legal_moves(out: number, cap: number): number;
   _shw_play(move: number): number;
@@ -55,10 +64,13 @@ const now = (): number => performance.now();
 export class CppCore {
   private readonly m: CppModule;
   /** Free players by node budget, so that newGame does not grow the module's player table (each holds a transposition table). */
-  private readonly pool = new Map<number, number[]>();
-  private players: [number, number] | null = null;
-  /** Node budgets of the current players, to file them back under the right budget. */
-  private budgets: [number, number] = [0, 0];
+  private readonly pool = new Map<string, number[]>();
+  /** The engine players of the current game, one per seat. */
+  private players: number[] | null = null;
+  /** Pool keys of the current players, to file them back where they came from. */
+  private keys: string[] = [];
+  /** The variant of the current game; null before newGame. */
+  private gameVariant: Variant | null = null;
   private tableInstalled = false;
   private movesPtr = 0;
   /** Scratch for analyse: input moves, output moves, output scores (MOVE_CAPACITY ints each). */
@@ -100,29 +112,38 @@ export class CppCore {
 
   /** Starts a game: one player per side with its own node budget. Players of an earlier game are cleared and reused. */
   newGame(setup: GameSetup): void {
-    this.requireTable();
+    const variant = variantOf(setup);
+    this.requireTable(variant);
     this.releasePlayers();
-    const [n0, n1] = setup.nodes;
     // acquire() twice for equal budgets yields two different players: the first is taken off the free list.
-    this.players = [this.acquire(n0), this.acquire(n1)];
-    this.budgets = [n0, n1];
+    const budgets = seatNodes(setup);
+    this.players = [];
+    this.keys = [];
+    for (const nodes of budgets) {
+      const key = `${variant.players}:${variant.jump}:${nodes}`;
+      this.keys.push(key);
+      this.players.push(this.acquire(key, nodes, variant));
+    }
+    this.gameVariant = variant;
   }
 
-  legalMoves(history: readonly number[]): number[] {
-    this.requireTable();
-    this.replay(history);
+  legalMoves(history: readonly number[], variant: Variant = DEFAULT_VARIANT): number[] {
+    this.requireTable(variant);
+    this.replay(history, variant);
     return this.readLegalMoves();
   }
 
-  choose(history: readonly number[]): ChooseResult {
-    this.requireTable();
-    if (!this.players) throw new EngineFailure('internal', 'newGame was not called');
-    this.replay(history);
+  choose(history: readonly number[], variant?: Variant): ChooseResult {
+    if (!this.players || !this.gameVariant) throw new EngineFailure('internal', 'newGame was not called');
+    variant ??= this.gameVariant;
+    this.requireTable(variant);
+    this.replay(history, variant);
     const id = this.players[this.m._shw_side_to_move()]!;
     const raceBefore = this.m._shw_race_moves(id);
     const t0 = now();
     const move = this.m._shw_choose(id);
     const ms = now() - t0;
+    if (move === -2) throw new EngineFailure('internal', `shw_choose: ${this.m.UTF8ToString(this.m._shw_error())} (the game variant differs from the one of newGame)`);
     if (move < 0) throw new EngineFailure('illegal-history', 'the position has no legal move');
     const searched = this.m._shw_has_result(id) !== 0;
     const rows1Requests = this.m._shw_rows1_requests();
@@ -138,18 +159,30 @@ export class CppCore {
     };
   }
 
+  /** `ongoing`, a winner (seat 0, 1 or 2) or `draw` (move limit, repetition, no legal move). */
+  outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
+    this.requireTable(variant);
+    this.replay(history, variant);
+    const code = this.m._shw_outcome();
+    if (code === -1) return { kind: 'ongoing' };
+    if (code === 0) return { kind: 'draw' };
+    if (code >= 1 && code <= variant.players) return { kind: 'win', winner: (code - 1) as Player };
+    throw new EngineFailure('internal', `shw_outcome returned ${code}`);
+  }
+
   /**
    * Scores moves of the position after `history` for the side to move with the module's analysis player (shw_analyse): a
    * player of its own, so the game players, their tables and choose() results stay untouched. `moves` null scores all
    * legal moves. `nodes` is the budget for each scored move.
    */
-  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
-    this.requireTable();
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant = DEFAULT_VARIANT): AnalysisResult {
+    requireAnalysable(variant);
+    this.requireTable(variant);
     if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
     if (moves !== null && (moves.length === 0 || moves.length > MOVE_CAPACITY || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
       throw new EngineFailure('illegal-move', 'the move list is empty, too long or not made of moves');
     }
-    this.replay(history);
+    this.replay(history, variant);
     if (this.analysisPtr === 0) {
       this.analysisPtr = this.m._malloc(3 * MOVE_CAPACITY * 4);
       if (this.analysisPtr === 0) throw new EngineFailure('internal', 'out of memory for the analysis buffers');
@@ -187,8 +220,8 @@ export class CppCore {
    * The benchmark game of plan section 8: `plies` plies from the start position, both sides with `nodes` per move,
    * one player per side for the whole game. Starts its own game; call newGame afterwards for normal play.
    */
-  bench(plies: number, nodes: number): BenchResult {
-    this.newGame({ nodes: [nodes, nodes] });
+  bench(plies: number, nodes: number, variant: Variant = DEFAULT_VARIANT): BenchResult {
+    this.newGame({ nodes: [nodes, nodes, nodes], variant });
     const history: number[] = [];
     const result: BenchResult = { moves: [], nodes: [], ms: [], rows1Requests: 0 };
     for (let ply = 0; ply < plies; ply++) {
@@ -205,36 +238,41 @@ export class CppCore {
 
   // ---- internals ----
 
-  private requireTable(): void {
-    if (!this.tableInstalled) throw new EngineFailure('internal', 'the race table is not installed');
+  /** Only the adjacent two-player game needs the race table (see needsTable). */
+  private requireTable(variant: Variant = DEFAULT_VARIANT): void {
+    if (needsTable(variant) && !this.tableInstalled) throw new EngineFailure('internal', 'the race table is not installed');
   }
 
-  private acquire(nodes: number): number {
-    const free = this.pool.get(nodes)?.pop();
+  private acquire(key: string, nodes: number, variant: Variant): number {
+    const free = this.pool.get(key)?.pop();
     if (free !== undefined) {
       this.m._shw_player_clear(free);
       return free;
     }
-    const id = this.m._shw_player_new(nodes);
-    if (id < 0) throw new EngineFailure('internal', `shw_player_new(${nodes}): ${this.m.UTF8ToString(this.m._shw_error())}`);
+    const jump = variant.jump === 'long' ? 1 : 0;
+    const id = variant.players === 3 ? this.m._shw_player_new3(nodes, jump) : this.m._shw_player_new(nodes, jump);
+    if (id < 0) throw new EngineFailure('internal', `shw_player_new(${nodes}, ${jump}): ${this.m.UTF8ToString(this.m._shw_error())}`);
     return id;
   }
 
   private releasePlayers(): void {
     if (!this.players) return;
     this.players.forEach((id, side) => {
-      const budget = this.budgets[side]!;
-      const list = this.pool.get(budget) ?? [];
+      const key = this.keys[side]!;
+      const list = this.pool.get(key) ?? [];
       list.push(id);
-      this.pool.set(budget, list);
+      this.pool.set(key, list);
     });
     this.players = null;
+    this.keys = [];
   }
 
   /** Replays the history in the module's global game. A move the engine rejects is an illegal history. */
-  private replay(history: readonly number[]): void {
+  private replay(history: readonly number[], variant: Variant): void {
     if (history.length > MAX_PLIES) throw new EngineFailure('illegal-history', `history has ${history.length} plies`);
-    this.m._shw_game_new();
+    if (this.m._shw_game_new2(variant.jump === 'long' ? 1 : 0, variant.players) !== 0) {
+      throw new EngineFailure('internal', `shw_game_new2: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    }
     history.forEach((move, ply) => {
       if (!Number.isInteger(move) || this.m._shw_play(move) !== 0) {
         throw new EngineFailure('illegal-history', `move ${move} at ply ${ply} is not legal`);

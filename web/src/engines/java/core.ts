@@ -3,7 +3,10 @@
 //
 // The facade exports string-only methods that never throw (see Web.java): the reply is "ok <fields>" or
 // "error <code> <message>". The move history is the game state and crosses the boundary as "1,2,3".
-import type { AnalysisResult, BenchResult, ChooseResult, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
+import { DEFAULT_VARIANT } from '../../game/variant';
+import type { Player, Variant } from '../../game/variant';
+import { needsTable, requireAnalysable, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
@@ -12,17 +15,20 @@ import type { ErrorCode } from '../protocol';
 export interface JavaModule {
   /** `file` is the inflated table; `verify` checks the SHA-256 of the body against the one in the file header. */
   setTable(file: Int8Array, verify: boolean): string;
-  newGame(nodes0: number, nodes1: number): string;
-  legalMoves(history: string): string;
-  choose(history: string): string;
-  bench(plies: number, nodes: number): string;
+  /** `jump` is "adjacent" or "long", `players` "2" or "3". Every argument is always passed: the JS target fails on a missing one. `nodes2` is 0 for two players. */
+  newGame(nodes0: number, nodes1: number, jump: string, players: string, nodes2: number): string;
+  legalMoves(history: string, jump: string, players: string): string;
+  choose(history: string, jump: string, players: string): string;
+  bench(plies: number, nodes: number, jump: string, players: string): string;
   /** `moves` is a comma separated list, or empty for all legal moves. */
-  analyse(history: string, moves: string, nodes: number): string;
+  analyse(history: string, moves: string, nodes: number, jump: string, players: string): string;
+  /** `ok ongoing`, `ok win <side>` or `ok draw`. */
+  outcome(history: string, jump: string, players: string): string;
 }
 
 const CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'table-checksum', 'table-truncated', 'table-trailing', 'table-magic', 'wasm-gc-unsupported',
-  'illegal-history', 'illegal-move', 'rows1-requested', 'aborted', 'internal',
+  'illegal-history', 'illegal-move', 'rows1-requested', 'unsupported', 'aborted', 'internal',
 ]);
 
 const now = (): number => performance.now();
@@ -44,7 +50,8 @@ const MAX_PLIES = 1000;
 export class JavaCore {
   private readonly m: JavaModule;
   private tableInstalled = false;
-  private gameStarted = false;
+  /** The variant of the last newGame; null before it. */
+  private gameVariant: Variant | null = null;
 
   private constructor(module: JavaModule) {
     this.m = module;
@@ -66,28 +73,43 @@ export class JavaCore {
     const states = fields(this.m.setTable(new Int8Array(view.buffer, view.byteOffset, view.byteLength), verify));
     if (!(Number(states[0]) > 0)) throw new EngineFailure('internal', 'setTable returned no state count');
     this.tableInstalled = true;
-    this.gameStarted = false;
+    this.gameVariant = null;
     return now() - t0;
   }
 
   /** Starts a game: one player per side with its own node budget; the transposition tables start empty. */
   newGame(setup: GameSetup): void {
-    this.requireTable();
-    fields(this.m.newGame(setup.nodes[0], setup.nodes[1]));
-    this.gameStarted = true;
+    const variant = variantOf(setup);
+    this.requireTable(variant);
+    const [n0, n1, n2] = seatNodes(setup) as [number, number, number | undefined];
+    fields(this.m.newGame(n0, n1, variant.jump, String(variant.players), n2 ?? 0));
+    this.gameVariant = variant;
   }
 
-  legalMoves(history: readonly number[]): number[] {
-    this.requireTable();
-    return numbers(fields(this.m.legalMoves(this.encode(history)))[0]);
+  legalMoves(history: readonly number[], variant: Variant = DEFAULT_VARIANT): number[] {
+    this.requireTable(variant);
+    return numbers(fields(this.m.legalMoves(this.encode(history), variant.jump, String(variant.players)))[0]);
   }
 
-  choose(history: readonly number[]): ChooseResult {
-    this.requireTable();
+  /** Plays for the side to move with the variant of the last newGame (`variant`, if given, must equal it). */
+  choose(history: readonly number[], variant?: Variant): ChooseResult {
     // Without newGame the facade would play with its default budget; the page always calls newGame first.
-    if (!this.gameStarted) throw new EngineFailure('internal', 'newGame was not called');
-    const f = fields(this.m.choose(this.encode(history)));
+    if (!this.gameVariant) throw new EngineFailure('internal', 'newGame was not called');
+    variant ??= this.gameVariant;
+    this.requireTable(variant);
+    const f = fields(this.m.choose(this.encode(history), variant.jump, String(variant.players)));
     return this.parseChoice(f);
+  }
+
+  /** `ongoing`, a winner (seat 0, 1 or 2) or `draw` (move limit, repetition, no legal move). */
+  outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
+    this.requireTable(variant);
+    const f = fields(this.m.outcome(this.encode(history), variant.jump, String(variant.players)));
+    if (f[0] === 'ongoing') return { kind: 'ongoing' };
+    if (f[0] === 'draw') return { kind: 'draw' };
+    const winner = Number(f[1]);
+    if (f[0] === 'win' && Number.isInteger(winner) && winner >= 0 && winner < variant.players) return { kind: 'win', winner: winner as Player };
+    throw new EngineFailure('internal', `unexpected outcome reply: ${f.join(' ')}`);
   }
 
   /**
@@ -95,13 +117,14 @@ export class JavaCore {
    * own, so the game players, their tables and choose() results stay untouched. `moves` null scores all legal moves.
    * `nodes` is the budget for each scored move.
    */
-  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number): AnalysisResult {
-    this.requireTable();
+  analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant = DEFAULT_VARIANT): AnalysisResult {
+    requireAnalysable(variant);
+    this.requireTable(variant);
     if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
     if (moves !== null && (moves.length === 0 || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
       throw new EngineFailure('illegal-move', 'the move list is empty or not made of moves');
     }
-    const f = fields(this.m.analyse(this.encode(history), moves === null ? '' : moves.join(','), nodes));
+    const f = fields(this.m.analyse(this.encode(history), moves === null ? '' : moves.join(','), nodes, variant.jump, String(variant.players)));
     const visited = Number(f[0]);
     const ms = Number(f[1]);
     const rows1 = Number(f[2]);
@@ -118,9 +141,9 @@ export class JavaCore {
    * The benchmark game of plan section 8: `plies` plies from the start position, both sides with `nodes` per move,
    * one player per side for the whole game. Does not touch the players of the current game.
    */
-  bench(plies: number, nodes: number): BenchResult {
-    this.requireTable();
-    const f = fields(this.m.bench(plies, nodes));
+  bench(plies: number, nodes: number, variant: Variant = DEFAULT_VARIANT): BenchResult {
+    this.requireTable(variant);
+    const f = fields(this.m.bench(plies, nodes, variant.jump, String(variant.players)));
     const result: BenchResult = { moves: numbers(f[0]), nodes: numbers(f[1]), ms: numbers(f[2]), rows1Requests: Number(f[3]) };
     if (result.rows1Requests > 0) throw new EngineFailure('rows1-requested', `${result.rows1Requests} request(s) for rows1.bin (ADR 0001)`);
     result.memory = sampleMemory(null); // no linear memory to read: the JS target uses the JS heap, Wasm GC its own GC heap
@@ -146,7 +169,8 @@ export class JavaCore {
     return history.join(',');
   }
 
-  private requireTable(): void {
-    if (!this.tableInstalled) throw new EngineFailure('internal', 'the race table is not installed');
+  /** Only the adjacent two-player game needs the race table (see needsTable). */
+  private requireTable(variant: Variant = DEFAULT_VARIANT): void {
+    if (needsTable(variant) && !this.tableInstalled) throw new EngineFailure('internal', 'the race table is not installed');
   }
 }

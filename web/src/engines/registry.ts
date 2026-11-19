@@ -1,6 +1,8 @@
 // The adapter registry. Each adapter module (C++ Wasm, TeaVM, server) registers one definition;
 // the UI lists the definitions and asks which of them this browser can run.
 import type { Engine, EngineId, EngineInfo } from './engine';
+import { DEFAULT_VARIANT } from '../game/variant';
+import type { Variant } from '../game/variant';
 
 /** web/public/engines/engines.json, written by scripts/web/engines-manifest.zsh. */
 export interface EngineFile {
@@ -32,6 +34,8 @@ export interface EngineDefinition {
   language: EngineInfo['language'];
   /** Feature detection. Must not throw. */
   isAvailable(): boolean;
+  /** Whether the engine can play this game variant. Missing means all variants. The server engines play the default game only. */
+  supportsVariant?(variant: Variant): boolean;
   create(context: EngineContext): Engine;
 }
 
@@ -40,7 +44,7 @@ export interface EngineChoice {
   info: EngineInfo;
   /** Feature check passed and the build shipped the files. */
   available: boolean;
-  reason?: 'unsupported' | 'not-shipped';
+  reason?: 'unsupported' | 'not-shipped' | 'variant';
 }
 
 const definitions = new Map<EngineId, EngineDefinition>();
@@ -90,8 +94,8 @@ export async function loadEnginesManifest(url: string, doFetch: typeof fetch = f
   return value as EnginesManifest;
 }
 
-/** Joins the definitions with the manifest: what can this browser run and what did the build ship. */
-export function describeEngines(manifest: EnginesManifest): EngineChoice[] {
+/** Joins the definitions with the manifest: what can this browser run and what did the build ship. `variant`: an engine that cannot play it is unavailable (reason "variant"). */
+export function describeEngines(manifest: EnginesManifest, variant: Variant = DEFAULT_VARIANT): EngineChoice[] {
   return listDefinitions().map((definition) => {
     const entry = manifest.engines[definition.id];
     const info: EngineInfo = {
@@ -106,6 +110,7 @@ export function describeEngines(manifest: EnginesManifest): EngineChoice[] {
     const shipped = definition.runtime === 'server' || (entry?.files.length ?? 0) > 0;
     if (!shipped) return { definition, info, available: false, reason: 'not-shipped' as const };
     if (!definition.isAvailable()) return { definition, info, available: false, reason: 'unsupported' as const };
+    if (definition.supportsVariant && !definition.supportsVariant(variant)) return { definition, info, available: false, reason: 'variant' as const };
     return { definition, info, available: true };
   });
 }
