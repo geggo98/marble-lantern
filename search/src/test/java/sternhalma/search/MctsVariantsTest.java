@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -108,6 +109,15 @@ class MctsVariantsTest {
             Position s = start(players, JumpRule.LONG, 24);
             assertEquals(play(s, 3, noisy), play(s, 3, noisy));
         }
+    }
+
+    @Test
+    void anArenaMatchOfLongHopPlayersPlaysLongHopGames() {
+        PlayerSpec a = PlayerSpec.parse("ab:nodes=100,eval=linear,jump=long");
+        PlayerSpec b = PlayerSpec.parse("ab:nodes=50,eval=linear,jump=long");
+        assertEquals(4, Arena.match(a, b, 2, 1, 4, 1).pairs() * 2);
+        assertThrows(IllegalArgumentException.class,
+                () -> Arena.match(a, PlayerSpec.parse("ab:nodes=50"), 1, 1, 4, 1));
     }
 
     // ---- terminal values ----

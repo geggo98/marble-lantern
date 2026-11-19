@@ -113,7 +113,10 @@ public final class Arena {
      */
     public static Report match(PlayerSpec a, PlayerSpec b, RaceTableSource sourceA, RaceTableSource sourceB, int pairs,
             long seed, int openingPlies, int threads, Sprt sprt) {
-        RuleSet rules = RuleSet.defaults(2);
+        if (a.jumpRule() != b.jumpRule()) {
+            throw new IllegalArgumentException("the two sides play different jump rules: " + a.jumpRule() + " and " + b.jumpRule());
+        }
+        RuleSet rules = RuleSet.defaults(2).withJumpRule(a.jumpRule());
         List<Future<GameData[]>> futures = new ArrayList<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads))) {
             for (int pair = 0; pair < pairs; pair++) {
