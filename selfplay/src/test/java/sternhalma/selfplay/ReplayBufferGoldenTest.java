@@ -17,7 +17,7 @@ import sternhalma.nn.TrainingBatch;
 /**
  * A golden batch: the batches of the strict (single player count) buffers for a fixed seed must not change when the
  * buffer learns mixed variants. The expected hashes were taken from the code before the mixed-variant change
- * (commit 6985ca4), so they pin the old behaviour and not the new code.
+ * (commit 6985ca4) and re-taken with the entropy rounded to 1e-9, because `Math.log` differs in the last bit between CPUs (the first CI run on Linux x86 failed on the raw doubles); the data they pin are unchanged.
  */
 class ReplayBufferGoldenTest {
 
@@ -56,7 +56,7 @@ class ReplayBufferGoldenTest {
                 buf.putInt(i);
             }
             for (double d : b.targetEntropy()) {
-                buf.putDouble(d);
+                buf.putLong(Math.round(d * 1e9)); // entropy uses Math.log, whose last bit differs between CPUs: round
             }
             md.update(buf.array());
         }
@@ -72,21 +72,21 @@ class ReplayBufferGoldenTest {
 
     @Test
     void twoPlayerPlainBatchesAreStable() throws Exception {
-        assertEquals("50fd0f57b6d80b3c4758a16c2be2efd010146fd955b88f4180c4c1fe3e4a6efb", golden(2, PlaneSet.PLAIN, true));
+        assertEquals("79b6383163ab9bff55b21640abe4ab7348e7d14d6599c77b4ad67fe0714bf7e9", golden(2, PlaneSet.PLAIN, true));
     }
 
     @Test
     void twoPlayerClassic1BatchesAreStable() throws Exception {
-        assertEquals("e74d063174e57753c13606ffc9bab776008c12a4f750638da3ca4ee7a988d13d", golden(2, PlaneSet.CLASSIC1, true));
+        assertEquals("6dbcdc7aeeb6fa944a733e82a1510f932713510c9d3381336500fba2305a2572", golden(2, PlaneSet.CLASSIC1, true));
     }
 
     @Test
     void threePlayerPlainBatchesAreStable() throws Exception {
-        assertEquals("1eaf24dc977afcdb61392e393d98ae91cbceaf65753bccad60c723382a9669ac", golden(3, PlaneSet.PLAIN, true));
+        assertEquals("ac451b5b15f41264442070a386b53ae2ca3c76d52a881c776cba401ca3c7f353", golden(3, PlaneSet.PLAIN, true));
     }
 
     @Test
     void threePlayerClassic1vStrictBatchesAreStable() throws Exception {
-        assertEquals("ed1f42dcdc1368cdb72d9b7eb4e3ec36ce1108e9ea26dc898b03bdc53966970c", golden(3, PlaneSet.CLASSIC1V, false));
+        assertEquals("7e2d9b08f48ba56025703fd8b7d0d97195438c22e4ce6aee893830c0358e92a3", golden(3, PlaneSet.CLASSIC1V, false));
     }
 }
