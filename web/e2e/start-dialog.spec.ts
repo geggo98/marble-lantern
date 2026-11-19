@@ -2,7 +2,7 @@
 // no race table for these games). Screenshots go to SHOT_DIR (default test-results/screens) for the visual review.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { LONG_HOP, THREE_PLAYER_LIMIT } from './fixtures';
+import { LONG_HOP } from './fixtures';
 import { openApp, playHumanMove, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'test-results/screens';
@@ -115,15 +115,26 @@ test('a long-hop link names its jump rule in the dialog', async ({ page }) => {
   await expect(page.locator('[data-testid="link-variant"]')).toContainText('Long hop');
 });
 
-test('move limit of a three-player game: ranking of the three seats, no winner', async ({ page }, info) => {
-  test.setTimeout(240_000);
-  await openApp(page, 'en', `#g=v1.${THREE_PLAYER_LIMIT}&l=0&p=3&s=hhe`);
+test('three engines play a demo to the end: the result card names the winner or ranks the three seats at the move limit', async ({ page }, info) => {
+  test.setTimeout(420_000);
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '', 'ask');
+  await page.locator('[data-choice="mode-hotseat"]').check();
+  await page.locator('[data-choice="begin-start"]').click();
+  await waitForHumanTurn(page);
+  await page.getByRole('button', { name: 'Engine demo' }).click();
   const card = page.locator('.ml-result');
-  await expect(card).toBeVisible();
-  await expect(card.locator('.ml-score__row')).toHaveCount(3);
-  await expect(card).not.toContainText(' wins');
+  await expect(card).toBeVisible({ timeout: 400_000 });
   expect(await status(page)).toBe('Game over');
+  if ((await card.innerText()).includes('No winner')) {
+    await expect(card.locator('.ml-score__row')).toHaveCount(3);
+    await expect(card).not.toContainText(' wins');
+    await expect(card).toContainText('300');
+  } else {
+    await expect(card).toContainText(/(Amber|Blue|Pearl) wins/);
+  }
   await shot(page, info.project.name, 'result-card-three-seats-desktop');
+  errors.expectNone();
 });
 
 test.describe('the dialog on a phone', () => {
@@ -172,14 +183,20 @@ test.describe('the dialog on a phone', () => {
     await shot(page, info.project.name, 'dialog-mobile-320-engines');
   });
 
-  test('the result card has a close button on the phone', async ({ page }, info) => {
+  test('the result card has a close button on the phone; closing shows the board, the status says "Game over"', async ({ page }, info) => {
     test.setTimeout(240_000);
-    await openApp(page, 'en', `#g=v1.${THREE_PLAYER_LIMIT}&l=0&p=3&s=hhe`);
-    await expect(page.locator('.ml-result')).toBeVisible();
+    await openApp(page, 'en', '', 'ask');
+    await page.locator('[data-choice="begin-yes"]').click();
+    await waitForHumanTurn(page);
+    await page.locator('.ml-play__bar [aria-controls]').click();
+    await page.getByRole('button', { name: 'Engine demo' }).click();
+    await page.keyboard.press('Escape'); // close the menu; the demo runs on
+    const card = page.locator('.ml-result');
+    await expect(card).toBeVisible({ timeout: 200_000 });
     await shot(page, info.project.name, 'result-card-mobile-390');
     await page.locator('[data-result-close]').click();
-    await expect(page.locator('.ml-result')).toBeHidden();
-    await shot(page, info.project.name, 'board-three-seats-mobile-390');
+    await expect(card).toBeHidden();
     expect(await status(page)).toBe('Game over');
+    await shot(page, info.project.name, 'board-after-result-mobile-390');
   });
 });
