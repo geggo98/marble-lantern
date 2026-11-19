@@ -684,8 +684,60 @@ depth-5 perft over the start position took 0.082 s before and 0.085 s after (noi
   CMake, so no second copy can drift) and reproduces all 30 rows: the move count, the SHA-256 of the sorted moves and the SHA-256 of the
   moves in generation order, once from the listed pieces and once from the seeded playout. The test fails, and does not skip, if the file
   is missing. It also compares `generate()` with a coordinate-based oracle over seeded playouts.
-- **Browser API** (`src/wasm/wasm_api.cpp`). `shw_game_new(jump)` and `shw_player_new(nodes, jump)` take the rule (0 adjacent, 1 long);
-  an omitted argument from JavaScript is 0, which keeps every old call unchanged (`game.mjs` still shows the benchmark fingerprint).
+- **Browser API** (`src/wasm/wasm_api.cpp`). `shw_game_new2(jump, players)` and `shw_player_new(nodes, jump)` take the rule (0 adjacent,
+  1 long); `shw_game_new(jump)` equals `shw_game_new2(jump, 2)`. An omitted argument from JavaScript is 0, which keeps every old call
+  unchanged (`game.mjs` still shows the benchmark fingerprint).
   `shw_jump_rule()` returns the rule of the current game. `shw_choose` returns -2 for a player of the other rule. `shw_analyse` follows
   the rule of the game: for a long-hop game it uses `eval=linear-r3`, `tt=16` and `jump=long`, without race arithmetic. The tests are
   `wasm_api_test` (native, no Emscripten) and `cpp/wasm/test/longhop.mjs` (run by `scripts/web/test-wasm.zsh`).
+
+## Three players
+
+The engine also plays the three-player game, as the Java engine does (rules in `docs/rules.md`, section "Three-player specifics"; the search in
+`docs/search-and-evaluation.md`, section "Three-player browser player"). `RuleSet::players()` is 2 or 3, and `RuleSet::defaults(players)` sets
+the move limit to 200 plies for two players and 300 for three. `Layout::of(players)` returns `Layout::two_players()` or
+`Layout::three_players()`; `Position::layout()` returns this shared layout by pointer. In play order the three players start in the top corner
+(r < -4), the lower right corner (s < -4) and the lower left corner (q < -4), with coordinates as in `docs/rules.md`, section "Screen orientation and clockwise order"; each goal is the opposite
+corner. `Outcome` has a `players` field and three values (unused entries are zero): a win gives the winner +1 and each other player -1/2.
+Two-player play is unchanged in result and speed: the wasm benchmark game (the fingerprint that `cpp/wasm/test/game.mjs` prints) keeps its
+checksum -1986550544382302149 and its 800000 nodes, and ran 1.88-1.89 M nodes/s before the three-player change and 1.90-1.92 M nodes/s after
+it (node, wasm, same machine, two runs each).
+
+- **Golden checks.** Two Java files are read in place (path from CMake), and both tests fail, not skip, if the file is missing.
+  `three_player_test` reproduces all 40 rows of `engine/src/test/resources/three-player-golden.tsv` bit for bit, once from the seeded playout
+  and once from the listed pieces. The file comes from `ThreePlayerGolden.java` in `engine/src/test/java/sternhalma/engine/` (Java
+  `ThreePlayerGoldenTest` there checks it against a fresh run):
+  both jump rules, seeded random and greedy playouts, 3 wins and 2 move-limit rows; per row the pieces, side to move, ply, Zobrist hash, move
+  count, SHA-256 of the sorted and of the ordered move list, and the outcome with the bit patterns of its values. `three_player_search_test`
+  reproduces every column of `search/src/test/resources/three-player-choose-golden.tsv` (from
+  `search/src/test/java/sternhalma/search/ThreePlayerChooseGolden.java`): for 26 positions the chosen move, score, depth, node count and
+  complete flag (false if the node limit stopped an iteration) at 5000 and at 20000 nodes, each with a fresh player. A mutation
+  showed that the test catches an off-by-one: the node limit check changed from `>=` to `>` failed with 5001 against 5000 nodes.
+- **Search.** `src/search/three_player_search.*` is a node-for-node port of Java
+  `search/src/main/java/sternhalma/search/ThreePlayerSearch.java`: paranoid alpha-beta (both opponents
+  play against the player at the root), the linear-r2 evaluation (weights `kRound2` in `linear_weights.hpp`) with a lateral term per player,
+  a transposition table keyed by hash and root player, killer moves and gain-first move order. Exact equality needed no deviation, because
+  all scores are integers and the floating-point terms use the Java order of operations. `ThreePlayerSpec::parse("ab3:...")` in
+  `three_player_player.*` takes `eval` (`linear-r2` default, `linear-r1`, `linear`), `nodes` (20000), `depth` (30), `ms`, `tt` (16) and
+  `jump`. `kBrowser3pSpec` is `ab3:eval=linear-r2,nodes=20000,tt=16`, and `kBrowser3pLongSpec` adds `,jump=long`. Unlike Java, `depth`
+  below 1 and `tt` outside 0..30 are parse errors (Java accepts depth 0 and fails later on a bad `tt`). `ThreePlayerPlayer::choose()` throws
+  `std::invalid_argument` for a position that is not three-player or has the other jump rule; check `plays(position)` first.
+- **Browser API** (`src/wasm/wasm_api.cpp`, all new functions in the export list in `cpp/CMakeLists.txt`):
+
+  | Call | Result |
+  |---|---|
+  | `shw_game_new2(jump, players)` | 0; -1 for `jump` not 0/1 or `players` not 2/3 (text in `shw_error()`), game unchanged |
+  | `shw_players()` | 2 or 3 |
+  | `shw_player_new3(nodes, jump)` | player id; -1 for `jump` not 0/1 or `nodes` < 1. Ids share one table with `shw_player_new` |
+  | `shw_choose(id)` | plays for the side to move, whichever of the three it is; -1 no move; -2 (text in `shw_error()`) if the player's player count or jump rule differs from the game's |
+  | `shw_outcome()` | -1 running; 0 draw (move limit, or the side to move has no legal move); 1 + winner, so 1, 2 or 3 |
+  | `shw_analyse(...)` | -3 for a three-player game (`shw_error()`: "analysis is available for two-player games only"), checked before the other arguments; in a two-player game -3 still means "cap too small" |
+
+  `shw_legal_moves`, `shw_play`, `shw_unmake`, `shw_owner` and `shw_side_to_move` work for three players (the side cycles 0, 1, 2).
+  `shw_last_score`, `shw_last_depth`, `shw_last_nodes`, `shw_has_result`, `shw_total_nodes` and `shw_player_clear` work for both kinds of
+  player; `shw_race_moves` is 0 for a three-player player, which has no race play (section "Race play and the
+  games row (WP6)" above). Tests: four new tests in `wasm_api_test` (native), and `cpp/wasm/test/threeplayer.mjs`
+  (run by `scripts/web/test-wasm.zsh`, section "--- three players"). It plays one full game per jump rule with an engine for each of the three players (node budgets
+  200, 300, 400), twice, and checks legality, side order, the end within 300 plies, determinism, unmake, the mismatch errors and the -3 of
+  `shw_analyse`; it loads no race table. On the measured run the adjacent game ended after 127 plies with player 0 winning, the long-hop game
+  after 74 plies with player 1 winning.
