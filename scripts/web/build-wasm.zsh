@@ -1,6 +1,6 @@
 #!/bin/zsh
-# Builds the C++ engine as WebAssembly (cpp/, preset "wasm") and copies engine-cpp.js and engine-cpp.wasm to
-# web/public/engines/cpp/. Run through `devenv tasks run wasm:build` (emcmake and EM_CACHE come from devenv).
+# Builds the C++ engine and the network backend as WebAssembly (cpp/, preset "wasm") and copies engine-cpp.js, engine-cpp.wasm to
+# web/public/engines/cpp/ and engine-net-nn-{scalar,simd,relaxed}.{js,wasm} to web/public/engines/net/. Run through `devenv tasks run wasm:build` (emcmake and EM_CACHE come from devenv).
 #
 # usage: build-wasm.zsh [--classic]   --classic: emit a classic script instead of an ES module (SH_WASM_ES6=OFF)
 # Exit: 0 = built and copied (also when the output was already current), 1 = failure, 2 = wrong call.
@@ -46,4 +46,18 @@ for f in engine-cpp.js engine-cpp.wasm; do
   cp $build/$f $tmp
   mv -f $tmp $out/$f
 done
+# The network backend (cpp/src/wasm/net_api.cpp): three flavours, each a .js glue file and a .wasm file, published to engines/net/.
+netout=$root/web/public/engines/net
+mkdir -p $netout
+for flavour in scalar simd relaxed; do
+  for ext in js wasm; do
+    f=engine-net-nn-$flavour.$ext
+    [[ -s $build/$f ]] || { print -u2 "build-wasm: $build/$f is missing or empty"; exit 1; }
+    tmp=$netout/$f.tmp.$$
+    cp $build/$f $tmp
+    mv -f $tmp $netout/$f
+  done
+done
+print -u2 "build-wasm: wrote $netout/engine-net-nn-{scalar,simd,relaxed}.{js,wasm}"
+
 print -u2 "build-wasm: wrote $out/engine-cpp.js ($(wc -c < $out/engine-cpp.js | tr -d ' ') bytes) and engine-cpp.wasm ($(wc -c < $out/engine-cpp.wasm | tr -d ' ') bytes), ES module: $es6"

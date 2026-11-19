@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Writes web/public/engines/engines.json: every shipped engine file with raw bytes, gzip bytes and SHA-256,
-# grouped by engine id, plus the git version of the build. Reads web/public/engines/{cpp,java}/.
+# grouped by engine id, plus the git version of the build. Reads web/public/engines/{cpp,java,net}/ (net-wasm: the three flavours of the network backend, js and wasm each).
 # Exit 0 = written, non-zero = no engine file found at all or an engine with missing files. A missing engine is a warning: the UI then shows it as not shipped.
 set -eu
 root=${0:A:h:h:h}
@@ -16,6 +16,12 @@ DIR=$dir VERSION=$version perl -MJSON::PP -MDigest::SHA=sha256_hex -MIO::Compres
     "java/engine-java.wasm"              => "java-wasmgc",
     "java/engine-java.wasm-runtime.js"   => "java-wasmgc",
     "java/engine-java.js"                => "java-js",
+    "net/engine-net-nn-scalar.js"        => "net-wasm",
+    "net/engine-net-nn-scalar.wasm"      => "net-wasm",
+    "net/engine-net-nn-simd.js"          => "net-wasm",
+    "net/engine-net-nn-simd.wasm"        => "net-wasm",
+    "net/engine-net-nn-relaxed.js"       => "net-wasm",
+    "net/engine-net-nn-relaxed.wasm"     => "net-wasm",
   );
   my (%engines, $found);
   for my $rel (sort keys %engine_of) {
@@ -29,13 +35,13 @@ DIR=$dir VERSION=$version perl -MJSON::PP -MDigest::SHA=sha256_hex -MIO::Compres
     $e->{binaryBytes} += length $raw; $e->{binaryGzipBytes} += length $gz; $found++;
   }
   die "web:engines: no engine file under $dir (run wasm:build and teavm:build first)\n" unless $found;
-  for my $id (qw(cpp-wasm java-wasmgc java-js)) {
+  for my $id (qw(cpp-wasm java-wasmgc java-js net-wasm)) {
     print STDERR "web:engines: warning: no files for $id\n" unless $engines{$id};
   }
   # java-wasmgc needs both of its files; a half-built engine is worse than none.
   for my $id (keys %engines) {
     my $n = @{ $engines{$id}{files} };
-    my $want = $id eq "cpp-wasm" || $id eq "java-wasmgc" ? 2 : 1;
+    my $want = $id eq "cpp-wasm" || $id eq "java-wasmgc" ? 2 : $id eq "net-wasm" ? 6 : 1;
     die "web:engines: $id has $n file(s), expected $want\n" if $n != $want;
   }
   my $json = JSON::PP->new->canonical->pretty->encode({ v => 1, version => $ENV{VERSION}, engines => \%engines });
