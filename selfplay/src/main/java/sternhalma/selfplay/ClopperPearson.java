@@ -31,6 +31,31 @@ public final class ClopperPearson {
         return (lo + hi) / 2;
     }
 
+    /**
+     * The one-sided lower bound at level 1 - alpha for k successes in n trials: the smallest p with
+     * P(X >= k | n, p) >= alpha. By the symmetry of the binomial it is {@code 1 - upper(n - k, n, alpha)}; 0 if k == 0,
+     * and 0 if n == 0.
+     */
+    public static double lower(long k, long n, double alpha) {
+        if (k < 0 || n < 0 || k > n) {
+            throw new IllegalArgumentException("need 0 <= k <= n, got k=" + k + " n=" + n);
+        }
+        return n == 0 ? 0.0 : 1.0 - upper(n - k, n, alpha);
+    }
+
+    /**
+     * The two-sided exact interval {lower, upper} at level 1 - alpha: both bounds one-sided at alpha / 2. For n == 0 it
+     * is {0, 1}. The usual interval of a win share (docs/training.md, "Evaluating variants").
+     */
+    public static double[] interval(long k, long n, double alpha) {
+        return new double[] {lower(k, n, alpha / 2), upper(k, n, alpha / 2)};
+    }
+
+    /** The two-sided 95 % interval {lower, upper}. */
+    public static double[] interval95(long k, long n) {
+        return interval(k, n, 0.05);
+    }
+
     /** One-sided 95% upper bound. */
     public static double upper95(long k, long n) {
         return upper(k, n, 0.05);

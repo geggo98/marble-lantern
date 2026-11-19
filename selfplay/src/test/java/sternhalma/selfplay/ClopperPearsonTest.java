@@ -47,6 +47,44 @@ class ClopperPearsonTest {
         assertThrows(IllegalArgumentException.class, () -> ClopperPearson.upper95(3, 2));
     }
 
+    // known two-sided 95 % Clopper-Pearson intervals (R: binom.test(k, n)$conf.int; tables of exact binomial intervals)
+    @Test
+    void theTwoSidedIntervalMatchesKnownCases() {
+        assertInterval(0, 10, 0.0, 0.3085);
+        assertInterval(5, 10, 0.1871, 0.8129);
+        assertInterval(1, 20, 0.00126, 0.2487);
+        assertInterval(50, 100, 0.3983, 0.6017);
+        assertInterval(10, 10, 0.6915, 1.0);
+    }
+
+    @Test
+    void theTwoSidedIntervalIsTheExactBinomialQuantilePairAndContainsThePointEstimate() {
+        int n = 40;
+        for (int k = 1; k < n; k++) {
+            double[] ci = ClopperPearson.interval95(k, n);
+            double lowerTail = 0;
+            for (int i = k; i <= n; i++) {
+                lowerTail += binomial(n, i) * Math.pow(ci[0], i) * Math.pow(1 - ci[0], n - i);
+            }
+            double upperTail = 0;
+            for (int i = 0; i <= k; i++) {
+                upperTail += binomial(n, i) * Math.pow(ci[1], i) * Math.pow(1 - ci[1], n - i);
+            }
+            assertEquals(0.025, lowerTail, 1e-9, "P(X >= k | lower), k=" + k);
+            assertEquals(0.025, upperTail, 1e-9, "P(X <= k | upper), k=" + k);
+            assertTrue(ci[0] < (double) k / n && (double) k / n < ci[1]);
+        }
+        assertEquals(0.0, ClopperPearson.interval95(0, 0)[0]);
+        assertEquals(1.0, ClopperPearson.interval95(0, 0)[1]);
+        assertThrows(IllegalArgumentException.class, () -> ClopperPearson.interval95(3, 2));
+    }
+
+    private static void assertInterval(long k, long n, double lo, double hi) {
+        double[] ci = ClopperPearson.interval95(k, n);
+        assertEquals(lo, ci[0], 5e-5, k + " of " + n + " lower");
+        assertEquals(hi, ci[1], 5e-5, k + " of " + n + " upper");
+    }
+
     private static double binomial(int n, int k) {
         double r = 1;
         for (int i = 1; i <= k; i++) {
