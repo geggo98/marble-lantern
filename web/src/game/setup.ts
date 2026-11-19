@@ -1,10 +1,18 @@
-// Who plays which side. The app builds its controls on this object instead of separate flags.
+// Who plays which seat, in which game variant. The app builds its controls on this object instead of separate flags.
 //
-// Extension point: today there are exactly two seats, and the UI offers only 'human' and 'engine' for each. Later the
-// number of players may grow (the rules already know three-player boards), and 'network' seats (a neural network
-// player) get their own choice. The model leaves room for both; the GameController does not play 'network' seats yet,
-// and no UI for them exists. Do not build those UIs before the controller supports them.
+// A game has two or three seats (variant.players); seat 0 moves first. A seat is a human or an engine. The three game modes
+// have constructors:
+//   humanVsEngine(side, level)            two players, one human, one engine (the classic game)
+//   hotSeatVsEngine(level, engineSeat)    three players, two humans on the same device, one engine
+//   humanVsTwoEngines(humanSeat, level)   three players, one human, two engines
+// One level applies to all engine seats (the engine card has one strength setting).
+//
+// Extension point: a 'network' seat (a neural network player) has a type but no controller support and no UI yet. Do not build
+// that UI before the controller plays such a seat.
 import type { EngineId } from '../engines/engine';
+import type { ControllerSeat } from './game';
+import { DEFAULT_VARIANT } from './variant';
+import type { JumpRule, Player, Variant } from './variant';
 import type { Side } from './board-state';
 
 export type SeatKind = 'human' | 'engine' | 'network';
@@ -18,29 +26,68 @@ export interface Seat {
 }
 
 export interface GameSetup {
-  /** seats[side]: seat 0 moves first. Exactly two seats for now. */
-  seats: [Seat, Seat];
+  /** seats[side]: seat 0 moves first. Two seats for two players, three for three. */
+  seats: readonly Seat[];
+  /** The game variant; unset means the default (adjacent jumps, two players). Its player count equals `seats.length`. */
+  variant?: Variant;
 }
 
-export function humanVsEngine(humanSide: Side, level: number): GameSetup {
+const variantFor = (players: 2 | 3, jump: JumpRule): Variant => (players === 2 && jump === 'adjacent' ? { ...DEFAULT_VARIANT } : { jump, players });
+
+/** The variant of a setup: its own, or the default. */
+export const variantOf = (setup: GameSetup): Variant => setup.variant ?? DEFAULT_VARIANT;
+
+export function humanVsEngine(humanSide: Side, level: number, jump: JumpRule = 'adjacent'): GameSetup {
   const human: Seat = { kind: 'human' };
   const engine: Seat = { kind: 'engine', level };
-  return { seats: humanSide === 0 ? [human, engine] : [engine, human] };
+  return { seats: humanSide === 0 ? [human, engine] : [engine, human], variant: variantFor(2, jump) };
 }
 
-export function engineVsEngine(level: number): GameSetup {
-  return { seats: [{ kind: 'engine', level }, { kind: 'engine', level }] };
+export function engineVsEngine(level: number, jump: JumpRule = 'adjacent'): GameSetup {
+  return { seats: [{ kind: 'engine', level }, { kind: 'engine', level }], variant: variantFor(2, jump) };
 }
 
-/** The side of the one human seat; null when no seat or more than one seat is human. */
-export function humanSideOf(setup: GameSetup): Side | null {
-  const humans = setup.seats.flatMap((seat, side) => (seat.kind === 'human' ? [side as Side] : []));
+/** Three players on one device: two humans take turns at the same board, the engine plays `engineSeat` (default: the last seat). */
+export function hotSeatVsEngine(level: number, engineSeat: Player = 2, jump: JumpRule = 'adjacent'): GameSetup {
+  const seats = [0, 1, 2].map((seat): Seat => (seat === engineSeat ? { kind: 'engine', level } : { kind: 'human' }));
+  return { seats, variant: variantFor(3, jump) };
+}
+
+/** Three players: one human on `humanSeat` (default: the first seat), the other two seats are engines. */
+export function humanVsTwoEngines(humanSeat: Player, level: number, jump: JumpRule = 'adjacent'): GameSetup {
+  const seats = [0, 1, 2].map((seat): Seat => (seat === humanSeat ? { kind: 'human' } : { kind: 'engine', level }));
+  return { seats, variant: variantFor(3, jump) };
+}
+
+/** The seats that a person plays. */
+export function humanSeatsOf(setup: GameSetup): Player[] {
+  return setup.seats.flatMap((seat, i) => (seat.kind === 'human' ? [i as Player] : []));
+}
+
+/** The seats that an engine plays. */
+export function engineSeatsOf(setup: GameSetup): Player[] {
+  return setup.seats.flatMap((seat, i) => (seat.kind === 'engine' ? [i as Player] : []));
+}
+
+/** The seat of the one human; null when no seat or more than one seat is human. */
+export function humanSeatOf(setup: GameSetup): Player | null {
+  const humans = humanSeatsOf(setup);
   return humans.length === 1 ? humans[0]! : null;
+}
+
+/** The side of the one human of a two-player game; null for no human, more than one, and for three players. */
+export function humanSideOf(setup: GameSetup): Side | null {
+  return setup.seats.length === 2 ? (humanSeatOf(setup) as Side | null) : null;
 }
 
 /** No human seat: the engines play each other. */
 export function isDemo(setup: GameSetup): boolean {
   return setup.seats.every((seat) => seat.kind !== 'human');
+}
+
+/** Three players with two humans on one device and one engine. */
+export function isHotSeat(setup: GameSetup): boolean {
+  return setup.seats.length === 3 && humanSeatsOf(setup).length === 2 && engineSeatsOf(setup).length === 1;
 }
 
 /** The level of the first engine seat; the fallback when there is none. */
@@ -50,11 +97,24 @@ export function levelOf(setup: GameSetup, fallback: number): number {
 
 /** The same seats with a new level on every engine seat. */
 export function withLevel(setup: GameSetup, level: number): GameSetup {
-  const seat = (s: Seat): Seat => (s.kind === 'engine' ? { ...s, level } : s);
-  return { seats: [seat(setup.seats[0]), seat(setup.seats[1])] };
+  return { ...setup, seats: setup.seats.map((s): Seat => (s.kind === 'engine' ? { ...s, level } : s)) };
 }
 
-/** True when the controller can play this setup today: one human and one engine, or two engines. */
+/** The seats in the form the controller takes (`human` or `engine`); throws for a seat it cannot play. */
+export function controllerSeats(setup: GameSetup): ControllerSeat[] {
+  return setup.seats.map((s) => {
+    if (s.kind === 'network') throw new Error('the game controller does not play network seats yet');
+    return s.kind;
+  });
+}
+
+/**
+ * True when the controller can play this setup: the seat count fits the player count and no seat is a network seat. Two players:
+ * one human and one engine, or two engines. Three players: at most two humans (hot-seat has two, one engine).
+ */
 export function isSupported(setup: GameSetup): boolean {
-  return setup.seats.every((s) => s.kind !== 'network') && (humanSideOf(setup) !== null || isDemo(setup));
+  const variant = variantOf(setup);
+  if (setup.seats.length !== variant.players || setup.seats.some((s) => s.kind === 'network')) return false;
+  if (variant.players === 2) return humanSideOf(setup) !== null || isDemo(setup);
+  return humanSeatsOf(setup).length <= 2;
 }
