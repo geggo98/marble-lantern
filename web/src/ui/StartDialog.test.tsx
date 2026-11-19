@@ -124,7 +124,7 @@ describe('the begin dialog', () => {
 
   it('Tab at the last button wraps to the first Tab stop, which is the checked radio (unchecked radios are skipped)', async () => {
     await open(vi.fn());
-    const last = choice('begin-no');
+    const last = q<HTMLElement>('[data-language="de"]')!; // the language toggle closes the dialog
     last.focus();
     const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
     await act(async () => {
@@ -137,7 +137,7 @@ describe('the begin dialog', () => {
       choice('jump-adjacent').dispatchEvent(back);
     });
     expect(back.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(choice('begin-no'));
+    expect(document.activeElement).toBe(last);
   });
 });
 

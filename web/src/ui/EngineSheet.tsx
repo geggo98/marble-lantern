@@ -12,6 +12,7 @@ import type { Variant } from '../game/variant';
 import { NetSelectionStore, useNetSelection } from '../app/net-selection';
 import { MODEL_GROUP, ModelGroup, SimsGroup } from './NetGroups';
 import { NetWarnings, ReasonDetails, reasonText } from './net-warnings';
+import { DialogLanguageRow } from './LanguageToggle';
 import { Icon, Tag } from './primitives';
 import { DEFAULT_LEVEL, NODE_LEVELS, levelKey, runtimeTag } from './Panels';
 import { useT } from './texts';
@@ -281,6 +282,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
             {t('apply')}
           </button>
         </div>
+        <DialogLanguageRow />
       </section>
     </div>,
     document.body,

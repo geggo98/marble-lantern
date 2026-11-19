@@ -15,6 +15,7 @@ import { useGuides } from '../guides/useGuides';
 import { loadGuidesPreference, saveGuidesPreference } from '../guides/preference';
 import type { AnalyseFn } from '../guides/analyser';
 import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
+import { LanguageToggle } from '../ui/LanguageToggle';
 import { ActionBar } from '../ui/ActionBar';
 import { Menu } from '../ui/Menu';
 import { useWide } from '../ui/useMedia';
@@ -347,6 +348,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           {cards}
           <div className="ml-menu__foot">
             <ThemeSwitch />
+            <LanguageToggle inDialog />
             <p className="ml-menu__note">
               {t('footer_note')} · <a href={REPO_URL} rel="noreferrer">{t('source_code')}</a>
             </p>

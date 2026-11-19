@@ -1,7 +1,6 @@
 // App frame: header (brand, navigation, mode badge, language switch) and footer (note, source link, theme switch).
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { i18n } from '../i18n/i18n';
-import { LANGUAGES } from '../i18n/keys';
+import { LanguageToggle } from './LanguageToggle';
 import { Icon } from './primitives';
 import type { IconName } from './primitives';
 import { useT } from './texts';
@@ -46,20 +45,7 @@ export function Header({ screen, online }: { screen: Screen; online: boolean }):
           <Icon name={online ? 'online' : 'offline'} />
           <span className="ml-badge__text">{online ? t('mode.online') : t('mode.offline')}</span>
         </span>
-        <div className="ml-seg" role="group" aria-label={t('language')}>
-          {LANGUAGES.map((l) => (
-            <button
-              key={l}
-              type="button"
-              className="ml-seg__opt"
-              aria-pressed={language === l}
-              lang={l}
-              onClick={() => i18n.setLanguage(l)}
-            >
-              {l.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <LanguageToggle />
       </div>
     </header>
   );

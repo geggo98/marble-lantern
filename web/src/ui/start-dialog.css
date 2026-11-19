@@ -33,3 +33,7 @@
 @media (forced-colors: active) {
   .ml-start__opt[data-checked] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
 }
+
+/* The language switch at the end of a dialog (LanguageToggle.tsx): always 44 px targets, also on a wide screen. */
+.ml-seg--touch .ml-seg__opt { min-width: var(--ml-size-control); min-height: var(--ml-size-control); }
+.ml-langrow { display: flex; align-items: center; justify-content: space-between; gap: var(--ml-space-3); color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
