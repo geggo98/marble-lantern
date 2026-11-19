@@ -19,10 +19,10 @@
 
 namespace sh::nn {
 
-// The preset names of the golden files: "small", "large", "gen11".
+// The preset names of the golden files: "small", "large", "gen11" (classic1) and "tiny-v3", "small-v3" (classic1v, three value outputs).
 struct Preset {
-    std::string name;    // small | large | gen11
-    std::string key;     // small-u5 | large-u5 | large-gen11 (file names and manifest keys)
+    std::string name;    // small | large | gen11 | tiny-v3 | small-v3
+    std::string key;     // small-u5 | large-u5 | large-gen11 | tiny-v3 | small-v3 (file names and manifest keys)
     NetworkConfig config;
 };
 std::optional<Preset> preset_by_name(std::string_view name);
@@ -42,11 +42,17 @@ std::expected<double, golden::Error> extra_rel(const std::map<std::string, std::
 
 struct GoldenData {
     int positions = 0;
-    std::vector<float> inputs;    // [positions][122][13]
+    std::vector<float> inputs;    // [positions][122][planes]
     std::vector<float> logits;    // [positions][242] of the scalar Java reference
     std::vector<float> values;    // [positions][players]
     std::vector<float> vlogits;   // VectorNetwork of Java
     std::vector<float> vvalues;
+    // Only the classic1v presets (nn-inputs-v3, nn-ref-<key>): the facts of each position and the absolute values that the Java
+    // Evaluator returned for it (three columns, the third is 0 for two players).
+    std::vector<int> players;      // 2 or 3
+    std::vector<int> mover;        // side to move, in [0, players)
+    std::vector<bool> long_jump;   // jump rule LONG
+    std::vector<float> absolute;   // [positions][3]
 };
 
 // nn-inputs and nn-ref-<key>: the inputs and the references of a preset.

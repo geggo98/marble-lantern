@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -87,7 +88,7 @@ std::vector<Tensor> random_tensors(const NetworkConfig& config, std::uint64_t se
 std::map<std::string, std::string> metadata_of(const NetworkConfig& c) {
     std::map<std::string, std::string> m;
     m["format"] = "sternhalma-nn";
-    m["format_version"] = c.planes == PlaneSet::Plain ? "1" : "2";
+    m["format_version"] = c.planes == PlaneSet::Plain ? "1" : c.planes == PlaneSet::Classic1V ? "3" : "2";
     m["channels"] = std::to_string(c.channels);
     m["blocks"] = std::to_string(c.blocks);
     m["players"] = std::to_string(c.players);
@@ -338,7 +339,8 @@ SH_TEST(config_metadata_rules) {
         CHECK(!config_from_metadata(without(key)).has_value());
     }
     CHECK(!config_from_metadata(with("format", "other")));
-    CHECK(!config_from_metadata(with("format_version", "3")));
+    CHECK(!config_from_metadata(with("format_version", "3")));      // a classic1 file is version 2; version 3 is classic1v only
+    CHECK(!config_from_metadata(with("format_version", "4")));
     CHECK(!config_from_metadata(with("format_version", "0")));
     CHECK(!config_from_metadata(with("planes", "classic2")));
     CHECK(!config_from_metadata(with("input_planes", "7")));        // 13 belongs to classic1
@@ -355,6 +357,77 @@ SH_TEST(config_metadata_rules) {
     auto v1_wrong_width = metadata_of(tiny_config(2, PlaneSet::Plain));
     v1_wrong_width["input_planes"] = "13";
     CHECK(!config_from_metadata(v1_wrong_width));
+}
+
+SH_TEST(config_metadata_rules_of_format_version_3) {
+    // docs/network.md, "File format rules": v3 requires planes=classic1v, players=3, input_planes=15; v2 with classic1v and v3 with
+    // another plane set are rejected; v1 and v2 stay as they were.
+    const NetworkConfig v3 = tiny_config(3, PlaneSet::Classic1V);
+    auto good = metadata_of(v3);
+    CHECK_EQ(good.at("format_version"), std::string("3"));
+    CHECK_EQ(good.at("input_planes"), std::string("15"));
+    CHECK_EQ(good.at("planes"), std::string("classic1v"));
+    const auto read = config_from_metadata(good);
+    CHECK(read.has_value());
+    if (read) {
+        CHECK(*read == v3);
+        CHECK_EQ(read->input_planes(), 15);
+        CHECK_EQ(read->input_size(), 122 * 15);
+        CHECK_EQ(read->players, 3);
+    }
+    const auto with = [&](const std::string& key, const std::string& v) { auto m = good; m[key] = v; return m; };
+    CHECK(!config_from_metadata(with("format_version", "2")));      // v2 with classic1v
+    CHECK(!config_from_metadata(with("format_version", "1")));
+    CHECK(!config_from_metadata(with("format_version", "4")));
+    CHECK(!config_from_metadata(with("players", "2")));             // the value head is 3 wide
+    CHECK(!config_from_metadata(with("input_planes", "13")));
+    CHECK(!config_from_metadata(with("input_planes", "7")));
+    for (const char* other : {"plain", "classic1", "classic1-planes"}) {
+        auto m = with("planes", other);
+        m["input_planes"] = std::to_string(plane_count(other == std::string("plain") ? PlaneSet::Plain : PlaneSet::Classic1));
+        CHECK(!config_from_metadata(m));                            // v3 with another plane set
+    }
+    auto no_planes = good;
+    no_planes.erase("planes");
+    CHECK(!config_from_metadata(no_planes));
+    // v1 and v2 files of the other plane sets still read
+    CHECK(config_from_metadata(metadata_of(tiny_config(2, PlaneSet::Plain))).has_value());
+    CHECK(config_from_metadata(metadata_of(tiny_config(3, PlaneSet::Classic1))).has_value());
+    CHECK(config_from_metadata(metadata_of(tiny_config(2, PlaneSet::Classic1Planes))).has_value());
+    CHECK(!make_config(8, 1, 2, 32, PlaneSet::Classic1V).has_value());   // the constructor rule of NetworkConfig
+    CHECK(make_config(8, 1, 3, 32, PlaneSet::Classic1V).has_value());
+}
+
+SH_TEST(classic1v_counts_shapes_and_file_round_trip) {
+    // docs/network.md: TINY classic1v = 848 + 912 + 18 + 387 + 2 = 2,167. SMALL by hand: 7*15*32+32 = 3,392; 4 blocks of
+    // 2*(7*32*32+32) = 14,400; policy 66; value (32*32+32) + (3*32+3) = 1,155; priors 2.
+    CHECK_EQ(tiny_config(3, PlaneSet::Classic1V).parameter_count(), 2167L);
+    CHECK_EQ(small_config(3, PlaneSet::Classic1V).parameter_count(), 62215L);
+    CHECK(has_residual_priors(PlaneSet::Classic1V));
+    CHECK_EQ(plane_count(PlaneSet::Classic1V), 15);
+    long sum = 0;
+    for (const auto& [name, shape] : parameter_shapes(small_config(3, PlaneSet::Classic1V))) sum += *element_count(shape);
+    CHECK_EQ(sum, 62215L);
+    const auto shapes = parameter_shapes(tiny_config(3, PlaneSet::Classic1V));
+    CHECK(shapes.front().first == "conv_in.weight" && shapes.front().second == std::vector<int>({8, 105}));
+    bool dense2 = false;
+    for (const auto& [name, shape] : shapes) dense2 = dense2 || (name == "head_value.dense2.weight" && shape == std::vector<int>({3, 32}));
+    CHECK(dense2);
+    CHECK_EQ(shapes.back().first, std::string(kPriorK));
+    // a v3 file round-trips through the safetensors writer of the test and the reader
+    const NetworkConfig cfg = tiny_config(3, PlaneSet::Classic1V);
+    auto contents = parse_safetensors(to_file(random_tensors(cfg, 21), metadata_of(cfg)));
+    CHECK(contents.has_value());
+    if (!contents) return;
+    auto p = Parameters::from_contents(std::move(*contents));
+    CHECK(p.has_value());
+    if (p) CHECK(p->config() == cfg);
+    // the same tensors with the metadata of a v2 file are rejected
+    auto v2 = metadata_of(cfg);
+    v2["format_version"] = "2";
+    auto bad = parse_safetensors(to_file(random_tensors(cfg, 21), v2));
+    CHECK(bad.has_value());
+    if (bad) CHECK(!Parameters::from_contents(std::move(*bad)).has_value());
 }
 
 SH_TEST(parameters_load_and_mismatches) {
@@ -482,6 +555,62 @@ SH_TEST(priors_by_hand) {
     CHECK_EQ(raw[0], static_cast<float>(std::tanh(static_cast<double>(0.1f + 0.5f * 0.75f))));
     CHECK_EQ(raw[1], static_cast<float>(std::tanh(static_cast<double>(-0.2f + 0.5f * -0.75f))));
     CHECK_EQ(raw[3], static_cast<float>(std::tanh(static_cast<double>(0.4f + 0.5f * -0.75f))));
+}
+
+SH_TEST(priors_with_the_variant_stride) {
+    // classic1v rows have 15 floats: the prior reads plane 7 (dist_own) and plane 12 (eval) at that stride; planes 13 and 14 are not read
+    std::vector<float> input(static_cast<std::size_t>(kRows) * kVariantPlanes, 0.0f);
+    for (int c = 0; c < kCells; ++c) {
+        input[static_cast<std::size_t>(c * kVariantPlanes + kDistOwn)] = static_cast<float>(c) / 16.0f;
+        input[static_cast<std::size_t>(c * kVariantPlanes + kLong)] = 1.0f;
+        input[static_cast<std::size_t>(c * kVariantPlanes + kThreePlayers)] = 1.0f;
+    }
+    input[static_cast<std::size_t>(kEval)] = 0.75f;
+    std::vector<float> policy(kPolicySize, 0.0f);
+    add_policy_prior(1.0f, input, kVariantPlanes, policy);
+    for (int c = 0; c < kCells; ++c) {
+        CHECK_EQ(policy[static_cast<std::size_t>(c * 2)], static_cast<float>(c));
+        CHECK_EQ(policy[static_cast<std::size_t>(c * 2 + 1)], -static_cast<float>(c));
+    }
+    // value sign +1, -1, 0 for relative players 0, 1, 2: the third output never gets the prior
+    std::vector<float> values = {0.0f, 0.0f, 0.5f};
+    add_value_prior(2.0f, input, kVariantPlanes, values);
+    CHECK_EQ(values[0], 1.5f);
+    CHECK_EQ(values[1], -1.5f);
+    CHECK_EQ(values[2], 0.5f);
+    // eval 0 (long or three players): the value prior is off, bit for bit
+    input[static_cast<std::size_t>(kEval)] = 0.0f;
+    std::vector<float> off = {0.25f, -0.5f, 0.125f};
+    add_value_prior(2.0f, input, kVariantPlanes, off);
+    CHECK_EQ(off[0], 0.25f);
+    CHECK_EQ(off[1], -0.5f);
+    CHECK_EQ(off[2], 0.125f);
+}
+
+SH_TEST(absolute_values_by_hand) {
+    // the value of absolute player a is output (a - mover) mod n; a classic1v net has 3 outputs and uses the first n
+    const std::array<float, 3> out = {10.0f, 11.0f, 12.0f};
+    std::array<float, 3> abs3{};
+    CHECK(absolute_values(out, 3, 0, abs3));
+    CHECK(abs3 == (std::array<float, 3>{10.0f, 11.0f, 12.0f}));
+    CHECK(absolute_values(out, 3, 1, abs3));
+    CHECK(abs3 == (std::array<float, 3>{12.0f, 10.0f, 11.0f}));
+    CHECK(absolute_values(out, 3, 2, abs3));
+    CHECK(abs3 == (std::array<float, 3>{11.0f, 12.0f, 10.0f}));
+    std::array<float, 2> abs2{};
+    CHECK(absolute_values(out, 2, 0, abs2));
+    CHECK(abs2 == (std::array<float, 2>{10.0f, 11.0f}));
+    CHECK(absolute_values(out, 2, 1, abs2));
+    CHECK(abs2 == (std::array<float, 2>{11.0f, 10.0f}));   // output 2 is not used for two players
+    // refusals write nothing
+    std::array<float, 3> keep = {-1.0f, -1.0f, -1.0f};
+    CHECK(!absolute_values(out, 4, 0, keep));               // more players than outputs
+    CHECK(!absolute_values(std::span<const float>(out).first(2), 3, 0, keep));
+    CHECK(!absolute_values(out, 3, 3, keep));
+    CHECK(!absolute_values(out, 3, -1, keep));
+    CHECK(!absolute_values(out, 1, 0, keep));
+    CHECK(!absolute_values(out, 2, 0, keep));               // wrong size of the result
+    CHECK(keep == (std::array<float, 3>{-1.0f, -1.0f, -1.0f}));
 }
 
 // ---------------------------------------------------------------- reference ops and network
@@ -1088,5 +1217,199 @@ void check_simd_against_java(const std::string& name, int positions) {
 SH_TEST(simd_matches_java_small) { check_simd_against_java("small", 134); }
 SH_TEST(simd_matches_java_large) { check_simd_against_java("large", 70); }
 SH_TEST(simd_matches_java_gen11) { check_simd_against_java("gen11", 70); }
+
+// ---------------------------------------------------------------- classic1v (format version 3): golden files of the four variants
+
+namespace {
+
+// 64 positions: 16 each of 2p adjacent, 2p long, 3p adjacent, 3p long (the order of nn-inputs-v3), every mover of each variant.
+struct VariantGolden {
+    GoldenData data;
+    Parameters weights;
+};
+
+std::optional<VariantGolden> load_variant_golden(const std::string& name) {
+    const auto preset = preset_by_name(name);
+    const auto dir = golden::directory();
+    auto data = load_golden_data(dir, *preset);
+    auto weights = load_golden_weights(dir, *preset);
+    if (!data || !weights) {
+        const golden::Error& e = !data ? data.error() : weights.error();
+        if (e.kind == golden::ErrorKind::Missing && !golden::required()) {
+            test::skip(name + ": " + e.message);
+        } else {
+            test::count_check();
+            test::fail("golden", 0, name + ": " + e.message);
+        }
+        return std::nullopt;
+    }
+    return VariantGolden{std::move(*data), std::move(*weights)};
+}
+
+std::span<const float> position_of(const GoldenData& d, const NetworkConfig& cfg, int i) {
+    const auto size = static_cast<std::size_t>(cfg.input_size());
+    return std::span<const float>(d.inputs).subspan(static_cast<std::size_t>(i) * size, size);
+}
+
+float plane(std::span<const float> position, int row, int p) { return position[static_cast<std::size_t>(row * kVariantPlanes + p)]; }
+
+int variant_of(const GoldenData& d, int i) {
+    return (d.players[static_cast<std::size_t>(i)] == 3 ? 2 : 0) + (d.long_jump[static_cast<std::size_t>(i)] ? 1 : 0);
+}
+
+}  // namespace
+
+SH_TEST(variant_golden_planes_follow_the_facts) {
+    // Planes 13 and 14 are 1 in every cell row if the jump rule is LONG / the position has three players (facts that the exporter
+    // reads from the position, not from the encoder); the padding row is 0; plane 12 (eval) is 0 under LONG and with three players
+    // so that the value prior is off; plane 11 (passed) is 0 with three players; plane 2 (third player) is empty with two players.
+    auto golden = load_variant_golden("tiny-v3");
+    if (!golden) return;
+    const NetworkConfig& cfg = golden->weights.config();
+    const GoldenData& d = golden->data;
+    CHECK_EQ(d.positions, 64);
+    std::array<int, 4> kinds{};
+    bool eval_seen = false;
+    std::array<std::array<bool, 3>, 4> movers{};
+    for (int i = 0; i < d.positions; ++i) {
+        const auto in = position_of(d, cfg, i);
+        const bool is_long = d.long_jump[static_cast<std::size_t>(i)];
+        const int players = d.players[static_cast<std::size_t>(i)];
+        const int v = variant_of(d, i);
+        kinds.at(static_cast<std::size_t>(v))++;
+        movers[static_cast<std::size_t>(v)][static_cast<std::size_t>(d.mover[static_cast<std::size_t>(i)])] = true;
+        bool third = false;
+        for (int row = 0; row < kCells; ++row) {
+            CHECK_EQ(plane(in, row, kLong), is_long ? 1.0f : 0.0f);
+            CHECK_EQ(plane(in, row, kThreePlayers), players == 3 ? 1.0f : 0.0f);
+            if (is_long || players == 3) CHECK_EQ(plane(in, row, kEval), 0.0f);
+            if (players == 3) CHECK_EQ(plane(in, row, 11), 0.0f);
+            if (!is_long && players == 2 && plane(in, row, kEval) != 0.0f) eval_seen = true;
+            third = third || plane(in, row, 2) != 0.0f;
+        }
+        CHECK_EQ(third, players == 3);
+        for (int p = 0; p < kVariantPlanes; ++p) CHECK_EQ(plane(in, kPadding, p), 0.0f);
+    }
+    for (const int k : kinds) CHECK_EQ(k, 16);
+    CHECK(movers[0][0] && movers[0][1] && !movers[0][2]);
+    CHECK(movers[1][0] && movers[1][1] && !movers[1][2]);
+    CHECK(movers[2][0] && movers[2][1] && movers[2][2]);
+    CHECK(movers[3][0] && movers[3][1] && movers[3][2]);
+    CHECK(eval_seen);  // two players with adjacent jumps keep the classical evaluation
+}
+
+namespace {
+
+// The reference net against the Java scalar reference on all 64 positions, one by one and as one batch; the absolute values
+// (the Evaluator mapping) against the Java Evaluator.
+void check_variant_reference(const std::string& name) {
+    auto golden = load_variant_golden(name);
+    if (!golden) return;
+    const NetworkConfig& cfg = golden->weights.config();
+    const GoldenData& d = golden->data;
+    CHECK(cfg.planes == PlaneSet::Classic1V && cfg.players == 3);
+    const ReferenceNet net(golden->weights);
+    double max_ulps = 0;
+    std::vector<float> all_logits(static_cast<std::size_t>(d.positions) * kPolicySize);
+    std::vector<float> all_values(static_cast<std::size_t>(d.positions) * 3);
+    for (int i = 0; i < d.positions; ++i) {
+        std::vector<float> logits(kPolicySize);
+        std::vector<float> values(3);
+        CHECK(net.forward(position_of(d, cfg, i), 1, logits, values).has_value());
+        const Comparison c = compare_outputs(logits, values, d.logits, d.values, i, 1, 3, 0.0);
+        CHECK(c.logits_bit_identical);
+        CHECK(c.fraction() <= 1.0);
+        max_ulps = std::max(max_ulps, c.values_max_ulps);
+        std::ranges::copy(logits, all_logits.begin() + static_cast<std::ptrdiff_t>(i) * kPolicySize);
+        std::ranges::copy(values, all_values.begin() + static_cast<std::ptrdiff_t>(i) * 3);
+        // value mapping: the absolute values of the position, as the Java Evaluator returns them
+        const int n = d.players[static_cast<std::size_t>(i)];
+        std::vector<float> absolute(static_cast<std::size_t>(n));
+        CHECK(absolute_values(values, n, d.mover[static_cast<std::size_t>(i)], absolute));
+        for (int a = 0; a < n; ++a) {
+            const double ref = d.absolute[static_cast<std::size_t>(i * 3 + a)];
+            CHECK(std::abs(static_cast<double>(absolute[static_cast<std::size_t>(a)]) - ref) <= 1e-4 + 1e-3 * std::abs(ref));
+        }
+        if (n == 2) CHECK_EQ(d.absolute[static_cast<std::size_t>(i * 3 + 2)], 0.0f);
+    }
+    CHECK(max_ulps <= 1.0);
+    std::vector<float> logits(all_logits.size());
+    std::vector<float> values(all_values.size());
+    CHECK(net.forward(d.inputs, d.positions, logits, values).has_value());
+    CHECK(logits == all_logits);
+    CHECK(values == all_values);
+    std::cout << "  " << name << ": 64 positions, logits bit-identical, values within " << max_ulps << " ulp\n";
+}
+
+}  // namespace
+
+SH_TEST(variant_reference_matches_java_tiny) { check_variant_reference("tiny-v3"); }
+SH_TEST(variant_reference_matches_java_small) { check_variant_reference("small-v3"); }
+SH_TEST(variant_simd_matches_java_tiny) { check_simd_against_java("tiny-v3", 64); }
+SH_TEST(variant_simd_matches_java_small) { check_simd_against_java("small-v3", 64); }
+
+SH_TEST(variant_simd_values_map_to_the_java_evaluator_values) {
+    auto golden = load_variant_golden("small-v3");
+    if (!golden) return;
+    const GoldenData& d = golden->data;
+    for (const SimdVariant variant : kVariants) {
+        SimdNet net(golden->weights, variant);
+        std::vector<float> logits(static_cast<std::size_t>(d.positions) * kPolicySize);
+        std::vector<float> values(static_cast<std::size_t>(d.positions) * 3);
+        CHECK(run_simd(net, d.inputs, d.positions, 64, logits, values));
+        for (int i = 0; i < d.positions; ++i) {
+            const int n = d.players[static_cast<std::size_t>(i)];
+            std::vector<float> absolute(static_cast<std::size_t>(n));
+            CHECK(absolute_values(std::span<const float>(values).subspan(static_cast<std::size_t>(i) * 3, 3), n, d.mover[static_cast<std::size_t>(i)], absolute));
+            for (int a = 0; a < n; ++a) {
+                const double ref = d.absolute[static_cast<std::size_t>(i * 3 + a)];
+                CHECK(std::abs(static_cast<double>(absolute[static_cast<std::size_t>(a)]) - ref) <= 1e-4 + 1e-3 * std::abs(ref));
+            }
+        }
+    }
+}
+
+SH_TEST(variant_priors_switch_by_plane_12_and_stay_for_the_policy) {
+    // Changing prior.k must change the values only where plane 12 (eval) is not 0, that is for two players with adjacent jumps;
+    // under LONG and with three players the values stay bit for bit. Changing prior.beta moves the policy of every variant.
+    auto golden = load_variant_golden("small-v3");
+    if (!golden) return;
+    const NetworkConfig& cfg = golden->weights.config();
+    const GoldenData& d = golden->data;
+    const auto with_prior = [&](const char* name, float value) {
+        std::vector<Tensor> tensors = golden->weights.tensors();
+        for (Tensor& t : tensors) {
+            if (t.name == name) t.data[0] = value;
+        }
+        auto p = Parameters::from_tensors(cfg, std::move(tensors));
+        CHECK(p.has_value());
+        return p;
+    };
+    auto k_changed = with_prior(kPriorK, golden->weights.data(kPriorK)[0] + 3.0f);
+    auto beta_changed = with_prior(kPriorBeta, golden->weights.data(kPriorBeta)[0] + 1.0f);
+    if (!k_changed || !beta_changed) return;
+    const ReferenceNet base(golden->weights);
+    const ReferenceNet by_k(*k_changed);
+    const ReferenceNet by_beta(*beta_changed);
+    std::array<int, 4> value_moved{};
+    std::array<int, 4> policy_moved{};
+    for (int i = 0; i < d.positions; ++i) {
+        const int variant = variant_of(d, i);
+        std::vector<float> l0(kPolicySize), l1(kPolicySize), l2(kPolicySize), v0(3), v1(3), v2(3);
+        CHECK(base.forward(position_of(d, cfg, i), 1, l0, v0).has_value());
+        CHECK(by_k.forward(position_of(d, cfg, i), 1, l1, v1).has_value());
+        CHECK(by_beta.forward(position_of(d, cfg, i), 1, l2, v2).has_value());
+        CHECK(l0 == l1);                       // prior.k does not touch the policy
+        if (v0 != v1) ++value_moved.at(static_cast<std::size_t>(variant));
+        if (l0 != l2) ++policy_moved.at(static_cast<std::size_t>(variant));
+        CHECK(v0 == v2);                       // prior.beta does not touch the value
+        CHECK_EQ(v0[2], v1[2]);                // relative player 2 has sign 0: never moved by the value prior
+    }
+    CHECK(value_moved.at(0) > 0);                 // two players, adjacent jumps: the classical value prior acts
+    CHECK_EQ(value_moved.at(1), 0);               // two players, long jumps: off
+    CHECK_EQ(value_moved.at(2), 0);               // three players, adjacent: off
+    CHECK_EQ(value_moved.at(3), 0);               // three players, long: off
+    for (const int m : policy_moved) CHECK_EQ(m, 16);   // the distance prior stays in every variant
+}
 
 int main() { return sh::test::run_all(); }

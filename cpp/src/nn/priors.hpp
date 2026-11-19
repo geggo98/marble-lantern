@@ -25,6 +25,17 @@ void add_value_prior(float k, std::span<const float> input, int stride, std::spa
 
 namespace sh::nn {
 
+// Evaluator: the value of absolute player a of a position with n = `players` players and `mover` to move is output
+// (a - mover) mod n of the network's value head (relative player order). A classic1v network has three outputs and serves n = 2
+// and n = 3, so only the first n outputs are used; every other network has exactly n outputs.
+// `absolute` has n elements. Returns false (and writes nothing) if n < 2, n > outputs.size(), mover is not in [0, n) or
+// `absolute` has the wrong size.
+bool absolute_values(std::span<const float> outputs, int players, int mover, std::span<float> absolute);
+
+}  // namespace sh::nn
+
+namespace sh::nn {
+
 // TornadoNetwork.addPriors, the host work after a device pass: for `n` positions of `input` ([n][122][stride]) with the raw
 // device outputs in `logits` ([n][242], the logits as they are) and `values` ([n][players], before the tanh): adds the policy
 // prior, adds k * value_base to the value and applies the tanh (float(std::tanh(double))), as VectorNetwork does.

@@ -12,6 +12,18 @@ float value_base(std::span<const float> input, int stride, int relative_player) 
     return static_cast<float>(value_sign(relative_player)) * input[static_cast<std::size_t>(kEval)];
 }
 
+bool absolute_values(std::span<const float> outputs, int players, int mover, std::span<float> absolute) {
+    if (players < 2 || static_cast<std::size_t>(players) > outputs.size() || mover < 0 || mover >= players ||
+        absolute.size() != static_cast<std::size_t>(players)) {
+        return false;
+    }
+    for (int a = 0; a < players; ++a) {
+        // Math.floorMod(a - mover, players)
+        absolute[static_cast<std::size_t>(a)] = outputs[static_cast<std::size_t>((a - mover + players) % players)];
+    }
+    return true;
+}
+
 void add_policy_prior(float beta, std::span<const float> input, int stride, std::span<float> policy) {
     const float scale = beta * static_cast<float>(kDistScale);
     for (int c = 0; c < kCells; ++c) {
