@@ -2632,7 +2632,7 @@ The control is `--control ab3`: the opponent's own spec in the candidate seat, s
 - No MCTS self-play generations; `Loop` does not accept the shared network.
 - No runs at 800 simulations, no strength record per checkpoint ([Strength record, ETA, status](#strength-record-eta-status)), no long-hop rung at 25,600 nodes.
 - No direct match between the shared network and the specialist (the cost above is a difference of two ladders).
-- No integration into the web UI: the network runs only in Java on the server side, and the browser engines stay classical. The C++ MCTS was not used.
+- Web integration: not part of that run. It was done afterwards: the browser net engines (`net-wasm`, `net-webgpu`) run the Java MCTS in TeaVM with the C++ WebAssembly or WebGPU forward pass and offer the shared net and the loop-3 expert net as models (see [Net engines](web-ui.md) and [models](models.md)). The C++ MCTS was not used.
 
 If the owner wants to continue, the next experiments would be, in this order: a LARGE shared network (capacity), `--strata natural` against `equal`, 800 simulations, and MCTS self-play with the shared network. None of them is planned.
 

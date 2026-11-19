@@ -9,6 +9,7 @@ The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons
 The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
 The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
 The app also plays game variants: the long-hop jump rule and games with three players, with a human or an engine on each seat ([game variants](#game-variants)). The start dialog offers the jump rule and the game mode ([start dialog](#start-dialog)); a game link also starts a variant ([starting a variant](#starting-a-variant)).
+Two more browser engines play with a neural network instead of alpha-beta search: `net-wasm` computes the network on the CPU, `net-webgpu` on the GPU ([net engines](#net-engines)). The networks they load are described in [models](models.md).
 
 ## Contents
 
@@ -22,11 +23,14 @@ The app also plays game variants: the long-hop jump rule and games with three pl
 8. [Analysis API](#analysis-api)
 9. [Move guides](#move-guides)
 10. [Skill estimate](#skill-estimate)
-11. [Small screens and touch](#small-screens-and-touch)
-12. [Loading and checking the race table](#loading-and-checking-the-race-table)
-13. [Build, run and test](#build-run-and-test)
-14. [Continuous integration](#continuous-integration)
-15. [Known limits](#known-limits)
+11. [Net engines](#net-engines)
+12. [Small screens and touch](#small-screens-and-touch)
+13. [Loading and checking the race table](#loading-and-checking-the-race-table)
+14. [Build, run and test](#build-run-and-test)
+15. [Continuous integration](#continuous-integration)
+16. [Known limits](#known-limits)
+
+The shipped network files have their own document: [models](models.md).
 
 ## Terms
 
@@ -39,11 +43,11 @@ The app also plays game variants: the long-hop jump rule and games with three pl
 - **Score:** the value of a move or position that the search reports, in points, from the point of view of the side that makes the move; higher is better. One step of progress towards the goal corner is worth about 30 points ([analysis API](#analysis-api)).
 - **Engine card, skill card:** panels of the play screen. The engine card shows the engine and its level. The skill card shows the skill estimate. The engine sheet is the dialog "Engine and strength", opened from the engine card, in which the player chooses engine and level.
 - **Ply:** one move of one side.
-- **Variant:** a jump rule (`adjacent` or `long`, see [rules](rules.md), "Jump rule") together with a player count (2 or 3). The default variant is adjacent jumps with two players; every game link written before the variants existed plays it.
+- **Variant:** a jump rule (`adjacent` or `long`, see [rules](rules.md), "Jump rule") together with a player count (2 or 3). The default variant is the neighbour jump (`adjacent`) with two players; every game link written before the variants existed plays it.
 - **Seat:** the place of one player, numbered from 0. Seat 0 moves first; after `ply` plies, seat `ply % players` is to move. A human or an engine plays each seat. The code and the dialogs also call a seat a side.
 - **Hot-seat:** a three-player game with two human seats and one engine seat. The two humans share one device and one board and take turns; the board does not turn.
 - **Wasm GC:** WebAssembly with garbage collection. TeaVM 0.16.0 has only this WebAssembly backend.
-- **Network player:** the player that searches with Monte Carlo tree search (MCTS) guided by a neural network; its weights are a safetensors file ([network](network.md)). It runs only on the server.
+- **Network player:** the player that searches with Monte Carlo tree search (MCTS) guided by a neural network; its weights are a safetensors file ([network](network.md)). On the server it is `server:net`; in the browser it is one of the two [net engines](#net-engines).
 - **Fingerprint:** move checksum and total nodes of a fixed benchmark game. Equal fingerprints mean equal moves and equal search ([web benchmark, the fingerprint](web-benchmark.md#the-fingerprint)).
 - **TornadoVM:** a framework that compiles Java methods into GPU kernels at run time ([TornadoVM](tornado.md)).
 - **TeaVM:** an ahead-of-time compiler from JVM bytecode to JavaScript and WebAssembly (<https://teavm.org/>).
@@ -281,6 +285,8 @@ Tests, with paths relative to `web/src/`: `game.variants.test.ts`, `setup.varian
 | `cpp-wasm` (fallback without Wasm GC) | C++, Emscripten 6.0.9 | `engines/cpp/engine-cpp.js`, `engine-cpp.wasm` | 332,585 bytes (119,979) | WebAssembly; no threads, no `SharedArrayBuffer` |
 | `java-wasmgc` (default) | Java, TeaVM 0.16.0, Wasm GC target | `engines/java/engine-java.wasm`, `engine-java.wasm-runtime.js` | 609,221 bytes (208,705) | Wasm GC and the final version of WebAssembly exception handling, which TeaVM's output uses: Chrome 137, Firefox 131, Safari 18.4 according to MDN |
 | `java-js` | Java, TeaVM 0.16.0, JavaScript target | `engines/java/engine-java.js` | 337,073 bytes (123,277) | any current browser |
+| `net-wasm` | Java search (TeaVM) with a C++ forward pass, Emscripten | `engines/net/engine-net.wasm`, `engine-net.wasm-runtime.js`, `engine-net.js`, and `engine-net-nn-<flavour>.js`, `.wasm` for the flavours `relaxed`, `simd` and `scalar` | 1,342,075 bytes (473,920); a typical load fetches 228,475 bytes gzip, plus the model | WebAssembly and Web Workers; see [net engines](#net-engines) |
+| `net-webgpu` | as `net-wasm`, forward pass in WebGPU | the same files as `net-wasm` | the same as `net-wasm` | WebGPU for the GPU; without it the CPU forward pass plays |
 | `server:browser` | Java on the server | none | | online mode |
 | `server:best` | Java on the server, `BEST_SPEC` | none | | online mode, and the server has `rows1.bin` |
 | `server:net` | Java on the server, network player (MCTS) | none | | online mode, and the server has a weights file |
@@ -291,7 +297,7 @@ All three browser engines and `server:browser` play `BROWSER_SPEC` with the node
 
 `web/src/engines/registry.ts` checks for Wasm GC with `WebAssembly.validate` on a 13-byte module that declares one struct type. If the check fails, the engine picker shows `java-wasmgc` as unavailable and the session starts with `cpp-wasm`; `java-js` stays selectable. The session starts with the first available engine in the order `java-wasmgc`, `cpp-wasm`, `java-js` ([ADR 0003](adr/0003-teavm-default-engine.md)). An engine definition in the registry may also declare `supportsVariant(variant)`. `describeEngines(manifest, variant)` then marks an engine that cannot play the variant as unavailable with the reason `variant`, and the engine sheet says "This engine plays only the standard game." The three browser engines play every variant; the server engines play only the default variant. Before the next game starts, `EngineSession.setVariant()` (`web/src/app/session.ts`) lists the engines again for that game's variant; if the engine in use cannot play it, the session loads the first engine that can.
 
-No network player runs in the browser: the C++ port has no Monte Carlo tree search, and the TeaVM build of it was never run.
+The two net engines are described in [net engines](#net-engines). Their search is the Java MCTS compiled by TeaVM; the C++ port supplies only the forward pass of the network.
 
 ### The server engines
 
@@ -522,6 +528,114 @@ The standard error treats the moves as independent, which they are not (moves of
 - The data come from one engine build. A change to the search or the evaluation makes `calibration.json` stale; run the script again.
 
 **Tests.** `web/src/skill/*.test.ts` cover the statistic, the interval, the mapping, clamping, the minimum-moves rule, isotonic smoothing, the level encoding and the tracker (with a controllable fake engine). `web/src/app/App.skill.test.tsx` runs the app with the fake engine. `web/src/skill/skill.real.test.ts` plays a simulated player on the real C++ engine: the best mover gets the strongest end of the ladder, the random mover the weakest (skipped when the engine build is missing). `web/e2e/skill.spec.ts` runs the whole flow in a browser.
+
+## Net engines
+
+**TL;DR:** `net-wasm` and `net-webgpu` play with Monte Carlo tree search (MCTS) guided by a neural network, in the browser. Both run the Java MCTS, compiled by TeaVM, in a Web Worker. They differ in where the forward pass of the network runs: `net-wasm` uses C++ compiled to WebAssembly with SIMD on the CPU, `net-webgpu` uses WGSL (WebGPU Shading Language) kernels on the GPU. The player chooses a **model** (a network file) and a **strength** (50, 200 or 800 simulations per move) in the engine sheet. Without a usable model or backend the engine still answers every move: it plays random legal moves and says why. `net-webgpu` without a working GPU plays with the CPU forward pass instead. The models themselves are described in [models](models.md).
+
+### Terms of this section
+
+- **Model:** one trained network, shipped as a packed safetensors file in `web/models/` and listed in `web/models/models.json` ([models](models.md)).
+- **Simulation:** one step of the MCTS: walk down the search tree, evaluate one new position with the network, update the tree. More simulations per move play stronger and take longer.
+- **Forward pass:** one evaluation of the network for a batch of positions. It returns the move priors (policy) and the expected result (value).
+- **Backend:** the code that runs the forward pass. `wasm` is the C++ WebAssembly backend (`web/src/engines/net/wasm-backend.ts`), `webgpu` the WebGPU backend (`web/src/engines/net/webgpu-backend.ts`). Both implement the interface `NetBackend` (`web/src/engines/net/backend.ts`).
+- **Leaf batching:** the search collects several positions to evaluate and sends them to the backend in one forward pass. A GPU needs batches to be efficient, but the search chooses each position in a batch without the result of the others, which costs strength (see [measurements](#measurements-of-the-net-engines)).
+- **Flavour:** one build of the C++ backend for one WebAssembly instruction set: `relaxed` (SIMD with the relaxed-SIMD fused multiply-add), `simd` (SIMD, 128 bit) or `scalar` (no SIMD). The loader probes the browser and takes the first that works, in this order.
+
+### Choosing a net engine
+
+The engine sheet ("Engine and strength") lists the two net engines among the browser engines. When one of them is selected, the sheet shows two more groups:
+
+- **Model.** "None" comes first and is the default. Below it, the sheet offers only the models that can play the variant of the game (`modelFits` in `web/src/engines/net/model-manifest.ts`); a note says when models are hidden for that reason. Each model shows its description, its packed size and the strength figures of its manifest entry for the player count of the game (`strengthFacts` in `web/src/engines/net/model-strength.ts`). The sheet prints only what was measured, with the player count, jump rule, opponent and simulation count of the measurement; a model without a figure for that player count says "Strength not measured for this variant".
+- **Strength.** 50, 200 (default) or 800 simulations per move. For the CPU backend each preset shows a typical time per move (15, 58 and 241 ms; see [measurements](#measurements-of-the-net-engines)). The sheet states no Elo per preset, because only the model figures were measured.
+
+Selecting `net-webgpu` starts a WebGPU probe (a real adapter and device request, `isWebGpuAvailable`); the sheet shows "Checking WebGPU …" and then the result. The probe code is not part of the main bundle; it loads on the first probe.
+
+The sheet judges the selection before the game starts, with the same rules as the engine (`evaluateSelection` in `web/src/engines/net/selection.ts`), and shows the warnings the engine will report. The start dialog and the "Continue this game?" dialog of a game link show the same warnings for the variant they are about to start.
+
+### Warnings and fallbacks
+
+A net engine always answers `choose()`. When it cannot use a network it plays a uniformly random legal move and reports warnings (`EngineWarning` in `web/src/engines/warnings.ts`). The engine computes the warnings again at every `newGame`, so they disappear when the cause is gone.
+
+| Warning code | When | What plays | Action in the UI |
+|---|---|---|---|
+| `no-model` | the model is "None" | random legal moves | "Choose a model" opens the engine sheet at the model group |
+| `model-variant-mismatch` | the model cannot play the variant of the game, or its input planes or player count do not fit | random legal moves | "Choose another model" |
+| `backend-unavailable`, fallback `wasm` | `net-webgpu` with a usable model, but WebGPU does not work (no API, no adapter, device failed or lost) | the network, on the CPU backend | none; shown as information, not as an alert |
+| `backend-unavailable`, fallback `random` | no backend can run: the CPU backend failed, or no WebAssembly flavour loads | random legal moves | none |
+| `model-load-failed` | the model is not in `models.json`, its file cannot be fetched or read, it fails verification, or the backend rejects the weights | random legal moves | "Load again" |
+| `fallback-random` | the consequence of one of the causes above | random legal moves | none |
+
+The UI shows `fallback-random` on its own only when it is the only warning; otherwise the text of the cause already says that the engine plays random moves (`describeWarnings` in `web/src/ui/net-warnings.tsx`).
+
+**Rationale for the CPU fallback of `net-webgpu`:** a working network on the CPU plays better than random moves. It is the one case in which a missing backend does not lead to random moves (`web/src/engines/net/core.ts`).
+
+Each warning carries a reason code (`ReasonCode`, for example `webgpu-no-adapter` or `verify-failed`). The UI shows a localised sentence per code (catalog keys `net.reason.<code>` in `web/src/i18n/`) and puts the technical English text in a collapsed "Details" element.
+
+Where the warnings appear:
+
+- **Engine sheet:** the full list with action buttons, in a live region, so a screen reader announces a new warning.
+- **Engine card:** the full list with action buttons. The card shows "Simulations", the number, and a tag for what played: "CPU", "WebGPU" or "random moves".
+- **Play screen notice:** one line above the board, only while a net engine plays random moves or uses the CPU instead of WebGPU, with a button that opens the engine sheet. The notice takes its own row in the grid layout of the play screen only while it is shown, so the board keeps its position in a classical game and in a net game without warnings (`NetNotice` in `web/src/ui/net-warnings.tsx`).
+- **Figures of the last engine move:** for a net engine, the simulations, the time and the backend that computed the move ("Played with").
+
+### Stored selection
+
+The engine, the model id and the simulation count are kept in `localStorage` under the key `ml.net-selection` (`loadSelection` and `saveSelection` in `web/src/engines/net/selection.ts`). This is a per-browser convenience: a blocked or full storage only means that the next visit starts from the defaults.
+
+- **Model and simulations persist** across visits.
+- **The engine does not.** At page start a stored net engine is replaced by the classical default engine (`java-wasmgc`, [ADR 0003](adr/0003-teavm-default-engine.md)) in `web/src/app/App.tsx`. Rationale: `EngineSession` (`web/src/app/session.ts`) always loads a classical engine first. If the stored net engine stayed in the selection, the start dialog and the sheet would show its warnings although a classical engine plays.
+- **Invalid values fall back per field:** a damaged text gives the default selection, an unknown engine id the default engine, an unknown model id "None", and a simulation count that is not a preset 200.
+- The game link (see [game URL](#game-url)) holds neither the engine nor the model.
+
+### Where the code is
+
+| Path | Content |
+|---|---|
+| `web/src/engines/net/index.ts` | the definitions of `net-wasm` and `net-webgpu` for the engine registry ([the engines](#the-engines)) |
+| `web/src/engines/net/core.ts` | the search loop around a backend and the fallback rules |
+| `web/src/engines/net/handler.ts`, `worker.ts` | the worker request handler and its `postMessage` glue |
+| `web/src/engines/net/wasm-backend.ts` | the CPU backend: flavour probes and loader of the C++ module |
+| `web/src/engines/net/webgpu-backend.ts`, `webgpu-shaders.ts` | the GPU backend: probe, WGSL kernels (F32, tiled) |
+| `web/src/engines/net/models.ts`, `model-manifest.ts`, `safetensors.ts`, `sha256.ts` | model manifest, download, verification and F16 to F32 widening |
+| `web/src/engines/net/selection.ts`, `web/src/app/net-selection.ts` | the selection, its evaluation before a game, and its storage |
+| `web/src/ui/NetGroups.tsx`, `web/src/ui/net-warnings.tsx` | the model and strength groups of the sheet, the warnings and the play notice |
+| `teavm-net/` | the TeaVM facade `WebNet`: the Java MCTS without the forward pass, built for Wasm GC and JavaScript by `scripts/web/build-teavm-net.zsh` |
+| `cpp/src/wasm/net_api.cpp` | the C API of the C++ forward pass, built once per flavour (`sh_net_flavour` in `cpp/CMakeLists.txt`, run by `scripts/web/build-wasm.zsh`) |
+| `web/models/` | the packed models and `models.json` ([models](models.md)) |
+
+### Measurements of the net engines
+
+The figures below were measured during the development of the net engines in November 2026. The forward-pass and match figures come from an Apple M3 Max. The logs under `data/` are git-ignored and exist only on that machine; the scripts that produce them are in the repository.
+
+**Forward pass on the CPU.** The C++ WebAssembly backend evaluates about 3,100 positions per second with `simd` and about 4,000 with `relaxed`, at batch 1, in Chrome 156, Firefox 157 and Node.js (Apple M3 Max, median of 5 rounds; `scripts/bench-net-wasm.zsh`). The Java reference network (`sternhalma.nn.Network` in `nn/`, [network](network.md)) compiled by TeaVM reaches only 126 to 163 positions per second in the same benchmark. For this reason the Java code runs only the search, and C++ runs the forward pass.
+
+**Forward pass on the GPU** (`scripts/bench-net-webgpu.zsh`): 0.5 ms per forward pass at batch 1, 0.55 ms at batch 4 (about 7,300 positions per second), 0.64 ms at batch 16. With several batches in flight (pipelined), up to about 60,000 positions per second at batch 16. The largest difference from the Java reference is 2 % of the project tolerance (|fast − ref| ≤ 1e-4 + 1e-3 · |ref|, [network](network.md)), on a real GPU and on SwiftShader (a software GPU that runs on CI machines without one; `web/e2e/webgpu-backend.spec.ts`).
+
+**Time per move** with the expert model on the CPU backend in Node.js, on a fast desktop-class CPU (the code records no machine name next to the figures): 15 ms at 50 simulations, 58 ms at 200 and 241 ms at 800 (`SIMS_MS` in `web/src/ui/NetGroups.tsx`). A phone is slower. There is no such figure for WebGPU.
+
+**Leaf batching costs strength.** Measured in Java by the batch-size sweep (`scripts/b3-batch-sweep.zsh`; "b3" is the internal task name) with the expert model against `BEST_SPEC` at 25,600 and 102,400 nodes, 100 opening pairs per match, seed 3001, as paired differences of the match score (the share of points of the network; 0.5 is even, not the search score of the Terms) against batch 1 (`data/b3/report.txt`, written by `scripts/b3-batch-report.zsh`):
+
+Each cell holds two differences: against 102,400 nodes, then against 25,600 nodes.
+
+| Simulations | Batch 4 | Batch 8 | Batch 16 | Batch 32 |
+|---|---|---|---|---|
+| 200 | -0.010 / -0.035 | -0.078 / -0.075 | -0.26 / -0.20 | -0.42 / -0.34 |
+| 800 | not run | -0.010 / not run (no measurable difference) | not run | -0.16 / not run |
+
+The 800-simulation row is against 102,400 nodes only. Hence the defaults of `defaultBatch` in `web/src/engines/warnings.ts`: batch 1 on the CPU, where batching gains nothing; on WebGPU batch 4 below 800 simulations and batch 8 at 800.
+
+**Race play off costs nothing measurable.** Race play (`race=1`) means that in a position without contact the player takes the move from the race table without searching ([offline mode](offline-mode.md)). In the browser the MCTS runs without the race table (`race=0`). Paired against the same matches with `race=1`, the match-score differences were 0.0000 to -0.005, none significant (200 and 800 simulations, batch 1 and 4, `data/s1/report.txt`, written by `scripts/s1-report.zsh`; "s1" is the internal name of this measurement task, unrelated to the adjudication criterion S1 of [endgame and opening](endgame-and-opening.md#the-criterion-s1-adjudication)).
+
+**Model strength.** The sheet shows only the figures of the `strength` field of `web/models/models.json`; their origin is in [models](models.md#measured-strength).
+
+**Download size.** A typical first load of a net engine fetches 228,475 bytes as gzip (the TeaVM facade for Wasm GC and the `relaxed` flavour; `downloadGzipBytes` in `web/public/engines/engines.json`), plus the model: 114,957 bytes for the expert model and 115,866 bytes for the shared model.
+
+### WebGPU support in browsers
+
+State on 2026-11-19: Chrome and Edge from version 113, Safari 26, Firefox 141 on Windows and Firefox 145 to 147 on macOS with Apple silicon; Linux and Android partly. caniuse counts 86.8 % of users with full and 1.8 % with partial support. In every other browser `net-webgpu` plays with the CPU backend, as described in [warnings and fallbacks](#warnings-and-fallbacks).
+
+The WebGPU backend uses F32 kernels only and does not request the optional features `shader-f16` or `subgroups`. Optional features are not present on every adapter, so using them would need a second set of kernels. Origin of the decision: not recorded.
 
 ## Small screens and touch
 

@@ -166,7 +166,7 @@ describe('live warnings', () => {
   it('net-webgpu without WebGPU: backend-unavailable (the CPU net plays), no random-move text', async () => {
     await open({ engine: 'net-webgpu', modelId: EXPERT, probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
     expect(warnings()).toEqual(['backend-unavailable']);
-    expect(q('[data-net-warning="backend-unavailable"]')!.textContent).toContain('net.reason.webgpu-no-adapter');
+    expect(q('[data-net-warning="backend-unavailable"]')!.textContent).toContain('The browser found no usable graphics adapter.');
     expect(q('[data-net-warning="backend-unavailable"]')!.getAttribute('data-tone')).toBe('info');
     expect(q('[data-warning-action]')).toBeNull();
   });
@@ -241,7 +241,7 @@ describe('WebGPU row', () => {
   it('says unavailable with the reason from the probe', async () => {
     await open({ engine: 'net-webgpu', probe: () => Promise.resolve({ available: false, reason: 'webgpu-no-adapter', detail: 'no adapter' }) });
     expect(status()).toBe('unavailable');
-    expect(q('[data-webgpu-status]')!.textContent).toContain('net.reason.webgpu-no-adapter'); // the localized text of the code
+    expect(q('[data-webgpu-status]')!.textContent).toContain('The browser found no usable graphics adapter.'); // the localized text of the code
     expect(q<HTMLDetailsElement>('[data-webgpu-status] details')!.open).toBe(false); // the English technical text is folded away
     expect(q('[data-webgpu-status] details')!.textContent).toContain('no adapter');
   });

@@ -93,7 +93,7 @@ describe('simulation presets', () => {
     const times = all('[data-sims-time]');
     expect(times.map((e) => e.dataset.simsTime)).toEqual(['50', '200', '800']);
     expect(times.map((e) => /\b(15|58|241)\b/.exec(e.textContent!)?.[1])).toEqual(['15', '58', '241']);
-    expect(times[0]!.textContent).toContain('net.sims.time.typical');
+    expect(times[0]!.textContent).toContain('ms per move on a fast desktop CPU');
   });
 
   it('WebGPU shows no time figure', async () => {

@@ -55,11 +55,12 @@ describe('describeWarnings', () => {
     const d = w.map((x) => describeWarnings([x], t)[0]!);
     expect(d.map((x) => x.action)).toEqual(['choose-model', 'choose-other', undefined, undefined, 'retry']);
     expect(new Set(d.map((x) => x.text)).size).toBe(5); // five different texts: the two backend texts differ by fallback
-    expect(d[2]!.text).toContain('net.warn.backend-cpu');
-    expect(d[3]!.text).toContain('net.warn.backend-random');
-    expect(d[2]!.text).toContain('net.reason.webgpu-no-adapter');
-    expect(d[3]!.text).toContain('net.reason.webgpu-lost');
-    expect(d[4]!.text).toContain('net.reason.verify-failed');
+    const english = (k: keyof typeof en): string => en[k] as string; // the texts of the catalog, without placeholders
+    expect(d[2]!.text).toContain(english('net.warn.backend-cpu').split('{')[0]!.trim());
+    expect(d[3]!.text).toContain(english('net.warn.backend-random').split('{')[0]!.trim());
+    expect(d[2]!.text).toContain(english('net.reason.webgpu-no-adapter'));
+    expect(d[3]!.text).toContain(english('net.reason.webgpu-lost'));
+    expect(d[4]!.text).toContain(english('net.reason.verify-failed'));
     // the English technical text is data of the collapsed details, never part of the message
     expect(d.map((x) => x.detail)).toEqual([undefined, undefined, 'requestAdapter() returned null', 'GPU reset', 'sha256 differs']);
     for (const x of d) expect(x.text).not.toMatch(/requestAdapter|GPU reset|sha256 differs/);
@@ -68,11 +69,11 @@ describe('describeWarnings', () => {
   it.each(['no-model-id', 'variant-not-supported', 'webassembly-unavailable', 'webgpu-no-api', 'webgpu-no-adapter', 'webgpu-device-failed', 'webgpu-lost', 'load-failed', 'verify-failed', 'unknown'] as const)(
     'reason code %s has its own catalog text',
     (code) => {
-      const text = `net.reason.${code}`;
-      expect(Object.keys(en), 'the catalog has the key').toContain(text);
-      expect(Object.keys(de), 'the German catalog has the key').toContain(text);
+      const key = `net.reason.${code}` as keyof typeof en;
+      expect(Object.keys(en), 'the catalog has the key').toContain(key);
+      expect(Object.keys(de), 'the German catalog has the key').toContain(key);
       const [d] = describeWarnings([{ code: 'model-load-failed', reason: code }], t);
-      expect(d!.text).toContain(text);
+      expect(d!.text).toContain((en[key] as string).replace(/\{variant\}/g, ''). trim().split(' ')[0]!); // the cause sentence of the catalog is part of the message
     },
   );
 

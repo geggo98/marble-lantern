@@ -1,4 +1,4 @@
-// The C API of the browser network backend (WebAssembly, built by scripts/web/build-net-wasm.zsh): the SIMD forward pass of
+// The C API of the browser network backend (WebAssembly, built by cpp/CMakeLists.txt (target sh_net_flavour), run through scripts/web/build-wasm.zsh): the SIMD forward pass of
 // src/nn with the classical priors, behind a flat C ABI (no embind, no exceptions, no threads). One global net; all calls
 // are synchronous. The TypeScript side is web/src/engines/net/wasm-backend.ts (contract IC1).
 //
