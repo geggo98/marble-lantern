@@ -1,6 +1,6 @@
 # Rules of the game
 
-**TL;DR:** This document fixes the rules that the engine implements. [Sturtevant2019, §3] defines a complete two-player rule set: a player wins when the goal is filled and holds at least one own piece (Definition 1), two kinds of states are illegal (Definitions 2 and 3), and the first repeated position draws the game (Definition 4). The paper does not forbid a piece to leave its goal. The project default (**project decision**) uses Definition 1, ends a game without a winner after 200 plies and scores that game by distance to the goal. Two defaults deviate from the paper on purpose (**project decision**): `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`. The project uses the paper only to verify its rules; it does not try to solve any variant. All variants are switches of one immutable `RuleSet` record. The engine must pass the conformance tests at the end of this document before anyone writes search code.
+**TL;DR:** This document fixes the rules that the engine implements. [Sturtevant2019, §3] defines a complete two-player rule set: a player wins when the goal is filled and holds at least one own piece (Definition 1), two kinds of states are illegal (Definitions 2 and 3), and the first repeated position draws the game (Definition 4). The paper does not forbid a piece to leave its goal. The project default (**project decision**) uses Definition 1, ends a game without a winner after 200 plies and scores that game by distance to the goal. Two defaults deviate from the paper on purpose (**project decision**): `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`. The project uses the paper only to verify its rules; it does not try to solve any variant. All variants are switches of one immutable `RuleSet` record. The jump rule is one of these switches: the default `ADJACENT` jumps over a neighbour, the optional `LONG` is the Halma long hop (see [Jump rule](#jump-rule)). The engine must pass the conformance tests at the end of this document before anyone writes search code.
 
 Chinese Checkers is called Stern-Halma in German. This document uses the name Chinese Checkers.
 
@@ -93,6 +93,8 @@ A move takes one own piece from a start cell to an end cell. There are two kinds
 1. **Step.** The piece moves to an empty neighbour cell.
 2. **Jump chain.** The piece jumps over an occupied neighbour cell (own or opponent) and lands on the empty cell directly behind it, on the same line. After a jump, the piece may jump again from the landing cell. The chain can have any length and any direction, including backwards. The player can stop after any jump.
 
+This section describes the default `jumpRule = ADJACENT`. The section [Jump rule](#jump-rule) defines the optional long hop.
+
 A move cannot mix the two kinds. A step ends the move. A jumped piece stays on the board; jumping does not capture. [Sturtevant2019, §3.1] defines the same two kinds of move: a piece can take any number of hops in a turn and can stop when further hops are still possible, and hopped pieces stay on the board. The paper also notes that the game is not acyclic: a position can repeat without progress.
 
 [Sturtevant2019, §3] says that pieces are typically not allowed to move into the four corners that are neither the start nor the goal corner. Some rules allow a piece to pass through them if it does not stay there at the end of the turn. The paper's two-player implementation does not allow this; a footnote says that the passage rule may be more useful with more than two players. **Open point:** this document does not yet fix the side-corner rule for the 121-cell board. The rule has no effect on the first two plies (see [Move counts on the full board](#move-counts-on-the-full-board)).
@@ -164,6 +166,7 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 | `repetition` | `MOVE_LIMIT`, `REPETITION_IS_DRAW` | `MOVE_LIMIT` | With `REPETITION_IS_DRAW`, the first repeated position also ends the game without a winner. | Deviation: the paper uses Definition 4 (§3.4). |
 | `drawHandling` | `DRAW`, `SCORE_BY_DISTANCE` | `SCORE_BY_DISTANCE` | The result when the game ends without a winner. | The paper scores such games as draws. |
 | `ranking` | `FIRST_WINNER_ONLY`, `FULL_RANKING` (reserved) | `FIRST_WINNER_ONLY` | With three players, the game ends at the first winner. `FULL_RANKING` (play on to decide second place) is reserved and not implemented. | The paper focuses on two players (§3) and gives no rule for ranking. |
+| `jumpRule` | `ADJACENT`, `LONG` | `ADJACENT` | With `LONG`, a piece hops over one piece at any distance along a line and lands at the same distance behind it (see [Jump rule](#jump-rule)). | The paper plays adjacent jumps only (§3.1). `LONG` is outside the paper, so its oracles do not apply. |
 
 ### Project defaults and their evidence
 
@@ -186,6 +189,50 @@ The project uses the paper only to verify its rules. Two defaults deviate from i
 - **`leaveGoal = FORBIDDEN`** checks only the end cell of a move. A jump chain may pass through cells outside the goal, because the path has no effect (see [Legal moves](#legal-moves)). **Project decision (proposed).**
 - **`moveLimit`** counts plies from the start position. A move that wins on the last allowed ply is a win. After that ply, the game ends without a winner. **Project decision (proposed).**
 - **`suicideMoves = ILLEGAL`**: a move that meets the opponent's winning condition is not legal, even if it also fills the mover's own goal. **Project reasoning:** Definition 2 makes the resulting state illegal for the opponent, who is to move; the definition does not exempt the mover's own win.
+
+## Jump rule
+
+**Project decision** (owner request, game-variants feature, 2026-11): the engine supports two jump rules through the switch `jumpRule` (Java enum `RuleSet.JumpRule`). The default stays `ADJACENT`, the rule of [Legal moves](#legal-moves). `LONG` is the Halma long hop (German "Fernsprung").
+
+### Definition
+
+- **`ADJACENT`:** a piece jumps over one adjacent piece to the cell directly behind it.
+- **`LONG`:** a piece on cell X looks along each of the six directions. P is the first piece (own or opponent) on that line, at distance k ≥ 1 steps from X. The landing cell L is the mirror image of X across P: k steps behind P, 2k steps from X. The hop is legal when all three conditions hold:
+  1. the k − 1 cells strictly between X and P are empty;
+  2. the k − 1 cells strictly between P and L, and L itself, are on the board and empty;
+  3. the player may stand on L. This is the same allowed-cell rule as for `ADJACENT`: the central hexagon, the own start corner and the own goal corner.
+
+The moving piece's own start cell counts as empty during the whole move. Because P is the first piece on the line, each direction gives at most one landing.
+
+Example on the row r = 0 of the central hexagon, in axial coordinates (q, r): a piece on X = (−3, 0), a piece on P = (−1, 0), and the cells (−2, 0), (0, 0) and (1, 0) empty. Then k = 2, and the piece hops to L = (1, 0). Under `ADJACENT` the same piece has no jump in this direction, because (−2, 0) is empty.
+
+Chains of hops work as for `ADJACENT`: any number of hops, in any direction, with a stop after any hop. Only the pair (start cell, end cell) counts, the move generator returns each pair once, and a chain that returns to its start cell is not a move. Steps do not change. `leaveGoal`, `suicideMoves` and the other switches act on the end cell as before.
+
+### Relation between the two rules
+
+A hop with k = 1 is exactly the `ADJACENT` jump. The `LONG` move set therefore contains the `ADJACENT` move set; a seeded property test on random positions checks this. From the start position, the perft leaf counts (number of move sequences of a given depth) are:
+
+| Depth | `ADJACENT` | `LONG` |
+|---|---|---|
+| 1 | 14 | 14 |
+| 2 | 196 | 196 |
+| 3 | 4,648 | 4,872 |
+
+**Project reasoning:** a hop lands on the mirror cell L = 2P − X. Every landing therefore has the same coordinate parity (q mod 2, r mod 2) as the start cell of that hop. A landing is never a neighbour of its start cell, because a neighbour differs in parity. So no (start, end) pair can arise both as a step and as a hop.
+
+### Consequences for the rest of the project
+
+Each item is a **project decision**. The reason is the same for all: the components were built and tuned for single jumps.
+
+- **No race table.** The race table (the tablebase behind `race=1` and `race=2`) and the solitaire beam are computed for single jumps and are invalid under `LONG`. A player spec with `jump=long` together with `race=1`, `race=2` or a race evaluator `racelin*` is rejected with an `IllegalArgumentException`.
+- **Weaker evaluation.** The evaluators `linear*`, `distance` and `stage4` stay usable but play weaker under `LONG`. Their jump features still count single jumps, and the distance table counts steps.
+- **Search margins.** The futility margins of the search were tuned for single jumps.
+- **Guard.** A player built for one jump rule refuses a position of the other rule.
+- **Browser spec.** `Strategies.BROWSER_LONG_SPEC` is the browser spec without race play, with the evaluator `linear-r3` and `jump=long`.
+
+**Open point:** the playing strength of `LONG` players is not measured.
+
+The golden file `engine/src/test/resources/long-jump-golden.tsv` pins the rule for ports to other languages. It holds 30 positions, each with its move count and the SHA-256 of the sorted move list.
 
 ## Draw handling
 
@@ -338,5 +385,6 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 15. With 3 players and `ranking = FIRST_WINNER_ONLY`, the game ends at the first win. The value `FULL_RANKING` is rejected as not implemented.
 16. Each symmetry of [Symmetry](#symmetry) maps a legal position to a legal position. The move count of a position equals the move count of its image. The 180-degree rotation equals the player symmetry followed by the left-right flip.
 17. Property test: for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash. The engine tests use seeded random playouts for this; jqwik is not used yet.
+18. With `jumpRule = LONG`, on seeded random positions, the move set contains the `ADJACENT` move set, equals the move set of an independent oracle built from the definition in [Jump rule](#jump-rule), and has no duplicate (start, end) pair. The engine reproduces the move counts and hashes of the golden file `engine/src/test/resources/long-jump-golden.tsv`.
 
 **Proposed, not scheduled:** in the [small-board mode](#small-board-mode), the engine reproduces the "Positions" and "Illegal" columns of Table 1 for 7×7 with 1 and 2 pieces. The "Wins" and "Draws" columns are not a test target, because they need a solver.
