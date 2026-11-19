@@ -12,6 +12,7 @@ import { chromium } from 'playwright-core';
 import ts from 'typescript';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const srcNet = path.join(here, "..", "..", "src", "engines", "net");
 const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]!;
@@ -58,6 +59,11 @@ const server = http.createServer((req, res) => {
     }
     if (p.startsWith('/golden/')) return send(200, 'application/octet-stream', fs.readFileSync(path.join(golden, `${path.basename(p)}.safetensors`)));
     const m = /^\/([\w-]+)\.js$/.exec(p);
+    const prod = /^\/src\/engines\/net\/([\w-]+)\.js$/.exec(p);
+    if (prod && fs.existsSync(path.join(srcNet, `${prod[1]}.ts`))) {
+      const js = ts.transpileModule(fs.readFileSync(path.join(srcNet, `${prod[1]}.ts`), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+      return send(200, "text/javascript", js);
+    }
     if (m && fs.existsSync(path.join(here, `${m[1]}.ts`))) {
       const src = fs.readFileSync(path.join(here, `${m[1]}.ts`), 'utf8');
       const js = ts.transpileModule(src, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;

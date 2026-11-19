@@ -17,9 +17,10 @@
 // next slot and queues behind the earlier call of that slot, so the next batch is submitted before the previous one is
 // read back (double buffering). The inputs array must not change before the promise of its call has settled.
 //
-// The module has no dependency on React or on the DOM. The GPU types are `any` here because the project has no
-// @webgpu/types dependency; they match the WebGPU API of Chrome 145.
-import { parseSafetensors, type TensorInfo } from './safetensors.js';
+// Benchmark copy with the naive variant. The production backend is web/src/engines/net/webgpu-backend.ts (tiled only, typed with
+// @webgpu/types); the gather table comes from there. The GPU types are `any` here so that the file stays as it was measured.
+import { parseSafetensors, type TensorInfo } from '../../src/engines/net/safetensors.js';
+import { neighbourTable } from '../../src/engines/net/webgpu-shaders.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Gpu = any;
@@ -53,36 +54,12 @@ export interface Net {
   destroy(): void;
 }
 
+export { neighbourTable };
 export const CELLS = 121;
 export const ROWS = 122;
 const DIST_OWN = 7;
 const EVAL = 12;
 const DIST_SCALE = 16;
-
-/** The gather table [121][7]: the cell itself, then the six neighbours in Geometry order; 121 = off the board. */
-export function neighbourTable(): Uint32Array {
-  const ids = new Map<string, number>();
-  const coords: Array<[number, number]> = [];
-  for (let r = -8; r <= 8; r++) {
-    for (let q = -8; q <= 8; q++) {
-      const s = -q - r;
-      if (Math.max(q, r, s) <= 4 || Math.min(q, r, s) >= -4) {
-        ids.set(`${q},${r}`, coords.length);
-        coords.push([q, r]);
-      }
-    }
-  }
-  if (coords.length !== CELLS) throw new Error(`board has ${coords.length} cells, expected ${CELLS}`);
-  const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
-  const table = new Uint32Array(CELLS * 7);
-  coords.forEach(([q, r], c) => {
-    table[c * 7] = c;
-    dirs.forEach(([dq, dr], d) => {
-      table[c * 7 + 1 + d] = ids.get(`${q + dq},${r + dr}`) ?? CELLS;
-    });
-  });
-  return table;
-}
 
 interface Config {
   channels: number;

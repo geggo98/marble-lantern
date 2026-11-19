@@ -1,6 +1,6 @@
 // Measurement and correctness code shared by the bench page and the bench worker (no DOM access).
 import { createNet, type Net, type NetOptions, ROWS, CELLS } from './net-webgpu.js';
-import { parseSafetensors } from './safetensors.js';
+import { parseSafetensors } from '../../src/engines/net/safetensors.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Gpu = any;
@@ -77,6 +77,11 @@ export async function loadGolden(base: string, inputsName: string, refName: stri
   return { inputs: inp.data, planes: inp.shape[2]!, positions: inp.shape[0]!, refLogits: logits.data, refValues: values.data, players: values.shape[1]! };
 }
 
+/** What check() and the timing functions need: both the benchmark Net and the production backend fit. */
+export interface Evaluator {
+  evaluate(inputs: Float32Array, batch: number): Promise<{ policyFrom: Float32Array; policyTo: Float32Array; values: Float32Array }>;
+}
+
 export interface CheckResult {
   positions: number;
   batches: string;
@@ -92,7 +97,7 @@ export interface CheckResult {
 }
 
 /** Compares the net with the Java reference of `g`: chunks of `chunk`, then single positions, then an odd batch of 37. */
-export async function check(net: Net, g: Golden, chunk = 64): Promise<CheckResult> {
+export async function check(net: Evaluator, g: Golden, chunk = 64): Promise<CheckResult> {
   const size = ROWS * g.planes;
   let maxAbsPolicy = 0;
   let maxAbsValue = 0;
@@ -121,7 +126,8 @@ export async function check(net: Net, g: Golden, chunk = 64): Promise<CheckResul
   };
   for (let s = 0; s < g.positions; s += chunk) await run(s, Math.min(chunk, g.positions - s));
   for (let s = 0; s < Math.min(16, g.positions); s++) await run(s, 1);
-  await run(5, Math.min(37, g.positions - 5));
+  const odd = Math.min(37, g.positions - 5, chunk);
+  await run(5, odd);
   // negative control: position 0 against the reference of position 1 must fail, and must not touch the figures
   const saved = { maxAbsPolicy, maxAbsValue, maxFrac, violations, checked };
   const control = await net.evaluate(g.inputs.subarray(0, size), 1);
@@ -129,7 +135,7 @@ export async function check(net: Net, g: Golden, chunk = 64): Promise<CheckResul
   const controlViolations = violations - saved.violations;
   ({ maxAbsPolicy, maxAbsValue, maxFrac, violations, checked } = saved);
   return {
-    positions: g.positions, batches: `chunks of ${chunk}, 16 x B=1, one B=${Math.min(37, g.positions - 5)}`,
+    positions: g.positions, batches: `chunks of ${chunk}, 16 x B=1, one B=${odd}`,
     maxAbsPolicy, maxAbsValue, maxFrac, violations, checked, controlViolations, pass: violations === 0 && controlViolations > 0,
   };
 }
@@ -151,7 +157,7 @@ export function inputPool(g: Golden, b: number, count = 8): Float32Array[] {
 
 export interface SeqResult { batch: number; calls: number; ms: Stats; evalsPerSecMedian: number }
 
-export async function measureSequential(net: Net, g: Golden, b: number, calls: number, warm: number): Promise<SeqResult> {
+export async function measureSequential(net: Evaluator, g: Golden, b: number, calls: number, warm: number): Promise<SeqResult> {
   const pool = inputPool(g, b);
   for (let i = 0; i < warm; i++) await net.evaluate(pool[i % pool.length]!, b);
   const t: number[] = [];
@@ -167,7 +173,7 @@ export async function measureSequential(net: Net, g: Golden, b: number, calls: n
 export interface PipeResult { batch: number; inflight: number; calls: number; totalMs: number; msPerCall: number; evalsPerSec: number }
 
 /** Keeps `inflight` calls submitted: the next batch is submitted before the oldest one is awaited. */
-export async function measurePipelined(net: Net, g: Golden, b: number, calls: number, inflight: number, warm: number): Promise<PipeResult> {
+export async function measurePipelined(net: Evaluator, g: Golden, b: number, calls: number, inflight: number, warm: number): Promise<PipeResult> {
   const pool = inputPool(g, b);
   const drive = async (n: number): Promise<void> => {
     const q: Array<Promise<unknown>> = [];
