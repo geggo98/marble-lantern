@@ -35,6 +35,7 @@ interface Core {
   choose(history: readonly number[], variant?: Variant): ChooseResult;
   outcome(history: readonly number[], variant?: Variant): EngineOutcome;
   analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant?: Variant): { scores: number[]; moves: number[]; nodes: number };
+  evaluate3(history: readonly number[], variant: Variant): number[];
   bench(plies: number, nodes: number, variant?: Variant): { moves: number[]; nodes: number[] };
 }
 
@@ -172,10 +173,34 @@ describe.skipIf(!present)('three-player game: the three engines agree', () => {
       else expect(game.outcome.kind).toBe('draw');
     }, 240_000);
 
-    it(`${jump} jumps: analyse is unsupported for three players on every engine, and bench plays the same moves`, async () => {
+    it(`${jump} jumps: analyse and evaluate3 give identical results on the three engines, and bench plays the same moves`, async () => {
       const all = await engines();
+      const game = await playTogether(variant, 100);
+      for (const length of [0, 1, 7, 30, Math.min(75, game.history.length - 1)]) {
+        const h = game.history.slice(0, length);
+        const results = all.map(({ core }) => core.analyse(h, null, 700, variant));
+        const legal = all[0]!.core.legalMoves(h, variant);
+        for (const [i, r] of results.entries()) {
+          expect(r.moves, `${all[i]!.name} moves, ply ${length}`).toEqual(legal);
+          expect(r.scores, `${all[i]!.name} scores, ply ${length}`).toEqual(results[0]!.scores);
+          expect(r.nodes, `${all[i]!.name} nodes, ply ${length}`).toBe(results[0]!.nodes);
+        }
+        const picks = [legal[legal.length - 1]!, legal[0]!];
+        for (const { name, core } of all) {
+          const subset = core.analyse(h, picks, 700, variant);
+          expect(subset.moves, name).toEqual(picks);
+          expect(subset.scores, `${name} subset, ply ${length}`).toEqual([results[0]!.scores[legal.length - 1], results[0]!.scores[0]]);
+        }
+        const vectors = all.map(({ core }) => core.evaluate3(h, variant));
+        for (const [i, v] of vectors.entries()) {
+          expect(v, `${all[i]!.name} evaluate3, ply ${length}`).toEqual(vectors[0]);
+          expect(v).toHaveLength(3);
+        }
+        if (length === 0) expect(vectors[0]![0] === vectors[0]![1] && vectors[0]![1] === vectors[0]![2]).toBe(true);
+      }
       for (const { name, core } of all) {
-        expect(failureCode(() => core.analyse([], null, 100, variant)), `${name} analyse`).toBe('unsupported');
+        expect(failureCode(() => core.evaluate3([], DEFAULT_VARIANT)), `${name} evaluate3 for two players`).toBe('unsupported');
+        expect(failureCode(() => core.evaluate3([999999], variant)), `${name} evaluate3 illegal history`).toBe('illegal-history');
       }
       const benches = all.map(({ core }) => core.bench(9, 150, variant));
       for (const b of benches) {

@@ -6,7 +6,7 @@
 import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
 import { DEFAULT_VARIANT } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
-import { needsTable, requireAnalysable, seatNodes, variantOf } from '../variant-args';
+import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
 import { EngineFailure } from '../protocol';
 import type { ErrorCode } from '../protocol';
@@ -40,6 +40,8 @@ export interface CppModule {
   _shw_race_moves(id: number): number;
   _shw_analyse(nodes: number, movesIn: number, nIn: number, movesOut: number, scoresOut: number, cap: number): number;
   _shw_analysis_nodes(): number;
+  /** Writes the static evaluation of the current three-player position (three ints) to `out3`. 0, or -1 for a two-player game. */
+  _shw_evaluate3(out3: number): number;
   _shw_rows1_requests(): number;
 }
 
@@ -176,7 +178,6 @@ export class CppCore {
    * legal moves. `nodes` is the budget for each scored move.
    */
   analyse(history: readonly number[], moves: readonly number[] | null, nodes: number, variant: Variant = DEFAULT_VARIANT): AnalysisResult {
-    requireAnalysable(variant);
     this.requireTable(variant);
     if (!Number.isInteger(nodes) || nodes < 1) throw new EngineFailure('internal', `node budget must be a positive integer, got ${nodes}`);
     if (moves !== null && (moves.length === 0 || moves.length > MOVE_CAPACITY || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
@@ -214,6 +215,24 @@ export class CppCore {
       nodes: this.m._shw_analysis_nodes(),
       ms,
     };
+  }
+
+  /**
+   * The static evaluation of the three-player position after `history` (shw_evaluate3): three integers, one per absolute
+   * player (seat 0, 1, 2); no search. Rejects with code unsupported for two players.
+   */
+  evaluate3(history: readonly number[], variant: Variant): number[] {
+    requireThreePlayers(variant);
+    this.replay(history, variant);
+    if (this.analysisPtr === 0) {
+      this.analysisPtr = this.m._malloc(3 * MOVE_CAPACITY * 4);
+      if (this.analysisPtr === 0) throw new EngineFailure('internal', 'out of memory for the analysis buffers');
+    }
+    const rc = this.m._shw_evaluate3(this.analysisPtr);
+    if (rc !== 0) throw new EngineFailure('internal', `shw_evaluate3 returned ${rc}: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    // HEAP32 is read after the call: a view taken earlier may be stale after memory growth.
+    const base = this.analysisPtr >>> 2;
+    return Array.from(this.m.HEAP32.subarray(base, base + 3));
   }
 
   /**
