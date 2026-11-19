@@ -42,6 +42,11 @@ import sternhalma.selfplay.SampleFile.Contents;
  * sample is mirrored with probability 1/2 (docs/training.md, "Symmetric augmentation"); three players are never
  * mirrored. Samples with policy weight 0 keep it; the weights come from the file.
  *
+ * <p><b>Mixed buffers.</b> {@link #mixed} accepts files of two and three players with either jump rule (shared net,
+ * plane set classic1v): each block keeps its rules, batches have three value columns with a dummy target and the
+ * weight {@link #TWO_PLAYER_VALUE_WEIGHT} for two-player samples, only two-player samples are mirrored, and
+ * {@link Strata#EQUAL} gives every variant present the same share of each batch.
+ *
  * <p>Not thread-safe: one thread adds generations and builds batches.
  */
 public final class ReplayBuffer implements BatchSource {
