@@ -177,6 +177,10 @@ for (const size of [
       expect(await page.locator('.ml-play__netnote').count(), 'no notice element in a classical game').toBe(0);
       expect(await page.locator('.ml-play .ml-play__netnote, .ml-play [role="status"][aria-label]').count(), 'no extra live region').toBe(0);
       info.annotations.push({ type: 'board-classical', description: JSON.stringify(classical) });
+      // the same grid as before the net UI: on a phone four rows (status, board, advantage, bar), an extra row would take 8 px gap from the board
+      const rows = async (): Promise<number> => await page.locator('main.ml-play').evaluate((el) => getComputedStyle(el).gridTemplateRows.split(' ').length);
+      if (size.name === 'phone390') expect(await rows(), 'grid rows of a classical game').toBe(4);
+      const children = await page.locator('main.ml-play .ml-play__stage > *').count();
       await pickEngine(page, 'net-wasm', EXPERT);
       await closeMenu(page);
       await expect(page.locator('.ml-play__netnote')).toHaveCount(0);
@@ -187,6 +191,8 @@ for (const size of [
       await closeMenu(page);
       await expect(page.locator('.ml-play__netnote')).toHaveCount(1);
       const noticed = await box();
+      if (size.name === 'phone390') expect(await rows(), 'grid rows with the notice').toBe(5);
+      expect(await page.locator('main.ml-play .ml-play__stage > *').count(), 'the notice is one more child').toBe(children + 1);
       info.annotations.push({ type: 'board-notice', description: JSON.stringify(noticed) });
       await playExchange(page);
       const after = await box();
@@ -195,6 +201,8 @@ for (const size of [
       await pickEngine(page, 'cpp-wasm');
       await closeMenu(page);
       await expect(page.locator('.ml-play__netnote')).toHaveCount(0);
+      if (size.name === 'phone390') expect(await rows(), 'grid rows after the notice left').toBe(4);
+      expect(await page.locator('main.ml-play .ml-play__stage > *').count()).toBe(children);
       const back = await box();
       for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(back[key] - classical[key]), `back to classical, board ${key}`).toBeLessThanOrEqual(1);
     });
