@@ -2467,7 +2467,7 @@ scripts/threeseatmatch.sh paired data/shared/eval/A/openings-<hash>.jsonl \
 
 ## Mixed-variant training (shared net)
 
-**TL;DR:** One TINY or SMALL network with the plane set `classic1v` ([network](network.md#format-version-3-variants)) trains on four variants at once: 2p-adjacent, 2p-long, 3p-adjacent and 3p-long. A mixed replay buffer reads shards of all four, gives each variant an equal share of every batch by default, and Gen0 reports the held-out proxies per variant. No strength numbers exist yet, and the training loop (`Loop`) does not support this network.
+**TL;DR:** One TINY or SMALL network with the plane set `classic1v` ([network](network.md#format-version-3-variants)) trains on four variants at once: 2p-adjacent, 2p-long, 3p-adjacent and 3p-long. A mixed replay buffer reads shards of all four, gives each variant an equal share of every batch by default, and Gen0 reports the held-out proxies per variant. The training loop (`Loop`) does not support this network. The first measured run, with strength numbers, is in [Shared net for all four variants](#shared-net-for-all-four-variants-measured-2026-11-19).
 
 The variant names are those of the enum `sternhalma.selfplay.Variant`: player count 2 or 3, jump rule `ADJACENT` or `LONG`.
 
@@ -2548,10 +2548,93 @@ The three-player jobs have no teacher depth: the policy target is the played mov
 
 ### Limits
 
-- No Elo or other strength numbers exist yet.
+- Strength numbers exist for one Gen0 run only ([Shared net for all four variants](#shared-net-for-all-four-variants-measured-2026-11-19)).
 - `Loop` does not support the shared network.
 - The value head is not zero-sum.
 - The number of held-out samples of a variant depends on how many games of that variant exist.
+
+## Shared net for all four variants (measured 2026-11-19)
+
+**TL;DR:** One SMALL `classic1v` network ([Mixed-variant training](#mixed-variant-training-shared-net)) trained for 40,000 steps on teacher games of all four variants. It plays all four variants, and with 200 MCTS simulations per move it beats the classical players at low node budgets in every variant. Sharing has a price: in 2p-adjacent, a **specialist** (the same SMALL size, the two-player plane set `classic1` of [network](network.md#classical-planes-and-residual-priors-format-version-2), trained on 2p-adjacent data only, with the same steps, batch and seed) is about 105 to 179 Elo stronger against the same opponents. The owner set two success criteria before the run: (1) one network file plays all four variants legally, and Java and C++ compute the same outputs for its format; (2) in 2p-adjacent, sharing costs at most 50 Elo against the specialist. Criterion 1 is met, criterion 2 is **not met**. The cause is not known; no ablation was run.
+
+All numbers are measured unless marked "calculated for this section" or "hypothesis". Three scripts in `data/shared/` ran the experiment: `p1-teacher.zsh` (teacher data), `p2-train.zsh` (training) and `p4-eval.zsh` (evaluation). The prefixes number the steps of the run; step 3, MCTS self-play with the shared network, was planned but not run (see [Not done](#not-done)). Each wrote a log of the same prefix (`p1.log`, `p2.log`, `p4.log`). `data/` is git-ignored, so the scripts, the logs and the network `data/shared/gen0-shared/gen-0000/candidate.safetensors` exist only on the machine that ran them (an Apple M3 Max); the Source columns name log lines there, so that the owner can check them. Elo and score follow [Evaluating variants](#evaluating-variants): a score is the share of points of the subject, and ± is the 95 % interval.
+
+### What was run
+
+| Step | Setting | Source |
+|---|---|---|
+| teacher data, 2p-adjacent | 2900 games, seed 101, the spec string written out in [Commands](#commands), 5000 nodes, teacher depth 2 ([Teacher samples](#teacher-samples-round-2-e10)), 2 min 23 s | `p1.log:1`, `:18` |
+| teacher data, 2p-long | 3400 games, seed 102, `BROWSER_LONG_SPEC` ([Two players](#two-players-mctsmatch)), 5000 nodes, teacher depth 2, 4 min 02 s | `p1.log:19`, `:45` |
+| teacher data, 3p-adjacent | 1650 games, seed 103, `ab3` (the classical three-player alpha-beta, [Three players](#three-players-threeseatmatch)) at 15,000 nodes, 7 min 24 s | `p1.log:46`, `:91` |
+| teacher data, 3p-long | 2950 games, seed 104, `ab3` at 15,000 nodes, 7 min 18 s | `p1.log:92`, `:138` |
+| samples per variant (training + held out) | 2p-adjacent 233,014 + 24,946; 2p-long 212,591 + 24,379; 3p-adjacent 225,539 + 25,233; 3p-long 226,850 + 25,817; 107 to 122 MB on disk per variant | `p2.log:6-9`; `du -sm` |
+| shared network | `--planes classic1v --preset small --trainer gpu --steps 40000 --batch 256 --strata equal --seed 1` ([Strata](#strata)), 9 min 03 s, 73.65 steps/s on the GPU trainer | `p2.log:85-86` |
+| specialist | `--planes classic1 --preset small`, 2p-adjacent data only, same steps, batch and seed, 7 min 10 s | `p2.log:91`, `:141-142` |
+
+All teacher jobs used 14 threads. SMALL is the 32x4 preset (32 channels, 4 residual blocks, [network](network.md)).
+
+### Held-out proxies at step 40,000
+
+2500 of the about 25,000 held-out samples per variant (option `--eval-samples`); the proxies are defined in [Gen0 options and held-out proxies](#gen0-options-and-held-out-proxies).
+
+| Network, variant | Policy KL | Top-1 | Value loss | Winner (chance) | Source |
+|---|---|---|---|---|---|
+| shared, 2p-adjacent | 0.414 | 61.2 % | 0.104 | 77.7 % (50 %) | `p2.log:79` |
+| shared, 2p-long | 0.659 | 58.6 % | 0.214 | 65.8 % (50 %) | `p2.log:80` |
+| shared, 3p-adjacent | 0.948 | 69.2 % | 0.391 | 55.8 % (33 %) | `p2.log:81` |
+| shared, 3p-long | 1.047 | 67.4 % | 0.366 | 58.4 % (33 %) | `p2.log:82` |
+| specialist, 2p-adjacent | 0.332 | 65.1 % | 0.139 | 78.9 % (50 %) | `p2.log:138` |
+
+In 2p-adjacent the specialist has the better policy (KL 0.332 against 0.414) and the shared network the lower value loss. The value losses are not directly comparable: the shared network averages over 3 outputs, one of them a dummy target ([Replay buffer for mixed data](#replay-buffer-for-mixed-data)).
+
+### Strength, two players
+
+`MctsMatch`, 100 opening pairs (200 games) per row, seed 3001 for adjacent and 3002 for long. The opponents `ab:N` are `BEST_SPEC` (adjacent) or `BROWSER_LONG_SPEC` (long) at N nodes. "raw" is the policy without search; "MCTS" is `mcts:sims=200`. Source: `p4.log`, the result line of each match.
+
+| Subject | vs ab:1600 | vs ab:6400 | vs ab:25600 | Source |
+|---|---|---|---|---|
+| shared, adjacent, raw | -920 ± 235 (0.005) | -798 ± 277 (0.010) | -1200 (0.000) | `p4.log:6`, `:11`, `:19` |
+| specialist, adjacent, raw | -676 ± 322 (0.020) | -1200 (0.000) | -1043 ± 173 (0.0025, one draw) | `p4.log:26`, `:31`, `:39` |
+| shared, adjacent, MCTS | +225 ± 57 (0.785) | +69 ± 43 (0.597) | -123 ± 51 (0.330) | `p4.log:68`, `:85`, `:103` |
+| specialist, adjacent, MCTS | +330 ± 68 (0.870) | +243 ± 56 (0.802) | +56 ± 51 (0.580) | `p4.log:122`, `:138`, `:155` |
+| shared, long, raw | -727 ± 303 (0.015) | -798 ± 277 (0.010) | not run | `p4.log:45`, `:49` |
+| shared, long, MCTS | +191 ± 56 (0.750) | +102 ± 50 (0.643) | not run | `p4.log:171`, `:185` |
+
+-1200 is the floor of the Elo scale at score 0. Without search both networks lose almost every game; the raw rows show only that the networks play legal full games.
+
+**Cost of sharing (calculated for this section)** from the MCTS rows: the specialist scores 0.085, 0.205 and 0.250 more at the three budgets, about 105, 174 and 179 Elo. These are differences of separate matches, not a direct match, so each has an interval of about ±70 to ±90 Elo (square root of the sum of the squared half-widths). At 6400 and 25,600 nodes even the lower end, about 100 Elo, is above 50 Elo.
+
+The long-hop Elo is against `BROWSER_LONG_SPEC` and is not comparable with the adjacent Elo ([Two players](#two-players-mctsmatch)).
+
+### Strength, three players
+
+`ThreeSeatMatch`, 100 openings × 3 seat rotations = 300 games per row, seed 4001. The candidate is the shared network with `mcts:sims=200,race=0` (race play off; it exists for two players only, see [Options](#options) and [Known limits](#known-limits)); the two other seats hold identical opponents. Chance is 1/3. No game reached the move limit; mean length about 139 to 140 plies (adjacent) and about 79 to 81 plies (long) against `ab3`.
+
+| Rule, opponents | Wins in seat 0 / 1 / 2 (of 100 each) | Total | Control: seat shares 0 / 1 / 2 | Source |
+|---|---|---|---|---|
+| adjacent, 2 × `ab3:nodes=5000` | 95 / 92 / 87 | 274 of 300 (0.913) | 0.35 / 0.32 / 0.33 | `p4.log:216-219`, `:288-290` |
+| adjacent, 2 × `ab3:nodes=20000` | 78 / 77 / 66 | 221 of 300 (0.737) | 0.31 / 0.34 / 0.35 | `p4.log:249-252`, `:307-309` |
+| adjacent, 2 × random | 100 / 100 / 100 | 300 of 300 (1.000) | | `p4.log:275-278` |
+| long, 2 × `ab3:nodes=5000` | 74 / 73 / 65 | 212 of 300 (0.707) | 0.29 / 0.25 / 0.46 | `p4.log:332-335`, `:391-393` |
+| long, 2 × `ab3:nodes=20000` | 77 / 71 / 71 | 219 of 300 (0.730) | 0.42 / 0.30 / 0.28 | `p4.log:358-361`, `:412-414` |
+| long, 2 × random | 100 / 100 / 100 | 300 of 300 (1.000) | | `p4.log:378-381` |
+
+The control is `--control ab3`: the opponent's own spec in the candidate seat, same seed. Its total is 1/3 by construction ([Three players](#three-players-threeseatmatch)); only the per-seat shares carry information. Under the long hop the seat effect is uneven, up to 0.46 and 0.42, so read the long rows per seat against the control, not against 1/3.
+
+### Findings
+
+1. **One file plays all four variants.** The shared network played full legal games in all four variants (tables above). Java and the C++ reference network agree on 64 golden positions, 16 per variant: bit-identical logits and values within 1 ulp ([network, C++ port](network.md#c-port); `cpp/README.md`, "Plane set classic1v and format version 3 (C++)"). That check uses exported TINY and SMALL `classic1v` test weights, not this trained file, so it covers the format and the forward pass. Criterion 1 is met.
+2. **Sharing costs more than 50 Elo.** At 200 simulations, with the same data volume per variant and 40,000 steps, the shared network is about 105 to 179 Elo weaker than the specialist in 2p-adjacent. Criterion 2 (at most 50 Elo) is not met; no other document records the two criteria. **Hypotheses, not tested:** a SMALL network has too little capacity for four variants; `--strata equal` gives 2p-adjacent only a quarter of each batch (64 of 256 slots), so the shared network saw a quarter of the 2p-adjacent samples that the specialist saw; the two-player value rows carry weight 1.5 and a dummy third output.
+3. **Against the classical players** the shared network with search wins at low node budgets and loses at 25,600 nodes (adjacent), the same pattern as the single-variant networks of earlier rounds ([loop run 4](#strength-against-best_spec)). This is no claim of a gain over the classical ladder. The three-player results are against the project's own `ab3` (a paranoid alpha-beta: it assumes that both opponents play against the mover) and random players only, not against humans or other three-player programs.
+
+### Not done
+
+- No MCTS self-play generations; `Loop` does not accept the shared network.
+- No runs at 800 simulations, no strength record per checkpoint ([Strength record, ETA, status](#strength-record-eta-status)), no long-hop rung at 25,600 nodes.
+- No direct match between the shared network and the specialist (the cost above is a difference of two ladders).
+- No integration into the web UI: the network runs only in Java on the server side, and the browser engines stay classical. The C++ MCTS was not used.
+
+If the owner wants to continue, the next experiments would be, in this order: a LARGE shared network (capacity), `--strata natural` against `equal`, 800 simulations, and MCTS self-play with the shared network. None of them is planned.
 
 ## Open questions
 
