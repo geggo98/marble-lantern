@@ -95,6 +95,17 @@ public final class Strategies {
      */
     public static final String BROWSER_LONG_SPEC = "ab:eval=linear-r3," + OPTIONS + ",fut=1,futk=20,fut2=1,jump=long";
 
+    /**
+     * The player of the offline browser build for three players ({@link ThreePlayerSpec}, paranoid alpha-beta,
+     * docs/search-and-evaluation.md "Three-player browser player"). Needs no race table, so the same search serves
+     * {@code jump=adjacent} here and {@code jump=long} in {@link #BROWSER_3P_LONG_SPEC}. Not in {@link #registered()}:
+     * the strategy contract is two-player.
+     */
+    public static final String BROWSER_3P_SPEC = "ab3:eval=linear-r2,nodes=20000,tt=16";
+
+    /** {@link #BROWSER_3P_SPEC} for the Halma long hop ({@code jump=long}). */
+    public static final String BROWSER_3P_LONG_SPEC = BROWSER_3P_SPEC + ",jump=long";
+
     private Strategies() {
     }
 
