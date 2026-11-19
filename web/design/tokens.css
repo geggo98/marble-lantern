@@ -65,6 +65,14 @@
   --ml-piece-b-mark: #fff6e0;        /* the ring on the marble, 3:1 on --ml-piece-b */
   --ml-piece-b-text: #0f538f;
 
+  /* ---------- colour: side C (pearl marble with a diamond, third seat of a three-player game) ---------- */
+  --ml-piece-c: #f1ebdd;
+  --ml-piece-c-hi: #ffffff;
+  --ml-piece-c-lo: #cdc3ac;
+  --ml-piece-c-edge: #4a4237;  /* outline, carries the 3:1 against the plate */
+  --ml-piece-c-mark: #1f1b16;   /* the diamond, 4.5:1 on --ml-piece-c */
+  --ml-piece-c-text: #4a4237;   /* side C colour for text and the trail */
+
   /* ---------- type ---------- */
   --ml-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
   --ml-font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
@@ -170,6 +178,14 @@
     --ml-piece-b-mark: #fff6e0;
     --ml-piece-b-text: #7fbaf0;
 
+    /* ---------- colour: side C (pearl marble with a diamond, third seat of a three-player game) ---------- */
+    --ml-piece-c: #ece4d3;
+    --ml-piece-c-hi: #ffffff;
+    --ml-piece-c-lo: #b3a98f;
+    --ml-piece-c-edge: #fff6e0;  /* outline, carries the 3:1 against the plate */
+    --ml-piece-c-mark: #1f1b16;   /* the diamond, 4.5:1 on --ml-piece-c */
+    --ml-piece-c-text: #e8dfce;   /* side C colour for text and the trail */
+
     --ml-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
     --ml-shadow-sheet: 0 -8px 32px rgb(0 0 0 / 0.6);
   }
@@ -220,6 +236,14 @@
   --ml-piece-b-edge: #a9d4f8;
   --ml-piece-b-mark: #fff6e0;
   --ml-piece-b-text: #7fbaf0;
+
+  /* ---------- colour: side C (pearl marble with a diamond, third seat of a three-player game) ---------- */
+  --ml-piece-c: #ece4d3;
+  --ml-piece-c-hi: #ffffff;
+  --ml-piece-c-lo: #b3a98f;
+  --ml-piece-c-edge: #fff6e0;  /* outline, carries the 3:1 against the plate */
+  --ml-piece-c-mark: #1f1b16;   /* the diamond, 4.5:1 on --ml-piece-c */
+  --ml-piece-c-text: #e8dfce;   /* side C colour for text and the trail */
 
   --ml-shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.3);
   --ml-shadow-sheet: 0 -8px 32px rgb(0 0 0 / 0.6);

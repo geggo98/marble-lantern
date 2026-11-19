@@ -200,16 +200,21 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-socket { fill: var(--ml-board-socket); stroke: var(--ml-board-socket-edge); stroke-width: 1; }
 .ml-socket--goal-a { stroke: var(--ml-piece-a-text); stroke-width: 2.5; }
 .ml-socket--goal-b { stroke: var(--ml-piece-b-text); stroke-width: 2.5; }
+.ml-socket--goal-c { stroke: var(--ml-piece-c-text); stroke-width: 2.5; }
 .ml-socket__mark-b { fill: none; stroke: var(--ml-piece-b-text); stroke-width: 1.6; }
+.ml-socket__mark-c { fill: none; stroke: var(--ml-piece-c-text); stroke-width: 1.6; }
 
 /* pieces: side A plain, side B carries a ring */
 .ml-piece__shadow { fill: #000; opacity: 0.22; }
 .ml-piece__body--a { fill: url(#ml-grad-a); stroke: var(--ml-piece-a-edge); stroke-width: 1.5; }
 .ml-piece__body--b { fill: url(#ml-grad-b); stroke: var(--ml-piece-b-edge); stroke-width: 1.5; }
+.ml-piece__body--c { fill: url(#ml-grad-c); stroke: var(--ml-piece-c-edge); stroke-width: 1.5; }
+.ml-piece__mark-c { fill: var(--ml-piece-c-mark); }
 .ml-piece__mark { fill: none; stroke: var(--ml-piece-b-mark); stroke-width: 2.8; }
 .ml-piece__shine { fill: #fff; opacity: 0.5; }
 .ml-stop-a-hi { stop-color: var(--ml-piece-a-hi); } .ml-stop-a { stop-color: var(--ml-piece-a); } .ml-stop-a-lo { stop-color: var(--ml-piece-a-lo); }
 .ml-stop-b-hi { stop-color: var(--ml-piece-b-hi); } .ml-stop-b { stop-color: var(--ml-piece-b); } .ml-stop-b-lo { stop-color: var(--ml-piece-b-lo); }
+.ml-stop-c-hi { stop-color: var(--ml-piece-c-hi); } .ml-stop-c { stop-color: var(--ml-piece-c); } .ml-stop-c-lo { stop-color: var(--ml-piece-c-lo); }
 
 /* selection, targets, preview */
 .ml-select { fill: none; stroke: var(--ml-board-select); stroke-width: 3; }
@@ -224,8 +229,10 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-trail__dest { fill: none; stroke-width: 2.5; }
 .ml-trail--a .ml-trail__line, .ml-trail--a .ml-trail__origin, .ml-trail--a .ml-trail__dest { stroke: var(--ml-piece-a-text); }
 .ml-trail--b .ml-trail__line, .ml-trail--b .ml-trail__origin, .ml-trail--b .ml-trail__dest { stroke: var(--ml-piece-b-text); }
+.ml-trail--c .ml-trail__line, .ml-trail--c .ml-trail__origin, .ml-trail--c .ml-trail__dest { stroke: var(--ml-piece-c-text); }
 .ml-trail--a .ml-trail__hop { fill: var(--ml-piece-a-text); }
 .ml-trail--b .ml-trail__hop { fill: var(--ml-piece-b-text); }
+.ml-trail--c .ml-trail__hop { fill: var(--ml-piece-c-text); }
 
 /* keyboard focus on a cell, illegal click, result halo */
 .ml-cellfocus { fill: none; stroke: var(--ml-color-focus); stroke-width: 3.5; }
@@ -389,3 +396,13 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-links { display: flex; flex-wrap: wrap; gap: var(--ml-space-2); }
 
 
+
+/* three-player games: the seats card and the close button of the result card */
+.ml-seats { display: grid; gap: var(--ml-space-2); }
+.ml-seats__list { display: grid; gap: var(--ml-space-1); margin: 0; padding: 0; list-style: none; }
+.ml-seats__row { display: flex; align-items: center; gap: var(--ml-space-2); min-height: 2rem; padding-inline: var(--ml-space-2); border-radius: var(--ml-radius-sm); }
+.ml-seats__row[data-on-move] { background: var(--ml-color-surface-sunken); font-weight: var(--ml-weight-medium); }
+.ml-seats__row .ml-tag { margin-inline-start: auto; }
+.ml-result { position: relative; }
+.ml-result__close { position: absolute; top: var(--ml-space-1); inset-inline-end: var(--ml-space-1); }
+.ml-result:has(.ml-result__close) .ml-result__headline { padding-inline-end: var(--ml-size-control); }

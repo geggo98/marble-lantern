@@ -257,8 +257,8 @@ export function hexDistance(a: number, b: number): number {
  * corner. The engine's own table (single-agent distance) is not exposed to the browser, so this figure only orders
  * the two sides; it is not the figure the engine scores with.
  */
-export function approximateDistance(owner: Int8Array, side: Side): number {
-  const goal = GOAL_CELLS[side];
+export function approximateDistance(owner: Int8Array, side: number, goals: readonly (readonly number[])[] = GOAL_CELLS): number {
+  const goal = goals[side]!;
   const tip = goal.reduce((best, c) => (Math.abs(CELLS[c]!.r) > Math.abs(CELLS[best]!.r) ? c : best), goal[0]!);
   let sum = 0;
   for (let c = 0; c < CELL_COUNT; c++) if (owner[c] === side) sum += hexDistance(c, tip);

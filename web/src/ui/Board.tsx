@@ -45,11 +45,14 @@ export interface BoardProps {
   last: MoveDescription | null;
   /** Cells to ring after a win. */
   halo: readonly number[];
-  sideLabel: (side: Side) => string;
+  sideLabel: (side: number) => string;
+  /** The marble of a seat. Without it: `aSide` is amber (A), every other seat blue (B), as in the two-player game. */
+  seatStyle?: (seat: number) => SideStyle;
+  /** The goal corner of each seat, drawn on the sockets in the marble of that seat. Without it: the two-player goals. */
+  goals?: readonly { cells: readonly number[]; style: SideStyle }[];
   onMove: (move: number) => void;
 }
 
-const styleOf = (side: number, aSide: Side): SideStyle => (side === aSide ? 'a' : 'b');
 const ease = (t: number): number => t * t * (3 - 2 * t);
 
 interface Moving {
@@ -74,6 +77,7 @@ interface Press {
 
 export function Board(props: BoardProps): React.JSX.Element {
   const { owner, legal, interactive, inert, aSide, rotated, plies, last, halo, onMove } = props;
+  const styleOf = (seat: number): SideStyle => props.seatStyle?.(seat) ?? (seat === aSide ? 'a' : 'b');
   const { t } = useT();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -101,6 +105,13 @@ export function Board(props: BoardProps): React.JSX.Element {
     setPreviewTarget(null);
     setIllegal(null);
   }, [plies, legal]);
+
+  // The one tab stop belongs on a piece that can move: it stays on the cell the person used last only while that cell still can.
+  // After a move (the next seat, or the same seat again) the stop returns to the first movable piece.
+  useEffect(() => {
+    const now = movableCells(legal);
+    setFocusCell((cell) => (cell !== null && now.includes(cell) ? cell : null));
+  }, [legal]);
 
   useEffect(() => {
     if (!interactive) {
@@ -168,6 +179,19 @@ export function Board(props: BoardProps): React.JSX.Element {
     return first ?? CELLS.find((c) => c.q === 0 && c.r === 0)!.id;
   }, [movable, rotated]);
   const tabCell = focusCell ?? defaultFocus;
+
+  // A person who plays with the keyboard keeps the focus inside the board when the turn comes back: it moves with the tab stop.
+  useEffect(() => {
+    if (!interactive) return;
+    const active = document.activeElement;
+    if (!(active instanceof Element) || active === svgRef.current || !svgRef.current?.contains(active)) return;
+    const cell = Number(active.getAttribute('data-cell'));
+    if (!movable.includes(cell)) {
+      const element = svgRef.current.querySelector<SVGElement>(`[data-cell="${defaultFocus}"]`);
+      element?.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the turn or the position changes
+  }, [interactive, legal]);
 
   const act = (action: TapAction): void => {
     switch (action.type) {
@@ -333,9 +357,10 @@ export function Board(props: BoardProps): React.JSX.Element {
   }, [selected, previewCell, occupied]);
 
   const pos = (c: number): Point => cellPoint(c, rotated);
-  const bSide: Side = aSide === 0 ? 1 : 0;
-  const goalA = new Set(GOAL_CELLS[aSide]);
-  const goalB = new Set(GOAL_CELLS[bSide]);
+  const goalOf = new Map<number, SideStyle>();
+  for (const g of props.goals ?? [{ cells: GOAL_CELLS[aSide], style: 'a' as const }, { cells: GOAL_CELLS[aSide === 0 ? 1 : 0], style: 'b' as const }]) {
+    for (const c of g.cells) goalOf.set(c, g.style);
+  }
   const points = (cells: readonly number[]): string =>
     cells.map((c) => `${pos(c).x.toFixed(1)},${pos(c).y.toFixed(1)}`).join(' ');
 
@@ -348,7 +373,7 @@ export function Board(props: BoardProps): React.JSX.Element {
 
   const label = (cell: number): string => {
     const o = owner[cell] ?? -1;
-    const parts = [cellName(cell), o < 0 ? t('cell_empty') : props.sideLabel(o as Side)];
+    const parts = [cellName(cell), o < 0 ? t('cell_empty') : props.sideLabel(o)];
     if (cell === selected) parts.push(t('cell_selected'));
     else if (targets.includes(cell)) {
       parts.push(t('cell_target'));
@@ -368,7 +393,7 @@ export function Board(props: BoardProps): React.JSX.Element {
   const selectedPoint = selected === null ? null : pos(selected);
   const focusPoint = keyboard ? pos(tabCell) : null;
   const trailVisible = last !== null && selected === null;
-  const lastStyle = last ? styleOf(last.side, aSide) : 'a';
+  const lastStyle = last ? styleOf(last.side) : 'a';
 
   return (
     <div className="ml-board">
@@ -400,11 +425,13 @@ export function Board(props: BoardProps): React.JSX.Element {
         <g className="ml-board__sockets">
           {CELLS.map((c) => {
             const p = pos(c.id);
-            const cls = goalA.has(c.id) ? 'ml-socket ml-socket--goal-a' : goalB.has(c.id) ? 'ml-socket ml-socket--goal-b' : 'ml-socket';
+            const goal = goalOf.get(c.id);
+            const cls = goal ? `ml-socket ml-socket--goal-${goal}` : 'ml-socket';
             return (
               <g key={c.id}>
                 <circle className={cls} cx={p.x} cy={p.y} r={11.5} />
-                {goalB.has(c.id) && <circle className="ml-socket__mark-b" cx={p.x} cy={p.y} r={6.5} />}
+                {goal === 'b' && <circle className="ml-socket__mark-b" cx={p.x} cy={p.y} r={6.5} />}
+                {goal === 'c' && <path className="ml-socket__mark-c" d={`M${p.x} ${p.y - 6.5}L${p.x + 6.5} ${p.y}L${p.x} ${p.y + 6.5}L${p.x - 6.5} ${p.y}Z`} />}
               </g>
             );
           })}
@@ -451,7 +478,7 @@ export function Board(props: BoardProps): React.JSX.Element {
               <use
                 key={c}
                 className={dragged ? 'is-selected is-dragging' : isSelected ? 'is-selected' : undefined}
-                href={`#ml-piece-${styleOf(o, aSide)}`}
+                href={`#ml-piece-${styleOf(o)}`}
                 transform={`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})${isSelected ? ' scale(1.12)' : ''}`}
               />
             );
@@ -479,7 +506,7 @@ export function Board(props: BoardProps): React.JSX.Element {
         {previewCell !== null && selected !== null && (
           <g className="ml-preview__ghost">
             <use
-              href={`#ml-piece-${styleOf(owner[selected] ?? 0, aSide)}`}
+              href={`#ml-piece-${styleOf(owner[selected] ?? 0)}`}
               transform={`translate(${pos(previewCell).x.toFixed(1)} ${pos(previewCell).y.toFixed(1)})`}
             />
           </g>

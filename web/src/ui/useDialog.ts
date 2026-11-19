@@ -12,6 +12,13 @@ function hiddenInClosedDetails(el: HTMLElement): boolean {
   return !(el.tagName === 'SUMMARY' && el.parentElement === closed);
 }
 
+/** An unchecked radio of a group that has a checked one: Tab skips it (arrow keys reach it), so it is no edge of the Tab loop. */
+function skippedRadio(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLInputElement) || el.type !== 'radio' || el.checked || !el.name) return false;
+  const group = el.form ?? el.ownerDocument;
+  return Array.from(group.querySelectorAll<HTMLInputElement>('input[type="radio"]')).some((r) => r.name === el.name && r.checked);
+}
+
 export interface UseDialogOptions {
   /** Called on Escape. Without it Escape does nothing (a dialog that must be answered). */
   onEscape?: (() => void) | undefined;
@@ -78,7 +85,7 @@ export function useDialog<T extends HTMLElement>({ onEscape, focusKey, isolate =
     }
     if (event.key !== 'Tab') return;
     const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(TABBABLE) ?? []).filter(
-      (el) => el.tabIndex >= 0 && !hiddenInClosedDetails(el),
+      (el) => el.tabIndex >= 0 && !hiddenInClosedDetails(el) && !skippedRadio(el),
     );
     const firstEl = items[0];
     const lastEl = items[items.length - 1];
