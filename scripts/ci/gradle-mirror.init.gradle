@@ -10,20 +10,24 @@
 def mirrorUrl = '@MIRROR_URL@'
 
 gradle.settingsEvaluated { settings ->
-    // (a) Plugin resolution. A settings file without pluginManagement.repositories (build-logic) resolves plugins from
-    // the plugin portal implicitly; adding only the mirror would remove that default, so the portal is added explicitly.
+    // (a) Plugin resolution: the mirror goes AFTER the plugin portal and BEFORE mavenCentral(), never first. Reason
+    // (measured): the plugin marker poms on the portal differ from the ones on Maven Central (same coordinates,
+    // other bytes), and gradle/verification-metadata.xml holds the portal's checksums. A marker taken from the
+    // mirror would fail strict verification, and a verification failure does not fall through, it fails the build.
+    // So the portal keeps answering for plugins; the mirror replaces Maven Central as the fallback behind it.
+    // A settings file without pluginManagement.repositories (build-logic) resolves plugins from the portal
+    // implicitly; the portal is added explicitly there so the mirror can stand behind it.
     def pluginRepos = settings.pluginManagement.repositories
-    def hadPluginRepos = !pluginRepos.isEmpty()
+    if (pluginRepos.isEmpty()) {
+        pluginRepos.gradlePluginPortal()
+    }
     def pluginMirror = pluginRepos.maven {
         name = 'ciMirror'
         url = mirrorUrl
     }
-    if (hadPluginRepos) {
-        pluginRepos.remove(pluginMirror)
-        pluginRepos.addFirst(pluginMirror)
-    } else {
-        pluginRepos.gradlePluginPortal()
-    }
+    pluginRepos.remove(pluginMirror)
+    def central = pluginRepos.findIndexOf { it.name == 'MavenRepo' } // name of mavenCentral()
+    pluginRepos.add(central >= 0 ? central : pluginRepos.size(), pluginMirror)
 
     // (b) Dependency resolution, also of build-logic's own code. Compatible with FAIL_ON_PROJECT_REPOS: the repositories
     // stay in the settings. addFirst puts the mirror in front of mavenCentral().
