@@ -15,9 +15,13 @@
 
 /* settings card */
 .ml-guides-card { display: grid; gap: var(--ml-space-2); }
-.ml-guides-card__toggle { display: flex; align-items: center; gap: var(--ml-space-3); min-height: var(--ml-size-control); cursor: pointer; font-weight: var(--ml-weight-medium); }
-.ml-guides-card__toggle input { inline-size: 1.4rem; block-size: 1.4rem; accent-color: var(--ml-color-primary); flex: none; }
-.ml-guides-card__toggle input:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+/* the level choice: three native radio buttons drawn as one segmented control; the checked one is filled (a state, not only a colour: it also has a border weight) */
+.ml-guides-card__levels { display: grid; grid-template-columns: repeat(3, 1fr); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-md); overflow: hidden; }
+.ml-guides-card__level { position: relative; display: flex; align-items: center; justify-content: center; min-block-size: var(--ml-size-control); padding: 0 var(--ml-space-2); text-align: center; cursor: pointer; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); background: var(--ml-color-surface); color: var(--ml-color-ink); }
+.ml-guides-card__level + .ml-guides-card__level { border-inline-start: var(--ml-border) solid var(--ml-color-line-strong); }
+.ml-guides-card__level input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.ml-guides-card__level:has(input:checked) { background: var(--ml-color-primary); color: var(--ml-color-on-primary); font-weight: 700; }
+.ml-guides-card__level:has(input:focus-visible) { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
 .ml-guides-card__hint, .ml-guides-card__status { margin: 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 .ml-guides-card__legend summary { cursor: pointer; min-height: var(--ml-size-control); display: flex; align-items: center; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
 .ml-guides-card__legend summary:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }

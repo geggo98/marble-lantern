@@ -17,7 +17,7 @@ async function guidesWithSelection(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openApp(page, 'en');
   await waitForHumanTurn(page);
-  await page.locator('[data-guides-toggle]').check();
+  await page.locator('[data-guides-level="eval"]').check();
   await expect(page.locator('svg.ml-board__svg [data-guide="piece"]').first()).toBeAttached();
   await page.locator('[data-cell][aria-label*="best move"]').first().click();
   await expect(page.locator('svg.ml-board__svg [data-guide="target"]').first()).toBeAttached();
@@ -27,18 +27,18 @@ async function guidesWithSelection(page: Page): Promise<void> {
 const glyphs = (page: Page, kind: 'piece' | 'target'): Promise<string[]> =>
   page.locator(`svg.ml-board__svg [data-guide="${kind}"] .ml-guide__glyph`).evaluateAll((els) => els.map((e) => e.getAttribute('d') ?? ''));
 
-test('the guides are off at first, and the choice survives a reload', async ({ page }) => {
+test('the guides start at the level "targets" (no marks), and the choice survives a reload', async ({ page }) => {
   const errors = watchPageErrors(page);
   await openApp(page, 'en');
   await waitForHumanTurn(page);
-  await expect(page.locator('[data-guides-toggle]')).not.toBeChecked();
+  await expect(page.locator('[data-guides-level="targets"]')).toBeChecked();
   await expect(page.locator('svg.ml-board__svg [data-band]')).toHaveCount(0);
-  await page.locator('[data-guides-toggle]').check();
+  await page.locator('[data-guides-level="eval"]').check();
   await expect(page.locator('svg.ml-board__svg [data-guide="piece"]').first()).toBeAttached();
   await expect(page.locator('.ml-advantage')).toBeVisible();
   await page.reload();
   await page.locator('[data-choice="link-side-to-move"], [data-choice="begin-yes"]').first().click().catch(() => undefined);
-  await expect(page.locator('[data-guides-toggle]')).toBeChecked();
+  await expect(page.locator('[data-guides-level="eval"]')).toBeChecked();
   errors.expectNone();
 });
 
@@ -140,7 +140,7 @@ test('the band of every piece equals the best band among its targets, with the r
   await page.setViewportSize({ width: 1280, height: 900 });
   await openApp(page, 'en');
   await waitForHumanTurn(page);
-  await page.locator('[data-guides-toggle]').check();
+  await page.locator('[data-guides-level="eval"]').check();
   await expect(page.locator('svg.ml-board__svg [data-guide="piece"]').first()).toBeAttached();
   const pieces = await page.locator('svg.ml-board__svg [data-guide="piece"]').evaluateAll((els) =>
     els.map((e) => ({ cell: e.getAttribute('data-cell-of')!, band: e.getAttribute('data-band')! })));

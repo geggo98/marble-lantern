@@ -122,7 +122,7 @@ describe('move guides with a net engine', () => {
     await until(() => store.selection.engine === 'net-wasm' && status() === 'Your move', 'the net engine plays');
     expect(seen.classicalDisposed, 'the classical engine that played is freed').toBe(1);
 
-    await click(q('[data-guides-toggle]'));
+    await click(q('[data-guides-level="eval"]'));
     await until(() => all('[data-guide="piece"]').length > 0, 'piece badges from the analysis engine');
     await until(() => q('.ml-advantage') !== null, 'the advantage bar');
     expect(q('[data-guides-status]')!.getAttribute('data-guides-status')).not.toBe('unavailable');

@@ -295,6 +295,8 @@ export function ResultCard(props: {
   onClose?: (() => void) | undefined;
   /** Full ranking: the seats by rank, first place first; `value` is the distance of a seat that still played when the game ended. */
   ranking?: { style: SideStyle; label: string; rank: string; value?: number }[];
+  /** The estimated distance of the result (docs/web-ui.md, "Distance of the result"): a line while it is computed, then its text. Absent: no line. */
+  distance?: { state: 'estimating' } | { state: 'done'; text: string } | undefined;
   /** Present when "Play on for 2nd place" is offered (a three-player win under first-winner rules). */
   onPlayOn?: (() => void) | undefined;
 }): React.JSX.Element {
@@ -313,6 +315,11 @@ export function ResultCard(props: {
       <p className="ml-result__meta">
         {props.note ?? t('result_after')} <span className="ml-data">{n(props.plies)}</span> {t('plies')}
       </p>
+      {props.distance && (
+        <p className="ml-result__distance" data-result-distance={props.distance.state}>
+          {props.distance.state === 'estimating' ? t('result_distance_estimating') : props.distance.text}
+        </p>
+      )}
       {props.ranking && (
         <ol className="ml-score ml-ranking" aria-label={t('ranking_heading')}>
           {props.ranking.map((r, i) => (

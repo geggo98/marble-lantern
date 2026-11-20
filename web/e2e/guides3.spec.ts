@@ -47,8 +47,8 @@ test.describe('desktop', () => {
     const errors = watchPageErrors(page);
     await openApp(page, 'en', HOTSEAT);
     await waitForHumanTurn(page);
-    await expect(page.locator('[data-guides-toggle]')).not.toBeChecked(); // off by default, as for two players
-    await page.locator('[data-guides-toggle]').check();
+    await expect(page.locator('[data-guides-level="targets"]')).toBeChecked(); // targets only by default, as for two players
+    await page.locator('[data-guides-level="eval"]').check();
     await expect(piecesWithBadge(page).first()).toBeAttached();
     // every badge sits on a piece of seat 1 (the seat to move)
     const owners = await piecesWithBadge(page).evaluateAll((els) =>

@@ -88,7 +88,7 @@ describe('play screen on a small screen', () => {
     expect(menuButton().getAttribute('aria-expanded')).toBe('true');
     expect(menuButton().getAttribute('aria-controls')).toBe(menu.id);
     expect(q('.ml-engine', menu)).not.toBeNull();
-    expect(q('[data-guides-toggle]', menu)).not.toBeNull();
+    expect(q('[data-guides-levels]', menu)).not.toBeNull();
     expect(q('.ml-skill', menu)).not.toBeNull();
     expect(q('.ml-copylink', menu)).not.toBeNull();
     expect(q('.ml-moves', menu)).not.toBeNull();

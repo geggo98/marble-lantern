@@ -306,6 +306,7 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-result__headline { display: flex; align-items: center; gap: var(--ml-space-3); font: var(--ml-weight-medium) var(--ml-text-2xl)/var(--ml-leading-tight) var(--ml-font-display); }
 .ml-result__headline .ml-swatch { width: 2rem; height: 2rem; }
 .ml-result__meta { color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
+.ml-result__distance { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
 .ml-score { display: grid; gap: var(--ml-space-1); }
 .ml-score__row { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) auto; align-items: center; gap: var(--ml-space-2); padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-sm); background: var(--ml-color-surface-sunken); font-size: var(--ml-text-sm); }
 .ml-score__row[data-ahead="true"] { outline: 2px solid var(--ml-color-ink); outline-offset: -2px; font-weight: var(--ml-weight-medium); }

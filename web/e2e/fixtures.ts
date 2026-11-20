@@ -21,3 +21,13 @@ export const PLAY_ON_WIN = {
 
 /** 300 plies of a three-player game (the move limit); the legal move at ply i is chosen as (i * 7919 + 13) mod (number of legal moves). */
 export const THREE_PLAYER_LIMIT = 'EktlOZCDn6eqFDCiatOC4BhdVWxZCEad7LmJK9eytaPqqlPNPEkttSfQCkL91wvEHtl-zYBBb1yhRID7keHOAhKcmdPCB5UCvbChKsrHlDgqlOxNCB5R2jGDhMFS1ODHKmmbDCBZMiXMJEKb6HaHm4Eq1ZIKX2jLjOKI9rJXPHJVWfLVH5D-NRUtL-ydSVtquClQChH8izmNj5FOvkHjrU6jHHD7tyZXCAadKvMPnrl2XBOBtm2O9BBNOfFWPcDpCZXDA7t6tibK8N97H4XKWuPIaNd1WhRVqp1qQ_Hhr9O3dUHNulewDD89uC4CCNOd_Iav71KvLESc-m7eAhqb5w5DB9GqQ0Ikrd2jTuW6uzHlBhMF9g6DiNU9yvJH3z3FWt6KVGXBHmyA6C4Nj6Opo-VHnrStXfwByd1E0cNb3K7ORbWfNZPEXrN3jAAdmuJDPntaizm4c59vMOgP77avMiz7bCZCIkFD2FMIBU5yZNHh2kiHCn0HrSFDDibt-nAEkpFNw5Cib8rJXEm2bx9IAgmj5e4oW9V2HCJEXj3HWNj6dGQ0k3HrMcbCB89CbDPHbtJyvDhJUlxBEBXw69q59ByetLIpjhrVeTMU6aC4t3Wb2A8uNUw1oyYxxpmHYHkHo95Fu8W19fD6d6T2WOIKb7SxWjyHrMcnUq6BGLGfwCLlOQOkZL-HOaxaMe9d';
+
+/**
+ * A legal two-player game (adjacent jumps) that side 0 wins at ply 119; both sides advance greedily (wonGame2 in
+ * src/engines/testing/won-game.ts, seed 3). Used for the distance of the result; src/app/e2e-fixtures.test.ts checks it against the generator.
+ */
+export const TWO_PLAYER_WIN = {
+  moves: 'BjueYAQ8aAg_hcDnelASb4xh6bQ8EMbjMc6oEQqWMyNxOupNOeKWNpmIOtCIQEdzTXXhkoOsprqJZ5Xp2fVTtcL0kMO328_Ttv6dpMAcbpyDadQdTvDoJlGt0Hk-goaPd-d7OkPp_PPandLU6NR79aN1Qds5joe7qfNOHcODAhmglKvdMM28SFDDwoAgc68h6hSF1dRAE4zYJVD2dEZx-Wl7SSmo96I7pXdNK9qdsbumlI1cmKZe4NDtPEcGcQoDaFNTGptk0Os5pD7fwfNc28A',
+  plies: 119,
+  winner: 0,
+} as const;

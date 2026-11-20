@@ -147,7 +147,7 @@ for (const device of DEVICES) {
       await expect(menu).toBeVisible();
       await expect(button).toHaveAttribute('aria-expanded', 'true');
       await expect(menu.locator('.ml-engine')).toBeVisible();
-      await expect(menu.locator('[data-guides-toggle]')).toBeAttached();
+      await expect(menu.locator('[data-guides-levels]')).toBeAttached();
       expect(await page.evaluate(() => document.getElementById('root')?.hasAttribute('inert'))).toBe(true);
       const o = await overflow(page);
       expect(o.doc).toBeLessThanOrEqual(0);
@@ -285,7 +285,7 @@ for (const device of DEVICES) {
       await openApp(page, 'en');
       await waitForHumanTurn(page);
       await page.locator('.ml-play__bar [aria-controls]').tap();
-      const toggle = page.getByRole('dialog').locator('[data-guides-toggle]');
+      const toggle = page.getByRole('dialog').locator('[data-guides-level="eval"]');
       await toggle.check({ force: true });
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-guide="piece"]').first()).toBeAttached({ timeout: 60_000 });

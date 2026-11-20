@@ -13,7 +13,7 @@ test('net-wasm with the expert model and guides on: badges, the advantage bar an
   await waitForHumanTurn(page);
   await pickEngine(page, 'net-wasm', EXPERT);
   await waitForHumanTurn(page);
-  await page.locator('[data-guides-toggle]').check();
+  await page.locator('[data-guides-level="eval"]').check();
   await expect(page.locator('svg.ml-board__svg [data-guide="piece"]').first()).toBeAttached();
   await expect(page.locator('.ml-advantage')).toBeVisible();
   await expect(page.locator('[data-guides-status]')).not.toHaveAttribute('data-guides-status', 'unavailable');
