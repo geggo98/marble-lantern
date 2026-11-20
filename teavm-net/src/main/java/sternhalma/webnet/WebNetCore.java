@@ -36,6 +36,7 @@ public final class WebNetCore {
     }
 
     private RuleSet.JumpRule jump = RuleSet.JumpRule.ADJACENT;
+    private RuleSet.ForeignCamps camps = RuleSet.ForeignCamps.CLOSED;
     private int players = 2;
     private MctsOptions options = defaultOptions();
     private long seed;
@@ -66,6 +67,23 @@ public final class WebNetCore {
         throw new NetFailure("internal", "jump rule must be adjacent or long, got '" + text + "'");
     }
 
+    /**
+     * The foreign-corner rule of a facade argument (docs/rules.md, "Foreign corners"): null, empty or {@code closed} is
+     * {@link RuleSet.ForeignCamps#CLOSED}, {@code pass-through} is {@code PASS_THROUGH}, {@code open} is {@code OPEN}.
+     */
+    public static RuleSet.ForeignCamps parseCamps(String text) {
+        if (text == null || text.isEmpty() || text.equals("closed")) {
+            return RuleSet.ForeignCamps.CLOSED;
+        }
+        if (text.equals("pass-through")) {
+            return RuleSet.ForeignCamps.PASS_THROUGH;
+        }
+        if (text.equals("open")) {
+            return RuleSet.ForeignCamps.OPEN;
+        }
+        throw new NetFailure("internal", "camps must be closed, pass-through or open, got '" + text + "'");
+    }
+
     /** The player count of a facade argument: null, empty or {@code "2"} is 2, {@code "3"} is 3. */
     public static int parsePlayers(String text) {
         if (text == null || text.isEmpty() || text.equals("2")) {
@@ -85,6 +103,15 @@ public final class WebNetCore {
      * {@link #setTable} before the first {@link #begin}.
      */
     public void create(RuleSet.JumpRule jumpRule, int playerCount, int sims, int batch, long newSeed, String optionText) {
+        create(jumpRule, playerCount, RuleSet.ForeignCamps.CLOSED, sims, batch, newSeed, optionText);
+    }
+
+    /**
+     * {@link #create(RuleSet.JumpRule, int, int, int, long, String)} with a foreign-corner rule. The nets were trained
+     * under {@code CLOSED} only; under the other rules the search masks the policy with the legal moves of that rule.
+     */
+    public void create(RuleSet.JumpRule jumpRule, int playerCount, RuleSet.ForeignCamps foreignCamps, int sims, int batch,
+            long newSeed, String optionText) {
         MctsOptions o;
         try {
             o = parseOptions(defaultOptions().withSims(sims).withBatch(batch), optionText);
@@ -92,6 +119,7 @@ public final class WebNetCore {
             throw new NetFailure("bad-options", String.valueOf(e.getMessage()));
         }
         jump = jumpRule;
+        camps = foreignCamps;
         players = playerCount;
         options = o;
         seed = newSeed;
@@ -228,13 +256,23 @@ public final class WebNetCore {
 
     /** The legal moves after {@code history}; empty if the game is over. */
     public int[] legalMoves(int[] history, RuleSet.JumpRule rule, int playerCount) {
-        Position p = replay(history, rule, playerCount);
+        return legalMoves(history, rule, playerCount, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #legalMoves(int[], RuleSet.JumpRule, int)} under a foreign-corner rule. */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
+        Position p = replay(history, rule, playerCount, foreignCamps);
         return p.outcome() != null ? new int[0] : p.legalMoves();
     }
 
     /** The state of the game after {@code history}: null while it goes on, else the outcome (also a side without a move). */
     public Outcome outcome(int[] history, RuleSet.JumpRule rule, int playerCount) {
-        Position p = replay(history, rule, playerCount);
+        return outcome(history, rule, playerCount, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #outcome(int[], RuleSet.JumpRule, int)} under a foreign-corner rule. */
+    public Outcome outcome(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
+        Position p = replay(history, rule, playerCount, foreignCamps);
         Outcome outcome = p.outcome();
         if (outcome == null && p.generate(new int[Position.MAX_MOVES]) == 0) {
             return p.noMovesOutcome();
@@ -252,7 +290,7 @@ public final class WebNetCore {
      */
     public int begin(int[] history) {
         Mcts m = mcts();
-        Position p = replay(history, jump, players);
+        Position p = replay(history, jump, players, camps);
         int[] legal = p.outcome() != null ? new int[0] : p.legalMoves();
         if (legal.length == 0) {
             throw new NetFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -357,8 +395,8 @@ public final class WebNetCore {
         return best;
     }
 
-    private static Position replay(int[] history, RuleSet.JumpRule rule, int playerCount) {
-        Position p = Position.initial(RuleSet.defaults(playerCount).withJumpRule(rule));
+    private static Position replay(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
+        Position p = Position.initial(RuleSet.defaults(playerCount).withJumpRule(rule).withForeignCamps(foreignCamps));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             boolean legal = false;

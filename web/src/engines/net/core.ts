@@ -12,7 +12,7 @@
 // The one exception to "random": 'net-webgpu' with a usable model but no WebGPU (no adapter, device lost) plays with the CPU
 // backend and reports backend-unavailable only. A working net is better than random moves.
 // Warnings are recomputed on every newGame, so they clear when the cause is gone.
-import { DEFAULT_VARIANT, variantKey } from '../../game/variant';
+import { DEFAULT_VARIANT, campsOf, variantKey } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import type { AnalysisResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
 import { EngineFailure } from '../protocol';
@@ -185,7 +185,7 @@ export class NetCore {
   outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
     let f: string[];
     try {
-      f = fields(this.d.webnet.outcome(history.join(','), variant.jump, String(variant.players)));
+      f = fields(this.d.webnet.outcome(history.join(','), variant.jump, String(variant.players), campsOf(variant)));
     } catch (e) {
       throw asFailure(e);
     }
@@ -344,7 +344,7 @@ export class NetCore {
       }
       try {
         const f = (r: unknown): string[] => fields(r);
-        f(this.d.webnet.create(v.jump, String(v.players), s.sims, batch, this.seedOfGame, ''));
+        f(this.d.webnet.create(v.jump, String(v.players), s.sims, batch, this.seedOfGame, '', campsOf(v)));
         f(this.d.webnet.setWeightsInfo(info.planeSet, held.backend.valueWidth));
       } catch (e) {
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
@@ -400,7 +400,7 @@ export class NetCore {
 
   private legal(history: readonly number[], v: Variant): number[] {
     try {
-      return numbers(fields(this.d.webnet.legalMoves(history.join(','), v.jump, String(v.players)))[0]);
+      return numbers(fields(this.d.webnet.legalMoves(history.join(','), v.jump, String(v.players), campsOf(v)))[0]);
     } catch (e) {
       throw asFailure(e);
     }

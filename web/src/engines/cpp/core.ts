@@ -4,7 +4,7 @@
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
 import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
-import { DEFAULT_VARIANT, playsOn, rankingOf } from '../../game/variant';
+import { DEFAULT_VARIANT, campsOf, playsOn, rankingOf } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
 import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
@@ -29,6 +29,8 @@ export interface CppModule {
   _shw_game_new2(jump: number, players: number): number;
   /** As _shw_game_new2 with a ranking rule: 0 first winner only, 1 full ranking; -1 for other values. */
   _shw_game_new3(jump: number, players: number, ranking: number): number;
+  /** As _shw_game_new3 with a foreign-corner rule: 0 closed, 1 pass-through, 2 open; -1 for other values. */
+  _shw_game_new4(jump: number, players: number, ranking: number, camps: number): number;
   /** The absolute seat of rank i (0 = first place), or -1 if that rank is not decided. */
   _shw_rank(i: number): number;
   /** The seats that are out (full ranking) as bits: bit p for seat p. */
@@ -312,8 +314,9 @@ export class CppCore {
   /** Replays the history in the module's global game. A move the engine rejects is an illegal history. */
   private replay(history: readonly number[], variant: Variant): void {
     if (history.length > MAX_PLIES) throw new EngineFailure('illegal-history', `history has ${history.length} plies`);
-    if (this.m._shw_game_new3(variant.jump === 'long' ? 1 : 0, variant.players, rankingOf(variant) === 'full' ? 1 : 0) !== 0) {
-      throw new EngineFailure('internal', `shw_game_new3: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    const camps = { closed: 0, 'pass-through': 1, open: 2 }[campsOf(variant)];
+    if (this.m._shw_game_new4(variant.jump === 'long' ? 1 : 0, variant.players, rankingOf(variant) === 'full' ? 1 : 0, camps) !== 0) {
+      throw new EngineFailure('internal', `shw_game_new4: ${this.m.UTF8ToString(this.m._shw_error())}`);
     }
     history.forEach((move, ply) => {
       if (!Number.isInteger(move) || this.m._shw_play(move) !== 0) {

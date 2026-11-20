@@ -106,7 +106,7 @@ if(EMSCRIPTEN)
   sh_target(engine-cpp)
   target_link_libraries(engine-cpp PRIVATE sh_search)
   set(sh_wasm_exports
-    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_player_new3 _shw_game_new _shw_game_new2 _shw_game_new3 _shw_ranking_rule _shw_rank _shw_finished_mask _shw_players _shw_jump_rule _shw_side_to_move _shw_ply
+    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_player_new3 _shw_game_new _shw_game_new2 _shw_game_new3 _shw_game_new4 _shw_foreign_camps _shw_ranking_rule _shw_rank _shw_finished_mask _shw_players _shw_jump_rule _shw_side_to_move _shw_ply
     _shw_owner _shw_cell_count _shw_cell_q _shw_cell_r _shw_legal_moves _shw_play _shw_unmake _shw_outcome _shw_choose
     _shw_last_score _shw_last_depth _shw_last_nodes _shw_has_result _shw_total_nodes _shw_race_moves _shw_rows1_requests)
   list(JOIN sh_wasm_exports "," sh_wasm_exports_csv)
@@ -199,6 +199,9 @@ sh_test(engine_test sh_engine)
 sh_test(long_jump_test sh_engine)
 # The Java golden file of the long hop is read in place, so that the two sides cannot drift apart.
 target_compile_definitions(long_jump_test PRIVATE SH_LONG_JUMP_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/long-jump-golden.tsv")
+sh_test(foreign_camps_test sh_search)
+# The Java golden file of the foreign-corner switch is read in place, like the long-hop file.
+target_compile_definitions(foreign_camps_test PRIVATE SH_FOREIGN_CAMPS_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/foreign-camps-golden.tsv")
 sh_test(three_player_test sh_engine)
 target_compile_definitions(three_player_test PRIVATE SH_THREE_PLAYER_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/three-player-golden.tsv")
 sh_test(three_player_ranking_test sh_engine)

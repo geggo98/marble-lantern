@@ -52,4 +52,6 @@ print -u2 -- "--- three players"
 node $dir/threeplayer.mjs --engine $engine --tables $tables
 print -u2 -- "--- full ranking"
 node $dir/ranking.mjs --engine $engine --tables $tables
+print -u2 -- "--- foreign corners"
+node $dir/camps.mjs --engine $engine --tables $tables
 print -u2 "test-wasm: all tests passed"

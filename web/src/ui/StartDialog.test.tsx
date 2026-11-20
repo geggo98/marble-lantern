@@ -63,7 +63,8 @@ describe('the begin dialog', () => {
     expect(d.getAttribute('aria-modal')).toBe('true');
     expect(d.getAttribute('aria-labelledby')).toBe(d.querySelector('h2')!.id);
     const groups = [...d.querySelectorAll('fieldset')];
-    expect(groups).toHaveLength(2); // jump rule and game mode; no seat group in the two-player mode
+    // jump rule, foreign triangles (added 2026-11-20) and game mode; no seat group in the two-player mode
+    expect(groups).toHaveLength(3);
     for (const g of groups) {
       expect(g.querySelector('legend')!.textContent).not.toBe('');
       expect(g.querySelectorAll('input[type="radio"]').length).toBeGreaterThanOrEqual(2);
@@ -77,6 +78,29 @@ describe('the begin dialog', () => {
     expect(choice('jump-long').checked).toBe(true);
     await click(choice('begin-yes'));
     expect(onStart).toHaveBeenCalledWith({ ...DEFAULT_CHOICE, jump: 'long' }, true);
+  });
+
+  it('the foreign-corner rule is a radio group, closed by default, and the choice reaches onStart', async () => {
+    const onStart = vi.fn();
+    await open(onStart);
+    expect(choice('camps-closed').checked).toBe(true);
+    expect(choice('camps-pass').checked).toBe(false);
+    await click(choice('camps-open'));
+    expect(choice('camps-open').checked).toBe(true);
+    await click(choice('camps-pass'));
+    await click(choice('begin-no'));
+    expect(onStart).toHaveBeenCalledWith({ ...DEFAULT_CHOICE, camps: 'pass-through' }, false);
+  });
+
+  it('a link to an open-corner game names the rule', async () => {
+    const model: StartDialogModel = {
+      kind: 'link', ply: 4, sideToMove: 0, onContinueAs: () => undefined, onNew: () => undefined,
+      variant: { jump: 'adjacent', players: 2, camps: 'open' },
+    };
+    await act(async () => {
+      root.render(<StartDialog model={model} />);
+    });
+    expect(q('[data-testid="link-camps"]')?.textContent).toMatch(/Open|Erlaubt/);
   });
 
   it('hot-seat shows the engine seat (default: the last) instead of the yes/no pair, and one start button', async () => {
@@ -98,11 +122,11 @@ describe('the begin dialog', () => {
     await click(choice('human-seat-3'));
     await click(choice('jump-long'));
     await click(choice('begin-start'));
-    expect(onStart).toHaveBeenCalledWith({ jump: 'long', mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
+    expect(onStart).toHaveBeenCalledWith({ jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
   });
 
   it('starts from the remembered choice', async () => {
-    await open(vi.fn(), { jump: 'long', mode: 'engines', humanSeat: 1, engineSeat: 0 });
+    await open(vi.fn(), { jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 1, engineSeat: 0 });
     expect(choice('jump-long').checked).toBe(true);
     expect(choice('mode-engines').checked).toBe(true);
     expect(choice('human-seat-2').checked).toBe(true);

@@ -497,6 +497,10 @@ public final class ReplayBuffer implements BatchSource {
         }
         try {
             RuleSet rules = GameShard.rules(meta);
+            if (rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED) {
+                // the sample expander rebuilds positions under closed foreign corners (SampleExpander)
+                throw new IllegalArgumentException("foreignCamps=" + rules.foreignCamps() + " is not trainable");
+            }
             return validated(generation, c, filePlayers, rules.jumpRule());
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException e) {
             throw new IOException("invalid sample file: " + e.getMessage(), e);

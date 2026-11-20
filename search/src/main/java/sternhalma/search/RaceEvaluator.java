@@ -114,9 +114,13 @@ public final class RaceEvaluator implements Evaluator {
         return estimateOutside;
     }
 
-    /** The rule preconditions: two players and no blocking-state rule (the table knows nothing about it). */
+    /**
+     * The rule preconditions: two players, adjacent jumps, closed foreign corners and no blocking-state rule (the table
+     * and the solitaire plans know only the default move set).
+     */
     static boolean rulesApply(RuleSet rules) {
         return rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
+                && rules.foreignCamps() == RuleSet.ForeignCamps.CLOSED
                 && rules.blockingStates() == RuleSet.BlockingStates.NONE;
     }
 

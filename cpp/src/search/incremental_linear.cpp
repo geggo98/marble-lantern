@@ -43,6 +43,8 @@ void replace_key(std::span<int> a, int old_key, int new_key) {
 
 bool IncrementalLinear::reset(const Position& root) {
     if (root.rules().players() != 2 || root.piece_count(0) > kPieces || root.piece_count(1) > kPieces) return false;
+    // the jump graph knows only landings on home cells; the full evaluation takes over
+    if (root.rules().foreign_camps() != RuleSet::ForeignCamps::Closed) return false;
     height_ = 0;
     own_.fill(-1);
     graph_.clear();
@@ -52,7 +54,7 @@ bool IncrementalLinear::reset(const Position& root) {
         const std::array<int, kCells>& dist = kLinearTables.dist[ps];
         histogram_[ps].assign(u(kMaxDistance) + 1, 0);
         for (const int c : root.pieces(p)) {
-            if (dist[u(c)] < 0) return false;  // a piece on a cell its owner may not enter
+            if (!root.layout().allowed(p, c)) return false;  // a piece on a cell its owner may not enter
             own_[u(c)] = static_cast<std::int8_t>(p);
             ++histogram_[ps][u(dist[u(c)])];
             graph_.toggle(c);

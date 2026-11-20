@@ -81,6 +81,9 @@ final class IncrementalLinear implements EvalState {
         if (root.rules().players() != 2 || root.pieceCount(0) > Position.PIECES || root.pieceCount(1) > Position.PIECES) {
             return false;
         }
+        if (root.rules().foreignCamps() != sternhalma.engine.RuleSet.ForeignCamps.CLOSED) {
+            return false; // the jump graph knows only landings on home cells; the full evaluation takes over
+        }
         height = 0;
         Arrays.fill(own, (byte) -1);
         Arrays.fill(histogram[0], 0);
@@ -90,7 +93,7 @@ final class IncrementalLinear implements EvalState {
         for (int p = 0; p < 2; p++) {
             for (int i = 0, n = root.pieceCount(p); i < n; i++) {
                 int c = root.pieceCell(p, i);
-                if (DIST[p][c] < 0) {
+                if (!root.layout().allowed(p, c)) {
                     return false; // a piece on a cell its owner may not enter
                 }
                 own[c] = (byte) p;

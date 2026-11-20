@@ -103,6 +103,7 @@ public final class RaceMove {
     public int choose(Position pos) {
         RuleSet rules = pos.rules();
         if (rules.players() != 2 || rules.jumpRule() != RuleSet.JumpRule.ADJACENT
+                || rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED
                 || rules.blockingStates() != RuleSet.BlockingStates.NONE
                 || !RaceAdjudication.passed(pos)) {
             return -1;

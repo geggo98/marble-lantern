@@ -706,6 +706,25 @@ depth-5 perft over the start position took 0.082 s before and 0.085 s after (noi
   the rule of the game: for a long-hop game it uses `eval=linear-r3`, `tt=16` and `jump=long`, without race arithmetic. The tests are
   `wasm_api_test` (native, no Emscripten) and `cpp/wasm/test/longhop.mjs` (run by `scripts/web/test-wasm.zsh`).
 
+## Foreign corners
+
+The engine plays the three values of `RuleSet::ForeignCamps`, as the Java engine does (`RuleSet.ForeignCamps`, rules in `../docs/rules.md`,
+section "Foreign corners"). `Closed` is the default and the rule the engine always played: steps and every landing of a jump chain only on
+home cells (hexagon, own start corner, own goal corner). `PassThrough` lets a chain land on a foreign corner and jump on, but a landing
+there is not a move. `Open` lets every move end there. `Position::generate` (`src/engine/position.hpp`) picks the tables per rule: the layout's tables
+(`Layout::step_table`, `Layout::jump_table` in `src/engine/layout.hpp`, home cells only) for `Closed`, the board's landing table `geometry::land_table()`
+(`src/engine/geometry.hpp`) for the chains of `PassThrough` and `Open`, and the board's step table `geometry::step_table()` for `Open`;
+`PassThrough` filters the end cells. The order of the generated moves is the order of the Java generator (`Position.generate` in
+`engine/src/main/java/sternhalma/engine/Position.java`, from the repository root). Unless the rule is `Closed`, race play, the
+race evaluation and race adjudication (section "Race play and the games row (WP6)" above) are off, and `IncrementalLinear::reset` (`src/search/incremental_linear.hpp`) declines the position, so the full evaluation runs. `Layout::distance` gives a foreign
+cell the step count over the whole board (at most 9; the home cells keep their values, at most 13).
+
+`tests/foreign_camps_test.cpp` reads the Java golden file `engine/src/test/resources/foreign-camps-golden.tsv` (from the repository root) in place (48 rows: both
+values other than `Closed`, two and three players, both jump rules) and compares `generate` with a coordinate oracle over seeded playouts
+of all three values. The wasm API has `shw_game_new4(jump, players, ranking, camps)` (camps 0 closed, 1 pass-through, 2 open;
+`shw_game_new4` returns -1 for any other value and leaves the game unchanged) and `shw_foreign_camps()` (0, 1 or 2);
+`wasm/test/camps.mjs` checks them under node.
+
 ## Three players
 
 The engine also plays the three-player game, as the Java engine does (rules in `docs/rules.md`, section "Three-player specifics"; the search in

@@ -97,7 +97,7 @@ This section describes the default `jumpRule = ADJACENT`. The section [Jump rule
 
 A move cannot mix the two kinds. A step ends the move. A jumped piece stays on the board; jumping does not capture. [Sturtevant2019, §3.1] defines the same two kinds of move: a piece can take any number of hops in a turn and can stop when further hops are still possible, and hopped pieces stay on the board. The paper also notes that the game is not acyclic: a position can repeat without progress.
 
-[Sturtevant2019, §3] says that pieces are typically not allowed to move into the four corners that are neither the start nor the goal corner. Some rules allow a piece to pass through them if it does not stay there at the end of the turn. The paper's two-player implementation does not allow this; a footnote says that the passage rule may be more useful with more than two players. **Open point:** this document does not yet fix the side-corner rule for the 121-cell board. The rule has no effect on the first two plies (see [Move counts on the full board](#move-counts-on-the-full-board)).
+[Sturtevant2019, §3] says that pieces are typically not allowed to move into the four corners that are neither the start nor the goal corner. Some rules allow a piece to pass through them if it does not stay there at the end of the turn. The paper's two-player implementation does not allow this; a footnote says that the passage rule may be more useful with more than two players. The switch `foreignCamps` fixes this rule for the 121-cell board. Its default `CLOSED` keeps a piece out of these corners entirely, as the paper's implementation does; `PASS_THROUGH` and `OPEN` are opt-in (see [Foreign corners](#foreign-corners)). The rule has no effect on the first two plies (see [Move counts on the full board](#move-counts-on-the-full-board)).
 
 The path of a jump chain has no effect on the result. Only the pair (start cell, end cell) matters. The move generator therefore returns each (start, end) pair exactly once, even when several jump paths reach the same end cell. **Project decision:** a jump chain that returns to its start cell is not a move.
 
@@ -167,12 +167,14 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 | `drawHandling` | `DRAW`, `SCORE_BY_DISTANCE` | `SCORE_BY_DISTANCE` | The result when the game ends without a winner. | The paper scores such games as draws. |
 | `ranking` | `FIRST_WINNER_ONLY`, `FULL_RANKING` | `FIRST_WINNER_ONLY` | With `FIRST_WINNER_ONLY`, the game ends when the first player fills the goal. With `FULL_RANKING` and three players, that player is finished and the others play on (see [Playing on for second place](#playing-on-for-second-place)). With two players, both values behave the same. | The paper focuses on two players (§3) and gives no rule for ranking. |
 | `jumpRule` | `ADJACENT`, `LONG` | `ADJACENT` | With `LONG`, a piece hops over one piece at any distance along a line and lands at the same distance behind it (see [Jump rule](#jump-rule)). | The paper plays adjacent jumps only (§3.1). `LONG` is outside the paper, so its oracles do not apply. |
+| `foreignCamps` | `CLOSED`, `PASS_THROUGH`, `OPEN` | `CLOSED` | Whether a piece may enter a corner that is neither its start nor its goal corner: never (`CLOSED`), only between two jumps of a chain (`PASS_THROUGH`), or also at the end of a move (`OPEN`). See [Foreign corners](#foreign-corners). | `CLOSED` is the paper's implementation (§3). `PASS_THROUGH` is the passage rule that the paper mentions but does not use; `OPEN` is outside the paper. |
 
 ### Project defaults and their evidence
 
 - **`moveLimit`** — **project decision** (owner, 2026-11-07): 200 plies for two players. The value for three players, 300 plies (100 per player), is **proposed**.
 - **`blockadeRule = OPPONENT_FILLS`** — **project decision** (owner, 2026-11-07): an opponent piece in the goal counts as filling it if at least one own piece is in the goal. This is exactly Definition 1 [Sturtevant2019, §3.2]. A goal that holds only opponent pieces is not a win.
 - **`drawHandling = SCORE_BY_DISTANCE`** — **project decision** (owner, 2026-11-07). The value `DRAW` stays available, because comparisons with the solved tables of [Sturtevant2019] need real draws (see [Oracles from the paper](#oracles-from-the-paper)).
+- **`foreignCamps = CLOSED`** — **project decision** (owner, 2026-11-20). It is the rule the engine always played, so every golden file, hash, race table and trained net stays valid. `PASS_THROUGH` and `OPEN` were added on the same day at the owner's wish (see [Foreign corners](#foreign-corners)).
 - **`ranking = FIRST_WINNER_ONLY`** — **project decision** (owner, 2026-11-07). It stays the default. `FULL_RANKING` was added on 2026-11-19 at the owner's wish (see [Playing on for second place](#playing-on-for-second-place)).
 - **`suicideMoves = ILLEGAL`** — **project decision (proposed)**. It follows Definition 2. The paper focuses on the two-player game [Sturtevant2019, §3]; the three-player form of the rule is an open point.
 - **`blockingStates = NONE`** — **project decision (proposed)**. The project deviates from Definition 3 in the default, because the paper itself calls the conditions for 10 pieces "more complicated" [Sturtevant2019, §3.3] and does not give them. Before `ILLEGAL` can be implemented for 10 pieces, the project must define "unreachable" exactly.
@@ -200,7 +202,7 @@ The project uses the paper only to verify its rules. Two defaults deviate from i
 - **`LONG`:** a piece on cell X looks along each of the six directions. P is the first piece (own or opponent) on that line, at distance k ≥ 1 steps from X. The landing cell L is the mirror image of X across P: k steps behind P, 2k steps from X. The hop is legal when all three conditions hold:
   1. the k − 1 cells strictly between X and P are empty;
   2. the k − 1 cells strictly between P and L, and L itself, are on the board and empty;
-  3. the player may stand on L. This is the same allowed-cell rule as for `ADJACENT`: the central hexagon, the own start corner and the own goal corner.
+  3. the chain may land on L. This is the same landing rule as for `ADJACENT`: under the default `foreignCamps = CLOSED` only a home cell (the central hexagon, the own start corner or the own goal corner); see [Foreign corners](#foreign-corners) for the other values.
 
 The moving piece's own start cell counts as empty during the whole move. Because P is the first piece on the line, each direction gives at most one landing.
 
@@ -233,6 +235,41 @@ Each item is a **project decision**. The reason is the same for all: the compone
 **Open point:** the playing strength of `LONG` players is not measured.
 
 The golden file `engine/src/test/resources/long-jump-golden.tsv` pins the rule for ports to other languages. It holds 30 positions, each with its move count and the SHA-256 of the sorted move list.
+
+## Foreign corners
+
+**Project decision** (owner, 2026-11-20): the switch `foreignCamps` (Java enum `RuleSet.ForeignCamps` in `engine/src/main/java/sternhalma/engine/RuleSet.java`, C++ `RuleSet::ForeignCamps` in `cpp/src/engine/rules.hpp`) decides whether a piece may enter a foreign corner. The owner first asked for a rule "a move must not end in a foreign triangle, a jump chain may pass through". The engine already forbade even the passage: it never let a jump chain land on such a cell. The owner therefore chose three values, with that rule (`CLOSED`) as the default.
+
+### Definition
+
+The **home cells** of a player p are the cells of the central hexagon, of p's start corner and of p's goal corner (`Layout.allowed(p, cell)`). Every other corner cell is a **foreign cell** of p.
+
+- With two players both players have the same home cells: the hexagon and the corners r < −4 and r > 4. The four side corners q > 4, q < −4, s > 4 and s < −4 are foreign for both.
+- With three players every corner is the start or the goal of some player, but each player owns only two of the six. The foreign cells of player 0 (start r < −4, goal r > 4) are the corners of q and s; those of player 1 (start s < −4, goal s > 4) are the corners of q and r; those of player 2 (start q < −4, goal q > 4) are the corners of r and s.
+
+| Value | Step | Landing between two jumps of a chain | End of a jump chain |
+|---|---|---|---|
+| `CLOSED` (default) | home cell only | home cell only | home cell only |
+| `PASS_THROUGH` | home cell only | any empty cell | home cell only |
+| `OPEN` | any empty cell | any empty cell | any empty cell |
+
+Under `PASS_THROUGH` a chain may land on a foreign cell and jump on from there. The landing itself is not a move, and a chain that only reaches foreign cells gives no move. Only the end cell is checked, as for `leaveGoal`. Everything else applies unchanged on top: `leaveGoal`, `suicideMoves`, the jump rule and the rule that a chain returning to its start cell is not a move.
+
+Example, two players, `jumpRule = ADJACENT`: player 0 on (3, −1), player 1 on (4, −1) and (4, 0). The jump over (4, −1) lands on (5, −1) in the foreign corner q > 4; from there the jump over (4, 0) lands on (3, 1) in the hexagon. `CLOSED` has neither move, `PASS_THROUGH` has (3, −1) → (3, 1), and `OPEN` has both (3, −1) → (3, 1) and (3, −1) → (5, −1).
+
+**No legal move.** A player with no legal move under the rule in force is handled as under `CLOSED`: the game ends with the reason `NO_MOVES` and no winner, and `drawHandling` scores it; with `FULL_RANKING` and three players the players still in play are ranked by distance (see [Playing on for second place](#playing-on-for-second-place)). The rule cannot take away a move that `CLOSED` allows, because the move sets are nested: `CLOSED` ⊆ `PASS_THROUGH` ⊆ `OPEN` on every position.
+
+**Distance.** The distance table (`Layout.distance` in `engine/src/main/java/sternhalma/engine/Layout.java`, C++ `Layout::distance` in `cpp/src/engine/layout.hpp`) counts steps to the nearest goal cell over the home cells. A foreign cell gets the number of steps over all board cells; home cells keep their values. With two and with three players the largest distance of a foreign cell (9) stays below the largest home distance (13); measured on 2026-11-20 over all cells of both layouts, and `ForeignCampsTest` (`engine/src/test/java/sternhalma/engine/`) checks the bound. The distance matters only under `OPEN`, where a piece can rest on a foreign cell; it enters the score of a game without a winner and the evaluation.
+
+### Rationale and limits
+
+- **Default.** `CLOSED` is exactly the move set the engine has generated since the first version: the step and landing tables of `Layout`, which the move generator reads, never held a foreign cell. Keeping it as the default leaves every golden file, hash, race table, opening book and trained net valid.
+- **Race play.** Race play ([endgame and opening](endgame-and-opening.md#race-play-race1-race2)), its race table and solitaire beam, and the S1 adjudication ([endgame and opening](endgame-and-opening.md#the-criterion-s1-adjudication)) assume that no piece enters a foreign corner, and a passage through one can shorten a race. They are therefore off unless `foreignCamps = CLOSED`: `RaceAdjudication.applicable` and `passed`, `RaceMove.choose` and `RaceEvaluator.rulesApply` (all in `search/src/main/java/sternhalma/search/`) say no, and the search decides instead.
+- **Evaluation.** The incremental linear evaluation ([search and evaluation](search-and-evaluation.md#incremental-evaluation-e13-identical-tree-measured-2026-11-08)) keeps a graph of landings on home cells only. Unless the rule is `CLOSED` it declines the position (`IncrementalLinear.reset` returns false), and the full evaluation runs. The evaluators were tuned under `CLOSED`, so they play weaker under the other values; their features still count steps and jumps onto home cells only.
+- **Networks.** Every shipped network was trained under `CLOSED`. Its policy covers all 121 cells, and the search masks it with the legal moves, so a network can play under `PASS_THROUGH` and `OPEN`, but it was never trained for them. Its input plane "playable" ([network](network.md)) still marks home cells only. The replay buffer ([training](training.md#replay-buffer), `selfplay/src/main/java/sternhalma/selfplay/ReplayBuffer.java`) refuses training samples of another rule.
+- **Not measured.** The playing strength of any engine under `PASS_THROUGH` or `OPEN` is not measured.
+
+The golden file `engine/src/test/resources/foreign-camps-golden.tsv` pins the rule for the C++ port: 48 positions from seeded playouts (`PASS_THROUGH` and `OPEN`, two and three players, both jump rules), each with its move count and the SHA-256 of the sorted and of the generated move list. `ForeignCampsGoldenTest` checks the file against a fresh run and against an independent coordinate oracle (`ForeignCampsOracle`); both are in `engine/src/test/java/sternhalma/engine/`.
 
 ## Draw handling
 
@@ -398,5 +435,6 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 16. Each symmetry of [Symmetry](#symmetry) maps a legal position to a legal position. The move count of a position equals the move count of its image. The 180-degree rotation equals the player symmetry followed by the left-right flip.
 17. Property test: for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash. The engine tests use seeded random playouts for this; jqwik is not used yet.
 18. With `jumpRule = LONG`, on seeded random positions, the move set contains the `ADJACENT` move set, equals the move set of an independent oracle built from the definition in [Jump rule](#jump-rule), and has no duplicate (start, end) pair. The engine reproduces the move counts and hashes of the golden file `engine/src/test/resources/long-jump-golden.tsv`.
+19. With `foreignCamps`, on seeded random positions for two and three players and both jump rules, the move set equals the move set of an independent coordinate oracle built from the definition in [Foreign corners](#foreign-corners), and has no duplicate (start, end) pair. The move sets are nested: `CLOSED` ⊆ `PASS_THROUGH` ⊆ `OPEN`. In the constructed position of that section, `CLOSED` has no move through the corner, `PASS_THROUGH` has only the move (3, −1) → (3, 1), and `OPEN` also ends on (5, −1). A step into a foreign corner is a move only under `OPEN`, and a setup that puts a piece on a foreign cell is refused unless the rule is `OPEN`. A game under `PASS_THROUGH` never leaves a piece on a foreign cell. The engines reproduce the golden file `engine/src/test/resources/foreign-camps-golden.tsv`, and the Java and C++ engines built for the browser agree with the TypeScript move generator of the web tests (`tinyLegalMoves` in `web/src/engines/testing/tiny-moves.ts`) in `web/src/engines/camps.cross.test.ts`.
 
 **Proposed, not scheduled:** in the [small-board mode](#small-board-mode), the engine reproduces the "Positions" and "Illegal" columns of Table 1 for 7×7 with 1 and 2 pieces. The "Wins" and "Draws" columns are not a test target, because they need a solver.

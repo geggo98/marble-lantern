@@ -18,7 +18,8 @@ public record RuleSet(
         Repetition repetition,
         DrawHandling drawHandling,
         Ranking ranking,
-        JumpRule jumpRule) {
+        JumpRule jumpRule,
+        ForeignCamps foreignCamps) {
 
     public enum LeaveGoal { FORBIDDEN, ALLOWED }
 
@@ -41,12 +42,29 @@ public record RuleSet(
      */
     public enum JumpRule { ADJACENT, LONG }
 
-    /** The rule set with the default jump rule {@link JumpRule#ADJACENT}. */
+    /**
+     * Whether a piece may enter a foreign corner: a corner triangle that is neither the mover's start corner nor the
+     * mover's goal corner (docs/rules.md, "Foreign corners"). {@code CLOSED} (default): a piece never stands on such a
+     * cell, not even between two jumps of a chain. {@code PASS_THROUGH}: a jump chain may land there between two
+     * jumps, but the move must not end there; a step into a foreign corner is not a move. {@code OPEN}: a move may
+     * also end there.
+     */
+    public enum ForeignCamps { CLOSED, PASS_THROUGH, OPEN }
+
+    /** The rule set with the default jump rule {@link JumpRule#ADJACENT} and closed foreign corners. */
     public RuleSet(int players, int moveLimit, LeaveGoal leaveGoal, BlockadeRule blockadeRule,
             SuicideMoves suicideMoves, BlockingStates blockingStates, Repetition repetition,
             DrawHandling drawHandling, Ranking ranking) {
         this(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates, repetition, drawHandling,
-                ranking, JumpRule.ADJACENT);
+                ranking, JumpRule.ADJACENT, ForeignCamps.CLOSED);
+    }
+
+    /** The rule set with closed foreign corners ({@link ForeignCamps#CLOSED}). */
+    public RuleSet(int players, int moveLimit, LeaveGoal leaveGoal, BlockadeRule blockadeRule,
+            SuicideMoves suicideMoves, BlockingStates blockingStates, Repetition repetition,
+            DrawHandling drawHandling, Ranking ranking, JumpRule jumpRule) {
+        this(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates, repetition, drawHandling,
+                ranking, jumpRule, ForeignCamps.CLOSED);
     }
 
     public RuleSet {
@@ -64,6 +82,7 @@ public record RuleSet(
         Objects.requireNonNull(drawHandling, "drawHandling");
         Objects.requireNonNull(ranking, "ranking");
         Objects.requireNonNull(jumpRule, "jumpRule");
+        Objects.requireNonNull(foreignCamps, "foreignCamps");
         if (blockingStates == BlockingStates.ILLEGAL) {
             throw new UnsupportedOperationException(
                     "blockingStates=ILLEGAL needs an exact definition of 'unreachable' for 10 pieces (docs/rules.md)");
@@ -82,42 +101,43 @@ public record RuleSet(
                 Repetition.MOVE_LIMIT,
                 DrawHandling.SCORE_BY_DISTANCE,
                 Ranking.FIRST_WINNER_ONLY,
-                JumpRule.ADJACENT);
+                JumpRule.ADJACENT,
+                ForeignCamps.CLOSED);
     }
 
     public RuleSet withMoveLimit(int value) {
         return new RuleSet(players, value, leaveGoal, blockadeRule, suicideMoves, blockingStates,
-                repetition, drawHandling, ranking, jumpRule);
+                repetition, drawHandling, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withLeaveGoal(LeaveGoal value) {
         return new RuleSet(players, moveLimit, value, blockadeRule, suicideMoves, blockingStates,
-                repetition, drawHandling, ranking, jumpRule);
+                repetition, drawHandling, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withBlockadeRule(BlockadeRule value) {
         return new RuleSet(players, moveLimit, leaveGoal, value, suicideMoves, blockingStates,
-                repetition, drawHandling, ranking, jumpRule);
+                repetition, drawHandling, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withSuicideMoves(SuicideMoves value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, value, blockingStates,
-                repetition, drawHandling, ranking, jumpRule);
+                repetition, drawHandling, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withRepetition(Repetition value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
-                value, drawHandling, ranking, jumpRule);
+                value, drawHandling, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withDrawHandling(DrawHandling value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
-                repetition, value, ranking, jumpRule);
+                repetition, value, ranking, jumpRule, foreignCamps);
     }
 
     public RuleSet withRanking(Ranking value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
-                repetition, drawHandling, value, jumpRule);
+                repetition, drawHandling, value, jumpRule, foreignCamps);
     }
 
     /**
@@ -130,6 +150,26 @@ public record RuleSet(
 
     public RuleSet withJumpRule(JumpRule value) {
         return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
-                repetition, drawHandling, ranking, value);
+                repetition, drawHandling, ranking, value, foreignCamps);
+    }
+
+    /**
+     * The record text, e.g. {@code RuleSet[players=2, moveLimit=200, ..., jumpRule=ADJACENT]}. {@code foreignCamps}
+     * appears only when it is not {@code CLOSED}, so the text of every rule set that existed before the switch stays
+     * byte for byte the same: shard metadata and their golden hashes contain it, and a reader treats a missing key as
+     * {@code CLOSED} (GameShard.rules).
+     */
+    @Override
+    public String toString() {
+        return "RuleSet[players=" + players + ", moveLimit=" + moveLimit + ", leaveGoal=" + leaveGoal
+                + ", blockadeRule=" + blockadeRule + ", suicideMoves=" + suicideMoves + ", blockingStates="
+                + blockingStates + ", repetition=" + repetition + ", drawHandling=" + drawHandling + ", ranking="
+                + ranking + ", jumpRule=" + jumpRule
+                + (foreignCamps == ForeignCamps.CLOSED ? "" : ", foreignCamps=" + foreignCamps) + "]";
+    }
+
+    public RuleSet withForeignCamps(ForeignCamps value) {
+        return new RuleSet(players, moveLimit, leaveGoal, blockadeRule, suicideMoves, blockingStates,
+                repetition, drawHandling, ranking, jumpRule, value);
     }
 }

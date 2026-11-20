@@ -126,13 +126,20 @@ SHW_API void shw_player_clear(int id) {
 // Starts a new game from the start position. jump = 0: the adjacent jump rule, 1: the Halma long hop; players = 2 (200 plies) or 3 (clockwise
 // play order top, lower right, lower left; 300 plies). Returns 0, or -1 for another value of jump or players (the game is then unchanged;
 // shw_error() tells which).
-SHW_API int shw_game_new3(int jump, int players, int ranking) {
+SHW_API int shw_game_new4(int jump, int players, int ranking, int camps);
+SHW_API int shw_game_new3(int jump, int players, int ranking) { return shw_game_new4(jump, players, ranking, 0); }
+// shw_game_new3 with the foreign-corner rule (docs/rules.md, "Foreign corners"): camps = 0 closed (RuleSet ForeignCamps CLOSED, the default),
+// 1 pass-through (a jump chain may land in a foreign corner but must not end there), 2 open (a move may end there). Another value gives -1.
+SHW_API int shw_game_new4(int jump, int players, int ranking, int camps) {
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
     if (players != 2 && players != 3) { g_error = "players must be 2 or 3, got " + std::to_string(players); return -1; }
     if (ranking != 0 && ranking != 1) { g_error = "ranking must be 0 (first winner only) or 1 (full ranking), got " + std::to_string(ranking); return -1; }
+    if (camps < 0 || camps > 2) { g_error = "camps must be 0 (closed), 1 (pass-through) or 2 (open), got " + std::to_string(camps); return -1; }
+    const auto foreign = camps == 2 ? sh::RuleSet::ForeignCamps::Open : camps == 1 ? sh::RuleSet::ForeignCamps::PassThrough : sh::RuleSet::ForeignCamps::Closed;
     const auto rules = sh::RuleSet::defaults(players)
                            .with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent)
-                           .and_then([ranking](const sh::RuleSet& r) { return r.with_ranking(ranking == 1 ? sh::RuleSet::Ranking::FullRanking : sh::RuleSet::Ranking::FirstWinnerOnly); });
+                           .and_then([ranking](const sh::RuleSet& r) { return r.with_ranking(ranking == 1 ? sh::RuleSet::Ranking::FullRanking : sh::RuleSet::Ranking::FirstWinnerOnly); })
+                           .and_then([foreign](const sh::RuleSet& r) { return r.with_foreign_camps(foreign); });
     if (!rules) { g_error = rules.error(); return -1; }
     g_pos.emplace(sh::Position::initial(*rules));
     return 0;
@@ -145,6 +152,11 @@ SHW_API int shw_players() { return g_pos->rules().players(); }
 // The jump rule of the current game: 0 adjacent, 1 long.
 // The ranking rule of the current game: 0 first winner only, 1 full ranking.
 SHW_API int shw_ranking_rule() { return g_pos->rules().ranking() == sh::RuleSet::Ranking::FullRanking ? 1 : 0; }
+// The foreign-corner rule of the current game: 0 closed, 1 pass-through, 2 open.
+SHW_API int shw_foreign_camps() {
+    const auto c = g_pos->rules().foreign_camps();
+    return c == sh::RuleSet::ForeignCamps::Open ? 2 : c == sh::RuleSet::ForeignCamps::PassThrough ? 1 : 0;
+}
 SHW_API int shw_jump_rule() { return g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long ? 1 : 0; }
 SHW_API int shw_side_to_move() { return g_pos->side_to_move(); }
 SHW_API int shw_ply() { return g_pos->ply(); }

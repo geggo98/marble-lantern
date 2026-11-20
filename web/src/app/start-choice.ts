@@ -1,13 +1,15 @@
-// What the start dialog asks: the jump rule, the game mode and the seats; and how that becomes a GameSetup. The last choice is
+// What the start dialog asks: the jump rule, the foreign-corner rule, the game mode and the seats; and how that becomes a GameSetup. The last choice is
 // kept in localStorage as a per-viewer convenience (every read and write is guarded: storage can be missing or blocked).
-import { hotSeatVsEngine, humanVsEngine, humanVsTwoEngines } from '../game/setup';
+import { hotSeatVsEngine, humanVsEngine, humanVsTwoEngines, withForeignCamps } from '../game/setup';
 import type { GameSetup } from '../game/setup';
-import type { JumpRule, Player } from '../game/variant';
+import type { ForeignCamps, JumpRule, Player } from '../game/variant';
 
 export type GameMode = 'two' | 'hotseat' | 'engines';
 
 export interface StartChoice {
   jump: JumpRule;
+  /** May pieces enter the foreign triangles (docs/rules.md, "Foreign corners")? A choice stored before the field existed reads as `closed`. */
+  camps: ForeignCamps;
   mode: GameMode;
   /** Mode 'engines': the seat of the person (0 moves first). */
   humanSeat: Player;
@@ -15,7 +17,7 @@ export interface StartChoice {
   engineSeat: Player;
 }
 
-export const DEFAULT_CHOICE: Readonly<StartChoice> = Object.freeze({ jump: 'adjacent', mode: 'two', humanSeat: 0, engineSeat: 2 });
+export const DEFAULT_CHOICE: Readonly<StartChoice> = Object.freeze({ jump: 'adjacent', camps: 'closed', mode: 'two', humanSeat: 0, engineSeat: 2 });
 export const CHOICE_KEY = 'ml.start-choice';
 
 const isSeat = (v: unknown): v is Player => v === 0 || v === 1 || v === 2;
@@ -28,6 +30,7 @@ export function parseChoice(text: string | null): StartChoice {
     if (!raw || typeof raw !== 'object') return { ...DEFAULT_CHOICE };
     return {
       jump: raw.jump === 'long' ? 'long' : 'adjacent',
+      camps: raw.camps === 'pass-through' || raw.camps === 'open' ? raw.camps : 'closed',
       mode: raw.mode === 'hotseat' || raw.mode === 'engines' ? raw.mode : 'two',
       humanSeat: isSeat(raw.humanSeat) ? raw.humanSeat : DEFAULT_CHOICE.humanSeat,
       engineSeat: isSeat(raw.engineSeat) ? raw.engineSeat : DEFAULT_CHOICE.engineSeat,
@@ -63,6 +66,10 @@ function defaultStorage(): Storage | null {
 
 /** The game of a choice. `humanBegins` answers "Do you want to begin?" and counts for two players only. */
 export function setupOfChoice(choice: StartChoice, humanBegins: boolean, level: number): GameSetup {
+  return withForeignCamps(seatsOfChoice(choice, humanBegins, level), choice.camps);
+}
+
+function seatsOfChoice(choice: StartChoice, humanBegins: boolean, level: number): GameSetup {
   switch (choice.mode) {
     case 'hotseat':
       return hotSeatVsEngine(level, choice.engineSeat, choice.jump);

@@ -9,6 +9,14 @@ export type PlayerCount = 2 | 3;
  */
 export type RankingRule = 'first' | 'full';
 
+/**
+ * Whether a piece may enter a foreign corner, a corner triangle that is neither its start nor its goal corner (RuleSet.ForeignCamps of
+ * the engine, docs/rules.md "Foreign corners"). `closed`: never, not even between two jumps (the rule the app has always played).
+ * `pass-through`: a jump chain may land there between two jumps, but the move must not end there. `open`: a move may also end there.
+ * The game URL carries it as `c=pass` or `c=open`.
+ */
+export type ForeignCamps = 'closed' | 'pass-through' | 'open';
+
 /** A seat of the game: 0 moves first; the side to move is `ply % players`. */
 export type Player = 0 | 1 | 2;
 
@@ -17,6 +25,8 @@ export interface Variant {
   players: PlayerCount;
   /** Missing means `first`, so every variant that was written before the field existed keeps its meaning. */
   ranking?: RankingRule;
+  /** Missing means `closed`, so every variant that was written before the field existed keeps its meaning. */
+  camps?: ForeignCamps;
 }
 
 export const DEFAULT_VARIANT: Readonly<Variant> = Object.freeze({ jump: 'adjacent', players: 2 });
@@ -24,6 +34,17 @@ export const DEFAULT_VARIANT: Readonly<Variant> = Object.freeze({ jump: 'adjacen
 /** The ranking rule of the variant; `first` when the field is missing. */
 export function rankingOf(variant: Variant): RankingRule {
   return variant.ranking ?? 'first';
+}
+
+/** The foreign-corner rule of the variant; `closed` when the field is missing. */
+export function campsOf(variant: Variant): ForeignCamps {
+  return variant.camps ?? 'closed';
+}
+
+/** The variant with another foreign-corner rule; `closed` drops the field, so the result equals a variant without one. */
+export function withCamps(variant: Variant, camps: ForeignCamps): Variant {
+  const { camps: _old, ...rest } = variant;
+  return camps === 'closed' ? rest : { ...rest, camps };
 }
 
 /** Whether a finished seat makes no more moves while the others play on: `full` ranking with three players. */
@@ -48,11 +69,11 @@ export function moveLimit(variant: Variant): number {
 }
 
 export function isDefault(variant: Variant): boolean {
-  return variant.jump === 'adjacent' && variant.players === 2 && rankingOf(variant) === 'first';
+  return variant.jump === 'adjacent' && variant.players === 2 && rankingOf(variant) === 'first' && campsOf(variant) === 'closed';
 }
 
 export function sameVariant(a: Variant, b: Variant): boolean {
-  return a.jump === b.jump && a.players === b.players && rankingOf(a) === rankingOf(b);
+  return a.jump === b.jump && a.players === b.players && rankingOf(a) === rankingOf(b) && campsOf(a) === campsOf(b);
 }
 
 /**
@@ -63,7 +84,11 @@ export function sideAt(ply: number, variant: Variant): Player {
   return (ply % variant.players) as Player;
 }
 
-/** Stable text for keys, e.g. "adjacent-2"; "adjacent-3-full" for full ranking (the text of a `first` variant is unchanged). */
+/**
+ * Stable text for keys, e.g. "adjacent-2"; "adjacent-3-full" for full ranking, "adjacent-2-open" or "adjacent-2-pass-through" for the
+ * foreign-corner rules (the text of a `first`, `closed` variant is unchanged).
+ */
 export function variantKey(variant: Variant): string {
-  return `${variant.jump}-${variant.players}${rankingOf(variant) === 'full' ? '-full' : ''}`;
+  const camps = campsOf(variant);
+  return `${variant.jump}-${variant.players}${rankingOf(variant) === 'full' ? '-full' : ''}${camps === 'closed' ? '' : `-${camps}`}`;
 }

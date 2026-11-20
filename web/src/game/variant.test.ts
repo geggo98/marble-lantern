@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CELLS, cellId } from '../board/cells';
 import { applyMove, goalCells, hasWon, initialOwners, outcomeOf, replay, startCells } from './board-state';
 import { makeMove } from '../engines/engine';
-import { DEFAULT_VARIANT, isDefault, moveLimit, playsOn, rankingOf, sameVariant, sideAt, sidesOf, variantKey, withRanking } from './variant';
+import { DEFAULT_VARIANT, campsOf, isDefault, moveLimit, playsOn, rankingOf, sameVariant, sideAt, sidesOf, variantKey, withCamps, withRanking } from './variant';
 import type { Variant } from './variant';
 
 const THREE: Variant = { jump: 'adjacent', players: 3 };
@@ -129,5 +129,26 @@ describe('ranking rule of a variant', () => {
     expect(withRanking(THREE, 'full')).toEqual(FULL);
     expect(withRanking(FULL, 'first')).toEqual(THREE);
     expect('ranking' in withRanking(FULL, 'first')).toBe(false);
+  });
+});
+
+describe('the foreign-corner rule (camps)', () => {
+  const base: Variant = { jump: 'adjacent', players: 2 };
+
+  it('is closed when the field is missing, and closed drops the field again', () => {
+    expect(campsOf(base)).toBe('closed');
+    expect(withCamps(base, 'open')).toEqual({ ...base, camps: 'open' });
+    expect(withCamps(withCamps(base, 'open'), 'closed')).toEqual(base);
+  });
+
+  it('makes a variant non-default and different, and only the other rules change the key', () => {
+    expect(isDefault(withCamps(base, 'closed'))).toBe(true);
+    expect(isDefault(withCamps(base, 'pass-through'))).toBe(false);
+    expect(sameVariant(base, { ...base, camps: 'closed' })).toBe(true);
+    expect(sameVariant(base, withCamps(base, 'open'))).toBe(false);
+    expect(sameVariant(withCamps(base, 'open'), withCamps(base, 'pass-through'))).toBe(false);
+    expect(variantKey(base)).toBe('adjacent-2');
+    expect(variantKey(withCamps(base, 'open'))).toBe('adjacent-2-open');
+    expect(variantKey(withCamps({ jump: 'long', players: 3, ranking: 'full' }, 'pass-through'))).toBe('long-3-full-pass-through');
   });
 });
