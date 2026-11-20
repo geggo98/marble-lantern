@@ -50,6 +50,11 @@ export interface PlayModel {
   analyse: AnalyseFn;
   /** The static evaluation per seat (three players), for the advantage indicator; engines without it reject with code unsupported. */
   evaluate3?: Evaluate3Fn;
+  /**
+   * The engine whose scores `analyse` and `evaluate3` return: the engine in use, or for a net engine the classical engine that
+   * analyses for it (docs/web-ui.md, "Analysis for the net engines"). The guide caches key on it. Absent: the engine in use.
+   */
+  analysisId?: EngineId | null;
   humanSide: Side;
   demo: boolean;
   level: number;
@@ -130,7 +135,13 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const skillable = variant.players === 2;
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
   const [guidesOn, setGuidesOn] = useState(loadGuidesPreference);
-  const guideScope = s.current ? s.current.info.id + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
+  // the cache scope names the engine that computes the scores, which for a net engine is its classical analysis engine
+  const guideScope = s.current ? (model.analysisId ?? s.current.info.id) + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
+  // a net engine plays and a classical engine analyses: the guide card names it
+  const analysisLabelKey =
+    s.current && isNetEngine(s.current.info.id) && model.analysisId && model.analysisId !== s.current.info.id
+      ? s.choices.find((c) => c.info.id === model.analysisId)?.info.labelKey
+      : undefined;
   const guides = useGuides({
     analyse: model.analyse,
     scope: guideScope,
@@ -321,6 +332,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
       <GuideSettings
         three={three}
         enabled={guidesOn}
+        {...(analysisLabelKey ? { analysisLabelKey } : {})}
         status={guides.status}
         onChange={(on) => {
           setGuidesOn(on);

@@ -6,7 +6,7 @@ import { clearEngines, describeEngines, registerEngine } from '../engines/regist
 import type { EngineDefinition, EnginesManifest } from '../engines/registry';
 import type { EngineWarning } from '../engines/warnings';
 import { SELECTION_KEY } from '../engines/net/selection';
-import { EngineSession, defaultChoice } from './session';
+import { EngineSession, analysisChoice, defaultChoice } from './session';
 import { NetSelectionStore } from './net-selection';
 import { SwitchableEngine } from './switchable-engine';
 
@@ -229,5 +229,33 @@ describe('NetSelectionStore', () => {
     const store = new NetSelectionStore({ storage: mem().storage, wasm: true, probe: async () => { throw new Error('probe broke'); } });
     await store.probeWebGpu();
     expect(store.getState().availability).toMatchObject({ webgpu: false, webgpuReason: 'unknown', webgpuDetail: 'probe broke' });
+  });
+});
+
+describe('the analysis engine of the net engines', () => {
+  it('names the first classical browser engine and makes a fresh engine of it, apart from the one that plays', async () => {
+    const { sw, session } = setup();
+    expect(session.analysisSource(), 'nothing before start()').toBeNull();
+    await session.start();
+    await session.select('net-wasm');
+    const playing = made['net-wasm'];
+    const source = session.analysisSource();
+    expect(source?.id).toBe('cpp-wasm');
+    expect(sw.analysisId).toBe('cpp-wasm');
+    const before = made['cpp-wasm'];
+    const helper = source!.create();
+    expect(helper.info.id).toBe('cpp-wasm');
+    expect(helper).not.toBe(before);
+    expect(helper).not.toBe(playing);
+  });
+
+  it('skips net and server engines and unavailable ones; null when none is left', () => {
+    registerEngine(def('net-wasm'));
+    registerEngine({ id: 'server:browser', labelKey: 'engine.serverBrowser', runtime: 'server', language: 'Java', isAvailable: () => true, create: () => { throw new Error('unused'); } });
+    expect(analysisChoice(describeEngines(manifest))).toBeNull();
+    registerEngine({ ...def('cpp-wasm'), isAvailable: () => false });
+    expect(analysisChoice(describeEngines(manifest))).toBeNull();
+    registerEngine(def('cpp-wasm'));
+    expect(analysisChoice(describeEngines(manifest))?.info.id).toBe('cpp-wasm');
   });
 });

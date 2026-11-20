@@ -385,6 +385,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     netSelection: netStore,
     analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal, variantOf(setupRef.current)),
     evaluate3: (history) => engine.evaluate3(history, variantOf(setupRef.current)),
+    analysisId: engine.analysisId,
     humanSide,
     demo,
     level,
