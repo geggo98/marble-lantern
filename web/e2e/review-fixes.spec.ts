@@ -3,7 +3,7 @@
 // and English, light and dark. Screenshots go to SHOT_DIR for the visual review.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { CHOICE_KEY, humanTurnCell, openApp, openRulesPanel, waitForHumanTurn, watchPageErrors } from './helpers';
+import { CHOICE_KEY, humanTurnCell, openApp, openRulesPanel, useWideFont, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'test-results/screens';
 const SIZES = [
@@ -211,7 +211,11 @@ test.describe('the stored size (version marker)', () => {
 
 // ---- advantage strip ----
 
-const LONG_TEXT = { de: 'Vorteil: Engine: gewinnt garantiert in 250 Halbzügen (wird aktualisiert)', en: 'Advantage: Engine: guaranteed to win in 250 plies (updating)' } as const;
+// The longest composed text, as the component renders it (AdvantageBar.tsx: heading span, sentence, marker span).
+const LONG_TEXT = {
+  de: '<span class="ml-advantage__heading">Vorteil: </span>Engine: gewinnt garantiert in 250 Halbzügen<span> (wird aktualisiert)</span>',
+  en: '<span class="ml-advantage__heading">Advantage: </span>Engine: guaranteed to win in 250 plies<span> (updating)</span>',
+} as const;
 
 async function startDemo(page: Page, wide: boolean): Promise<void> {
   if (!wide) await page.locator('.ml-play__bar [aria-controls]').click();
@@ -223,9 +227,11 @@ for (const size of SIZES) {
   test.describe(`play screen, ${size.name}`, () => {
     test.use({ viewport: { width: size.width, height: size.height } });
 
-    for (const lang of LANGS) {
-      test(`${lang}: a long advantage text wraps, the plies and the updating marker are never cut off, the strip keeps its box`, async ({ page }, info) => {
+    for (const [lang, font] of LANGS.flatMap((l) => [[l, 'system font'], [l, 'wide font']] as const)) {
+      test(`${lang}, ${font}: a long advantage text fits the strip, the plies and the updating marker are never cut off, the strip keeps its box`, async ({ page }, info) => {
         const errors = watchPageErrors(page);
+        // "wide font": Verdana, wider than any system font of a Mac and than the fallback of a CI runner; fails without the fix on every machine
+        if (font === 'wide font') await useWideFont(page);
         await openApp(page, lang);
         await waitForHumanTurn(page);
         await expect(page.locator('.ml-play__adv .ml-advantage')).toHaveAttribute('data-state', 'value');
@@ -235,7 +241,7 @@ for (const size of SIZES) {
           const adv = document.querySelector<HTMLElement>('.ml-play__adv')!;
           const el = adv.querySelector<HTMLElement>('.ml-advantage__text')!;
           const original = el.innerHTML;
-          el.textContent = text;
+          el.innerHTML = text; // the same markup the component renders: heading span, sentence, marker span
           const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
           const out = {
             lines: Math.round(el.getBoundingClientRect().height / lineHeight),
@@ -258,9 +264,9 @@ for (const size of SIZES) {
         expect(m.box, 'the strip keeps its height').toBeCloseTo(before.height, 0);
         expect((await slot.boundingBox())!.y, 'and its place').toBeCloseTo(before.y, 0);
         await page.evaluate((text) => {
-          document.querySelector('.ml-play__adv .ml-advantage__text')!.textContent = text; // for the screenshot: the longest text in the strip
+          document.querySelector('.ml-play__adv .ml-advantage__text')!.innerHTML = text; // for the screenshot: the longest text in the strip
         }, LONG_TEXT[lang]);
-        await page.screenshot({ path: `${SHOT_DIR}/${info.project.name}-play-strip-${size.name}-${lang}.png`, animations: 'disabled' });
+        await page.screenshot({ path: `${SHOT_DIR}/${info.project.name}-play-strip-${size.name}-${lang}${font === 'wide font' ? '-wide' : ''}.png`, animations: 'disabled' });
         errors.expectNone();
       });
     }

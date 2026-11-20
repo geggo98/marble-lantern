@@ -122,4 +122,10 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-actionbar { grid-template-columns: minmax(0, 1fr); }
   .ml-actionbar .ml-btn { flex-direction: row; gap: var(--ml-space-2); min-height: var(--ml-size-control); font-size: var(--ml-text-sm); }
   .ml-play__adv { height: var(--ml-size-adv); }
+  /* The slim column is 12 to 17 rem wide. With a wide fallback font (Verdana, DejaVu Sans) the longest text, "<who>: guaranteed to win in
+     250 plies (updating)", needs three lines and the third would be cut off by the fixed strip height. The heading word is the part to drop:
+     the gauge keeps it as its accessible name, and the sentence says what the value is. The plies and the "updating" marker stay. */
+  .ml-play__adv .ml-advantage__heading {
+    position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
 }

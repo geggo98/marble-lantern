@@ -57,7 +57,7 @@ export function AdvantageBar({ state, info = null, stale = false, ends = null }:
       {...(value ? { 'data-advantage': value.lead, 'data-level': value.level } : {})}
     >
       <p className="ml-advantage__text">
-        {value && <span>{t('advantage_heading')}: </span>}
+        {value && <span className="ml-advantage__heading">{t('advantage_heading')}: </span>}
         {text}
         {value && stale && <span> ({t('advantage_updating')})</span>}
       </p>

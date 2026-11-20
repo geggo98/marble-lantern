@@ -21,6 +21,26 @@ export type RowsOption = 4 | 5 | 'fresh';
  * links have no such question, so nothing is answered for them. `rows` is the board size the stored start choice holds; a stored
  * choice that has a size already (a spec that saved one) is kept.
  */
+/**
+ * A worst-case wide UI font. Fonts differ between machines: a GitHub runner (Linux) falls back to DejaVu Sans or Liberation Sans, which are
+ * wider than the system fonts of a Mac, and a text that fits there can wrap one line more on the runner. Verdana is the widest common
+ * sans-serif (about as wide as DejaVu Sans); it ships with macOS. `E2E_WIDE_FONT=1` applies it to every spec that uses `openApp`.
+ */
+export const WIDE_FONT_CSS = ':root, body, button, input, select, textarea { --ml-font-ui: Verdana, "DejaVu Sans", sans-serif !important; font-family: Verdana, "DejaVu Sans", sans-serif !important; }';
+
+export async function useWideFont(page: Page): Promise<void> {
+  await page.addInitScript((css) => {
+    const apply = (): void => {
+      const style = document.createElement('style');
+      style.id = 'e2e-wide-font';
+      style.textContent = css;
+      document.head.appendChild(style);
+    };
+    if (document.head) apply();
+    else document.addEventListener('DOMContentLoaded', apply);
+  }, WIDE_FONT_CSS);
+}
+
 export async function openApp(
   page: Page,
   language: 'en' | 'de' = 'en',
@@ -28,6 +48,7 @@ export async function openApp(
   begin: 'human' | 'engine' | 'ask' = 'human',
   rows: RowsOption = 4,
 ): Promise<void> {
+  if (process.env.E2E_WIDE_FONT === '1') await useWideFont(page);
   await page.addInitScript(
     ([key, value]) => {
       try {
