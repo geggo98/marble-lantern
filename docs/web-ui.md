@@ -30,7 +30,8 @@ The static site can be installed as an app and plays offline after one visit ([i
 14. [Loading and checking the race table](#loading-and-checking-the-race-table)
 15. [Build, run and test](#build-run-and-test)
 16. [Continuous integration](#continuous-integration)
-17. [Known limits](#known-limits)
+17. [Fading move trail](#fading-move-trail)
+18. [Known limits](#known-limits)
 
 The shipped network files have their own document: [models](models.md).
 
@@ -952,6 +953,19 @@ Two GitHub Actions workflows run everything through devenv:
 CI runs neither the native C++ tests (the Linux devenv shell has no host C++ compiler; the C++ engine code is still tested through `wasm:test`) nor the Hilla production build (it downloads its own Node.js and npm packages, which Gradle's dependency verification does not cover).
 
 The 14-day cooldown for npm, uv and Dependabot and the `.npmrc` files are described in [supply-chain.md](supply-chain.md). Gradle's dependency verification, the Maven Central mirror that both workflows try first (with Maven Central as fallback), the download retries for HTTP 429 and the Gradle dependency cache are described in [supply-chain.md, "Gradle: verification metadata, mirror, retries and cache"](supply-chain.md#gradle-verification-metadata-mirror-retries-and-cache).
+
+## Fading move trail
+
+The play screen draws a trail for the last move on the board: a line along the jump path, a dashed ring on the start cell and a ring on the target cell (`.ml-trail` in `web/src/ui/Board.tsx`). The trail belongs to the last move of any seat, so it shows the engine's move and also the move of a human (and of a second human in hot-seat). Both follow the rule below. Before 2026-11-20 the trail stayed until the next move.
+
+Origin: a request of the project owner. Rationale: a trail that never goes away covers the board and gets in the way of reading the position.
+
+- **Setting.** A slider "Show the last move for" in the settings cards (below the move guides; in the menu on a small screen). It runs from 0 to 10 whole seconds. **0 means "always visible"**: the trail stays until the next move. The default is 3 s.
+- **Storage.** The value is stored per viewer in `localStorage` under `ml.trail-seconds`, as a whole number in the range 0 to 10 (for example `3`). A missing, blocked or unknown value gives the default; a value outside the range or not a whole number counts as unknown. Every access is guarded with `try`/`catch`, so blocked storage means the choice lasts for this page only (`web/src/ui/trail-fade.ts`, pattern of `web/src/guides/preference.ts`).
+- **Fade.** The trail stays fully visible for the set time. Then its opacity goes from 1 to 0 in 0.6 s (a CSS transition, class `ml-trail--fading`), and then the element is removed. The total time on screen is the set time plus 0.6 s.
+- **Restart and clearing.** Every new move (the ply count grows by exactly one) starts the timer again and cancels the old one, also while the trail fades. Undo, a new game, Back and Forward (any other change of the ply count) remove the trail at once; after Undo the trail of the earlier move does not come back. The timers are cancelled when the board unmounts. A change of the slider restarts the timer of a visible trail and does not bring back a trail that is gone, except that 0 shows it again. A page that opens with a game in the address starts the timer once.
+- **Reduced motion.** With `prefers-reduced-motion: reduce` the trail does not fade: it disappears when the set time is over, and the CSS transition is off. The setting is still obeyed (0 keeps it visible).
+- **Tests.** `web/src/ui/trail-fade.test.tsx` (storage and the timer logic with fake timers) and `web/e2e/trail-fade.spec.ts` (Chromium and Firefox: the trail is there after the engine's reply and gone after the stored 2 s). No other browser test looks for the trail.
 
 ## Known limits
 

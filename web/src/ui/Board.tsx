@@ -12,6 +12,7 @@ import type { ArrowKey, MoveDescription, Point, TapAction } from './board-model'
 import { GuideGlyphPath, GuideRing, bandTextKey, pieceTextKey } from './GuideGlyph';
 import type { Band } from '../guides/bands';
 import { prefersReducedMotion } from './primitives';
+import { useTrailPhase } from './trail-fade';
 import { haptic, HAPTIC_ILLEGAL, HAPTIC_MOVE, HAPTIC_SELECT } from './haptics';
 import {
   clientToBoard, exceedsDragThreshold, hitRadiusUnits, markBoost, nearestCell, REACH_PX, snapTarget,
@@ -30,6 +31,8 @@ export interface BoardGuides {
 export interface BoardProps {
   /** Optional move guides; shown only while `interactive`. */
   guides?: BoardGuides | null;
+  /** Seconds the trail of the last move stays visible before it fades; 0 or absent: always visible. */
+  trailSeconds?: number;
   owner: Int8Array;
   legal: readonly number[];
   /** True while the human may move. Otherwise the board is inert. */
@@ -77,6 +80,7 @@ interface Press {
 
 export function Board(props: BoardProps): React.JSX.Element {
   const { owner, legal, interactive, inert, aSide, rotated, plies, last, halo, onMove } = props;
+  const trailPhase = useTrailPhase(plies, props.trailSeconds ?? 0);
   const styleOf = (seat: number): SideStyle => props.seatStyle?.(seat) ?? (seat === aSide ? 'a' : 'b');
   const { t } = useT();
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -392,7 +396,7 @@ export function Board(props: BoardProps): React.JSX.Element {
 
   const selectedPoint = selected === null ? null : pos(selected);
   const focusPoint = keyboard ? pos(tabCell) : null;
-  const trailVisible = last !== null && selected === null;
+  const trailVisible = last !== null && selected === null && trailPhase !== 'gone';
   const lastStyle = last ? styleOf(last.side) : 'a';
 
   return (
@@ -437,7 +441,7 @@ export function Board(props: BoardProps): React.JSX.Element {
           })}
         </g>
         {trailVisible && last && (
-          <g className={`ml-trail ml-trail--${lastStyle}`}>
+          <g className={`ml-trail ml-trail--${lastStyle}${trailPhase === 'fading' ? ' ml-trail--fading' : ''}`} data-trail-phase={trailPhase}>
             <polyline className="ml-trail__line" points={points(last.path)} />
             <circle className="ml-trail__origin" cx={pos(last.from).x} cy={pos(last.from).y} r={11.5} />
             {last.path.slice(1, -1).map((c, i) => (

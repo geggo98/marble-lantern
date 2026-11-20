@@ -12,6 +12,8 @@ import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
 import { AdvantageBar3 } from '../ui/AdvantageBar3';
 import { GuideSettings } from '../ui/GuideSettings';
+import { TrailSetting } from '../ui/TrailSetting';
+import { loadTrailSeconds, saveTrailSeconds } from '../ui/trail-fade';
 import { useGuides } from '../guides/useGuides';
 import { useAdvantage3 } from '../guides/useAdvantage3';
 import type { Evaluate3Fn } from '../guides/useAdvantage3';
@@ -124,6 +126,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const setSheet = (open: boolean): void => setSheetFocus(open ? 'engines' : null);
   const wide = useWide();
   const [menu, setMenu] = useState(false);
+  const [trailSeconds, setTrailSeconds] = useState(() => loadTrailSeconds());
   const [closedResult, setClosedResult] = useState<string | null>(null);
   const menuButton = useRef<HTMLButtonElement | null>(null);
 
@@ -343,6 +346,13 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           saveGuidesPreference(on);
         }}
       />
+      <TrailSetting
+        seconds={trailSeconds}
+        onChange={(n) => {
+          setTrailSeconds(n);
+          saveTrailSeconds(n);
+        }}
+      />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
       <InstallEntry {...(model.pwa ? { pwa: model.pwa } : {})} />
       <EngineCard
@@ -388,6 +398,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             rotated={rotated}
             plies={state.history.length}
             last={last}
+            trailSeconds={trailSeconds}
             halo={halo}
             sideLabel={sideLabel}
             seatStyle={styleOf}

@@ -233,6 +233,13 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-trail--a .ml-trail__hop { fill: var(--ml-piece-a-text); }
 .ml-trail--b .ml-trail__hop { fill: var(--ml-piece-b-text); }
 .ml-trail--c .ml-trail__hop { fill: var(--ml-piece-c-text); }
+/* fades after the time of the viewer (trail-fade.ts: TRAIL_FADE_MS); no animation with reduced motion */
+.ml-trail { opacity: 1; transition: opacity 0.6s ease; }
+.ml-trail--fading { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .ml-trail { transition: none; } }
+.ml-trail-card { display: grid; gap: var(--ml-space-2); }
+.ml-trail-card input[type="range"] { inline-size: 100%; accent-color: var(--ml-color-primary); }
+.ml-trail-card output { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 
 /* keyboard focus on a cell, illegal click, result halo */
 .ml-cellfocus { fill: none; stroke: var(--ml-color-focus); stroke-width: 3.5; }
