@@ -6,7 +6,7 @@
 // WebKit is informative (Playwright's WebKit is not Safari); Firefox has no mobile emulation.
 import { expect, test, devices } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { openApp, openEngineSheet, waitForHumanTurn, watchPageErrors } from './helpers';
+import { openApp, openEngineSheet, openRulesPanel, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOT_DIR = process.env.LANG_SHOT_DIR ?? process.env.SHOT_DIR ?? 'test-results/screens';
 const shot = (page: Page, project: string, name: string): Promise<Buffer> =>
@@ -61,15 +61,16 @@ for (const size of SIZES) {
       await openKeepingChoice(page);
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole('heading')).toHaveText('New game');
+      await expect(dialog.locator('h2')).toHaveText('New game');
       await expect(page.locator('[data-choice="begin-yes"]')).toBeFocused(); // the toggle does not take the first focus
       await page.locator('[data-choice="mode-hotseat"]').check();
+      await openRulesPanel(page);
       await page.locator('[data-choice="jump-long"]').check();
       await noOverflow(page);
       await shot(page, info.project.name, `lang/${size.name}-dialog-en`);
 
       await toggle(dialog, 'de').click();
-      await expect(dialog.getByRole('heading')).toHaveText('Neues Spiel');
+      await expect(dialog.locator('h2')).toHaveText('Neues Spiel');
       await expect(dialog).toBeVisible(); // not closed
       await expect(page.locator('[data-choice="mode-hotseat"]')).toBeChecked();
       await expect(page.locator('[data-choice="jump-long"]')).toBeChecked();
@@ -81,9 +82,9 @@ for (const size of SIZES) {
 
       // the choice is stored: after a reload the dialog speaks German at once, and the header toggle agrees
       await page.reload();
-      await expect(page.getByRole('dialog').getByRole('heading')).toHaveText('Neues Spiel');
+      await expect(page.getByRole('dialog').locator('h2')).toHaveText('Neues Spiel');
       await toggle(page.getByRole('dialog'), 'en').click();
-      await expect(page.getByRole('dialog').getByRole('heading')).toHaveText('New game');
+      await expect(page.getByRole('dialog').locator('h2')).toHaveText('New game');
       await expect(page.locator('html')).toHaveAttribute('lang', 'en');
       errors.expectNone();
     });
@@ -176,7 +177,7 @@ test.describe('iPhone emulation (tap)', () => {
     await openApp(page, 'en', '', 'ask');
     const dialog = page.getByRole('dialog');
     await toggle(dialog, 'de').tap();
-    await expect(dialog.getByRole('heading')).toHaveText('Neues Spiel');
+    await expect(dialog.locator('h2')).toHaveText('Neues Spiel');
     await expect(dialog).toBeVisible();
   });
 });

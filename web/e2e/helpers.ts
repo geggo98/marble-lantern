@@ -161,3 +161,10 @@ export async function playOneExchange(page: Page): Promise<string> {
   await waitForHumanTurn(page);
   return (await page.locator('.ml-telemetry').textContent()) ?? '';
 }
+
+/** Opens the rules panel of the start dialog (it is collapsed whenever the dialog opens); a panel that is open stays open. */
+export async function openRulesPanel(page: Page): Promise<void> {
+  const panel = page.locator('[data-rules-panel]');
+  if ((await panel.getAttribute('open')) === null) await page.locator('[data-rules-summary]').click();
+  await expect(panel).toHaveJSProperty('open', true);
+}

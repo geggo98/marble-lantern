@@ -42,7 +42,7 @@ describe('setupOfChoice: every mode, jump rule and seat gives the right game', (
 
   it('the default is the classic game, engine on the last seat in hot-seat', () => {
     // camps: added on 2026-11-20 (foreign-corner rule); closed is the rule the app has always played
-    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', camps: 'closed', rows: 5, mode: 'two', humanSeat: 0, engineSeat: 2 });
+    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', camps: 'closed', rows: 5, ranking: 'first', mode: 'two', humanSeat: 0, engineSeat: 2 });
     expect(kinds(choice({ mode: 'hotseat' }))).toBe('hhe');
   });
 });
@@ -76,7 +76,7 @@ describe('the remembered choice', () => {
 
   it('reads the foreign-corner rule, and a choice stored before the field existed as closed', () => {
     expect(parseChoice('{"jump":"long","mode":"engines","humanSeat":1,"engineSeat":2}')).toEqual({
-      jump: 'long', camps: 'closed', rows: 5, mode: 'engines', humanSeat: 1, engineSeat: 2,
+      jump: 'long', camps: 'closed', rows: 5, ranking: 'first', mode: 'engines', humanSeat: 1, engineSeat: 2,
     });
     expect(parseChoice('{"camps":"open"}').camps).toBe('open');
     expect(parseChoice('{"camps":"pass-through"}').camps).toBe('pass-through');
@@ -131,5 +131,31 @@ describe('the board size of the choice (RuleSet.TriangleRows)', () => {
       }
       expect(variantOf(setupOfChoice(choice({ mode, rows: 5, camps: 'open' }), true, 1))).toMatchObject({ camps: 'open', rows: 5 });
     }
+  });
+});
+
+describe('the ranking rule of the choice (RuleSet.Ranking)', () => {
+  it('reads `full`, and everything else (a missing field, a stored choice from before the field, a wrong value) as `first`', () => {
+    expect(parseChoice('{"ranking":"full"}').ranking).toBe('full');
+    expect(parseChoice('{"jump":"long"}').ranking).toBe('first');
+    expect(parseChoice('{"ranking":"second"}').ranking).toBe('first');
+    expect(parseChoice('{"ranking":3}').ranking).toBe('first');
+    expect(parseChoice(null).ranking).toBe('first');
+  });
+
+  it('round-trips through storage', () => {
+    const data: Record<string, string> = {};
+    const storage = { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => { data[k] = v; } };
+    saveChoice({ ...DEFAULT_CHOICE, mode: 'engines', ranking: 'full' }, storage);
+    expect(loadChoice(storage).ranking).toBe('full');
+  });
+
+  it('puts `full` into the variant of the three-player modes only; `first` leaves no field', () => {
+    for (const mode of ['hotseat', 'engines'] as const) {
+      expect(variantOf(setupOfChoice(choice({ mode, ranking: 'full' }), true, 2))).toEqual({ jump: 'adjacent', players: 3, ranking: 'full' });
+      expect(variantOf(setupOfChoice(choice({ mode, ranking: 'first' }), true, 2))).toEqual({ jump: 'adjacent', players: 3 });
+    }
+    // a stored `full` of an earlier three-player choice must not leak into a two-player game
+    expect(variantOf(setupOfChoice(choice({ mode: 'two', ranking: 'full' }), true, 2))).toEqual({ jump: 'adjacent', players: 2 });
   });
 });

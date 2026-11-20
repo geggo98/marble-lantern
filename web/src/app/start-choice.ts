@@ -1,8 +1,9 @@
 // What the start dialog asks: the jump rule, the foreign-corner rule, the game mode and the seats; and how that becomes a GameSetup. The last choice is
 // kept in localStorage as a per-viewer convenience (every read and write is guarded: storage can be missing or blocked).
-import { hotSeatVsEngine, humanVsEngine, humanVsTwoEngines, withBoardRows, withForeignCamps } from '../game/setup';
+import { hotSeatVsEngine, humanVsEngine, humanVsTwoEngines, variantOf, withBoardRows, withForeignCamps } from '../game/setup';
 import type { GameSetup } from '../game/setup';
-import type { BoardRows, ForeignCamps, JumpRule, Player } from '../game/variant';
+import { withRanking } from '../game/variant';
+import type { BoardRows, ForeignCamps, JumpRule, Player, RankingRule } from '../game/variant';
 
 export type GameMode = 'two' | 'hotseat' | 'engines';
 
@@ -16,6 +17,11 @@ export interface StartChoice {
    * already exist stay on 4 rows: a game link without `t=` (game-url.ts) and the board behind a link dialog (App.tsx).
    */
   rows: BoardRows;
+  /**
+   * What happens after the first player fills the goal, in a three-player mode (docs/rules.md, "Ranking"). `first` ends the game, `full` plays on
+   * for 2nd place. A stored choice without the field reads as `first`; a two-player game ignores it.
+   */
+  ranking: RankingRule;
   mode: GameMode;
   /** Mode 'engines': the seat of the person (0 moves first). */
   humanSeat: Player;
@@ -23,7 +29,7 @@ export interface StartChoice {
   engineSeat: Player;
 }
 
-export const DEFAULT_CHOICE: Readonly<StartChoice> = Object.freeze({ jump: 'adjacent', camps: 'closed', rows: 5, mode: 'two', humanSeat: 0, engineSeat: 2 });
+export const DEFAULT_CHOICE: Readonly<StartChoice> = Object.freeze({ jump: 'adjacent', camps: 'closed', rows: 5, ranking: 'first', mode: 'two', humanSeat: 0, engineSeat: 2 });
 export const CHOICE_KEY = 'ml.start-choice';
 
 const isSeat = (v: unknown): v is Player => v === 0 || v === 1 || v === 2;
@@ -40,6 +46,7 @@ export function parseChoice(text: string | null): StartChoice {
       // An explicit 4 or 5 stays as chosen. A missing or invalid size is "no size chosen" and reads as the default 5: the stored choice is
       // the state of the dialog, not of a game, so it cannot turn an existing game into a 5-row game (those come from links only).
       rows: raw.rows === 4 ? 4 : DEFAULT_CHOICE.rows,
+      ranking: raw.ranking === 'full' ? 'full' : 'first',
       mode: raw.mode === 'hotseat' || raw.mode === 'engines' ? raw.mode : 'two',
       humanSeat: isSeat(raw.humanSeat) ? raw.humanSeat : DEFAULT_CHOICE.humanSeat,
       engineSeat: isSeat(raw.engineSeat) ? raw.engineSeat : DEFAULT_CHOICE.engineSeat,
@@ -75,7 +82,9 @@ function defaultStorage(): Storage | null {
 
 /** The game of a choice. `humanBegins` answers "Do you want to begin?" and counts for two players only. */
 export function setupOfChoice(choice: StartChoice, humanBegins: boolean, level: number): GameSetup {
-  return withBoardRows(withForeignCamps(seatsOfChoice(choice, humanBegins, level), choice.camps), choice.rows);
+  const base = withBoardRows(withForeignCamps(seatsOfChoice(choice, humanBegins, level), choice.camps), choice.rows);
+  // The ranking rule has no effect with two players; the variant of a two-player game never carries it.
+  return choice.mode === 'two' ? base : { ...base, variant: withRanking(variantOf(base), choice.ranking) };
 }
 
 function seatsOfChoice(choice: StartChoice, humanBegins: boolean, level: number): GameSetup {

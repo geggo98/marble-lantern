@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { LONG_HOP } from './fixtures';
-import { openApp, playHumanMove, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
+import { openApp, openRulesPanel, playHumanMove, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'test-results/screens';
 const shot = (page: Page, project: string, name: string): Promise<Buffer> =>
@@ -78,12 +78,16 @@ test('you against two engines on seat 3: both engines move first, then it is the
 
 test('the dialog remembers the last choice', async ({ page }) => {
   await openApp(page, 'en', '', 'ask');
+  await openRulesPanel(page);
   await page.locator('[data-choice="jump-long"]').check();
   await page.locator('[data-choice="mode-engines"]').check();
   await page.locator('[data-choice="human-seat-2"]').check();
   await page.locator('[data-choice="begin-start"]').click();
   await waitForHumanTurn(page);
   await page.getByRole('button', { name: 'New game' }).first().click();
+  await expect(page.locator('[data-rules-panel]')).toHaveJSProperty('open', false); // collapsed again; the summary names the rule
+  await expect(page.locator('[data-rules-now]')).toContainText('Long hop');
+  await openRulesPanel(page);
   await expect(page.locator('[data-choice="jump-long"]')).toBeChecked();
   await expect(page.locator('[data-choice="mode-engines"]')).toBeChecked();
   await expect(page.locator('[data-choice="human-seat-2"]')).toBeChecked();
@@ -245,6 +249,7 @@ for (const rule of ['closed', 'open'] as const) {
   test(`the foreign-corner choice "${rule}" decides whether a step into a foreign corner is a highlighted target`, async ({ page }) => {
     const errors = watchPageErrors(page);
     await openApp(page, 'en', '', 'ask');
+    await openRulesPanel(page);
     await expect(page.locator('[data-choice="camps-closed"]')).toBeChecked();
     if (rule === 'open') await page.locator('[data-choice="camps-open"]').check();
     await page.locator('[data-choice="begin-yes"]').click();

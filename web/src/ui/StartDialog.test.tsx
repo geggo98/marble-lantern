@@ -10,6 +10,9 @@ import type { StartChoice } from '../app/start-choice';
 import { StartDialog } from './StartDialog';
 import type { StartDialogModel } from './StartDialog';
 import type { Variant } from '../game/variant';
+import { NetSelectionStore } from '../app/net-selection';
+import { clearEngines, registerEngine } from '../engines/registry';
+import type { EngineDefinition } from '../engines/registry';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -123,11 +126,11 @@ describe('the begin dialog', () => {
     await click(choice('human-seat-3'));
     await click(choice('jump-long'));
     await click(choice('begin-start'));
-    expect(onStart).toHaveBeenCalledWith({ jump: 'long', camps: 'closed', rows: 5, mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
+    expect(onStart).toHaveBeenCalledWith({ jump: 'long', camps: 'closed', rows: 5, ranking: 'first', mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
   });
 
   it('starts from the remembered choice', async () => {
-    await open(vi.fn(), { jump: 'long', camps: 'closed', rows: 4, mode: 'engines', humanSeat: 1, engineSeat: 0 });
+    await open(vi.fn(), { jump: 'long', camps: 'closed', rows: 4, ranking: 'first', mode: 'engines', humanSeat: 1, engineSeat: 0 });
     expect(choice('jump-long').checked).toBe(true);
     expect(choice('mode-engines').checked).toBe(true);
     expect(choice('human-seat-2').checked).toBe(true);
@@ -233,5 +236,185 @@ describe('the link dialog', () => {
       });
       expect(q('p')!.textContent, text).toContain(text);
     }
+  });
+});
+
+describe('the rules panel', () => {
+  const panel = (): HTMLDetailsElement => q<HTMLDetailsElement>('[data-rules-panel]')!;
+  const summary = (): string => q('[data-rules-now]')!.textContent!;
+  const fixed = (key: string): string | undefined => q(`[data-fixed-rule="${key}"]`)?.textContent ?? undefined;
+
+  it('is collapsed when the dialog opens, and the summary says "standard rules" while nothing differs', async () => {
+    await open(vi.fn());
+    expect(panel().open).toBe(false);
+    expect(summary()).toBe('Standard rules');
+    expect(q('[data-rules-count]')).toBeNull();
+    // the jump and corner rules moved into the panel
+    expect(panel().contains(choice('jump-long'))).toBe(true);
+    expect(panel().contains(choice('camps-open'))).toBe(true);
+    // board size and mode stay on top
+    expect(panel().contains(choice('rows-4'))).toBe(false);
+    expect(panel().contains(choice('mode-two'))).toBe(false);
+  });
+
+  it('the summary names every rule that differs, in panel order, with a count; a rule at its default is not named', async () => {
+    await open(vi.fn());
+    await click(choice('camps-open'));
+    await click(choice('jump-long'));
+    expect(summary()).toBe('Jump rule: Long hop · Foreign triangles: Open');
+    expect(q('[data-rules-count]')!.textContent).toBe('2 rules changed');
+    await click(choice('camps-closed'));
+    expect(summary()).toBe('Jump rule: Long hop');
+    expect(q('[data-rules-count]')!.textContent).toBe('1 rule changed');
+  });
+
+  it('marks the default option with a tag and the legend of a changed rule with "changed"', async () => {
+    await open(vi.fn());
+    const jumpGroup = (): Element => choice('jump-long').closest('fieldset')!;
+    expect(choice('jump-adjacent').closest('label')!.querySelector('.ml-start__default')!.textContent).toBe('default');
+    expect(choice('jump-long').closest('label')!.querySelector('.ml-start__default')).toBeNull();
+    expect(jumpGroup().querySelector('.ml-start__changed')).toBeNull();
+    await click(choice('jump-long'));
+    expect(jumpGroup().querySelector('.ml-start__changed')!.textContent).toBe('changed');
+  });
+
+  it('the ranking rule shows with three players only; with two it is a fixed row with the reason', async () => {
+    const onStart = vi.fn();
+    await open(onStart);
+    expect(q('[data-choice="ranking-full"]')).toBeNull();
+    expect(fixed('ranking')).toContain('Available with 3 players only');
+    await click(choice('mode-engines'));
+    expect(fixed('ranking')).toBeUndefined();
+    expect(choice('ranking-first').checked).toBe(true);
+    await click(choice('ranking-full'));
+    expect(summary()).toBe('After the first win: Play for 2nd place');
+    await click(choice('begin-start'));
+    expect(onStart).toHaveBeenCalledWith({ ...DEFAULT_CHOICE, mode: 'engines', ranking: 'full' }, true);
+  });
+
+  it('a changed ranking does not count while the mode is two-player', async () => {
+    await open(vi.fn(), { ...DEFAULT_CHOICE, ranking: 'full' });
+    expect(summary()).toBe('Standard rules');
+    expect(q('[data-rules-count]')).toBeNull();
+  });
+
+  it('the fixed rules show their values, and the move limit follows board size and player count (200, 250, 300, 375)', async () => {
+    await open(vi.fn(), { ...DEFAULT_CHOICE, rows: 4 });
+    expect(fixed('limit')).toContain('200 plies');
+    await click(choice('rows-5'));
+    expect(fixed('limit')).toContain('250 plies');
+    await click(choice('mode-engines'));
+    expect(fixed('limit')).toContain('375 plies');
+    await click(choice('rows-4'));
+    expect(fixed('limit')).toContain('300 plies');
+    expect(fixed('leave')).toContain('Not allowed');
+    expect(fixed('suicide')).toContain('Not allowed');
+    expect(fixed('draw')).toContain('Distance decides');
+    expect(fixed('repetition')).toContain('Play goes on');
+    expect(fixed('blockade')).toContain('Count');
+    // fixed rules have no control
+    expect(q('[data-fixed-rule]')!.querySelector('input, button')).toBeNull();
+  });
+
+  it('reset puts the three editable rules back, keeps board size, mode and seats, and announces it', async () => {
+    await open(vi.fn(), { ...DEFAULT_CHOICE, rows: 4 });
+    await click(choice('mode-hotseat'));
+    await click(choice('engine-seat-1'));
+    await click(choice('jump-long'));
+    await click(choice('camps-pass'));
+    await click(choice('ranking-full'));
+    expect(q('[data-rules-count]')!.textContent).toBe('3 rules changed');
+    await click(choice('rules-reset'));
+    expect(summary()).toBe('Standard rules');
+    expect(choice('jump-adjacent').checked).toBe(true);
+    expect(choice('camps-closed').checked).toBe(true);
+    expect(choice('ranking-first').checked).toBe(true);
+    expect(choice('rows-4').checked).toBe(true);
+    expect(choice('mode-hotseat').checked).toBe(true);
+    expect(choice('engine-seat-1').checked).toBe(true);
+    expect(q('.ml-rules__done')!.textContent).toBe('The standard rules apply again.');
+  });
+
+  it('reset is aria-disabled, not disabled, while nothing differs, and does nothing', async () => {
+    await open(vi.fn());
+    const reset = choice('rules-reset') as unknown as HTMLButtonElement;
+    expect(reset.getAttribute('aria-disabled')).toBe('true');
+    expect(reset.disabled).toBe(false);
+    await click(reset);
+    expect(q('.ml-rules__done')!.textContent).toBe('');
+  });
+
+  it('keeps Start, the question and the answers outside the panel, and "keep my game" and the language row after them', async () => {
+    await open(vi.fn(), DEFAULT_CHOICE, vi.fn());
+    const actions = q('.ml-start__actions')!;
+    expect(actions.hasAttribute('data-two')).toBe(true);
+    expect(panel().contains(actions)).toBe(false);
+    const tail = q('.ml-start__tail')!;
+    expect(actions.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tail.contains(choice('begin-keep'))).toBe(true);
+    expect(tail.querySelector('[data-language]')).not.toBeNull();
+    await click(choice('mode-engines'));
+    expect(q('.ml-start__actions')!.hasAttribute('data-two')).toBe(false);
+  });
+
+  it('the summary names the panel and is described by the current rules; the panel opens and closes with the summary', async () => {
+    await open(vi.fn());
+    const sum = q('[data-rules-summary]')!;
+    expect(sum.getAttribute('aria-describedby')).toBe(q('[data-rules-now]')!.id);
+    panel().open = true;
+    expect(panel().open).toBe(true);
+  });
+});
+
+describe('the rules panel and the engines', () => {
+  const engine = (supportsVariant?: EngineDefinition['supportsVariant']): EngineDefinition =>
+    ({ id: 'cpp-wasm', labelKey: 'x', runtime: 'wasm', language: 'C++', isAvailable: () => true, create: () => { throw new Error('unused'); }, ...(supportsVariant ? { supportsVariant } : {}) }) as EngineDefinition;
+  afterEach(() => clearEngines());
+
+  it('an option that no registered engine plays is unavailable: aria-disabled with a reason, a click changes nothing; the others stay available', async () => {
+    registerEngine(engine((v) => v.camps !== 'open'));
+    await open(vi.fn());
+    const open_ = choice('camps-open');
+    expect(open_.getAttribute('aria-disabled')).toBe('true');
+    expect(open_.disabled).toBe(false); // not `disabled`: the radio stays in the arrow-key sequence
+    expect(open_.closest('label')!.hasAttribute('data-unavailable')).toBe(true);
+    expect(choice('camps-pass').getAttribute('aria-disabled')).toBeNull();
+    const reason = q('[data-rule-reason]')!;
+    expect(reason.textContent).toBe('No engine in this build plays “Open”.');
+    expect(open_.getAttribute('aria-describedby')).toBe(reason.id);
+    await click(open_);
+    expect(choice('camps-closed').checked).toBe(true);
+    expect(q('[data-rules-count]')).toBeNull();
+  });
+
+  it('an option that one engine plays is available (the declaration of any engine counts)', async () => {
+    registerEngine(engine((v) => v.camps !== 'open'));
+    registerEngine({ ...engine(), id: 'java-js' });
+    await open(vi.fn());
+    expect(choice('camps-open').getAttribute('aria-disabled')).toBeNull();
+    expect(q('[data-rule-reason]')).toBeNull();
+  });
+
+  it('with a selected net engine, an option its model cannot play is marked, and while it is selected the reason line shows', async () => {
+    const net = new NetSelectionStore({ initial: { engine: 'net-wasm', sims: 200 }, storage: null, wasm: true, lastModel: null });
+    const model: StartDialogModel = { kind: 'begin', initial: { ...DEFAULT_CHOICE, rows: 4 }, onStart: () => undefined, net };
+    await act(async () => {
+      root.render(<StartDialog model={model} />);
+    });
+    expect(choice('camps-open').closest('label')!.hasAttribute('data-engine-warn')).toBe(true);
+    expect(choice('camps-closed').closest('label')!.hasAttribute('data-engine-warn')).toBe(false);
+    expect(choice('jump-long').closest('label')!.hasAttribute('data-engine-warn')).toBe(false); // the model plays the long hop
+    expect(q('[data-rule-reason]')).toBeNull();
+    await click(choice('camps-open'));
+    expect(choice('camps-open').checked).toBe(true); // a warning, not a ban
+    expect(q('[data-rule-reason]')!.textContent).toContain('selected net engine');
+  });
+
+  it('without a net engine selected no option is marked', async () => {
+    const net = new NetSelectionStore({ initial: { engine: 'cpp-wasm', sims: 200 }, storage: null, wasm: true, lastModel: null });
+    await act(async () => {
+      root.render(<StartDialog model={{ kind: 'begin', initial: { ...DEFAULT_CHOICE, rows: 4 }, onStart: () => undefined, net }} />);
+    });
+    expect(document.querySelectorAll('[data-engine-warn], [data-unavailable]')).toHaveLength(0);
   });
 });

@@ -3,7 +3,7 @@
 // card (from the session). The wording lives in the i18n catalogs (keys net.warn.*).
 import { listModels, modelsFor } from '../engines/net/model-manifest';
 import type { EngineWarning, ReasonCode } from '../engines/warnings';
-import { campsOf, rowsOf } from '../game/variant';
+import { campsOf, rankingOf, rowsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { Icon } from './primitives';
 import { useT } from './texts';
@@ -31,7 +31,8 @@ export function variantText(variant: Variant | undefined, t: Translate): string 
   const base = `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
   const camps = campsOf(variant);
   const withCamps = camps === 'closed' ? base : `${base} · ${t('link_camps', { rule: t(camps === 'open' ? 'start_camps_open' : 'start_camps_pass') })}`;
-  return rowsOf(variant) === 5 ? `${withCamps} · ${t('net.variant.rows5')}` : withCamps;
+  const ranked = rankingOf(variant) === 'full' && variant.players === 3 ? `${withCamps} · ${t('net.variant.full')}` : withCamps;
+  return rowsOf(variant) === 5 ? `${ranked} · ${t('net.variant.rows5')}` : ranked;
 }
 
 /** The localized text of a reason code (catalog keys net.reason.<code>); empty for no code. */

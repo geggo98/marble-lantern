@@ -186,6 +186,29 @@ describe('three players through the start hook', () => {
   });
 });
 
+describe('the rules panel of the start dialog starts the game', () => {
+  it('a three-player game with "play for 2nd place" writes r=full into the address and is stored; a later two-player game does not carry it', async () => {
+    const nav = new FakeNavigation('');
+    await mount(nav);
+    await click(q('[data-choice="mode-engines"]')!);
+    await click(q('[data-choice="ranking-full"]')!);
+    await click(q('[data-choice="jump-long"]')!);
+    await click(q('[data-choice="begin-start"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'the human may move');
+    expect(nav.hash).toContain('&j=long');
+    expect(nav.hash).toContain('&r=full');
+    expect(JSON.parse(localStorage.getItem('ml.start-choice')!).ranking).toBe('full');
+    await click(all('button').find((b) => b.textContent === 'New game')!);
+    expect(q<HTMLInputElement>('[data-choice="ranking-full"]')!.checked).toBe(true); // remembered
+    await click(q('[data-choice="mode-two"]')!);
+    expect(q('[data-choice="ranking-full"]')).toBeNull();
+    await click(q('[data-choice="begin-yes"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'a two-player game');
+    expect(nav.hash).not.toContain('r=full');
+    expect(nav.hash).not.toContain('p=3');
+  });
+});
+
 describe('game links with variants', () => {
   it('a three-player link continues at once, without a dialog, with the seats of the link', async () => {
     const moves = legalGame(3, THREE);
