@@ -177,7 +177,13 @@ for (const size of [
       await openApp(page, 'en');
       await waitForHumanTurn(page);
       const svg = page.locator('svg.ml-board__svg');
-      const box = async (): Promise<{ x: number; y: number; width: number; height: number }> => (await svg.boundingBox())!;
+      // In page coordinates (viewport box plus the scroll offset): closing the menu can scroll the page, which moves the viewport box
+      // of an unchanged board (Firefox on the CI runner shifted it by 307 px while width and height stayed the same).
+      const box = async (): Promise<{ x: number; y: number; width: number; height: number }> => {
+        const b = (await svg.boundingBox())!;
+        const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+        return { x: b.x + scroll.x, y: b.y + scroll.y, width: b.width, height: b.height };
+      };
       const classical = await box();
       expect(await page.locator('.ml-play__netnote').count(), 'no notice element in a classical game').toBe(0);
       expect(await page.locator('.ml-play .ml-play__netnote, .ml-play [role="status"][aria-label]').count(), 'no extra live region').toBe(0);
