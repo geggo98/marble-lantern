@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom';
 import type { EngineId } from '../engines/engine';
 import type { EngineChoice } from '../engines/registry';
 import { isNetEngine } from '../engines/engine';
-import { listModels } from '../engines/net/model-manifest';
 import { evaluateSelection } from '../engines/net/selection';
 import type { Sims } from '../engines/warnings';
 import { DEFAULT_VARIANT } from '../game/variant';
@@ -34,7 +33,7 @@ export interface SheetProps {
   currentId: EngineId | null;
   level: number;
   /** `net` is given for a net engine only: the model and the simulations of the groups below. */
-  onApply: (engine: EngineId, level: number, net?: { modelId: string | null; sims: Sims }) => void;
+  onApply: (engine: EngineId, level: number, net?: { modelId?: string | null; sims: Sims }) => void;
   /** The selection of the net engines (model, simulations, WebGPU probe). Without it the sheet keeps a private one. */
   netStore?: NetSelectionStore | undefined;
   /** The variant of the game: only the models that may play it are offered. */
@@ -59,7 +58,8 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const fallbackStore = useMemo(() => props.netStore ?? new NetSelectionStore({ storage: null }), [props.netStore]);
   const variant = props.variant ?? DEFAULT_VARIANT;
   const net = useNetSelection(fallbackStore, variant);
-  const [modelId, setModelId] = useState<string | null>(net.selection.modelId);
+  // undefined: the person has not touched the model list in this sheet, the stored choice stays (and with it the automatic pick).
+  const [modelChoice, setModelChoice] = useState<string | null | undefined>(undefined);
   const [sims, setSims] = useState<Sims>(net.selection.sims);
   // The browser is asked about WebGPU only when the WebGPU row is selected, not when the sheet opens (the probe caches).
   useEffect(() => {
@@ -200,7 +200,15 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
   const nodes = NODE_LEVELS[level] ?? NODE_LEVELS[DEFAULT_LEVEL];
   const fill = `${(level / (NODE_LEVELS.length - 1)) * 100}%`;
   const isNet = engine !== null && isNetEngine(engine);
-  const evaluation = evaluateSelection({ engine: engine ?? 'cpp-wasm', modelId, sims }, variant, net.availability);
+  const evaluation = evaluateSelection(
+    { engine: engine ?? 'cpp-wasm', modelId: modelChoice === undefined ? net.selection.modelId : modelChoice, sims },
+    variant,
+    net.availability,
+    net.models,
+    net.lastModel,
+  );
+  // The model list shows the model that will play, also when the app picked it.
+  const shownModel = modelChoice === undefined ? evaluation.modelId : modelChoice;
   const focusModels = (): void => {
     const target = dialogRef.current?.querySelector<HTMLElement>(`[data-net-group="${MODEL_GROUP}"] input:checked`) ?? dialogRef.current?.querySelector<HTMLElement>(`[data-net-group="${MODEL_GROUP}"] input`);
     target?.focus();
@@ -232,7 +240,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
         <NetWarnings warnings={isNet ? evaluation.warnings : []} live onAction={{ 'choose-model': focusModels, 'choose-other': focusModels }} />
         {isNet && (
           <>
-            <ModelGroup variant={variant} all={listModels()} models={evaluation.compatibleModels} modelId={modelId} sims={sims} onChange={setModelId} />
+            <ModelGroup variant={variant} all={net.models} models={evaluation.compatibleModels} modelId={shownModel} sims={sims} onChange={setModelChoice} />
             <SimsGroup sims={sims} backend={engine === 'net-webgpu' ? 'webgpu' : 'wasm'} onChange={setSims} />
           </>
         )}
@@ -277,7 +285,7 @@ export function EngineSheet(props: SheetProps): React.JSX.Element {
             type="button"
             className="ml-btn ml-btn--primary"
             disabled={engine === null}
-            onClick={() => engine && (isNetEngine(engine) ? props.onApply(engine, level, { modelId, sims }) : props.onApply(engine, level))}
+            onClick={() => engine && (isNetEngine(engine) ? props.onApply(engine, level, { ...(modelChoice === undefined ? {} : { modelId: modelChoice }), sims }) : props.onApply(engine, level))}
           >
             {t('apply')}
           </button>

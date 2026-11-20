@@ -65,7 +65,7 @@ export interface PlayModel {
   onUndo: () => void;
   /** "Play on for 2nd place": the game goes on under full ranking (GameController.continuePlay). */
   onPlayOn?: () => void;
-  onApply: (engine: EngineId, level: number, net?: { modelId: string | null; sims: Sims }) => void;
+  onApply: (engine: EngineId, level: number, net?: { modelId?: string | null; sims: Sims }) => void;
   /** Loads the model again after a failed load (session.applyNet). */
   onRetryNet?: () => void;
   onRestart: () => void;

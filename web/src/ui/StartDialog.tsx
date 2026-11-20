@@ -1,7 +1,8 @@
 // The dialog that stands before a game: "Do you want to begin?", "Continue this game?" for a game link, and the error
 // for a link that does not work. A modal dialog: focus moves in, Tab stays inside, focus returns to where it was.
-// Escape closes the dialog only when a game is already running (`onCancel`); otherwise there is nothing to go back to.
-import { useState } from 'react';
+// Escape, a click on the backdrop beside the panel and the "keep" button close the dialog only when a game is already running
+// (`onCancel`); otherwise there is nothing to go back to.
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
@@ -43,7 +44,7 @@ export type StartDialogModel =
 
 export interface StartDialogProps {
   model: StartDialogModel;
-  /** Present when a game is running: Escape and the "keep" button close the dialog and leave that game alone. */
+  /** Present when a game is running: Escape, a click on the backdrop and the "keep" button close the dialog and leave that game alone. */
   onCancel?: (() => void) | undefined;
 }
 
@@ -51,6 +52,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
   const { t } = useT();
   const { ref, onKeyDown } = useDialog<HTMLElement>({ onEscape: onCancel, focusKey: model.kind });
 
+  const pressedInPanel = useRef(false);
   const [choice, setChoice] = useState<StartChoice>(() => (model.kind === 'begin' ? model.initial : DEFAULT_CHOICE_FALLBACK));
   const titleId = 'ml-start-title';
   const bodyId = 'ml-start-body';
@@ -61,8 +63,17 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
   if (model.kind === 'begin') {
     title = t('start_title');
     body = <p id={bodyId}>{t('start_lead')}</p>;
-    actions = <BeginActions choice={choice} onStart={model.onStart} />;
-    } else if (model.kind === 'link') {
+    actions = (
+      <>
+        <BeginActions choice={choice} onStart={model.onStart} />
+        {onCancel && (
+          <button type="button" className="ml-btn ml-btn--quiet" data-choice="begin-keep" onClick={onCancel}>
+            {t('link_keep')}
+          </button>
+        )}
+      </>
+    );
+  } else if (model.kind === 'link') {
     title = t('link_title');
     body = (
       <>
@@ -116,7 +127,19 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
   }
 
   return createPortal(
-    <div className="ml-overlay ml-overlay--start">
+    // A press that starts and ends on the backdrop cancels; one that starts in the panel (a text selection dragged out) does not.
+    <div
+      className="ml-overlay ml-overlay--start"
+      data-testid="start-backdrop"
+      onPointerDown={(e) => {
+        pressedInPanel.current = e.target !== e.currentTarget;
+      }}
+      onClick={(e) => {
+        const fromBackdrop = !pressedInPanel.current && e.target === e.currentTarget;
+        pressedInPanel.current = false;
+        if (fromBackdrop && onCancel) onCancel();
+      }}
+    >
       <section
         ref={ref}
         className="ml-sheet ml-start"

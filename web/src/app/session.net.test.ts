@@ -5,10 +5,11 @@ import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, G
 import { clearEngines, describeEngines, registerEngine } from '../engines/registry';
 import type { EngineDefinition, EnginesManifest } from '../engines/registry';
 import type { EngineWarning } from '../engines/warnings';
-import { SELECTION_KEY } from '../engines/net/selection';
+import { LAST_MODEL_KEY, SELECTION_KEY } from '../engines/net/selection';
 import { EngineSession, defaultChoice } from './session';
 import { NetSelectionStore } from './net-selection';
 import { SwitchableEngine } from './switchable-engine';
+import type { NetModel } from './switchable-engine';
 
 const file = { path: 'engines/net/x.wasm', bytes: 10, gzipBytes: 5, sha256: '0'.repeat(64) };
 const entry = { files: [file], binaryBytes: 10, binaryGzipBytes: 5 };
@@ -58,7 +59,7 @@ function def(id: 'cpp-wasm' | 'net-wasm' | 'net-webgpu'): EngineDefinition {
 
 afterEach(() => { clearEngines(); for (const o of [made, holds, failures]) for (const k of Object.keys(o)) delete o[k]; });
 
-function setup(selection: { model: string | null; sims: number } = { model: null, sims: 200 }) {
+function setup(selection: { model: NetModel; sims: number } = { model: null, sims: 200 }) {
   registerEngine(def('cpp-wasm'));
   registerEngine(def('net-wasm'));
   registerEngine(def('net-webgpu'));
@@ -85,6 +86,18 @@ describe('EngineSession with net engines', () => {
     expect(await session.select('net-wasm')).toBe(true);
     expect(made['net-wasm']!.setups[0]).toMatchObject({ nodes: [5000, 5000], model: 'm', netOptions: { sims: 800 } });
     expect(session.getState().warnings).toEqual([]);
+  });
+
+  it('a model given as a function is asked for the variant of every newGame, so a new variant gets its own model without a reload', async () => {
+    const asked: string[] = [];
+    const { session, sw } = setup({ model: (v) => (asked.push(`${v.jump}/${v.players}`), v.players === 3 ? 'm3' : 'm2'), sims: 200 });
+    await session.start();
+    await session.select('net-wasm');
+    expect(made['net-wasm']!.setups[0]).toMatchObject({ model: 'm2' });
+    await sw.newGame({ nodes: [1, 1], variant: { jump: 'long', players: 3 } });
+    expect(made['net-wasm']!.setups.at(-1)).toMatchObject({ model: 'm3' });
+    expect(made['net-wasm']!.setups).toHaveLength(2); // the same engine, no second load
+    expect(asked).toEqual(['adjacent/2', 'long/3']);
   });
 
   it('without a model the state carries the warnings; they clear when the model is applied', async () => {
@@ -198,15 +211,38 @@ describe('NetSelectionStore', () => {
   it('starts from the default selection, merges changes, saves them and notifies', () => {
     const m = mem();
     const store = new NetSelectionStore({ storage: m.storage, probe: async () => ({ available: true }), wasm: true });
-    expect(store.selection).toEqual({ engine: 'java-wasmgc', modelId: null, sims: 200 });
+    expect(store.selection).toEqual({ engine: 'java-wasmgc', sims: 200 });
     let n = 0;
     store.subscribe(() => n++);
     store.setSelection({ modelId: 'small-shared-all' });
     store.setSelection({ sims: 800 });
     expect(store.selection).toEqual({ engine: 'java-wasmgc', modelId: 'small-shared-all', sims: 800 });
     expect(n).toBe(2);
-    expect(JSON.parse(m.data.get(SELECTION_KEY) as string)).toEqual(store.selection);
+    expect(JSON.parse(m.data.get(SELECTION_KEY) as string)).toEqual({ v: 2, ...store.selection });
     expect(new NetSelectionStore({ storage: m.storage, wasm: true }).selection).toEqual(store.selection);
+  });
+
+  it('keeps a chosen model as the last model, also after "None"; modelFor picks per variant', () => {
+    const m = mem();
+    const store = new NetSelectionStore({ storage: m.storage, wasm: true });
+    expect(store.getState().lastModel).toBeNull();
+    expect(store.modelFor({ jump: 'adjacent', players: 2 })).toBe('small-2p-adjacent-expert'); // nothing chosen: the strongest
+    store.setSelection({ modelId: 'small-shared-all' });
+    expect(m.data.get(LAST_MODEL_KEY)).toBe('small-shared-all');
+    store.setSelection({ modelId: null });
+    expect(m.data.get(LAST_MODEL_KEY)).toBe('small-shared-all'); // "None" is no model to come back to
+    expect(store.modelFor({ jump: 'adjacent', players: 2 })).toBeNull();
+    const next = new NetSelectionStore({ storage: m.storage, wasm: true });
+    expect(next.selection.modelId).toBeNull(); // the explicit "None" survives the reload
+    expect(next.getState().lastModel).toBe('small-shared-all');
+  });
+
+  it('an old stored selection (version 1) with modelId null counts as nothing chosen and gets a model', () => {
+    const m = mem();
+    m.data.set(SELECTION_KEY, JSON.stringify({ engine: 'net-wasm', modelId: null, sims: 800 }));
+    const store = new NetSelectionStore({ storage: m.storage, wasm: true });
+    expect(store.selection).toEqual({ engine: 'net-wasm', sims: 800 });
+    expect(store.modelFor({ jump: 'adjacent', players: 3 })).toBe('small-shared-all');
   });
 
   it('probes WebGPU once, when net-webgpu is selected, and exposes the answer and the evaluation', async () => {

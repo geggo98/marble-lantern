@@ -9,6 +9,8 @@ import { NetSelectionStore } from '../app/net-selection';
 import type { EngineChoice } from '../engines/registry';
 import type { ProbeResult } from '../engines/warnings';
 import type { Variant } from '../game/variant';
+import { listModels } from '../engines/net/model-manifest';
+import type { ModelInfo } from '../engines/net/model-manifest';
 import { EngineSheet } from './EngineSheet';
 import type { SheetProps } from './EngineSheet';
 
@@ -35,7 +37,11 @@ afterEach(() => {
 
 interface Opts {
   engine?: string;
+  /** Missing: "None" chosen (null). `auto: true` stores no model choice at all (the app picks). */
   modelId?: string | null;
+  auto?: boolean;
+  lastModel?: string | null;
+  models?: readonly ModelInfo[];
   sims?: 50 | 200 | 800;
   variant?: Variant;
   probe?: () => Promise<ProbeResult>;
@@ -46,9 +52,11 @@ interface Opts {
 
 async function open(o: Opts = {}): Promise<NetSelectionStore> {
   const store = new NetSelectionStore({
-    initial: { engine: (o.engine ?? 'net-wasm') as 'net-wasm', modelId: o.modelId ?? null, sims: o.sims ?? 200 },
+    initial: { engine: (o.engine ?? 'net-wasm') as 'net-wasm', ...(o.auto ? {} : { modelId: o.modelId ?? null }), sims: o.sims ?? 200 },
     storage: null,
     wasm: true,
+    lastModel: o.lastModel ?? null,
+    ...(o.models ? { models: o.models } : {}),
     probe: o.probe ?? (() => Promise.resolve({ available: true })),
   });
   const host = document.createElement('div');
@@ -133,10 +141,45 @@ describe('model list', () => {
     expect(all('[data-model="' + SHARED + '"] [data-strength-fact]').map((e) => e.dataset.strengthFact)).toEqual(['adjacent', 'long']);
   });
 
-  it('a model the variant does not fit is not checked, and the mismatch warning offers the way to choose another', async () => {
-    await open({ variant: V3, modelId: EXPERT });
+  it('a chosen model the variant does not fit, and no model fits: none is checked, the mismatch warning offers another', async () => {
+    await open({ variant: V3, modelId: EXPERT, models: listModels().filter((m) => m.id === EXPERT) });
     expect(all('[data-net-group="model"] input:checked')).toHaveLength(0);
     expect(warnings()).toEqual(['model-variant-mismatch']);
+  });
+
+  it('a chosen model the variant does not fit is replaced by the best one that fits, without a warning', async () => {
+    const onApply = vi.fn();
+    await open({ variant: V3, modelId: EXPERT, onApply });
+    expect(q<HTMLInputElement>(`[data-model="${SHARED}"] input`)!.checked).toBe(true);
+    expect(warnings()).toEqual([]);
+    await click(all('.ml-sheet__actions .ml-btn')[1]!);
+    // untouched: the stored choice stays the person's (the expert plays again in the next 2-player game)
+    expect(onApply).toHaveBeenCalledWith('net-wasm', 2, { sims: 200 });
+  });
+
+  it('nothing chosen yet: the strongest model of the variant is checked and no warning shows', async () => {
+    await open({ auto: true });
+    expect(q<HTMLInputElement>(`[data-model="${EXPERT}"] input`)!.checked).toBe(true);
+    expect(warnings()).toEqual([]);
+  });
+
+  it('nothing chosen yet, 3 players: the shared model is checked', async () => {
+    await open({ auto: true, variant: V3 });
+    expect(q<HTMLInputElement>(`[data-model="${SHARED}"] input`)!.checked).toBe(true);
+  });
+
+  it('nothing chosen yet: the model chosen last wins over the strongest', async () => {
+    await open({ auto: true, lastModel: SHARED });
+    expect(q<HTMLInputElement>(`[data-model="${SHARED}"] input`)!.checked).toBe(true);
+  });
+
+  it('nothing chosen, choosing "None" hands over the explicit null', async () => {
+    const onApply = vi.fn();
+    await open({ auto: true, onApply });
+    await click(q('[data-model="none"] input'));
+    expect(warnings()).toEqual(['no-model']);
+    await click(all('.ml-sheet__actions .ml-btn')[1]!);
+    expect(onApply).toHaveBeenCalledWith('net-wasm', 2, { modelId: null, sims: 200 });
   });
 });
 

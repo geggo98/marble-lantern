@@ -153,7 +153,8 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     // must not warn. Model and simulations stay; the engine in the store follows what is really loaded (the effect below).
     if (isNetEngine(netStore.selection.engine)) netStore.setSelection({ engine: DEFAULT_SELECTION.engine });
     const session = new EngineSession({
-      net: () => ({ model: netStore.selection.modelId, sims: netStore.selection.sims }),
+      // The model is picked per game: each newGame asks for the model of its variant (resolveModel in engines/net/selection.ts).
+      net: () => ({ model: netStore.modelFor, sims: netStore.selection.sims }),
       engine,
       baseUrl,
       loadManifest: manifestLoader ?? (() => loadManifest(baseUrl)),
@@ -353,9 +354,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     startSetup(humanVsEngine(humanSide, level, jump), moves);
   };
 
-  /** Escape or "keep my game": the dialog closes and the address shows the running game again. */
+  /** Escape, a click beside the dialog or "keep my game": the dialog closes, the running game goes on untouched, the address shows it again. */
   const keepGame = (): void => {
     setFlow({ kind: 'playing' });
+    tracker.pump(); // "New game" stopped the analysis of the person's moves; it picks up where it was
     const now = snapshot();
     sync.adopt(now);
     nav.replace(formatGameFragment(now));
@@ -431,7 +433,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       tracker.abort();
       void game.undo();
     },
-    onApply: (id: EngineId, nextLevel: number, net?: { modelId: string | null; sims: Sims }) => {
+    onApply: (id: EngineId, nextLevel: number, net?: { modelId?: string | null; sims: Sims }) => {
       void (async () => {
         game.cancel();
         tracker.abort();

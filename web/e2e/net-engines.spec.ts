@@ -49,7 +49,7 @@ test('net-wasm without a model still answers: it plays a random legal move', asy
   const errors = watchPageErrors(page);
   await openApp(page, 'en');
   await waitForHumanTurn(page);
-  await pickEngine(page, 'net-wasm');
+  await pickEngine(page, 'net-wasm', null); // "None" chosen: nothing chosen would pick the strongest model
   await playOneExchange(page);
   await expect(page.locator('.ml-telemetry__value').first()).toHaveText(/^\s*0\s*$/);
   await expect(page.locator('.ml-telemetry')).toHaveAttribute('data-net-backend', 'random');

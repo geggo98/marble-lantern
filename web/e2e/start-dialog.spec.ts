@@ -91,6 +91,43 @@ test('the dialog remembers the last choice', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeHidden();
 });
 
+test('"New game" opened by mistake: "Keep my current game" and a click beside the dialog go back to the same game', async ({ page }, info) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '', 'ask');
+  const dialog = page.getByRole('dialog');
+  // before the first game there is nothing to keep: no button, and a click beside the panel does nothing
+  await expect(page.locator('[data-choice="begin-keep"]')).toHaveCount(0);
+  await page.mouse.click(4, 4);
+  await expect(dialog).toBeVisible();
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  await playHumanMove(page);
+  await expect.poll(() => plyOf(page)).toBe(2);
+  await waitForHumanTurn(page);
+  const url = page.url();
+  const newGame = page.getByRole('button', { name: 'New game' }).first();
+
+  await newGame.click();
+  await expect(page.locator('[data-dialog="begin"]')).toBeVisible();
+  await page.locator('[data-choice="mode-hotseat"]').check(); // a changed choice must not reach the running game
+  await shot(page, info.project.name, 'dialog-keep-desktop');
+  await page.locator('[data-choice="begin-keep"]').click();
+  await expect(dialog).toBeHidden();
+  expect(await plyOf(page)).toBe(2);
+  expect(page.url()).toBe(url);
+
+  await newGame.click();
+  await expect(page.locator('[data-dialog="begin"]')).toBeVisible();
+  await page.mouse.click(4, 4); // the backdrop, beside the panel
+  await expect(dialog).toBeHidden();
+  expect(await plyOf(page)).toBe(2);
+  expect(page.url()).toBe(url);
+  await waitForHumanTurn(page);
+  await playHumanMove(page); // the game goes on where it was
+  await expect.poll(() => plyOf(page)).toBe(4);
+  errors.expectNone();
+});
+
 test('long hop: the dialog starts the game, a long hop is played with click and click, the engine answers', async ({ page }) => {
   const errors = watchPageErrors(page);
   const fixture = LONG_HOP;

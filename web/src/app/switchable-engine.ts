@@ -4,6 +4,7 @@
 // on the next call (design-notes.md, section 12, point 4).
 import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from '../engines/engine';
 import type { Variant } from '../game/variant';
+import { DEFAULT_VARIANT } from '../game/variant';
 import { EngineFailure } from '../engines/protocol';
 import type { EngineWarning, NetOptions } from '../engines/warnings';
 
@@ -11,10 +12,13 @@ const PLACEHOLDER: EngineInfo = {
   id: 'cpp-wasm', labelKey: 'engine.cppWasm', runtime: 'wasm', language: 'C++', version: '', binaryBytes: 0, binaryGzipBytes: 0,
 };
 
+/** The model of the net settings: an id, null for none, or a function of the variant of each new game (the model picked for it). */
+export type NetModel = string | null | ((variant: Variant) => string | null);
+
 export class SwitchableEngine implements Engine {
   private inner: Engine | null = null;
   private nodes: number[] | null = null;
-  private net: { model: string | null; netOptions: NetOptions } | null = null;
+  private net: { model: NetModel; netOptions: NetOptions } | null = null;
   private warningListeners = new Set<() => void>();
   private unsubscribeInner: (() => void) | null = null;
   /** Counts the calls of use(): a call whose newGame ends after a newer call began is stale. */
@@ -69,7 +73,7 @@ export class SwitchableEngine implements Engine {
    * Model and search settings for the net engines: every later newGame carries them, so does the one of `use`. null removes them,
    * and the setup then has no model fields (the classical requests stay as they were).
    */
-  setNet(net: { model: string | null; netOptions: NetOptions } | null): void {
+  setNet(net: { model: NetModel; netOptions: NetOptions } | null): void {
     this.net = net;
   }
 
@@ -80,7 +84,9 @@ export class SwitchableEngine implements Engine {
 
   private override(setup: GameSetup): GameSetup {
     const withNodes = this.nodes ? { ...setup, nodes: this.nodes } : setup;
-    return this.net ? { ...withNodes, model: this.net.model, netOptions: this.net.netOptions } : withNodes;
+    if (!this.net) return withNodes;
+    const { model, netOptions } = this.net;
+    return { ...withNodes, model: typeof model === 'function' ? model(setup.variant ?? DEFAULT_VARIANT) : model, netOptions };
   }
 
   private get engine(): Engine {

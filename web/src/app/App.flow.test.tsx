@@ -295,6 +295,41 @@ describe('a game link', () => {
     expect(document.activeElement).toBe(undo); // focus returns to where it was
   });
 
+  it.each(['keep button', 'backdrop', 'Escape'] as const)(
+    '"New game" opened by mistake: the %s cancels, and game, history, address and engine stay as they were',
+    async (how) => {
+      const nav = new FakeNavigation('');
+      await mount(nav);
+      await click(choice('begin-no'));
+      await until(() => plies() === 1 && status() === 'Your move', 'engine opened');
+      await humanMove();
+      await until(() => plies() === 3 && status() === 'Your move', 'the engine answered');
+      const before = { hash: nav.hash, pushes: nav.pushes.length, engine: q('.ml-engine__head')?.textContent, board: q('svg')?.outerHTML };
+      await click(all('button').find((b) => b.textContent === 'New game')!);
+      expect(dialog()?.getAttribute('data-dialog')).toBe('begin');
+      await click(choice('mode-engines')); // a changed choice in the dialog must not leak into the running game
+      await click(choice('jump-long'));
+      if (how === 'keep button') await click(choice('begin-keep'));
+      if (how === 'backdrop') {
+        const backdrop = q('[data-testid="start-backdrop"]')!;
+        await act(async () => {
+          backdrop.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+        });
+        await click(backdrop);
+      }
+      if (how === 'Escape') await key(dialog()!, 'Escape');
+      expect(dialog()).toBeNull();
+      expect(plies()).toBe(3);
+      expect(status()).toBe('Your move');
+      expect(nav.hash).toBe(before.hash);
+      expect(nav.pushes.length).toBe(before.pushes);
+      expect(q('.ml-engine__head')?.textContent).toBe(before.engine);
+      expect(q('svg')?.outerHTML).toBe(before.board);
+      await humanMove(); // the game goes on where it was
+      await until(() => plies() === 5, 'the engine answers the next move');
+    },
+  );
+
   it('a pasted link while a game runs replaces the game when the player continues', async () => {
     const nav = new FakeNavigation('');
     await mount(nav);

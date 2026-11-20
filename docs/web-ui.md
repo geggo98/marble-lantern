@@ -185,7 +185,9 @@ The buttons depend on the mode:
 
 **The last choice is kept.** The dialog opens with the jump rule, mode and seats chosen last, stored in `localStorage` under the key `ml.start-choice`. Origin not recorded. Rationale: a person who plays the same variant again needs one click. Limits: the store is a per-browser convenience, not game state. Every read and write is guarded, because storage can be missing or blocked; a missing, blocked or invalid value gives the default choice, and a failed write is ignored.
 
-**"New game" always opens the dialog**, also during a variant game. Origin: the project owner changed the requirement when the dialog got the variant choices; before that, "New game" in a variant game restarted the same seats without a dialog. Rationale: the dialog now holds every choice of a game, and the stored choice keeps the same game one click away. While a game runs, Escape closes the dialog and leave the game as it is; before the first game there is nothing to keep, so Escape does nothing.
+**"New game" always opens the dialog**, also during a variant game. Origin: the project owner changed the requirement when the dialog got the variant choices; before that, "New game" in a variant game restarted the same seats without a dialog. Rationale: the dialog now holds every choice of a game, and the stored choice keeps the same game one click away. 
+
+**"New game" can be cancelled while a game runs.** Three ways close the dialog and leave the running game as it is: the button "Keep my current game" (`data-choice="begin-keep"`, the text `link_keep` of the link dialog), Escape, and a click on the backdrop beside the panel. Moves, history entries, address and engine stay unchanged; a choice changed in the dialog is dropped. A press that starts inside the panel and ends on the backdrop, as when a text selection is dragged out, does not cancel. Before the first game there is nothing to keep, so the button is missing and Escape and the backdrop do nothing. The link dialog and the error dialog close the same three ways. Origin: the project owner asked for it on 2026-11-20, because the menu entry "New game" is easy to hit by accident. Rationale: before, only Escape closed the dialog, and a phone has no Escape key.
 
 **Modal behaviour.** The dialog uses `useDialog` (`web/src/ui/useDialog.ts`), like the menu ([small screens and touch](#small-screens-and-touch)): focus moves in, Tab stays inside, focus returns. The radios are native radio inputs, so a group is one Tab stop and the arrow keys change the choice. `useDialog` therefore skips an unchecked radio of a group with a checked one when it finds the first and last element of the Tab loop; otherwise the loop would end on an element that Tab never reaches. Each option and button is at least 44 px high. On a phone 320 px wide the dialog panel scrolls inside (`max-height: 92dvh`), and the page does not scroll.
 
@@ -592,10 +594,25 @@ The standard error treats the moves as independent, which they are not (moves of
 
 The engine sheet ("Engine and strength") lists the two net engines among the browser engines. When one of them is selected, the sheet shows two more groups:
 
-- **Model.** "None" comes first and is the default. Below it, the sheet offers only the models that can play the variant of the game (`modelFits` in `web/src/engines/net/model-manifest.ts`); a note says when models are hidden for that reason. Each model shows its description, its packed size and the strength figures of its manifest entry for the player count of the game (`strengthFacts` in `web/src/engines/net/model-strength.ts`). The sheet prints only what was measured, with the player count, jump rule, opponent and simulation count of the measurement; a model without a figure for that player count says "Strength not measured for this variant".
+- **Model.** "None" comes first. Below it, the sheet offers only the models that can play the variant of the game (`modelFits` in `web/src/engines/net/model-manifest.ts`); a note says when models are hidden for that reason. Each model shows its description, its packed size and the strength figures of its manifest entry for the player count of the game (`strengthFacts` in `web/src/engines/net/model-strength.ts`). The sheet prints only what was measured, with the player count, jump rule, opponent and simulation count of the measurement; a model without a figure for that player count says "Strength not measured for this variant".
 - **Strength.** 50, 200 (default) or 800 simulations per move. For the CPU backend each preset shows a typical time per move (15, 58 and 241 ms; see [measurements](#measurements-of-the-net-engines)). The sheet states no Elo per preset, because only the model figures were measured.
 
 Selecting `net-webgpu` starts a WebGPU probe (a real adapter and device request, `isWebGpuAvailable`); the sheet shows "Checking WebGPU …" and then the result. The probe code is not part of the main bundle; it loads on the first probe.
+
+**Which model plays when none was chosen.** `resolveModel` in `web/src/engines/net/selection.ts` decides, for the variant of each game:
+
+| What the person chose | Model that plays |
+|---|---|
+| nothing yet (also a stored model that is no longer in `models.json`) | the model chosen last, if it is in `models.json` and can play the variant; else the strongest model for the variant (`bestModel`); else none, with the warning `no-model` |
+| "None" | none: the warning `no-model` and random moves |
+| a model that can play the variant | that model |
+| a model that cannot play the variant | the strongest model for the variant; if there is none, the chosen model stays and the engine reports `model-variant-mismatch` |
+
+The sheet checks the model that will play, also when the app picked it. Apply keeps the stored choice when the person did not touch the model list, so a chosen expert model plays again in the next 2-player game. `bestModel` ranks by the figures of `models.json` for the variant: a model with a figure beats one without; between two, the figure against the larger node budget wins, then the higher Elo (2 players) or share of the points (3 players). The figures are not on one scale, so this is a rule of thumb. Without figures the model with more weights wins. The automatic pick keeps the stored strength, which is 200 simulations (the middle preset) unless the person changed it.
+
+The model is read at every new game (`NetSelectionStore.modelFor`, passed as a function to `SwitchableEngine.setNet`), so a new variant in the start dialog gets its own model without a reload of the engine. The start dialog only judges the choice; it does not change the stored selection, so cancelling it changes nothing.
+
+Origin: the project owner reported on 2026-11-20 that a net engine started with the model "None". Rationale: "None" as the default made a net engine play random moves until the person found the model list. "None" stays a choice, because it is the way to see the fallback on purpose.
 
 The sheet judges the selection before the game starts, with the same rules as the engine (`evaluateSelection` in `web/src/engines/net/selection.ts`), and shows the warnings the engine will report. The start dialog and the "Continue this game?" dialog of a game link show the same warnings for the variant they are about to start.
 
@@ -605,8 +622,8 @@ A net engine always answers `choose()`. When it cannot use a network it plays a 
 
 | Warning code | When | What plays | Action in the UI |
 |---|---|---|---|
-| `no-model` | the model is "None" | random legal moves | "Choose a model" opens the engine sheet at the model group |
-| `model-variant-mismatch` | the model cannot play the variant of the game, or its input planes or player count do not fit | random legal moves | "Choose another model" |
+| `no-model` | the model is "None", or nothing was chosen and no model can play the variant | random legal moves | "Choose a model" opens the engine sheet at the model group |
+| `model-variant-mismatch` | the chosen model cannot play the variant of the game and no other model can (else that one plays), or its input planes or player count do not fit | random legal moves | "Choose another model" |
 | `backend-unavailable`, fallback `wasm` | `net-webgpu` with a usable model, but WebGPU does not work (no API, no adapter, device failed or lost) | the network, on the CPU backend | none; shown as information, not as an alert |
 | `backend-unavailable`, fallback `random` | no backend can run: the CPU backend failed, or no WebAssembly flavour loads | random legal moves | none |
 | `model-load-failed` | the model is not in `models.json`, its file cannot be fetched or read, it fails verification, or the backend rejects the weights | random legal moves | "Load again" |
@@ -629,9 +646,10 @@ Where the warnings appear:
 
 The engine, the model id and the simulation count are kept in `localStorage` under the key `ml.net-selection` (`loadSelection` and `saveSelection` in `web/src/engines/net/selection.ts`). This is a per-browser convenience: a blocked or full storage only means that the next visit starts from the defaults.
 
-- **Model and simulations persist** across visits.
+- **Model and simulations persist** across visits. The model chosen last is also kept apart, under the key `ml.net-last-model`, for the automatic pick ([choosing a net engine](#choosing-a-net-engine)). Choosing "None" does not overwrite it.
+- **"Nothing chosen" and "None" are told apart by a version field.** The stored text carries `"v": 2`; a missing `modelId` means nothing chosen, `null` means "None". The earlier format had no `v` and wrote `modelId: null` as its default, so a stored null without `"v": 2` means nothing chosen: the person could not have told the default from an explicit "None" then.
 - **The engine does not.** At page start a stored net engine is replaced by the classical default engine (`java-wasmgc`, [ADR 0003](adr/0003-teavm-default-engine.md)) in `web/src/app/App.tsx`. Rationale: `EngineSession` (`web/src/app/session.ts`) always loads a classical engine first. If the stored net engine stayed in the selection, the start dialog and the sheet would show its warnings although a classical engine plays.
-- **Invalid values fall back per field:** a damaged text gives the default selection, an unknown engine id the default engine, an unknown model id "None", and a simulation count that is not a preset 200.
+- **Invalid values fall back per field:** a damaged text gives the default selection, an unknown engine id the default engine, an unknown model id "nothing chosen", and a simulation count that is not a preset 200.
 - The game link (see [game URL](#game-url)) holds neither the engine nor the model.
 
 ### Where the code is

@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NetSelectionStore } from '../app/net-selection';
+import { listModels } from '../engines/net/model-manifest';
+import type { ModelInfo } from '../engines/net/model-manifest';
 import type { EngineInfo } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { StartDialog } from './StartDialog';
@@ -210,9 +212,16 @@ describe('engine card and telemetry of a net engine', () => {
 });
 
 describe('start dialog', () => {
-  const dialog = async (selection: { engine: 'net-wasm' | 'cpp-wasm'; modelId: string | null }, initial = { jump: 'adjacent', mode: 'two', humanSeat: 0, engineSeat: 2 } as const): Promise<void> => {
-    const net = new NetSelectionStore({ initial: { ...selection, sims: 200 }, storage: null, wasm: true });
+  /** Only the expert model: a variant it cannot play has no model at all, so the person's choice gives the mismatch warning. */
+  const EXPERT_ONLY: readonly ModelInfo[] = listModels().filter((m) => m.id === 'small-2p-adjacent-expert');
+  const dialog = async (
+    selection: { engine: 'net-wasm' | 'cpp-wasm'; modelId?: string | null },
+    initial = { jump: 'adjacent', mode: 'two', humanSeat: 0, engineSeat: 2 } as const,
+    models?: readonly ModelInfo[],
+  ): Promise<NetSelectionStore> => {
+    const net = new NetSelectionStore({ initial: { ...selection, sims: 200 }, storage: null, wasm: true, lastModel: null, ...(models ? { models } : {}) });
     await render(<StartDialog model={{ kind: 'begin', initial, onStart: () => undefined, net }} />);
+    return net;
   };
   const warns = (): string[] => Array.from(document.body.querySelectorAll('[data-net-warning]')).map((e) => e.getAttribute('data-net-warning')!);
 
@@ -225,22 +234,39 @@ describe('start dialog', () => {
     expect((q('[data-choice="begin-yes"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('the expert model for a 2-player game: no warning; switching to the three-player mode gives the mismatch', async () => {
-    await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' });
+  it('the expert model for a 2-player game: no warning; three players without a fitting model gives the mismatch', async () => {
+    await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' }, undefined, EXPERT_ONLY);
     expect(warns()).toEqual([]);
     await act(async () => q('[data-choice="mode-hotseat"]')!.click());
     expect(warns()).toEqual(['model-variant-mismatch']);
   });
 
-  it('the long jump rule also mismatches the expert model', async () => {
-    await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' });
+  it('the long jump rule also mismatches the expert model when no model fits', async () => {
+    await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' }, undefined, EXPERT_ONLY);
     await act(async () => q('[data-choice="jump-long"]')!.click());
     expect(warns()).toEqual(['model-variant-mismatch']);
   });
 
+  it('switching to a variant the chosen model cannot play: the best fitting model takes over, no warning, the store stays', async () => {
+    const net = await dialog({ engine: 'net-wasm', modelId: 'small-2p-adjacent-expert' });
+    await act(async () => q('[data-choice="mode-engines"]')!.click());
+    expect(warns()).toEqual([]);
+    await act(async () => q('[data-choice="jump-long"]')!.click());
+    expect(warns()).toEqual([]);
+    expect(net.selection.modelId).toBe('small-2p-adjacent-expert'); // only the game that starts gets another model
+    expect(net.modelFor({ jump: 'long', players: 3 })).toBe('small-shared-all');
+  });
+
+  it('nothing chosen and no model for the variant: the no-model warning, not the mismatch', async () => {
+    await dialog({ engine: 'net-wasm' }, undefined, EXPERT_ONLY);
+    expect(warns()).toEqual([]);
+    await act(async () => q('[data-choice="mode-hotseat"]')!.click());
+    expect(warns()).toEqual(['no-model']);
+  });
+
   describe('link dialog (M6)', () => {
-    const link = async (modelId: string | null, variant: Variant, engine: 'net-wasm' | 'cpp-wasm' = 'net-wasm', withStore = true): Promise<void> => {
-      const net = new NetSelectionStore({ initial: { engine, modelId, sims: 200 }, storage: null, wasm: true });
+    const link = async (modelId: string | null, variant: Variant, engine: 'net-wasm' | 'cpp-wasm' = 'net-wasm', withStore = true, models = EXPERT_ONLY): Promise<void> => {
+      const net = new NetSelectionStore({ initial: { engine, modelId, sims: 200 }, storage: null, wasm: true, models });
       await render(
         <StartDialog
           model={{ kind: 'link', ply: 4, jump: variant.jump, sideToMove: 0, onContinueAs: () => undefined, onNew: () => undefined, variant, ...(withStore ? { net } : {}) }}

@@ -5,7 +5,7 @@ import type { Engine, EngineId, Progress } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { createEngine, describeEngines } from '../engines/registry';
 import type { EngineChoice, EnginesManifest } from '../engines/registry';
-import type { SwitchableEngine } from './switchable-engine';
+import type { NetModel, SwitchableEngine } from './switchable-engine';
 import { DEFAULT_VARIANT, isDefault } from '../game/variant';
 import type { Variant } from '../game/variant';
 
@@ -37,7 +37,7 @@ export interface SessionDeps {
   /** The game variant of the game that is on (default: adjacent jumps, two players). An engine that cannot play it is not offered. */
   variant?: () => Variant;
   /** Model and search settings for the net engines, read when a net engine is loaded and by applyNet. Without it a net engine gets no model. */
-  net?: () => { model: string | null; sims: number; batch?: number };
+  net?: () => { model: NetModel; sims: number; batch?: number };
 }
 
 /**

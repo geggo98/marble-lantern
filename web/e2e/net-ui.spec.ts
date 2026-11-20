@@ -35,14 +35,17 @@ for (const size of [
       if (await close.isVisible()) await close.click();
     };
 
-    test('net-wasm without a model: the sheet warns, the notice shows, and the engine still moves (random)', async ({ page }, info) => {
+    test('net-wasm: nothing chosen picks the strongest model; "None" chosen warns, the notice shows, and the engine still moves (random)', async ({ page }, info) => {
       const errors = watchPageErrors(page);
       await openApp(page, 'en');
       await waitForHumanTurn(page);
       const dialog = await openEngineSheet(page);
       await dialog.locator('[data-engine="net-wasm"]').click();
-      // None is the default and checked; the warning is live in the sheet
-      await expect(dialog.locator('[data-model="none"] input')).toBeChecked();
+      // nothing chosen yet: the strongest model of the variant is checked, no warning
+      await expect(dialog.locator(`[data-model="${EXPERT}"] input`)).toBeChecked();
+      await expect(dialog.locator('[data-net-warning]')).toHaveCount(0);
+      // "None" stays a choice; the warning is live in the sheet
+      await dialog.locator('[data-model="none"] input').check();
       await expect(dialog.locator('[data-net-warning="no-model"]')).toBeVisible();
       await expect(dialog.locator('[data-net-group="sims"]')).toBeVisible();
       await expect(dialog.locator('input[type="range"]')).toHaveCount(0);
@@ -93,7 +96,7 @@ for (const size of [
       errors.expectNone();
     });
 
-    test('three players: the New game dialog warns about the expert model that plays, the sheet offers the shared one only', async ({ page }, info) => {
+    test('three players: the expert model cannot play, the shared one takes over without a warning, the sheet offers the shared one only', async ({ page }, info) => {
       const errors = watchPageErrors(page);
       await openApp(page, 'en');
       await waitForHumanTurn(page);
@@ -104,24 +107,25 @@ for (const size of [
       await expect(start).toBeVisible();
       await expect(start.locator('[data-net-warning]')).toHaveCount(0); // two players, adjacent: the expert fits
       await start.locator('[data-choice="mode-hotseat"]').check();
-      await expect(start.locator('[data-net-warning="model-variant-mismatch"]')).toBeVisible();
+      // the expert plays two players only: the shared model takes over for this game, so nothing to warn about
+      await expect(start.locator('[data-net-warning]')).toHaveCount(0);
       await noOverflow(page);
-      await shot(page, `${info.project.name}-${size.name}-start-dialog-mismatch`);
-      await expect(start.locator('[data-choice="begin-start"]')).toBeEnabled(); // it does not block starting
+      await shot(page, `${info.project.name}-${size.name}-start-dialog-3p-net`);
       await start.locator('[data-choice="begin-start"]').click();
       await expect(start).toBeHidden();
+      await closeMenu(page);
+      await expect(page.locator('.ml-play__netnote')).toHaveCount(0); // a net plays, no random moves
       const dialog = await openEngineSheet(page);
       await dialog.locator('[data-engine="net-wasm"]').click();
       await expect(dialog.locator(`[data-model="${EXPERT}"]`)).toHaveCount(0);
       await expect(dialog.locator(`[data-model="${SHARED}"]`)).toHaveCount(1);
       await expect(dialog.locator('[data-net-hidden-note]')).toBeVisible();
-      await expect(dialog.locator('[data-net-warning="model-variant-mismatch"]')).toBeVisible();
+      await expect(dialog.locator(`[data-model="${SHARED}"] input`)).toBeChecked();
+      await expect(dialog.locator('[data-net-warning]')).toHaveCount(0);
       // the shared model of a 3-player game: its 3-player measurement, labelled with the player count, no 2-player line
       await expect(dialog.locator(`[data-model="${SHARED}"] [data-strength-fact][data-players="3"]`)).toHaveCount(2);
       await expect(dialog.locator(`[data-model="${SHARED}"] [data-strength-fact][data-players="2"]`)).toHaveCount(0);
-      await shot(page, `${info.project.name}-${size.name}-sheet-net-3p-mismatch`);
-      await dialog.locator(`[data-model="${SHARED}"] input`).check();
-      await expect(dialog.locator('[data-net-warning]')).toHaveCount(0);
+      await shot(page, `${info.project.name}-${size.name}-sheet-net-3p`);
       errors.expectNone();
     });
 
@@ -161,6 +165,7 @@ for (const size of [
       const sheet = await dialog.boundingBox();
       expect(sheet!.x + sheet!.width).toBeLessThanOrEqual(size.width + 1);
       await shot(page, `${info.project.name}-${size.name}-sheet-net-de`);
+      await dialog.locator('[data-model="none"] input').check(); // the notice needs random moves
       await dialog.locator('.ml-sheet__actions .ml-btn--primary').click();
       await closeMenu(page);
       await expect(page.locator('.ml-play__netnote')).toHaveAttribute('data-net-notice', 'random');

@@ -122,6 +122,45 @@ describe('the begin dialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('"Keep my current game" is offered only while a game runs, and cancels without starting', async () => {
+    const onStart = vi.fn();
+    await open(onStart);
+    expect(q('[data-choice="begin-keep"]')).toBeNull(); // first load: nothing to go back to
+    const onCancel = vi.fn();
+    await open(onStart, DEFAULT_CHOICE, onCancel);
+    await click(choice('begin-keep'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+    await click(choice('mode-engines')); // three players: the keep button stays next to "Start game"
+    expect(q('[data-choice="begin-keep"]')).not.toBeNull();
+    expect(q('[data-choice="begin-start"]')).not.toBeNull();
+  });
+
+  it('a click on the backdrop cancels while a game runs; a click in the panel, a press started in the panel, or no game do not', async () => {
+    const onStart = vi.fn();
+    await open(onStart);
+    const backdrop = (): HTMLElement => q('[data-testid="start-backdrop"]')!;
+    await click(backdrop());
+    expect(q('[role="dialog"]')).not.toBeNull(); // no game: nothing happens
+    const onCancel = vi.fn();
+    await open(onStart, DEFAULT_CHOICE, onCancel);
+    await click(q('[role="dialog"]')!);
+    await click(q('.ml-sheet__title')!);
+    expect(onCancel).not.toHaveBeenCalled();
+    // a text selection dragged from the panel out to the backdrop ends with a click on the backdrop: no cancel
+    await act(async () => {
+      q('.ml-sheet__title')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    await click(backdrop());
+    expect(onCancel).not.toHaveBeenCalled();
+    await act(async () => {
+      backdrop().dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    await click(backdrop());
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
   it('Tab at the last button wraps to the first Tab stop, which is the checked radio (unchecked radios are skipped)', async () => {
     await open(vi.fn());
     const last = q<HTMLElement>('[data-language="de"]')!; // the language toggle closes the dialog
