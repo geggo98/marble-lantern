@@ -23,7 +23,8 @@ import sternhalma.engine.Position;
  *   <li>{@code adjacent}: pairs of own pieces that touch (bridges)</li>
  *   <li>{@code steps}: steps to a free allowed neighbour closer to the goal (mobility)</li>
  * </ol>
- * plus {@code dsumPhase}: the {@code dsum} difference times the total remaining distance / 100 (lets the
+ * plus {@code dsumPhase}: the {@code dsum} difference times the total remaining distance / 100, the total in
+ * units of 10 pieces on the 5-row board (see {@code phaseDistance}) (lets the
  * weight of the race change with the game phase), and {@code tempo}: a constant 1 for the side to move.
  *
  * <p>Optional 13th feature (round-2 experiment E07, {@link #GAIN_FEATURES} weights): {@code bestGain}, the largest
@@ -521,8 +522,21 @@ public final class LinearEvaluator implements Evaluator {
         java.util.Arrays.fill(out, 0, 10, 0.0);
         add(out, me, 1);
         add(out, opponent, -1);
-        out[10] = out[0] * (me[DSUM] + opponent[DSUM]) / 100.0;
+        out[10] = out[0] * phaseDistance(me, opponent) / 100.0;
         out[11] = 1.0;
+    }
+
+    /**
+     * The total remaining distance of both sides in units of 10 pieces, the piece count the weights were fitted with:
+     * with more than {@link Position#PIECES} pieces (15 on the 5-row board) times {@code PIECES / count}. Without this,
+     * the larger total of 15 pieces turned the reward for progress around (dsumPhase has a positive weight, dsum a
+     * negative one), and the 3-player browser player of the 5-row board made no progress (PhaseOnFiveRowsTest). With
+     * 10 pieces the value is the plain sum, so the 4-row scores stay bit-identical.
+     */
+    private static double phaseDistance(int[] me, int[] opponent) {
+        int total = me[DSUM] + opponent[DSUM];
+        int count = me[COUNT];
+        return count > Position.PIECES ? (double) total * Position.PIECES / count : total;
     }
 
     /** Adds {@code sign} times the per-side features to out[0..9], with the operations of the original code. */

@@ -217,7 +217,13 @@ void LinearEvaluator::combine(const SideSums& me, const SideSums& opponent, std:
     std::fill(out.begin(), out.begin() + 10, 0.0);
     add(out, me, 1);
     add(out, opponent, -1);
-    out[10] = out[0] * (me[u(kDsum)] + opponent[u(kDsum)]) / 100.0;
+    // The total remaining distance of both sides in units of 10 pieces (LinearEvaluator.phaseDistance in Java): with more
+    // than kPieces pieces (15 on the 5-row board) times kPieces / count, so that the phase keeps the scale the weights were
+    // fitted with; with 10 pieces the plain sum, bit-identical to the 4-row scores.
+    const int total = me[u(kDsum)] + opponent[u(kDsum)];
+    const int count = me[u(kCount)];
+    const double phase = count > kPieces ? static_cast<double>(total) * kPieces / count : static_cast<double>(total);
+    out[10] = out[0] * phase / 100.0;
     out[11] = 1.0;
 }
 

@@ -730,7 +730,11 @@ of all three values. The wasm API has `shw_game_new4(jump, players, ranking, cam
 `RuleSet::TriangleRows::Five` (15-cell houses, 15 pieces; `docs/rules.md`, section "Board size") reaches the search as follows.
 The linear evaluator and the three-player search read their tables from the layout of the position's house size
 (`linear_tables(rows)` in `src/search/linear_eval.hpp`, `tables3(position)` in `src/search/three_player_search.cpp`); the weights are those of the
-4-row board and are not calibrated for 5 rows. The futility near-win count is `goal_size() - depth`. The race code (`RaceEvaluator::rules_apply`,
+4-row board and are not calibrated for 5 rows. One correction keeps their scale: the feature `dsumPhase` (the difference of the summed piece
+distances, times the total remaining distance of both sides / 100) counts that total in units of 10 pieces, so 15 pieces multiply it by 10/15
+(`LinearEvaluator::combine`, `phaseDistance` in Java). Without it the larger total of 15 pieces made a step towards the goal lower the score, and the
+three-player browser player put no piece into its goal in 1,500 plies (measured 2026-11-20, `results/rows5-v1-2026-11-20.txt`). With 10 pieces the
+factor is not applied, so 4-row scores are bit-identical. The futility near-win count is `goal_size() - depth`. The race code (`RaceEvaluator::rules_apply`,
 `RaceAdjudication`, `RaceMove`) and `IncrementalLinear::reset` accept 4-row houses only, because the race table and the jump graph are computed for the
 10-cell corners. `PlayerSpec` and `ThreePlayerSpec` take `rows=4|5`; `rows=5` is refused together with `race=1`, `race=2` and the racelin evaluators.
 A player plays games of its own house size only (`plays()` checks it, `choose()` throws otherwise). `kBrowserRows5Spec`, `kBrowserRows5LongSpec`,
