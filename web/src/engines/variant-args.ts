@@ -1,5 +1,5 @@
 // Small helpers that the engine cores share for the game variant (jump rule and player count).
-import { DEFAULT_VARIANT } from '../game/variant';
+import { DEFAULT_VARIANT, rowsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import type { GameSetup } from './engine';
 import { EngineFailure } from './protocol';
@@ -8,9 +8,13 @@ export const variantOf = (setup: GameSetup): Variant => setup.variant ?? DEFAULT
 
 /**
  * Only the adjacent two-player game reads the race table. Long-hop play has no race play, and the three-player player has
- * none either, so those games run before (or without) a table.
+ * none either, so those games run before (or without) a table. Neither does the 5-row board: the table was built for 10 pieces, and
+ * the engines turn race play off there (RuleSet.TriangleRows).
  */
-export const needsTable = (variant: Variant): boolean => variant.jump === 'adjacent' && variant.players === 2;
+export const needsTable = (variant: Variant): boolean => variant.jump === 'adjacent' && variant.players === 2 && rowsOf(variant) === 4;
+
+/** The `rows` argument of the TeaVM facades: "4" or "5". */
+export const rowsArg = (variant: Variant): string => String(rowsOf(variant));
 
 /** The node budget of each seat: `players` entries; a missing entry repeats the one before it (the third seat copies the second). */
 export function seatNodes(setup: GameSetup): number[] {

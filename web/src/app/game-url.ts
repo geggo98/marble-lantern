@@ -1,6 +1,6 @@
 // The game in the URL fragment (docs/web-ui.md, section "Game URL"). Pure: no DOM, no engine.
 //
-//   #g=v1.<payload>[&h=0|1][&l=<level>][&j=long][&p=3&s=<seats>][&r=full][&c=pass|open]
+//   #g=v1.<payload>[&h=0|1][&l=<level>][&j=long][&p=3&s=<seats>][&r=full][&c=pass|open][&t=5]
 //
 // payload: every move as 14 bits (from 7 bit, to 7 bit, cells 0 to 120), big-endian bit stream, zero-padded to whole
 //          bytes, base64url without padding.
@@ -11,10 +11,11 @@
 // r:       the ranking rule, only "full" (omitted for first-winner rules), and only with p=3: after a win the game goes on for the
 //          lower ranks (Play on for 2nd place). Without it the moves after a win are illegal, as before.
 // c:       the foreign-corner rule (docs/rules.md, "Foreign corners"), only "pass" (pass-through) or "open" (omitted for closed corners).
+// t:       the house size (RuleSet.TriangleRows), only "5" (omitted for the 4-row board). The payload is the same: the cells are 0 to 120 on both boards.
 //
 // Parsing is strict: a link that is not exactly what the encoder writes is reported as broken, never repaired.
 import type { Side } from '../game/board-state';
-import { DEFAULT_VARIANT, campsOf, isDefault, moveLimit, rankingOf, withCamps } from '../game/variant';
+import { DEFAULT_VARIANT, campsOf, isDefault, moveLimit, rankingOf, rowsOf, withCamps, withRows } from '../game/variant';
 import type { ForeignCamps, Variant } from '../game/variant';
 import type { ControllerSeat } from '../game/game';
 import { makeMove, moveFrom, moveTo } from '../engines/engine';
@@ -24,8 +25,8 @@ import type { Screen } from '../ui/Chrome';
 
 export const GAME_URL_VERSION = 'v1';
 const BITS_PER_MOVE = 14;
-/** The longest game of any variant (300 plies for three players); parseGameFragment narrows it to the variant of the link. */
-const MAX_MOVES = 300;
+/** The longest game of any variant (375 plies for three players on 5 rows); parseGameFragment narrows it to the variant of the link. */
+const MAX_MOVES = 375;
 
 export type GameUrlReason = 'version' | 'length' | 'alphabet' | 'padding' | 'cell' | 'too-long' | 'field';
 
@@ -157,6 +158,7 @@ export function formatGameFragment(link: GameLink): string {
   }
   const camps = campsOf(variant);
   if (camps !== 'closed') out += `&c=${camps === 'open' ? 'open' : 'pass'}`;
+  if (rowsOf(variant) === 5) out += '&t=5';
   return out;
 }
 
@@ -185,6 +187,7 @@ export function parseGameFragment(fragment: string): GameLink {
   let players: Variant['players'] = 2;
   let ranking: Variant['ranking'] = 'first';
   let camps: ForeignCamps = 'closed';
+  let rows: Variant['rows'] = 4;
   let seatText: string | null = null;
   const seen = new Set<string>();
   for (const field of fields.slice(1)) {
@@ -199,6 +202,7 @@ export function parseGameFragment(fragment: string): GameLink {
     else if (key === 'p' && value === '3') players = 3;
     else if (key === 'r' && value === 'full') ranking = 'full';
     else if (key === 'c' && (value === 'pass' || value === 'open')) camps = value === 'open' ? 'open' : 'pass-through';
+    else if (key === 't' && value === '5') rows = 5;
     else if (key === 's' && /^[he]{3}$/.test(value)) seatText = value;
     else throw new GameUrlError('field', `bad value in "${field}"`);
   }
@@ -212,7 +216,7 @@ export function parseGameFragment(fragment: string): GameLink {
     throw new GameUrlError('field', 's is for three players; two players use h');
   }
   if (ranking === 'full' && players !== 3) throw new GameUrlError('field', 'r=full is for three players');
-  const variant: Variant = withCamps(ranking === 'full' ? { jump, players, ranking } : { jump, players }, camps);
+  const variant: Variant = withRows(withCamps(ranking === 'full' ? { jump, players, ranking } : { jump, players }, camps), rows);
   if (!isDefault(variant)) link.variant = variant;
   if (moves.length > moveLimit(variant)) throw new GameUrlError('too-long', `${moves.length} moves, the limit is ${moveLimit(variant)}`);
   return link;

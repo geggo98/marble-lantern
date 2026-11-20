@@ -46,10 +46,15 @@ class FakeWebNet {
     return 'ok 1586 2';
   }
   setTable(): string { return 'ok 1'; }
-  legalMoves(history: string): string {
+  rowsSeen: string[] = [];
+  legalMoves(history: string, _jump?: string, _players?: string, _camps?: string, rows?: string): string {
+    this.rowsSeen.push(`legalMoves:${rows}`);
     return history.split(',').filter(Boolean).length > 500 ? 'error illegal-history too long' : `ok ${this.legal.join(',')}`;
   }
-  outcome(): string { return 'ok ongoing'; }
+  outcome(_h?: string, _j?: string, _p?: string, _c?: string, rows?: string): string {
+    this.rowsSeen.push(`outcome:${rows}`);
+    return 'ok ongoing';
+  }
   begin(): string {
     this.calls.push('begin');
     if (this.beginError) return this.beginError;
@@ -248,6 +253,16 @@ describe('NetCore: the search loop', () => {
     const core = new NetCore('wasm', rig().deps);
     expect(core.legalMoves([1])).toEqual(LEGAL);
     expect(core.outcome([])).toEqual({ kind: 'ongoing' });
+  });
+
+  it('hands the house size of the variant to the facade: "4" for the default, "5" on the 5-row board (random play needs no model)', () => {
+    const r = rig();
+    const core = new NetCore('wasm', r.deps);
+    core.legalMoves([1], ADJ2);
+    core.outcome([1], ADJ2);
+    core.legalMoves([1], { jump: 'adjacent', players: 2, rows: 5 });
+    core.outcome([1], { jump: 'long', players: 3, rows: 5 });
+    expect(r.web.rowsSeen).toEqual(['legalMoves:4', 'outcome:4', 'legalMoves:5', 'outcome:5']);
   });
 
   it('maps an illegal history of the facade to the protocol code', async () => {

@@ -53,6 +53,12 @@ export function campsOf(variant: Variant): ForeignCamps {
   return variant.camps ?? 'closed';
 }
 
+/** The variant with another house size; 4 drops the field, so the result equals a variant without one. */
+export function withRows(variant: Variant, rows: BoardRows): Variant {
+  const { rows: _old, ...rest } = variant;
+  return rows === 4 ? rest : { ...rest, rows };
+}
+
 /** The variant with another foreign-corner rule; `closed` drops the field, so the result equals a variant without one. */
 export function withCamps(variant: Variant, camps: ForeignCamps): Variant {
   const { camps: _old, ...rest } = variant;
@@ -75,9 +81,14 @@ export function sidesOf(variant: Variant): readonly Player[] {
   return variant.players === 3 ? [0, 1, 2] : [0, 1];
 }
 
-/** Plies after which a game ends without a winner (RuleSet.defaults(players): 200 for two players, 300 for three). */
+/**
+ * Plies after which a game ends without a winner (RuleSet.defaults(players, rows) of the engine): 200 for two players and 300 for
+ * three on 4 rows, 250 and 375 on 5 rows (15 pieces move more plies; no measured 5-row game reached the limit, cpp/results/rows5-v1-2026-11-20.txt).
+ * The C++ engine (shw_move_limit) and the TeaVM engine hold the same table; rows.cross.test.ts compares the three.
+ */
 export function moveLimit(variant: Variant): number {
-  return variant.players === 3 ? 300 : 200;
+  const five = rowsOf(variant) === 5;
+  return variant.players === 3 ? (five ? 375 : 300) : five ? 250 : 200;
 }
 
 export function isDefault(variant: Variant): boolean {
@@ -98,9 +109,9 @@ export function sideAt(ply: number, variant: Variant): Player {
 
 /**
  * Stable text for keys, e.g. "adjacent-2"; "adjacent-3-full" for full ranking, "adjacent-2-open" or "adjacent-2-pass-through" for the
- * foreign-corner rules (the text of a `first`, `closed` variant is unchanged).
+ * foreign-corner rules, plus "-rows5" on the 5-row board (the text of a `first`, `closed`, 4-row variant is unchanged).
  */
 export function variantKey(variant: Variant): string {
   const camps = campsOf(variant);
-  return `${variant.jump}-${variant.players}${rankingOf(variant) === 'full' ? '-full' : ''}${camps === 'closed' ? '' : `-${camps}`}`;
+  return `${variant.jump}-${variant.players}${rankingOf(variant) === 'full' ? '-full' : ''}${camps === 'closed' ? '' : `-${camps}`}${rowsOf(variant) === 4 ? '' : '-rows5'}`;
 }

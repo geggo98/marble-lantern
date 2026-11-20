@@ -4,9 +4,8 @@
 // (`onCancel`); otherwise there is nothing to go back to.
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MOVE_LIMIT } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { campsOf, withCamps } from '../game/variant';
+import { DEFAULT_VARIANT, campsOf, moveLimit, withCamps } from '../game/variant';
 import type { ForeignCamps, JumpRule, Player, Variant } from '../game/variant';
 import type { GameMode, StartChoice } from '../app/start-choice';
 import { useNetSelection } from '../app/net-selection';
@@ -78,7 +77,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
     title = t('link_title');
     body = (
       <>
-        <p id={bodyId}>{t('link_info', { ply: model.ply, limit: MOVE_LIMIT })}</p>
+        <p id={bodyId}>{t('link_info', { ply: model.ply, limit: moveLimit(model.variant ?? DEFAULT_VARIANT) })}</p>
         {model.jump === 'long' && <p data-testid="link-variant">{t('link_variant', { jump: t('start_jump_long') })}</p>}
         {model.variant && campsOf(model.variant) !== 'closed' && (
           <p data-testid="link-camps">{t('link_camps', { rule: t(CAMPS_LABEL[campsOf(model.variant)]) })}</p>

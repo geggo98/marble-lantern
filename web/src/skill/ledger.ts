@@ -4,7 +4,7 @@
 // the ledger in memory for the life of the page.
 
 export const LEDGER_KEY = 'ml.skill.v1';
-/** The newest entries are kept; with the move limit of 200 plies this is about ten full games. */
+/** The newest entries are kept per list; with the move limit of 200 plies this is about ten full games (about eight on 5 rows, 250 plies). */
 export const LEDGER_MAX = 1000;
 
 export interface LedgerData {
@@ -14,6 +14,19 @@ export interface LedgerData {
   entries: [string, number][];
   /** The same for two-player games with the long hop. Missing (not an empty list) in files that have none. */
   long?: [string, number][];
+  /** The same for two-player games on the 5-row board with the adjacent jump rule: a loss measured with 10 pieces says nothing about 15. Missing in files that have none. */
+  five?: [string, number][];
+  /** Two-player games on the 5-row board with the long hop. Missing in files that have none. */
+  fiveLong?: [string, number][];
+}
+
+/** The optional lists, besides `entries`: one ledger per (jump rule, house size). */
+export const EXTRA_LISTS = ['long', 'five', 'fiveLong'] as const;
+export type ExtraList = (typeof EXTRA_LISTS)[number];
+
+/** Which list holds the entries of a variant's jump rule and house size. */
+export function listOf(jump: 'adjacent' | 'long', rows: 4 | 5): 'entries' | ExtraList {
+  return rows === 5 ? (jump === 'long' ? 'fiveLong' : 'five') : jump === 'long' ? 'long' : 'entries';
 }
 
 export interface LedgerStore {
@@ -39,12 +52,19 @@ export const EMPTY_LEDGER: LedgerData = { paused: false, entries: [] };
 export function parseLedger(text: string | null): LedgerData {
   if (!text) return { paused: false, entries: [] };
   try {
-    const v = JSON.parse(text) as { v?: unknown; paused?: unknown; entries?: unknown; long?: unknown };
+    const v = JSON.parse(text) as Record<string, unknown>;
     if (v.v !== 1 || typeof v.paused !== 'boolean' || !Array.isArray(v.entries)) return { paused: false, entries: [] };
     const entries = parseEntries(v.entries);
-    const long = v.long === undefined ? undefined : Array.isArray(v.long) ? parseEntries(v.long) : null;
-    if (entries === null || long === null) return { paused: false, entries: [] };
-    return { paused: v.paused, entries, ...(long ? { long } : {}) };
+    if (entries === null) return { paused: false, entries: [] };
+    const data: LedgerData = { paused: v.paused, entries };
+    for (const name of EXTRA_LISTS) {
+      const raw = v[name];
+      if (raw === undefined) continue;
+      const list = Array.isArray(raw) ? parseEntries(raw) : null;
+      if (list === null) return { paused: false, entries: [] }; // one damaged list: start over, as before
+      data[name] = list;
+    }
+    return data;
   } catch {
     return { paused: false, entries: [] };
   }
@@ -67,7 +87,7 @@ export function serializeLedger(data: LedgerData): string {
     v: 1,
     paused: data.paused,
     entries: data.entries.slice(-LEDGER_MAX),
-    ...(data.long && data.long.length > 0 ? { long: data.long.slice(-LEDGER_MAX) } : {}),
+    ...Object.fromEntries(EXTRA_LISTS.flatMap((name) => (data[name] && data[name]!.length > 0 ? [[name, data[name]!.slice(-LEDGER_MAX)]] : []))),
   });
 }
 
@@ -84,10 +104,10 @@ export function browserLedgerStore(storage: () => Storage | null = () => globalT
       } catch {
         /* blocked: keep the memory copy */
       }
-      return { paused: memory.paused, entries: [...memory.entries], ...(memory.long ? { long: [...memory.long] } : {}) };
+      return copyOf(memory);
     },
     save(data) {
-      memory = { paused: data.paused, entries: data.entries.slice(-LEDGER_MAX), ...(data.long ? { long: data.long.slice(-LEDGER_MAX) } : {}) };
+      memory = copyOf(data);
       try {
         storage()?.setItem(LEDGER_KEY, serializeLedger(memory));
       } catch {
@@ -95,4 +115,11 @@ export function browserLedgerStore(storage: () => Storage | null = () => globalT
       }
     },
   };
+}
+
+/** A copy with every list cut to LEDGER_MAX; the optional lists stay absent when absent. */
+function copyOf(data: LedgerData): LedgerData {
+  const out: LedgerData = { paused: data.paused, entries: data.entries.slice(-LEDGER_MAX) };
+  for (const name of EXTRA_LISTS) if (data[name]) out[name] = data[name]!.slice(-LEDGER_MAX);
+  return out;
 }

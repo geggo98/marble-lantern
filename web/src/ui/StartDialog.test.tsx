@@ -9,6 +9,7 @@ import { DEFAULT_CHOICE } from '../app/start-choice';
 import type { StartChoice } from '../app/start-choice';
 import { StartDialog } from './StartDialog';
 import type { StartDialogModel } from './StartDialog';
+import type { Variant } from '../game/variant';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -216,5 +217,21 @@ describe('the link dialog', () => {
       root.render(<StartDialog model={link()} />);
     });
     expect(q('[data-testid="link-variant"]')).toBeNull();
+  });
+
+  it('names the move limit of the variant of the link: 200 or 300 plies on 4 rows, 250 or 375 on 5 rows (seen red with a fixed 200)', async () => {
+    const withVariant = (variant?: Variant): StartDialogModel => ({ ...link(), ...(variant ? { variant } : {}) });
+    const cases: [Variant | undefined, string][] = [
+      [undefined, 'ply 12 of 200'],
+      [{ jump: 'adjacent', players: 3 }, 'ply 12 of 300'],
+      [{ jump: 'adjacent', players: 2, rows: 5 }, 'ply 12 of 250'],
+      [{ jump: 'long', players: 3, rows: 5 }, 'ply 12 of 375'],
+    ];
+    for (const [variant, text] of cases) {
+      await act(async () => {
+        root.render(<StartDialog model={withVariant(variant)} />);
+      });
+      expect(q('p')!.textContent, text).toContain(text);
+    }
   });
 });

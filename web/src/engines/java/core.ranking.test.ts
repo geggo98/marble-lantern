@@ -58,7 +58,23 @@ describe('ranking in the Java core', () => {
     expect(last('legalMoves', 1)).toBe('first');
     expect(last('outcome', 1)).toBe('first');
     expect(calls.every((c) => c.args.at(-2) === 'closed'), 'camps "closed" for a variant without the field').toBe(true);
-    expect(calls.every((c) => c.args.at(-1) === ''), 'rows "" (4 rows) until the variant carries a board size').toBe(true);
+    expect(calls.every((c) => c.args.at(-1) === '4'), 'rows "4" for a variant without the field').toBe(true);
+  });
+
+  // the requirement changed on 2026-11-20 (W2): the core passes the size of the variant, no longer a fixed ""
+  it('passes the board size of the variant as the last argument of every call: "5" for the 5-row board', () => {
+    const { module, calls } = stub('ok ongoing');
+    const core = JavaCore.create(module);
+    const v = { jump: 'long', players: 3, rows: 5 } as const;
+    core.newGame({ nodes: [100, 100, 100], variant: v });
+    core.legalMoves([], v);
+    core.choose([], v);
+    core.outcome([], v);
+    core.bench(3, 100, v);
+    core.analyse([], null, 100, v);
+    core.evaluate3([], v);
+    expect(calls.map((c) => c.name)).toEqual(['newGame', 'legalMoves', 'choose', 'outcome', 'bench', 'analyse', 'evaluate3']);
+    expect(calls.every((c) => c.args.at(-1) === '5')).toBe(true);
   });
 
   it('passes the foreign-corner rule before the board size in every call', () => {

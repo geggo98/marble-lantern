@@ -8,7 +8,7 @@ import type { Player, Variant } from './variant';
 export type Side = 0 | 1;
 export type { Player };
 
-/** Plies after which a two-player game ends without a winner (RuleSet.defaults(2)); `moveLimit(variant)` has the other counts. */
+/** Plies after which a two-player game on 4 rows ends without a winner (RuleSet.defaults(2)); `moveLimit(variant)` has the other counts. */
 export const MOVE_LIMIT = 200;
 
 export type Outcome =

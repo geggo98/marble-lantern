@@ -4,7 +4,7 @@
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
 import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
-import { DEFAULT_VARIANT, campsOf, playsOn, rankingOf } from '../../game/variant';
+import { DEFAULT_VARIANT, campsOf, playsOn, rankingOf, rowsOf } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
 import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
 import { sampleMemory } from '../../bench/memory';
@@ -22,8 +22,12 @@ export interface CppModule {
   _shw_error(): number;
   /** jump: 0 adjacent, 1 long. */
   _shw_player_new(nodes: number, jump: number): number;
+  /** As _shw_player_new for a house size: rows 4 or 5 (the player of the 5-row board needs no race table). -1 for another value. */
+  _shw_player_new_rows(nodes: number, jump: number, rows: number): number;
   /** The three-player player. */
   _shw_player_new3(nodes: number, jump: number): number;
+  /** As _shw_player_new3 for a house size: rows 4 or 5. */
+  _shw_player_new3_rows(nodes: number, jump: number, rows: number): number;
   _shw_player_clear(id: number): void;
   /** jump: 0 adjacent, 1 long; players: 2 or 3. Returns 0, or -1 for other values. */
   _shw_game_new2(jump: number, players: number): number;
@@ -31,6 +35,12 @@ export interface CppModule {
   _shw_game_new3(jump: number, players: number, ranking: number): number;
   /** As _shw_game_new3 with a foreign-corner rule: 0 closed, 1 pass-through, 2 open; -1 for other values. */
   _shw_game_new4(jump: number, players: number, ranking: number, camps: number): number;
+  /** As _shw_game_new4 with the house size: rows 4 or 5; -1 for other values. */
+  _shw_game_new5(jump: number, players: number, ranking: number, camps: number, rows: number): number;
+  /** The house size of the current game: 4 or 5. */
+  _shw_triangle_rows(): number;
+  /** The move limit of the current game in plies. */
+  _shw_move_limit(): number;
   /** The absolute seat of rank i (0 = first place), or -1 if that rank is not decided. */
   _shw_rank(i: number): number;
   /** The seats that are out (full ranking) as bits: bit p for seat p. */
@@ -65,8 +75,8 @@ const LOAD_ERRORS: Readonly<Record<number, ErrorCode>> = {
   10: 'table-checksum',
 };
 
-/** Capacity of the legal-move buffer in ints; far above the largest move list of one position. */
-const MOVE_CAPACITY = 1024;
+/** Capacity of the legal-move buffer in ints: the engine's kMaxMoves (15 pieces times 121 cells), above the largest move list of any position. */
+const MOVE_CAPACITY = 1815;
 const MAX_PLIES = 1000;
 
 const now = (): number => performance.now();
@@ -130,7 +140,7 @@ export class CppCore {
     this.players = [];
     this.keys = [];
     for (const nodes of budgets) {
-      const key = `${variant.players}:${variant.jump}:${nodes}`;
+      const key = `${variant.players}:${variant.jump}:${rowsOf(variant)}:${nodes}`;
       this.keys.push(key);
       this.players.push(this.acquire(key, nodes, variant));
     }
@@ -294,8 +304,9 @@ export class CppCore {
       return free;
     }
     const jump = variant.jump === 'long' ? 1 : 0;
-    const id = variant.players === 3 ? this.m._shw_player_new3(nodes, jump) : this.m._shw_player_new(nodes, jump);
-    if (id < 0) throw new EngineFailure('internal', `shw_player_new(${nodes}, ${jump}): ${this.m.UTF8ToString(this.m._shw_error())}`);
+    const rows = rowsOf(variant);
+    const id = variant.players === 3 ? this.m._shw_player_new3_rows(nodes, jump, rows) : this.m._shw_player_new_rows(nodes, jump, rows);
+    if (id < 0) throw new EngineFailure('internal', `shw_player_new_rows(${nodes}, ${jump}, ${rows}): ${this.m.UTF8ToString(this.m._shw_error())}`);
     return id;
   }
 
@@ -315,8 +326,8 @@ export class CppCore {
   private replay(history: readonly number[], variant: Variant): void {
     if (history.length > MAX_PLIES) throw new EngineFailure('illegal-history', `history has ${history.length} plies`);
     const camps = { closed: 0, 'pass-through': 1, open: 2 }[campsOf(variant)];
-    if (this.m._shw_game_new4(variant.jump === 'long' ? 1 : 0, variant.players, rankingOf(variant) === 'full' ? 1 : 0, camps) !== 0) {
-      throw new EngineFailure('internal', `shw_game_new4: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    if (this.m._shw_game_new5(variant.jump === 'long' ? 1 : 0, variant.players, rankingOf(variant) === 'full' ? 1 : 0, camps, rowsOf(variant)) !== 0) {
+      throw new EngineFailure('internal', `shw_game_new5: ${this.m.UTF8ToString(this.m._shw_error())}`);
     }
     history.forEach((move, ply) => {
       if (!Number.isInteger(move) || this.m._shw_play(move) !== 0) {

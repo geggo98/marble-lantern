@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CELLS, cellId } from '../board/cells';
 import { applyMove, goalCells, hasWon, initialOwners, outcomeOf, replay, startCells } from './board-state';
 import { makeMove } from '../engines/engine';
-import { DEFAULT_VARIANT, campsOf, isDefault, moveLimit, playsOn, rankingOf, sameVariant, sideAt, sidesOf, variantKey, withCamps, withRanking } from './variant';
+import { DEFAULT_VARIANT, campsOf, isDefault, moveLimit, playsOn, rankingOf, sameVariant, rowsOf, sideAt, sidesOf, variantKey, withCamps, withRanking, withRows } from './variant';
 import type { Variant } from './variant';
 
 const THREE: Variant = { jump: 'adjacent', players: 3 };
@@ -150,5 +150,33 @@ describe('the foreign-corner rule (camps)', () => {
     expect(variantKey(base)).toBe('adjacent-2');
     expect(variantKey(withCamps(base, 'open'))).toBe('adjacent-2-open');
     expect(variantKey(withCamps({ jump: 'long', players: 3, ranking: 'full' }, 'pass-through'))).toBe('long-3-full-pass-through');
+  });
+});
+
+describe('variant on the 5-row board', () => {
+  const FIVE: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+  it('rowsOf reads a missing size as 4, and withRows(4) drops the field', () => {
+    expect(rowsOf(DEFAULT_VARIANT)).toBe(4);
+    expect(rowsOf(FIVE)).toBe(5);
+    expect(withRows(FIVE, 4)).toEqual(DEFAULT_VARIANT);
+    expect(withRows(FIVE, 4)).not.toHaveProperty('rows');
+    expect(withRows(DEFAULT_VARIANT, 5)).toEqual(FIVE);
+  });
+  it('rows 5 is not the default and not the same variant as rows 4', () => {
+    expect(isDefault(FIVE)).toBe(false);
+    expect(sameVariant(FIVE, DEFAULT_VARIANT)).toBe(false);
+    expect(sameVariant(FIVE, { jump: 'adjacent', players: 2, rows: 5 })).toBe(true);
+    expect(sameVariant({ ...DEFAULT_VARIANT, rows: 4 }, DEFAULT_VARIANT)).toBe(true);
+  });
+  it('the key names the 5-row board and is unchanged for 4 rows', () => {
+    expect(variantKey(FIVE)).toBe('adjacent-2-rows5');
+    expect(variantKey({ jump: 'long', players: 3, rows: 5, ranking: 'full', camps: 'open' })).toBe('long-3-full-open-rows5');
+    expect(variantKey(DEFAULT_VARIANT)).toBe('adjacent-2');
+  });
+  it('the move limit is 250 for two players and 375 for three on 5 rows, whatever the jump rule', () => {
+    for (const jump of ['adjacent', 'long'] as const) {
+      expect(moveLimit({ jump, players: 2, rows: 5 })).toBe(250);
+      expect(moveLimit({ jump, players: 3, rows: 5 })).toBe(375);
+    }
   });
 });

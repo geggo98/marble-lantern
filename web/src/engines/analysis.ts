@@ -28,6 +28,10 @@ export const scoreScale = 80;
 // of the linear "own minus opponent" evaluation, so about 30 points per step of progress. scoreScale was fitted for two players;
 // for three it is not calibrated, so use differences between moves and the ranking, not the probability. Engine.evaluate3 gives
 // the static leaf score of each absolute seat (index = seat), higher is better for that seat.
+//
+// 5-row board (15 pieces): scoreScale, the guide bands (guides/bands.ts) and the score bands above were fitted on 10 pieces and are NOT
+// recalibrated. The largest ordinary score measured on 5 rows is 925, far below raceBase (cpp/results/rows5-v1-2026-11-20.txt), so the
+// bands do not overlap; but "200 points = 92 %" and the wording of the advantage indicator are a rough guide there (docs/web-ui.md).
 
 /** Default node budget per scored move for move guides: all legal moves of a mid-game position take about 0.1 to 0.2 s on cpp-wasm. */
 export const GUIDE_NODES = 4000;

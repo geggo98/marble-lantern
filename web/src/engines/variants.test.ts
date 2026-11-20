@@ -78,7 +78,7 @@ describe('server engines play the default variant only', () => {
   it('reject every other variant with the code unsupported, without calling the server', async () => {
     const api = serverApi();
     const server = new ServerEngineAdapter(entry, api);
-    for (const variant of [LONG, THREE, { jump: 'long', players: 3 } as Variant]) {
+    for (const variant of [LONG, THREE, { jump: 'long', players: 3 } as Variant, { jump: 'adjacent', players: 2, rows: 5 } as Variant]) {
       await expect(server.newGame({ nodes: [1, 1], variant })).rejects.toMatchObject({ code: 'unsupported' });
       await expect(server.legalMoves([], variant)).rejects.toMatchObject({ code: 'unsupported' });
       await expect(server.choose([], undefined, variant)).rejects.toMatchObject({ code: 'unsupported' });
@@ -134,5 +134,14 @@ describe('registry and variants', () => {
     // __ONLINE__ is false in the tests: nothing is registered, and the call must not throw
     await registerServerEngines();
     expect(describeEngines(manifest, THREE).every((c) => c.definition.runtime !== 'server')).toBe(true);
+  });
+});
+
+describe('needsTable on the 5-row board', () => {
+  it('no variant of the 5-row board reads the race table; the 4-row adjacent two-player game still does', async () => {
+    const { needsTable } = await import('./variant-args');
+    expect(needsTable({ jump: 'adjacent', players: 2 })).toBe(true);
+    expect(needsTable({ jump: 'adjacent', players: 2, rows: 4 })).toBe(true);
+    expect(needsTable({ jump: 'adjacent', players: 2, rows: 5 })).toBe(false);
   });
 });

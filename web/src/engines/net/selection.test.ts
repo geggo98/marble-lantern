@@ -68,6 +68,21 @@ describe('evaluateSelection', () => {
     expect(evaluateSelection(sel('cpp-wasm', null), { jump: 'adjacent', players: 2, camps: 'open' }, all).usable).toBe(true);
   });
 
+  // every shipped model was trained on the 4-row start with 10 pieces (docs/web-ui.md, "Choosing a net engine")
+  it('no model fits the 5-row board: no-model when nothing is chosen, a mismatch for a chosen model, in all four variants', () => {
+    for (const jump of ['adjacent', 'long'] as const) {
+      for (const players of [2, 3] as const) {
+        const variant: Variant = { jump, players, rows: 5 };
+        expect(bestModel(variant)).toBeNull();
+        expect(codes(evaluateSelection(auto('net-wasm'), variant, all).warnings), `${jump} ${players}`).toEqual(['no-model', 'fallback-random']);
+        expect(codes(evaluateSelection(sel('net-wasm', SHARED), variant, all).warnings)).toEqual(['model-variant-mismatch', 'fallback-random']);
+        // the same game on 4 rows has a model, so the 5-row refusal is about the board
+        expect(evaluateSelection(sel('net-wasm', SHARED), { jump, players }, all).usable).toBe(true);
+      }
+    }
+    expect(evaluateSelection(sel('cpp-wasm', null), { jump: 'adjacent', players: 2, rows: 5 }, all).usable).toBe(true);
+  });
+
   it('an unknown model id: model-load-failed', () => {
     const e = evaluateSelection(sel('net-wasm', 'ghost'), ADJ2, all);
     expect(codes(e.warnings)).toEqual(['model-load-failed', 'fallback-random']);

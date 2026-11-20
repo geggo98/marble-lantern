@@ -16,7 +16,7 @@ import { DEFAULT_VARIANT, campsOf, variantKey } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import type { AnalysisResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
 import { EngineFailure } from '../protocol';
-import { variantOf } from '../variant-args';
+import { rowsArg, variantOf } from '../variant-args';
 import { defaultBatch, DEFAULT_SIMS } from '../warnings';
 import type { EngineWarning, NetOptions, ProbeResult, ReasonCode } from '../warnings';
 import { BackendError } from './backend';
@@ -25,9 +25,6 @@ import { modelFits } from './models';
 import type { ModelInfo } from './models';
 import type { WebNetModule } from './webnet.d';
 import type { Player } from '../../game/variant';
-
-/** The `rows` argument of the facade: the empty string is the 4-row board. Net engines play no other size. */
-const FOUR_ROWS = '';
 
 export type BackendKind = 'wasm' | 'webgpu';
 
@@ -188,7 +185,7 @@ export class NetCore {
   outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
     let f: string[];
     try {
-      f = fields(this.d.webnet.outcome(history.join(','), variant.jump, String(variant.players), campsOf(variant), FOUR_ROWS));
+      f = fields(this.d.webnet.outcome(history.join(','), variant.jump, String(variant.players), campsOf(variant), rowsArg(variant)));
     } catch (e) {
       throw asFailure(e);
     }
@@ -347,7 +344,7 @@ export class NetCore {
       }
       try {
         const f = (r: unknown): string[] => fields(r);
-        f(this.d.webnet.create(v.jump, String(v.players), s.sims, batch, this.seedOfGame, '', campsOf(v), FOUR_ROWS));
+        f(this.d.webnet.create(v.jump, String(v.players), s.sims, batch, this.seedOfGame, '', campsOf(v), rowsArg(v)));
         f(this.d.webnet.setWeightsInfo(info.planeSet, held.backend.valueWidth));
       } catch (e) {
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
@@ -403,7 +400,7 @@ export class NetCore {
 
   private legal(history: readonly number[], v: Variant): number[] {
     try {
-      return numbers(fields(this.d.webnet.legalMoves(history.join(','), v.jump, String(v.players), campsOf(v), FOUR_ROWS))[0]);
+      return numbers(fields(this.d.webnet.legalMoves(history.join(','), v.jump, String(v.players), campsOf(v), rowsArg(v)))[0]);
     } catch (e) {
       throw asFailure(e);
     }
