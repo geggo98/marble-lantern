@@ -226,4 +226,35 @@ class WebNetCoreTest {
         }
         return false;
     }
+
+    /** The net engines play the 4-row board only: a game on 5 rows is refused with a named code, before anything starts. */
+    @Test
+    void createOnFiveRowsFailsWithAnUnsupportedBoardAndKeepsThePreviousGame() {
+        WebNetCore core = new WebNetCore();
+        NetFailure failure = assertThrows(NetFailure.class,
+                () -> core.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE, 8, 1, 1, ""));
+        assertEquals("unsupported", failure.code());
+        assertTrue(failure.getMessage().contains("5-row"), failure.getMessage());
+        assertTrue(WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "5").startsWith("error unsupported "));
+        assertTrue(WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "7").startsWith("error internal "));
+        assertEquals("ok", WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", ""));
+        assertEquals("ok", WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "4"));
+    }
+
+    /** Rules-only calls need no net: legal moves and the outcome follow the board size. */
+    @Test
+    void legalMovesAndOutcomeFollowTheBoardSize() {
+        for (int players : new int[] {2, 3}) {
+            String p = String.valueOf(players);
+            int[] five = Position.initial(RuleSet.defaults(players, RuleSet.TriangleRows.FIVE)).legalMoves();
+            int[] four = Position.initial(RuleSet.defaults(players)).legalMoves();
+            assertEquals("ok " + java.util.Arrays.stream(five).mapToObj(String::valueOf).collect(java.util.stream.Collectors.joining(",")),
+                    WebNet.legalMoves("", "adjacent", p, "closed", "5"));
+            assertEquals("ok " + java.util.Arrays.stream(four).mapToObj(String::valueOf).collect(java.util.stream.Collectors.joining(",")),
+                    WebNet.legalMoves("", "adjacent", p, "closed", ""));
+            assertEquals("ok ongoing", WebNet.outcome("", "adjacent", p, "closed", "5"));
+        }
+        assertTrue(WebNet.legalMoves("", "adjacent", "2", "closed", "5").length()
+                != WebNet.legalMoves("", "adjacent", "2", "closed", "4").length());
+    }
 }

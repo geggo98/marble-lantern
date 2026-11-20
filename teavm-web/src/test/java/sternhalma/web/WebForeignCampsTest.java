@@ -23,10 +23,10 @@ class WebForeignCampsTest {
 
     @Test
     void unknownValuesAreRejectedAndEmptyMeansClosed() {
-        assertTrue(Web.legalMoves("", null, "2", null, "OPEN").startsWith("error internal "));
-        assertTrue(Web.newGame(100, 100, null, null, 0, null, "half").startsWith("error internal "));
-        assertEquals(Web.legalMoves("", null, "2", null, "closed"), Web.legalMoves("", null, "2", null, null));
-        assertEquals(Web.legalMoves("", null, "2", null, "closed"), Web.legalMoves("", null, "2", null, ""));
+        assertTrue(Web.legalMoves("", null, "2", null, "OPEN", null).startsWith("error internal "));
+        assertTrue(Web.newGame(100, 100, null, null, 0, null, "half", null).startsWith("error internal "));
+        assertEquals(Web.legalMoves("", null, "2", null, "closed", null), Web.legalMoves("", null, "2", null, null, null));
+        assertEquals(Web.legalMoves("", null, "2", null, "closed", null), Web.legalMoves("", null, "2", null, "", null));
     }
 
     /** A history played under OPEN: every reply equals the engine's own move list, and some move ends on a foreign cell. */
@@ -41,9 +41,9 @@ class WebForeignCampsTest {
             for (int ply = 0; ply < 40 && pos.outcome() == null; ply++) {
                 int[] expected = pos.legalMoves();
                 assertEquals("ok " + String.join(",", Arrays.stream(expected).mapToObj(String::valueOf).toList()),
-                        Web.legalMoves(csv(history), "adjacent", players, "first", "open"));
-                String closed = Web.legalMoves(csv(history), "adjacent", players, "first", "closed");
-                differs |= !closed.equals(Web.legalMoves(csv(history), "adjacent", players, "first", "open"));
+                        Web.legalMoves(csv(history), "adjacent", players, "first", "open", null));
+                String closed = Web.legalMoves(csv(history), "adjacent", players, "first", "closed", null);
+                differs |= !closed.equals(Web.legalMoves(csv(history), "adjacent", players, "first", "open", null));
                 state = state * 6364136223846793005L + 1442695040888963407L;
                 int move = expected[(int) ((state >>> 33) % expected.length)];
                 pos.make(move);
@@ -55,13 +55,13 @@ class WebForeignCampsTest {
 
     @Test
     void chooseNeedsTheRuleOfTheGameAndPlaysALegalMove() {
-        assertEquals("ok", Web.newGame(200, 200, "adjacent", "2", 0, "first", "pass-through"));
-        assertTrue(Web.choose("", "adjacent", "2", "first", "closed").startsWith("error internal "));
-        String[] reply = Web.choose("", "adjacent", "2", "first", "pass-through").split(" ");
+        assertEquals("ok", Web.newGame(200, 200, "adjacent", "2", 0, "first", "pass-through", null));
+        assertTrue(Web.choose("", "adjacent", "2", "first", "closed", null).startsWith("error internal "));
+        String[] reply = Web.choose("", "adjacent", "2", "first", "pass-through", null).split(" ");
         assertEquals("ok", reply[0]);
-        String legal = Web.legalMoves("", "adjacent", "2", "first", "pass-through");
+        String legal = Web.legalMoves("", "adjacent", "2", "first", "pass-through", null);
         assertTrue(Arrays.asList(legal.substring(3).split(",")).contains(reply[1]), legal + " / " + reply[1]);
-        assertEquals("ok ongoing", Web.outcome("", "adjacent", "2", "first", "pass-through"));
+        assertEquals("ok ongoing", Web.outcome("", "adjacent", "2", "first", "pass-through", null));
         assertNotEquals("", reply[1]);
     }
 }

@@ -93,7 +93,7 @@ const VARIANTS = [
 const GOLDEN = { plies: 14, sims: 48, batch: 4, seed: 20261119 }; // GoldenGame.java
 
 function setup(m, v, sims, batch, seed, options = '') {
-  fields(m.create(v.jump, v.players, sims, batch, seed, options, 'closed'));
+  fields(m.create(v.jump, v.players, sims, batch, seed, options, 'closed', ''));
   const [inputSize, width] = fields(m.setWeightsInfo(v.planes, v.width)).map(Number);
   if (width !== v.width) throw new Error(`value width ${width}`);
   return inputSize;
@@ -127,9 +127,9 @@ function game(m, target) {
     const history = [];
     let outcome = 'ongoing';
     while (history.length < 600) {
-      outcome = fields(m.outcome(history.join(','), v.jump, v.players, 'closed')).join(' ');
+      outcome = fields(m.outcome(history.join(','), v.jump, v.players, 'closed', '')).join(' ');
       if (outcome !== 'ongoing') break;
-      const legal = fields(m.legalMoves(history.join(','), v.jump, v.players, 'closed'))[0].split(',').map(Number);
+      const legal = fields(m.legalMoves(history.join(','), v.jump, v.players, 'closed', ''))[0].split(',').map(Number);
       const b = chooseMove(m, history.join(','), inputSize, v.width, hashForward);
       if (!legal.includes(b.move)) { failures++; console.log(`FAIL ${target} ${v.name}: illegal move ${b.move} at ply ${history.length}`); break; }
       history.push(b.move);

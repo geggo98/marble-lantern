@@ -21,8 +21,8 @@ export interface WebNetModule {
    * defaults: cpuct (1), ptemp (1), noise (0), alpha (0.3), temp (0), fpu (0), win1 (1), reuse (0), s1 (0),
    * race (0, 1 or 2), ms (time budget per move, none). s1 and race need setTable first. Returns "ok". Drops the tree.
    */
-  /** `camps`: the foreign-corner rule, "closed", "pass-through" or "open"; always passed (also by legalMoves and outcome). */
-  create(jump: string, players: string, sims: number, batch: number, seed: number, options: string, camps: string): string;
+  /** `camps`: the foreign-corner rule, "closed", "pass-through" or "open"; always passed (also by legalMoves and outcome). `rows`: the board size, "4" or "5" (empty is 4), also always passed; create fails with `unsupported` on "5". */
+  create(jump: string, players: string, sims: number, batch: number, seed: number, options: string, camps: string, rows: string): string;
   /**
    * The plane set id of the weights metadata ("plain", "classic1", "classic1-planes", "classic1v") and the width of
    * the value head (2, or 3 for a three-player net and for classic1v). Returns "ok <inputSize> <valueWidth>", with
@@ -32,9 +32,9 @@ export interface WebNetModule {
   /** The inflated rows2.bin, as an Int8Array over the same memory. Only for the options s1 and race. Returns "ok <states>". */
   setTable(file: Int8Array): string;
   /** "ok <moves>", comma separated; empty when the game is over. Stateless. */
-  legalMoves(history: string, jump: string, players: string, camps: string): string;
+  legalMoves(history: string, jump: string, players: string, camps: string, rows: string): string;
   /** "ok ongoing", "ok win <side>" or "ok draw". Stateless. */
-  outcome(history: string, jump: string, players: string, camps: string): string;
+  outcome(history: string, jump: string, players: string, camps: string, rows: string): string;
   /** Starts the search of the position after `history`. "ok <n>": positions to evaluate; 0 when best() is ready (one legal move, race move). */
   begin(history: string): string;
   /** "ok <n>": positions still waiting; the same number until apply. */

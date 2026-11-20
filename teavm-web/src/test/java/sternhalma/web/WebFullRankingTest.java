@@ -60,32 +60,32 @@ class WebFullRankingTest {
         assertEquals(RuleSet.Ranking.FIRST_WINNER_ONLY, WebCore.parseRanking(""));
         assertEquals(RuleSet.Ranking.FIRST_WINNER_ONLY, WebCore.parseRanking("first"));
         assertEquals(RuleSet.Ranking.FULL_RANKING, WebCore.parseRanking("full"));
-        assertTrue(Web.legalMoves("", null, "3", "both", null).startsWith("error internal "));
-        assertTrue(Web.outcome("", null, "3", "FULL", null).startsWith("error internal "));
-        assertTrue(Web.newGame(100, 100, null, "3", 100, "second", null).startsWith("error internal "));
+        assertTrue(Web.legalMoves("", null, "3", "both", null, null).startsWith("error internal "));
+        assertTrue(Web.outcome("", null, "3", "FULL", null, null).startsWith("error internal "));
+        assertTrue(Web.newGame(100, 100, null, "3", 100, "second", null, null).startsWith("error internal "));
     }
 
     @Test
     void firstModeStringsAreAsBefore() {
         for (String ranking : new String[] {null, "", "first"}) {
-            assertEquals("ok ongoing", Web.outcome("", null, "3", ranking, null));
-            assertEquals("ok ongoing", Web.outcome("", null, "2", ranking, null));
+            assertEquals("ok ongoing", Web.outcome("", null, "3", ranking, null, null));
+            assertEquals("ok ongoing", Web.outcome("", null, "2", ranking, null, null));
         }
         // two players: "full" plays the same game and reports the same strings
-        assertEquals("ok ongoing", Web.outcome("", null, "2", "full", null));
-        assertEquals(Web.legalMoves("", null, "2", null, null), Web.legalMoves("", null, "2", "full", null));
+        assertEquals("ok ongoing", Web.outcome("", null, "2", "full", null, null));
+        assertEquals(Web.legalMoves("", null, "2", null, null, null), Web.legalMoves("", null, "2", "full", null, null));
     }
 
     @Test
     void aFullGameReportsTheStringsAndTheEngineAgrees() {
         for (String jump : new String[] {"adjacent", "long"}) {
-            assertEquals("ok", Web.newGame(100, 100, jump, "3", 100, "full", null));
+            assertEquals("ok", Web.newGame(100, 100, jump, "3", 100, "full", null, null));
             Position oracle = Position.initial(full(jump));
             List<Integer> history = new ArrayList<>();
             boolean sawFinished = false;
             String last = null;
             while (true) {
-                String state = Web.outcome(csv(history), jump, "3", "full", null);
+                String state = Web.outcome(csv(history), jump, "3", "full", null, null);
                 last = state;
                 if (state.startsWith("ok ranking ")) {
                     break;
@@ -98,10 +98,10 @@ class WebFullRankingTest {
                     sawFinished = true;
                 }
                 // the moves are those of the next player who has not finished, and the engine picks one of them
-                String legal = Web.legalMoves(csv(history), jump, "3", "full", null);
+                String legal = Web.legalMoves(csv(history), jump, "3", "full", null, null);
                 assertEquals("ok " + String.join(",", Arrays.stream(oracle.legalMoves()).mapToObj(Integer::toString).toList()), legal);
                 assertEquals(0, mask >> oracle.sideToMove() & 1, "a finished player is not to move");
-                String[] choose = Web.choose(csv(history), jump, "3", "full", null).split(" ");
+                String[] choose = Web.choose(csv(history), jump, "3", "full", null, null).split(" ");
                 assertEquals("ok", choose[0]);
                 int move = Integer.parseInt(choose[1]);
                 assertTrue(Arrays.stream(oracle.legalMoves()).anyMatch(m -> m == move));
@@ -132,21 +132,21 @@ class WebFullRankingTest {
         int mask = oracle.finishedMask();
         assertTrue(mask == 1 || mask == 2 || mask == 4, "one finisher: " + mask);
         String h = csv(history);
-        assertEquals("ok ongoing finished " + mask, Web.outcome(h, "adjacent", "3", "full", null));
+        assertEquals("ok ongoing finished " + mask, Web.outcome(h, "adjacent", "3", "full", null, null));
         // the same history in first mode is over, with the first finisher as the winner
-        assertEquals("ok win " + Integer.numberOfTrailingZeros(mask), Web.outcome(h, "adjacent", "3", "first", null));
+        assertEquals("ok win " + Integer.numberOfTrailingZeros(mask), Web.outcome(h, "adjacent", "3", "first", null, null));
         // a finished player never moves: legal moves belong to the next active player
         int side = oracle.sideToMove();
         assertEquals(0, mask >> side & 1);
-        for (String m : Web.legalMoves(h, "adjacent", "3", "full", null).substring(3).split(",")) {
+        for (String m : Web.legalMoves(h, "adjacent", "3", "full", null, null).substring(3).split(",")) {
             assertEquals(side, oracle.owner(Move.from(Integer.parseInt(m))));
         }
         // in first mode the game is over: no legal moves
-        assertEquals("ok ", Web.legalMoves(h, "adjacent", "3", "first", null));
+        assertEquals("ok ", Web.legalMoves(h, "adjacent", "3", "first", null, null));
         // a game started with one ranking rule refuses the other
-        assertEquals("ok", Web.newGame(100, 100, "adjacent", "3", 100, "full", null));
-        assertTrue(Web.choose(h, "adjacent", "3", "first", null).startsWith("error "), Web.choose(h, "adjacent", "3", "first", null));
-        String choose = Web.choose(h, "adjacent", "3", "full", null);
+        assertEquals("ok", Web.newGame(100, 100, "adjacent", "3", 100, "full", null, null));
+        assertTrue(Web.choose(h, "adjacent", "3", "first", null, null).startsWith("error "), Web.choose(h, "adjacent", "3", "first", null, null));
+        String choose = Web.choose(h, "adjacent", "3", "full", null, null);
         assertTrue(choose.startsWith("ok "), choose);
     }
 
@@ -165,7 +165,7 @@ class WebFullRankingTest {
             int mask = oracle.finishedMask();
             int first = Integer.numberOfTrailingZeros(mask);
             String h = csv(history);
-            String[] eval = Web.evaluate3(h, jump, "full", null).split(" ");
+            String[] eval = Web.evaluate3(h, jump, "full", null, null).split(" ");
             assertEquals("ok", eval[0]);
             assertEquals(1_000_000, Integer.parseInt(eval[1 + first]), jump);
             for (int p = 0; p < 3; p++) {
@@ -174,8 +174,8 @@ class WebFullRankingTest {
                 }
             }
             // first mode: the same history is a finished game, evaluated like any position
-            assertTrue(Web.evaluate3(h, jump, "first", null).startsWith("ok "));
-            String[] reply = Web.analyse(h, "", 300, jump, "3", "full", null).split(" ");
+            assertTrue(Web.evaluate3(h, jump, "first", null, null).startsWith("ok "));
+            String[] reply = Web.analyse(h, "", 300, jump, "3", "full", null, null).split(" ");
             assertEquals("ok", reply[0], String.join(" ", reply));
             int[] legal = oracle.legalMoves();
             assertEquals(legal.length, reply[4].split(",").length);
@@ -184,7 +184,7 @@ class WebFullRankingTest {
                 assertEquals(oracle.sideToMove(), oracle.owner(Move.from(Integer.parseInt(m))));
             }
             // a game that is over has nothing to analyse; in first mode that is the case right after the first finisher
-            assertTrue(Web.analyse(h, "", 300, jump, "3", "first", null).startsWith("error illegal-history "));
+            assertTrue(Web.analyse(h, "", 300, jump, "3", "first", null, null).startsWith("error illegal-history "));
         }
     }
 
@@ -202,14 +202,14 @@ class WebFullRankingTest {
         Outcome expected = oracle.outcome();
         assertTrue(expected != null);
         int[] r = expected.ranking();
-        assertEquals("ok ranking " + r[0] + " " + r[1] + " " + r[2], Web.outcome(csv(history), "long", "3", "full", null));
+        assertEquals("ok ranking " + r[0] + " " + r[1] + " " + r[2], Web.outcome(csv(history), "long", "3", "full", null, null));
     }
 
     @Test
     void benchWithFullRankingKeepsPlaying() {
-        String[] reply = Web.bench(6, 100, "adjacent", "3", "full", null).split(" ");
+        String[] reply = Web.bench(6, 100, "adjacent", "3", "full", null, null).split(" ");
         assertEquals("ok", reply[0]);
         assertEquals(6, reply[1].split(",").length);
-        assertEquals(6, Web.bench(6, 100, "long", "2", "full", null).split(" ")[1].split(",").length);
+        assertEquals(6, Web.bench(6, 100, "long", "2", "full", null, null).split(" ")[1].split(",").length);
     }
 }

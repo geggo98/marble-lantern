@@ -256,18 +256,18 @@ class WebFacadeTest {
     @Test
     void theExportedAnalyseAnswersInTheDocumentedFormat() {
         Web.setTable(file, false);
-        String[] reply = Web.analyse("", "", 200, null, null, null, null).split(" ");
+        String[] reply = Web.analyse("", "", 200, null, null, null, null, null).split(" ");
         assertEquals(6, reply.length, Arrays.toString(reply));
         assertEquals("ok", reply[0]);
         assertEquals("0", reply[3]);
         int moves = reply[4].split(",").length;
         assertEquals(moves, reply[5].split(",").length);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, moves);
-        String one = Web.analyse("", reply[4].split(",")[2], 200, null, null, null, null);
+        String one = Web.analyse("", reply[4].split(",")[2], 200, null, null, null, null, null);
         assertEquals("ok", one.split(" ")[0]);
         assertEquals(reply[5].split(",")[2], one.split(" ")[5]);
-        assertTrue(Web.analyse("", "0", 200, null, null, null, null).startsWith("error illegal-move "));
-        assertTrue(Web.analyse("1,x", "", 200, null, null, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.analyse("", "0", 200, null, null, null, null, null).startsWith("error illegal-move "));
+        assertTrue(Web.analyse("1,x", "", 200, null, null, null, null, null).startsWith("error illegal-history "));
     }
 
     // ---- long hop ----
@@ -343,9 +343,9 @@ class WebFacadeTest {
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(prefix, null, 100)).code());
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.choose(prefix, RuleSet.JumpRule.ADJACENT)).code());
         String joined = Arrays.stream(prefix).mapToObj(String::valueOf).collect(java.util.stream.Collectors.joining(","));
-        assertTrue(Web.legalMoves(joined, "adjacent", null, null, null).startsWith("error illegal-history "));
-        assertTrue(Web.legalMoves(joined, null, null, null, null).startsWith("error illegal-history "));
-        assertTrue(Web.legalMoves(joined, "long", null, null, null).startsWith("ok "));
+        assertTrue(Web.legalMoves(joined, "adjacent", null, null, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, null, null, null, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves(joined, "long", null, null, null, null).startsWith("ok "));
     }
 
     @Test
@@ -403,19 +403,19 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceTakesTheJumpRule() {
         Web.setTable(file, false);
-        assertEquals("ok", Web.newGame(500, 500, "long", null, 0, null, null));
-        String[] choose = Web.choose("", "long", null, null, null).split(" ");
+        assertEquals("ok", Web.newGame(500, 500, "long", null, 0, null, null, null));
+        String[] choose = Web.choose("", "long", null, null, null, null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[7]);
-        assertTrue(Web.choose("", "adjacent", null, null, null).startsWith("error internal "));
-        int longCount = Web.legalMoves("", "long", null, null, null).substring(3).split(",").length;
+        assertTrue(Web.choose("", "adjacent", null, null, null, null).startsWith("error internal "));
+        int longCount = Web.legalMoves("", "long", null, null, null, null).substring(3).split(",").length;
         assertEquals(Position.initial(RuleSet.defaults(2).withJumpRule(LONG)).legalMoves().length, longCount);
-        assertEquals(longCount, Web.analyse("", "", 200, "long", null, null, null).split(" ")[4].split(",").length);
-        assertEquals(4, Web.bench(4, 300, "long", null, null, null).split(" ")[1].split(",").length);
-        assertTrue(Web.newGame(100, 100, "diagonal", null, 0, null, null).startsWith("error internal "));
-        assertEquals("ok", Web.newGame(100, 100, "", null, 0, null, null));
-        assertEquals(Web.legalMoves("", null, null, null, null), Web.legalMoves("", "adjacent", null, null, null));
+        assertEquals(longCount, Web.analyse("", "", 200, "long", null, null, null, null).split(" ")[4].split(",").length);
+        assertEquals(4, Web.bench(4, 300, "long", null, null, null, null).split(" ")[1].split(",").length);
+        assertTrue(Web.newGame(100, 100, "diagonal", null, 0, null, null, null).startsWith("error internal "));
+        assertEquals("ok", Web.newGame(100, 100, "", null, 0, null, null, null));
+        assertEquals(Web.legalMoves("", null, null, null, null, null), Web.legalMoves("", "adjacent", null, null, null, null));
     }
 
     @Test
@@ -525,7 +525,7 @@ class WebFacadeTest {
         assertEquals("illegal-history", failure.code());
         assertTrue(failure.getMessage().contains("ply 4"), failure.getMessage());
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.outcome(history, ADJ, 3)).code());
-        assertTrue(Web.legalMoves("1,x", null, "3", null, null).startsWith("error illegal-history "));
+        assertTrue(Web.legalMoves("1,x", null, "3", null, null, null).startsWith("error illegal-history "));
     }
 
     @Test
@@ -589,12 +589,12 @@ class WebFacadeTest {
         int[] game = threeGame(core, ADJ, 2000, 100);
         assertTrue(core.outcome(game, ADJ, 3) != null);
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.analyse(game, null, 100, ADJ, 3)).code());
-        assertTrue(Web.analyse("", "0", 100, null, "3", null, null).startsWith("error illegal-move "));
+        assertTrue(Web.analyse("", "0", 100, null, "3", null, null, null).startsWith("error illegal-move "));
     }
 
     @Test
     void theThreePlayerFacadeReplyHasTheFieldsOfTheTwoPlayerReply() {
-        String[] reply = Web.analyse("", "", 200, "long", "3", null, null).split(" ");
+        String[] reply = Web.analyse("", "", 200, "long", "3", null, null, null).split(" ");
         assertEquals("ok", reply[0]);
         int[] legal = readyWithoutTable().legalMoves(new int[0], LONG, 3);
         assertEquals(legal.length, reply[4].split(",").length);
@@ -618,9 +618,9 @@ class WebFacadeTest {
             ThreePlayerPlayer oracle = ThreePlayerSpec.parse(jump == LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC).create();
             assertArrayEquals(oracle.evaluation(position), core.evaluate3(history, jump));
             int[] e = core.evaluate3(history, jump);
-            assertEquals("ok " + e[0] + " " + e[1] + " " + e[2], Web.evaluate3(csv(history), jump == LONG ? "long" : "adjacent", null, null));
+            assertEquals("ok " + e[0] + " " + e[1] + " " + e[2], Web.evaluate3(csv(history), jump == LONG ? "long" : "adjacent", null, null, null));
         }
-        assertTrue(Web.evaluate3("1,x", null, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.evaluate3("1,x", null, null, null, null).startsWith("error illegal-history "));
     }
 
     @Test
@@ -629,8 +629,8 @@ class WebFacadeTest {
         assertEquals(2, WebCore.parsePlayers(""));
         assertEquals(2, WebCore.parsePlayers("2"));
         assertEquals(3, WebCore.parsePlayers("3"));
-        assertTrue(Web.legalMoves("", null, "4", null, null).startsWith("error internal "));
-        assertTrue(Web.outcome("", null, "three", null, null).startsWith("error internal "));
+        assertTrue(Web.legalMoves("", null, "4", null, null, null).startsWith("error internal "));
+        assertTrue(Web.outcome("", null, "three", null, null, null).startsWith("error internal "));
     }
 
     @Test
@@ -650,8 +650,8 @@ class WebFacadeTest {
         WebCore core = readyWithoutTable();
         assertEquals(null, core.outcome(new int[0], ADJ, 3));
         assertEquals(null, core.outcome(new int[0], ADJ, 2));
-        assertEquals("ok ongoing", Web.outcome("", null, "3", null, null));
-        assertEquals("ok ongoing", Web.outcome("", "long", "2", null, null));
+        assertEquals("ok ongoing", Web.outcome("", null, "3", null, null, null));
+        assertEquals("ok ongoing", Web.outcome("", "long", "2", null, null, null));
     }
 
     @Test
@@ -666,7 +666,7 @@ class WebFacadeTest {
         Outcome expected = oracle.outcome();
         assertTrue(expected.hasWinner(), "expected a win, got " + expected);
         assertEquals(expected, core.outcome(full, ADJ, 3));
-        assertEquals("ok win " + expected.winner(), Web.outcome(csv(full), null, "3", null, null));
+        assertEquals("ok win " + expected.winner(), Web.outcome(csv(full), null, "3", null, null, null));
         // a finished game has no moves and cannot be searched
         assertEquals(0, core.legalMoves(full, ADJ, 3).length);
         assertEquals("illegal-history", assertThrows(WebFailure.class, () -> core.choose(full, ADJ, 3)).code());
@@ -690,7 +690,7 @@ class WebFacadeTest {
         assertEquals(-1, expected.winner());
         WebCore core = readyWithoutTable();
         assertEquals(expected, core.outcome(history, ADJ, 3));
-        assertEquals("ok draw", Web.outcome(csv(history), null, "3", null, null));
+        assertEquals("ok draw", Web.outcome(csv(history), null, "3", null, null, null));
         assertEquals(null, core.outcome(Arrays.copyOf(history, 299), ADJ, 3));
     }
 
@@ -710,25 +710,25 @@ class WebFacadeTest {
         int[] game = Arrays.copyOf(moves, n);
         Outcome expected = oracle.outcome();
         assertEquals(expected, core.outcome(game, LONG, 2));
-        assertEquals(expected.hasWinner() ? "ok win " + expected.winner() : "ok draw", Web.outcome(csv(game), "long", null, null, null));
+        assertEquals(expected.hasWinner() ? "ok win " + expected.winner() : "ok draw", Web.outcome(csv(game), "long", null, null, null, null));
     }
 
     @Test
     void theExportedSurfaceTakesThePlayerCount() {
-        assertEquals("ok", Web.newGame(150, 150, "adjacent", "3", 150, null, null));
-        String[] choose = Web.choose("", "adjacent", "3", null, null).split(" ");
+        assertEquals("ok", Web.newGame(150, 150, "adjacent", "3", 150, null, null, null));
+        String[] choose = Web.choose("", "adjacent", "3", null, null, null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[6]);
-        int count = Web.legalMoves("", "adjacent", "3", null, null).substring(3).split(",").length;
+        int count = Web.legalMoves("", "adjacent", "3", null, null, null).substring(3).split(",").length;
         assertEquals(Position.initial(RuleSet.defaults(3)).legalMoves().length, count);
-        assertEquals("ok ongoing", Web.outcome("", "adjacent", "3", null, null));
-        assertEquals("ok ongoing", Web.outcome("", null, null, null, null));
-        assertEquals(3, Web.bench(3, 100, "long", "3", null, null).split(" ")[1].split(",").length);
+        assertEquals("ok ongoing", Web.outcome("", "adjacent", "3", null, null, null));
+        assertEquals("ok ongoing", Web.outcome("", null, null, null, null, null));
+        assertEquals(3, Web.bench(3, 100, "long", "3", null, null, null).split(" ")[1].split(",").length);
         // a missing nodes2 is nodes1; a two-player call is not disturbed by it
-        assertEquals("ok", Web.newGame(100, 100, "long", "3", 0, null, null));
-        assertEquals("ok", Web.newGame(100, 100, "long", "2", 777, null, null));
-        assertTrue(Web.choose("", "long", "3", null, null).startsWith("error internal "));
+        assertEquals("ok", Web.newGame(100, 100, "long", "3", 0, null, null, null));
+        assertEquals("ok", Web.newGame(100, 100, "long", "2", 777, null, null, null));
+        assertTrue(Web.choose("", "long", "3", null, null, null).startsWith("error internal "));
     }
 
     // ---- corrupt tables ----
@@ -775,15 +775,15 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceAnswersInTheDocumentedFormat() {
         assertEquals("ok " + RaceTable.rows2().states(), Web.setTable(file, true));
-        assertEquals("ok", Web.newGame(1000, 1000, null, null, 0, null, null));
-        String legal = Web.legalMoves("", null, null, null, null);
+        assertEquals("ok", Web.newGame(1000, 1000, null, null, 0, null, null, null));
+        String legal = Web.legalMoves("", null, null, null, null, null);
         assertTrue(legal.startsWith("ok "), legal);
         assertEquals(Position.initial(RuleSet.defaults(2)).legalMoves().length, legal.substring(3).split(",").length);
-        String[] choose = Web.choose("", null, null, null, null).split(" ");
+        String[] choose = Web.choose("", null, null, null, null, null).split(" ");
         assertEquals(8, choose.length, Arrays.toString(choose));
         assertEquals("ok", choose[0]);
         assertEquals("0", choose[7]);
-        String[] bench = Web.bench(4, 500, null, null, null, null).split(" ");
+        String[] bench = Web.bench(4, 500, null, null, null, null, null).split(" ");
         assertEquals(5, bench.length);
         assertEquals(4, bench[1].split(",").length);
     }
@@ -791,9 +791,9 @@ class WebFacadeTest {
     @Test
     void theExportedSurfaceNeverThrows() {
         Web.setTable(file, false);
-        assertTrue(Web.legalMoves("1,x", null, null, null, null).startsWith("error illegal-history "), Web.legalMoves("1,x", null, null, null, null));
-        assertTrue(Web.choose("999999", null, null, null, null).startsWith("error illegal-history "));
-        assertTrue(Web.newGame(0, 5, null, null, 0, null, null).startsWith("error internal "));
+        assertTrue(Web.legalMoves("1,x", null, null, null, null, null).startsWith("error illegal-history "), Web.legalMoves("1,x", null, null, null, null, null));
+        assertTrue(Web.choose("999999", null, null, null, null, null).startsWith("error illegal-history "));
+        assertTrue(Web.newGame(0, 5, null, null, 0, null, null, null).startsWith("error internal "));
         assertTrue(Web.setTable(new byte[3], false).startsWith("error table-truncated "));
         assertTrue(Web.setTable(null, false).startsWith("error internal "), Web.setTable(null, false));
     }

@@ -37,12 +37,15 @@ public final class WebNet {
      * {@link WebNetCore#create} (empty for the defaults). Drops the tree. {@code camps} is the foreign-corner rule:
      * {@code "closed"} (also null or empty), {@code "pass-through"} or {@code "open"}; {@link #legalMoves} and
      * {@link #outcome} take it the same way. Always pass it: the TeaVM export fails on an omitted String argument.
+     * The last argument of {@link #create}, {@link #legalMoves} and {@link #outcome} is {@code rows}, the board size
+     * ({@code "4"}, also null or empty, or {@code "5"}). The two calls that need no net play either size;
+     * {@link #create} fails with {@code unsupported} on {@code "5"}, so no search can start on 5 rows.
      */
     @JSExport
-    public static String create(String jump, String players, int sims, int batch, int seed, String options, String camps) {
+    public static String create(String jump, String players, int sims, int batch, int seed, String options, String camps, String rows) {
         try {
-            CORE.create(WebNetCore.parseJump(jump), WebNetCore.parsePlayers(players), WebNetCore.parseCamps(camps), sims,
-                    batch, seed, options);
+            CORE.create(WebNetCore.parseJump(jump), WebNetCore.parsePlayers(players), WebNetCore.parseCamps(camps),
+                    WebNetCore.parseRows(rows), sims, batch, seed, options);
             return "ok";
         } catch (RuntimeException e) {
             return error(e);
@@ -72,10 +75,10 @@ public final class WebNet {
 
     /** {@code ok <moves>}, the legal moves comma separated (empty when the game is over). */
     @JSExport
-    public static String legalMoves(String history, String jump, String players, String camps) {
+    public static String legalMoves(String history, String jump, String players, String camps, String rows) {
         try {
             return "ok " + join(CORE.legalMoves(parse(history), WebNetCore.parseJump(jump), WebNetCore.parsePlayers(players),
-                    WebNetCore.parseCamps(camps)));
+                    WebNetCore.parseCamps(camps), WebNetCore.parseRows(rows)));
         } catch (RuntimeException e) {
             return error(e);
         }
@@ -83,10 +86,10 @@ public final class WebNet {
 
     /** {@code ok ongoing}, {@code ok win <side>} or {@code ok draw}, as in teavm-web. */
     @JSExport
-    public static String outcome(String history, String jump, String players, String camps) {
+    public static String outcome(String history, String jump, String players, String camps, String rows) {
         try {
             Outcome o = CORE.outcome(parse(history), WebNetCore.parseJump(jump), WebNetCore.parsePlayers(players),
-                    WebNetCore.parseCamps(camps));
+                    WebNetCore.parseCamps(camps), WebNetCore.parseRows(rows));
             return o == null ? "ok ongoing" : o.hasWinner() ? "ok win " + o.winner() : "ok draw";
         } catch (RuntimeException e) {
             return error(e);

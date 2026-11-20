@@ -17,30 +17,34 @@ export interface JavaModule {
   setTable(file: Int8Array, verify: boolean): string;
   /**
    * `jump` is "adjacent" or "long", `players` "2" or "3", `ranking` "first" or "full", `camps` "closed", "pass-through" or "open". Every argument is always passed:
-   * the JS target fails on a missing one. `nodes2` is 0 for two players.
+   * the JS target fails on a missing one. `nodes2` is 0 for two players. `rows` is the board size, "4" or "5"; the empty
+   * string is 4 rows, which every call passes until the variant carries a size.
    */
-  newGame(nodes0: number, nodes1: number, jump: string, players: string, nodes2: number, ranking: string, camps: string): string;
-  legalMoves(history: string, jump: string, players: string, ranking: string, camps: string): string;
-  choose(history: string, jump: string, players: string, ranking: string, camps: string): string;
-  bench(plies: number, nodes: number, jump: string, players: string, ranking: string, camps: string): string;
+  newGame(nodes0: number, nodes1: number, jump: string, players: string, nodes2: number, ranking: string, camps: string, rows: string): string;
+  legalMoves(history: string, jump: string, players: string, ranking: string, camps: string, rows: string): string;
+  choose(history: string, jump: string, players: string, ranking: string, camps: string, rows: string): string;
+  bench(plies: number, nodes: number, jump: string, players: string, ranking: string, camps: string, rows: string): string;
   /** `moves` is a comma separated list, or empty for all legal moves. */
-  analyse(history: string, moves: string, nodes: number, jump: string, players: string, ranking: string, camps: string): string;
+  analyse(history: string, moves: string, nodes: number, jump: string, players: string, ranking: string, camps: string, rows: string): string;
   /**
    * `ok ongoing`, `ok win <side>` or `ok draw`; with ranking "full" and three players `ok ongoing`,
    * `ok ongoing finished <mask>` (bit p set: seat p is out) or `ok ranking <a> <b> <c>`.
    */
-  outcome(history: string, jump: string, players: string, ranking: string, camps: string): string;
+  outcome(history: string, jump: string, players: string, ranking: string, camps: string, rows: string): string;
   /**
    * `ok <e0> <e1> <e2>`: the static evaluation of a three-player position, one integer per absolute player. With ranking
    * "full" a seat that is out holds a rank constant (1000000 first, 500000 second, -1000000 last).
    */
-  evaluate3(history: string, jump: string, ranking: string, camps: string): string;
+  evaluate3(history: string, jump: string, ranking: string, camps: string, rows: string): string;
 }
 
 const CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'table-checksum', 'table-truncated', 'table-trailing', 'table-magic', 'wasm-gc-unsupported',
   'illegal-history', 'illegal-move', 'rows1-requested', 'unsupported', 'aborted', 'internal',
 ]);
+
+/** The `rows` argument of the facade: the empty string is the 4-row board. */
+const FOUR_ROWS = '';
 
 const now = (): number => performance.now();
 
@@ -112,13 +116,13 @@ export class JavaCore {
     const variant = variantOf(setup);
     this.requireTable(variant);
     const [n0, n1, n2] = seatNodes(setup) as [number, number, number | undefined];
-    fields(this.m.newGame(n0, n1, variant.jump, String(variant.players), n2 ?? 0, rankingOf(variant), campsOf(variant)));
+    fields(this.m.newGame(n0, n1, variant.jump, String(variant.players), n2 ?? 0, rankingOf(variant), campsOf(variant), FOUR_ROWS));
     this.gameVariant = variant;
   }
 
   legalMoves(history: readonly number[], variant: Variant = DEFAULT_VARIANT): number[] {
     this.requireTable(variant);
-    return numbers(fields(this.m.legalMoves(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant)))[0]);
+    return numbers(fields(this.m.legalMoves(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), FOUR_ROWS))[0]);
   }
 
   /** Plays for the side to move with the variant of the last newGame (`variant`, if given, must equal it). */
@@ -127,7 +131,7 @@ export class JavaCore {
     if (!this.gameVariant) throw new EngineFailure('internal', 'newGame was not called');
     variant ??= this.gameVariant;
     this.requireTable(variant);
-    const f = fields(this.m.choose(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant)));
+    const f = fields(this.m.choose(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), FOUR_ROWS));
     return this.parseChoice(f);
   }
 
@@ -137,7 +141,7 @@ export class JavaCore {
    */
   outcome(history: readonly number[], variant: Variant = DEFAULT_VARIANT): EngineOutcome {
     this.requireTable(variant);
-    const f = fields(this.m.outcome(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant)));
+    const f = fields(this.m.outcome(this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), FOUR_ROWS));
     if (f[0] === 'ongoing') return ongoingOf(f.length === 3 && f[1] === 'finished' ? Number(f[2]) : 0, f);
     if (f[0] === 'ranking') return rankingOutcome(f.slice(1).map(Number), f);
     if (f[0] === 'draw') return { kind: 'draw' };
@@ -157,7 +161,7 @@ export class JavaCore {
     if (moves !== null && (moves.length === 0 || !moves.every((m) => Number.isInteger(m) && m >= 0))) {
       throw new EngineFailure('illegal-move', 'the move list is empty or not made of moves');
     }
-    const f = fields(this.m.analyse(this.encode(history), moves === null ? '' : moves.join(','), nodes, variant.jump, String(variant.players), rankingOf(variant), campsOf(variant)));
+    const f = fields(this.m.analyse(this.encode(history), moves === null ? '' : moves.join(','), nodes, variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), FOUR_ROWS));
     const visited = Number(f[0]);
     const ms = Number(f[1]);
     const rows1 = Number(f[2]);
@@ -177,7 +181,7 @@ export class JavaCore {
    */
   evaluate3(history: readonly number[], variant: Variant): number[] {
     requireThreePlayers(variant);
-    const f = fields(this.m.evaluate3(this.encode(history), variant.jump, rankingOf(variant), campsOf(variant)));
+    const f = fields(this.m.evaluate3(this.encode(history), variant.jump, rankingOf(variant), campsOf(variant), FOUR_ROWS));
     const values = f.map(Number);
     if (values.length !== 3 || !values.every(Number.isInteger)) {
       throw new EngineFailure('internal', `unexpected evaluate3 reply: ${f.join(' ').slice(0, 120)}`);
@@ -191,7 +195,7 @@ export class JavaCore {
    */
   bench(plies: number, nodes: number, variant: Variant = DEFAULT_VARIANT): BenchResult {
     this.requireTable(variant);
-    const f = fields(this.m.bench(plies, nodes, variant.jump, String(variant.players), rankingOf(variant), campsOf(variant)));
+    const f = fields(this.m.bench(plies, nodes, variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), FOUR_ROWS));
     const result: BenchResult = { moves: numbers(f[0]), nodes: numbers(f[1]), ms: numbers(f[2]), rows1Requests: Number(f[3]) };
     if (result.rows1Requests > 0) throw new EngineFailure('rows1-requested', `${result.rows1Requests} request(s) for rows1.bin (ADR 0001)`);
     result.memory = sampleMemory(null); // no linear memory to read: the JS target uses the JS heap, Wasm GC its own GC heap

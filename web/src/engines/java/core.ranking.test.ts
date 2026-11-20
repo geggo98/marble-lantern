@@ -31,7 +31,8 @@ function stub(reply: string): { module: JavaModule; calls: Call[] } {
 }
 
 describe('ranking in the Java core', () => {
-  // Since 2026-11-20 the foreign-corner rule (camps) follows the ranking as the last argument; the ranking is the one before it.
+  // Since 2026-11-20 the foreign-corner rule (camps) follows the ranking, and the board size (rows) follows the camps as
+  // the last argument: the camps are the one before it, the ranking the one before the camps.
   it('passes the ranking before the foreign-corner rule in every call, "first" when the variant has none', () => {
     const { module, calls } = stub('ok ongoing');
     const core = JavaCore.create(module);
@@ -45,7 +46,7 @@ describe('ranking in the Java core', () => {
     core.evaluate3([], { jump: 'long', players: 3 });
     core.legalMoves([], { jump: 'long', players: 3 });
     core.outcome([], { jump: 'long', players: 3 });
-    const last = (name: string, index: number): unknown => calls.filter((c) => c.name === name)[index]!.args.at(-2);
+    const last = (name: string, index: number): unknown => calls.filter((c) => c.name === name)[index]!.args.at(-3);
     expect(last('newGame', 0)).toBe('full');
     expect(last('legalMoves', 0)).toBe('full');
     expect(last('choose', 0)).toBe('full');
@@ -56,10 +57,11 @@ describe('ranking in the Java core', () => {
     expect(last('evaluate3', 1)).toBe('first');
     expect(last('legalMoves', 1)).toBe('first');
     expect(last('outcome', 1)).toBe('first');
-    expect(calls.every((c) => c.args.at(-1) === 'closed'), 'camps "closed" for a variant without the field').toBe(true);
+    expect(calls.every((c) => c.args.at(-2) === 'closed'), 'camps "closed" for a variant without the field').toBe(true);
+    expect(calls.every((c) => c.args.at(-1) === ''), 'rows "" (4 rows) until the variant carries a board size').toBe(true);
   });
 
-  it('passes the foreign-corner rule as the last argument of every call', () => {
+  it('passes the foreign-corner rule before the board size in every call', () => {
     const { module, calls } = stub('ok ongoing');
     const core = JavaCore.create(module);
     for (const camps of ['pass-through', 'open'] as const) {
@@ -73,8 +75,8 @@ describe('ranking in the Java core', () => {
       core.evaluate3([], variant);
     }
     expect(calls).toHaveLength(14);
-    expect(calls.slice(0, 7).every((c) => c.args.at(-1) === 'pass-through')).toBe(true);
-    expect(calls.slice(7).every((c) => c.args.at(-1) === 'open')).toBe(true);
+    expect(calls.slice(0, 7).every((c) => c.args.at(-2) === 'pass-through')).toBe(true);
+    expect(calls.slice(7).every((c) => c.args.at(-2) === 'open')).toBe(true);
   });
 
   it('reads the outcome replies of a full-ranking game', () => {

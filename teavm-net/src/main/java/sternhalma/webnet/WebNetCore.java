@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.nn.Encoder;
 import sternhalma.nn.NetworkConfig;
 import sternhalma.nn.PlaneSet;
@@ -84,6 +85,28 @@ public final class WebNetCore {
         throw new NetFailure("internal", "camps must be closed, pass-through or open, got '" + text + "'");
     }
 
+    /**
+     * The board size of a facade argument: null, empty or {@code "4"} is {@link TriangleRows#FOUR}, {@code "5"} is
+     * {@link TriangleRows#FIVE}; anything else fails with {@code internal}.
+     */
+    public static TriangleRows parseRows(String text) {
+        if (text == null || text.isEmpty() || text.equals("4")) {
+            return TriangleRows.FOUR;
+        }
+        if (text.equals("5")) {
+            return TriangleRows.FIVE;
+        }
+        throw new NetFailure("internal", "rows must be 4 or 5, got '" + text + "'");
+    }
+
+    /**
+     * The refusal of a net game on 5 rows: every net was trained on the 4-row start, and its input planes mark the
+     * 10-cell corners. Code {@code unsupported}, the code the page already maps to a text.
+     */
+    static NetFailure fiveRowsRefused() {
+        return new NetFailure("unsupported", "net engines play the 4-row board only; the 5-row board has 15-cell houses");
+    }
+
     /** The player count of a facade argument: null, empty or {@code "2"} is 2, {@code "3"} is 3. */
     public static int parsePlayers(String text) {
         if (text == null || text.isEmpty() || text.equals("2")) {
@@ -112,6 +135,19 @@ public final class WebNetCore {
      */
     public void create(RuleSet.JumpRule jumpRule, int playerCount, RuleSet.ForeignCamps foreignCamps, int sims, int batch,
             long newSeed, String optionText) {
+        create(jumpRule, playerCount, foreignCamps, TriangleRows.FOUR, sims, batch, newSeed, optionText);
+    }
+
+    /**
+     * {@link #create(RuleSet.JumpRule, int, RuleSet.ForeignCamps, int, int, long, String)} with a board size. Only
+     * {@link TriangleRows#FOUR} can be created: on {@link TriangleRows#FIVE} it fails with {@code unsupported}, and the
+     * previous game stays as it was.
+     */
+    public void create(RuleSet.JumpRule jumpRule, int playerCount, RuleSet.ForeignCamps foreignCamps, TriangleRows rows,
+            int sims, int batch, long newSeed, String optionText) {
+        if (rows != TriangleRows.FOUR) {
+            throw fiveRowsRefused();
+        }
         MctsOptions o;
         try {
             o = parseOptions(defaultOptions().withSims(sims).withBatch(batch), optionText);
@@ -261,7 +297,13 @@ public final class WebNetCore {
 
     /** {@link #legalMoves(int[], RuleSet.JumpRule, int)} under a foreign-corner rule. */
     public int[] legalMoves(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
-        Position p = replay(history, rule, playerCount, foreignCamps);
+        return legalMoves(history, rule, playerCount, foreignCamps, TriangleRows.FOUR);
+    }
+
+    /** {@link #legalMoves(int[], RuleSet.JumpRule, int, RuleSet.ForeignCamps)} on a board of the given size (rules only, no net). */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps,
+            TriangleRows rows) {
+        Position p = replay(history, rule, playerCount, foreignCamps, rows);
         return p.outcome() != null ? new int[0] : p.legalMoves();
     }
 
@@ -272,7 +314,13 @@ public final class WebNetCore {
 
     /** {@link #outcome(int[], RuleSet.JumpRule, int)} under a foreign-corner rule. */
     public Outcome outcome(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
-        Position p = replay(history, rule, playerCount, foreignCamps);
+        return outcome(history, rule, playerCount, foreignCamps, TriangleRows.FOUR);
+    }
+
+    /** {@link #outcome(int[], RuleSet.JumpRule, int, RuleSet.ForeignCamps)} on a board of the given size (rules only, no net). */
+    public Outcome outcome(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps,
+            TriangleRows rows) {
+        Position p = replay(history, rule, playerCount, foreignCamps, rows);
         Outcome outcome = p.outcome();
         if (outcome == null && p.generate(new int[Position.MAX_MOVES]) == 0) {
             return p.noMovesOutcome();
@@ -290,7 +338,7 @@ public final class WebNetCore {
      */
     public int begin(int[] history) {
         Mcts m = mcts();
-        Position p = replay(history, jump, players, camps);
+        Position p = replay(history, jump, players, camps, TriangleRows.FOUR);
         int[] legal = p.outcome() != null ? new int[0] : p.legalMoves();
         if (legal.length == 0) {
             throw new NetFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -395,8 +443,9 @@ public final class WebNetCore {
         return best;
     }
 
-    private static Position replay(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps) {
-        Position p = Position.initial(RuleSet.defaults(playerCount).withJumpRule(rule).withForeignCamps(foreignCamps));
+    private static Position replay(int[] history, RuleSet.JumpRule rule, int playerCount, RuleSet.ForeignCamps foreignCamps,
+            TriangleRows rows) {
+        Position p = Position.initial(RuleSet.defaults(playerCount, rows).withJumpRule(rule).withForeignCamps(foreignCamps));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             boolean legal = false;

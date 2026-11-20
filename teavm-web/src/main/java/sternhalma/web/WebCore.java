@@ -10,6 +10,7 @@ import java.util.List;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.search.AlphaBeta;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.PlayerSpec;
@@ -80,6 +81,9 @@ public final class WebCore {
     private RuleSet.Ranking gameRanking = RuleSet.Ranking.FIRST_WINNER_ONLY;
     private RuleSet.ForeignCamps gameCamps = RuleSet.ForeignCamps.CLOSED;
     private RuleSet.JumpRule analysisRule;
+    private TriangleRows gameRows = TriangleRows.FOUR;
+    private TriangleRows analysisRows = TriangleRows.FOUR;
+    private TriangleRows analysisRows3 = TriangleRows.FOUR;
 
     /**
      * The jump rule of a facade argument: null, empty or {@code adjacent} is {@link RuleSet.JumpRule#ADJACENT},
@@ -133,7 +137,27 @@ public final class WebCore {
     }
 
     private static RuleSet rules(RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        return RuleSet.defaults(playerCount).withJumpRule(jump).withRanking(ranking).withForeignCamps(camps);
+        return rules(jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    private static RuleSet rules(RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        return RuleSet.defaults(playerCount, rows).withJumpRule(jump).withRanking(ranking).withForeignCamps(camps);
+    }
+
+    /**
+     * The board size of a facade argument: null, empty or {@code "4"} is {@link TriangleRows#FOUR} (the 10-cell
+     * houses), {@code "5"} is {@link TriangleRows#FIVE} (the 15-cell houses); anything else fails with
+     * {@code internal}. A start choice stored before the feature has no size and reads as 4 rows.
+     */
+    public static TriangleRows parseRows(String text) {
+        if (text == null || text.isEmpty() || text.equals("4")) {
+            return TriangleRows.FOUR;
+        }
+        if (text.equals("5")) {
+            return TriangleRows.FIVE;
+        }
+        throw new WebFailure("internal", "rows must be 4 or 5, got '" + text + "'");
     }
 
     /**
@@ -218,15 +242,25 @@ public final class WebCore {
 
     /** {@link #newGame(int, int, RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
     public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        newGame(nodes0, nodes1, jump, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /**
+     * {@link #newGame(int, int, RuleSet.JumpRule, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size.
+     * {@link TriangleRows#FIVE} plays the 5-row specs and needs no table.
+     */
+    public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
         if (nodes0 <= 0 || nodes1 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1);
         }
-        players = new AlphaBetaPlayer[] {player(nodes0, jump), player(nodes1, jump)};
+        players = new AlphaBetaPlayer[] {player(nodes0, jump, rows), player(nodes1, jump, rows)};
         players3 = null;
         gamePlayers = 2;
         gameRule = jump;
         gameRanking = ranking;
         gameCamps = camps;
+        gameRows = rows;
     }
 
     /**
@@ -244,19 +278,29 @@ public final class WebCore {
 
     /** {@link #newGame3(int, int, int, RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
     public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        newGame3(nodes0, nodes1, nodes2, jump, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #newGame3(int, int, int, RuleSet.JumpRule, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
         if (nodes0 <= 0 || nodes1 <= 0 || nodes2 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1 + ", " + nodes2);
         }
-        players3 = new ThreePlayerPlayer[] {player3(nodes0, jump), player3(nodes1, jump), player3(nodes2, jump)};
+        players3 = new ThreePlayerPlayer[] {player3(nodes0, jump, rows), player3(nodes1, jump, rows), player3(nodes2, jump, rows)};
         players = null;
         gamePlayers = 3;
         gameRule = jump;
         gameRanking = ranking;
         gameCamps = camps;
+        gameRows = rows;
     }
 
-    private static ThreePlayerPlayer player3(int nodes, RuleSet.JumpRule jump) {
-        String base = jump == RuleSet.JumpRule.LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC;
+    private static ThreePlayerPlayer player3(int nodes, RuleSet.JumpRule jump, TriangleRows rows) {
+        boolean five = rows == TriangleRows.FIVE;
+        String base = jump == RuleSet.JumpRule.LONG
+                ? (five ? Strategies.BROWSER_3P_ROWS5_LONG_SPEC : Strategies.BROWSER_3P_LONG_SPEC)
+                : (five ? Strategies.BROWSER_3P_ROWS5_SPEC : Strategies.BROWSER_3P_SPEC);
         return ThreePlayerSpec.parse(base.replace("nodes=20000", "nodes=" + nodes)).create();
     }
 
@@ -285,7 +329,13 @@ public final class WebCore {
 
     /** {@link #legalMoves(int[], RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
     public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        Position position = replay(history, jump, playerCount, ranking, camps);
+        return legalMoves(history, jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #legalMoves(int[], RuleSet.JumpRule, int, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        Position position = replay(history, jump, playerCount, ranking, camps, rows);
         return position.outcome() != null ? new int[0] : position.legalMoves();
     }
 
@@ -313,7 +363,13 @@ public final class WebCore {
 
     /** {@link #state(int[], RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
     public State state(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        Position position = replay(history, jump, playerCount, ranking, camps);
+        return state(history, jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #state(int[], RuleSet.JumpRule, int, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public State state(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        Position position = replay(history, jump, playerCount, ranking, camps, rows);
         Outcome outcome = position.outcome();
         if (outcome == null && position.generate(new int[Position.MAX_MOVES]) == 0) {
             outcome = position.noMovesOutcome();
@@ -353,15 +409,24 @@ public final class WebCore {
      * the current game.
      */
     public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        Position position = replay(history, jump, playerCount, ranking, camps);
+        return choose(history, jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /**
+     * {@link #choose(int[], RuleSet.JumpRule, int, RuleSet.Ranking, RuleSet.ForeignCamps)} with a board size, which must
+     * be the one of the current game. A call with the wrong size would otherwise play the other board without a word.
+     */
+    public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        Position position = replay(history, jump, playerCount, ranking, camps, rows);
         if (position.outcome() != null || position.generate(new int[Position.MAX_MOVES]) == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
         }
         if (players == null && players3 == null) {
             if (playerCount == 3) {
-                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps);
+                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps, rows);
             } else {
-                newGame(DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps);
+                newGame(DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps, rows);
             }
         } else if (gamePlayers != playerCount) {
             throw new WebFailure("internal", "the game has " + gamePlayers + " players, not " + playerCount + "; call newGame first");
@@ -371,6 +436,8 @@ public final class WebCore {
             throw new WebFailure("internal", "the game plays " + gameRanking + ", not " + ranking + "; call newGame first");
         } else if (gameCamps != camps) {
             throw new WebFailure("internal", "the game plays foreignCamps=" + gameCamps + ", not " + camps + "; call newGame first");
+        } else if (gameRows != rows) {
+            throw new WebFailure("internal", "the game plays " + gameRows + ", not " + rows + "; call newGame first");
         }
         if (playerCount == 3) {
             return choose3(players3[position.sideToMove()], position);
@@ -444,10 +511,16 @@ public final class WebCore {
     /** {@link #analyse(int[], int[], int, RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
     public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount,
             RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        return analyse(history, moves, nodes, jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #analyse(int[], int[], int, RuleSet.JumpRule, int, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount,
+            RuleSet.Ranking ranking, RuleSet.ForeignCamps camps, TriangleRows rows) {
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
-        Position position = replay(history, jump, playerCount, ranking, camps);
+        Position position = replay(history, jump, playerCount, ranking, camps, rows);
         int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
         if (legal.length == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -459,13 +532,14 @@ public final class WebCore {
             }
         }
         if (playerCount == 3) {
-            return analyse3(position, chosen, nodes, jump);
+            return analyse3(position, chosen, nodes, jump, rows);
         }
-        if (analysisPlayer == null || analysisNodes != nodes || analysisRule != jump) {
-            String base = jump == RuleSet.JumpRule.LONG ? ANALYSIS_LONG_SPEC : ANALYSIS_SPEC;
-            analysisPlayer = player(base + ",nodes=" + nodes, jump);
+        if (analysisPlayer == null || analysisNodes != nodes || analysisRule != jump || analysisRows != rows) {
+            String base = jump == RuleSet.JumpRule.LONG ? analysisLongSpec(rows) : analysisSpec(rows);
+            analysisPlayer = player(base + ",nodes=" + nodes, jump, rows);
             analysisNodes = nodes;
             analysisRule = jump;
+            analysisRows = rows;
         }
         long t0 = System.nanoTime();
         int[] scores = new int[chosen.length];
@@ -489,11 +563,26 @@ public final class WebCore {
         return new Analysis(chosen.clone(), scores, visited, ms, rows1Requests);
     }
 
-    private Analysis analyse3(Position position, int[] chosen, int nodes, RuleSet.JumpRule jump) {
-        if (analysisPlayer3 == null || analysisNodes3 != nodes || analysisRule3 != jump) {
-            analysisPlayer3 = player3(nodes, jump);
+    // analysisSpec and analysisLongSpec are instance methods on purpose: as static methods the TeaVM JavaScript build
+    // read ANALYSIS_SPEC as null (a 4-row adjacent analyse failed with "NumberFormatException: 1null", measured
+    // 2026-11-20), while the JVM tests passed.
+
+    /** The analysis spec of a board size: on 5 rows the 5-row browser spec (it has no race parts) with the small table. */
+    String analysisSpec(TriangleRows rows) {
+        return rows == TriangleRows.FIVE ? Strategies.BROWSER_ROWS5_SPEC + ",tt=16" : ANALYSIS_SPEC;
+    }
+
+    /** {@link #analysisSpec} for the long hop. */
+    String analysisLongSpec(TriangleRows rows) {
+        return rows == TriangleRows.FIVE ? Strategies.BROWSER_ROWS5_LONG_SPEC + ",tt=16" : ANALYSIS_LONG_SPEC;
+    }
+
+    private Analysis analyse3(Position position, int[] chosen, int nodes, RuleSet.JumpRule jump, TriangleRows rows) {
+        if (analysisPlayer3 == null || analysisNodes3 != nodes || analysisRule3 != jump || analysisRows3 != rows) {
+            analysisPlayer3 = player3(nodes, jump, rows);
             analysisNodes3 = nodes;
             analysisRule3 = jump;
+            analysisRows3 = rows;
         }
         long t0 = System.nanoTime();
         int[] scores = new int[chosen.length];
@@ -529,11 +618,18 @@ public final class WebCore {
 
     /** {@link #evaluate3(int[], RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
     public int[] evaluate3(int[] history, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        Position position = replay(history, jump, 3, ranking, camps);
-        if (analysisPlayer3 == null || analysisRule3 != jump) {
-            analysisPlayer3 = player3(analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES, jump);
+        return evaluate3(history, jump, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #evaluate3(int[], RuleSet.JumpRule, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public int[] evaluate3(int[] history, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        Position position = replay(history, jump, 3, ranking, camps, rows);
+        if (analysisPlayer3 == null || analysisRule3 != jump || analysisRows3 != rows) {
+            analysisPlayer3 = player3(analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES, jump, rows);
             analysisNodes3 = analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES;
             analysisRule3 = jump;
+            analysisRows3 = rows;
         }
         return analysisPlayer3.evaluation(position);
     }
@@ -566,13 +662,19 @@ public final class WebCore {
 
     /** {@link #bench(int, int, RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
     public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        return bench(plies, nodes, jump, playerCount, ranking, camps, TriangleRows.FOUR);
+    }
+
+    /** {@link #bench(int, int, RuleSet.JumpRule, int, RuleSet.Ranking, RuleSet.ForeignCamps)} on a board of the given size. */
+    public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
         if (plies <= 0 || nodes <= 0) {
             throw new WebFailure("internal", "plies and nodes must be positive: " + plies + ", " + nodes);
         }
-        AlphaBetaPlayer[] pair = playerCount == 3 ? null : new AlphaBetaPlayer[] {player(nodes, jump), player(nodes, jump)};
+        AlphaBetaPlayer[] pair = playerCount == 3 ? null : new AlphaBetaPlayer[] {player(nodes, jump, rows), player(nodes, jump, rows)};
         ThreePlayerPlayer[] trio = playerCount == 3
-                ? new ThreePlayerPlayer[] {player3(nodes, jump), player3(nodes, jump), player3(nodes, jump)} : null;
-        Position position = Position.initial(rules(jump, playerCount, ranking, camps));
+                ? new ThreePlayerPlayer[] {player3(nodes, jump, rows), player3(nodes, jump, rows), player3(nodes, jump, rows)} : null;
+        Position position = Position.initial(rules(jump, playerCount, ranking, camps, rows));
         List<Choice> played = new ArrayList<>();
         for (int ply = 0; ply < plies; ply++) {
             if (position.outcome() != null) {
@@ -606,11 +708,12 @@ public final class WebCore {
     }
 
     private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        return replay(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY, RuleSet.ForeignCamps.CLOSED);
+        return replay(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY, RuleSet.ForeignCamps.CLOSED, TriangleRows.FOUR);
     }
 
-    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
-        Position position = Position.initial(rules(jump, playerCount, ranking, camps));
+    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps,
+            TriangleRows rows) {
+        Position position = Position.initial(rules(jump, playerCount, ranking, camps, rows));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             if (!contains(position.legalMoves(), move)) {
@@ -630,9 +733,12 @@ public final class WebCore {
         return false;
     }
 
-    private AlphaBetaPlayer player(int nodes, RuleSet.JumpRule jump) {
-        String base = jump == RuleSet.JumpRule.LONG ? Strategies.BROWSER_LONG_SPEC : Strategies.BROWSER_SPEC;
-        return player(base + ",nodes=" + nodes, jump);
+    private AlphaBetaPlayer player(int nodes, RuleSet.JumpRule jump, TriangleRows rows) {
+        boolean five = rows == TriangleRows.FIVE;
+        String base = jump == RuleSet.JumpRule.LONG
+                ? (five ? Strategies.BROWSER_ROWS5_LONG_SPEC : Strategies.BROWSER_LONG_SPEC)
+                : (five ? Strategies.BROWSER_ROWS5_SPEC : Strategies.BROWSER_SPEC);
+        return player(base + ",nodes=" + nodes, jump, rows);
     }
 
     /** A player of any spec over the installed table; a spec that needs rows>=1 fails with rows1-requested. */
@@ -645,20 +751,28 @@ public final class WebCore {
      * long-hop spec asks for one (PlayerSpec already rejects such specs). For ADJACENT the table must be installed.
      */
     AlphaBetaPlayer player(String spec, RuleSet.JumpRule jump) {
-        if (jump == RuleSet.JumpRule.LONG) {
-            RaceTableSource none = RaceTableSource.ofTables(rows -> noTable(), rows -> noTable());
+        return player(spec, jump, TriangleRows.FOUR);
+    }
+
+    /**
+     * {@link #player(String, RuleSet.JumpRule)} for a board size. On 5 rows no race table exists (the race module knows
+     * the 10-cell houses only), so no table is needed or touched, as for the long hop.
+     */
+    AlphaBetaPlayer player(String spec, RuleSet.JumpRule jump, TriangleRows rows) {
+        if (jump == RuleSet.JumpRule.LONG || rows == TriangleRows.FIVE) {
+            RaceTableSource none = RaceTableSource.ofTables(race -> noTable(), race -> noTable());
             return PlayerSpec.parse(spec).create(none);
         }
         if (rows2 == null) {
             throw new WebFailure("internal", "no table installed");
         }
         RaceTableSource.Table table = new RaceTableSource.Table(rows2, 2);
-        RaceTableSource source = RaceTableSource.ofTables(rows -> forRows(table, rows), rows -> forRows(table, rows));
+        RaceTableSource source = RaceTableSource.ofTables(race -> forRows(table, race), race -> forRows(table, race));
         return PlayerSpec.parse(spec).create(source);
     }
 
     private static RaceTableSource.Table noTable() {
-        throw new WebFailure("internal", "a race table was requested by a long-hop player");
+        throw new WebFailure("internal", "a race table was requested by a long-hop or 5-row player");
     }
 
     private RaceTableSource.Table forRows(RaceTableSource.Table table, int rows) {

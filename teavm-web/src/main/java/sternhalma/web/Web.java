@@ -51,17 +51,21 @@ public final class Web {
      * <p>After {@code ranking} comes {@code camps}, the foreign-corner rule (docs/rules.md, "Foreign corners"):
      * {@code "closed"} (also null or empty), {@code "pass-through"} or {@code "open"}. It is always passed as well, and a
      * game plays the rule of its {@code newGame}.
+     *
+     * <p>The last argument of every entry point is {@code rows}, the board size: {@code "4"} (also null or empty) for the
+     * 10-cell houses, {@code "5"} for the 15-cell houses (docs/rules.md, "Board size"). Always passed, and a game plays
+     * the size of its {@code newGame}. A 5-row game needs no table and has no race play.
      */
     @JSExport
     public static String newGame(int nodes0, int nodes1, String jump, String players, int nodes2, String ranking,
-            String camps) {
+            String camps, String rows) {
         try {
             if (WebCore.parsePlayers(players) == 3) {
                 CORE.newGame3(nodes0, nodes1, nodes2 > 0 ? nodes2 : nodes1, WebCore.parseJump(jump),
-                        WebCore.parseRanking(ranking), WebCore.parseCamps(camps));
+                        WebCore.parseRanking(ranking), WebCore.parseCamps(camps), WebCore.parseRows(rows));
             } else {
                 CORE.newGame(nodes0, nodes1, WebCore.parseJump(jump), WebCore.parseRanking(ranking),
-                        WebCore.parseCamps(camps));
+                        WebCore.parseCamps(camps), WebCore.parseRows(rows));
             }
             return "ok";
         } catch (RuntimeException e) {
@@ -71,10 +75,10 @@ public final class Web {
 
     /** {@code ok <moves>}, the moves comma separated (empty when the game is over). */
     @JSExport
-    public static String legalMoves(String history, String jump, String players, String ranking, String camps) {
+    public static String legalMoves(String history, String jump, String players, String ranking, String camps, String rows) {
         try {
             return "ok " + join(CORE.legalMoves(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players),
-                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps)));
+                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps), WebCore.parseRows(rows)));
         } catch (RuntimeException e) {
             return error(e);
         }
@@ -82,10 +86,10 @@ public final class Web {
 
     /** {@code ok <move> <score> <depth> <nodes> <ms> <raceMove 0|1> <rows1Requests>}. */
     @JSExport
-    public static String choose(String history, String jump, String players, String ranking, String camps) {
+    public static String choose(String history, String jump, String players, String ranking, String camps, String rows) {
         try {
             WebCore.Choice c = CORE.choose(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players),
-                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps));
+                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps), WebCore.parseRows(rows));
             return "ok " + c.move() + " " + c.score() + " " + c.depth() + " " + c.nodes() + " " + c.ms() + " "
                     + (c.raceMove() ? 1 : 0) + " " + c.rows1Requests();
         } catch (RuntimeException e) {
@@ -99,11 +103,11 @@ public final class Web {
      */
     @JSExport
     public static String analyse(String history, String moves, int nodes, String jump, String players, String ranking,
-            String camps) {
+            String camps, String rows) {
         try {
             WebCore.Analysis a = CORE.analyse(parse(history), moves == null || moves.isEmpty() ? null : parse(moves), nodes,
                     WebCore.parseJump(jump), WebCore.parsePlayers(players), WebCore.parseRanking(ranking),
-                    WebCore.parseCamps(camps));
+                    WebCore.parseCamps(camps), WebCore.parseRows(rows));
             return "ok " + a.nodes() + " " + a.ms() + " " + a.rows1Requests() + " " + join(a.moves()) + " " + join(a.scores());
         } catch (RuntimeException e) {
             return error(e);
@@ -116,10 +120,10 @@ public final class Web {
      * carry the rank constants documented there. A two-player game has no such vector; use {@link #analyse}.
      */
     @JSExport
-    public static String evaluate3(String history, String jump, String ranking, String camps) {
+    public static String evaluate3(String history, String jump, String ranking, String camps, String rows) {
         try {
             int[] e = CORE.evaluate3(parse(history), WebCore.parseJump(jump), WebCore.parseRanking(ranking),
-                    WebCore.parseCamps(camps));
+                    WebCore.parseCamps(camps), WebCore.parseRows(rows));
             return "ok " + e[0] + " " + e[1] + " " + e[2];
         } catch (RuntimeException e) {
             return error(e);
@@ -140,12 +144,12 @@ public final class Web {
      * goal (docs/rules.md, "Playing on for second place").
      */
     @JSExport
-    public static String outcome(String history, String jump, String players, String ranking, String camps) {
+    public static String outcome(String history, String jump, String players, String ranking, String camps, String rows) {
         try {
             RuleSet.Ranking rule = WebCore.parseRanking(ranking);
             int playerCount = WebCore.parsePlayers(players);
             WebCore.State s = CORE.state(parse(history), WebCore.parseJump(jump), playerCount, rule,
-                    WebCore.parseCamps(camps));
+                    WebCore.parseCamps(camps), WebCore.parseRows(rows));
             Outcome o = s.outcome();
             if (rule == RuleSet.Ranking.FULL_RANKING && playerCount == 3) {
                 if (o == null) {
@@ -162,10 +166,10 @@ public final class Web {
 
     /** {@code ok <moves> <nodes per ply> <ms per ply> <rows1Requests>}, the three lists comma separated. */
     @JSExport
-    public static String bench(int plies, int nodes, String jump, String players, String ranking, String camps) {
+    public static String bench(int plies, int nodes, String jump, String players, String ranking, String camps, String rows) {
         try {
             WebCore.Bench b = CORE.bench(plies, nodes, WebCore.parseJump(jump), WebCore.parsePlayers(players),
-                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps));
+                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps), WebCore.parseRows(rows));
             StringBuilder ms = new StringBuilder();
             for (int i = 0; i < b.ms().length; i++) {
                 ms.append(i == 0 ? "" : ",").append(b.ms()[i]);
