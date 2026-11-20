@@ -193,7 +193,7 @@
   "advantage_engine": "Engine",
   "advantage_even": "Ausgeglichen",
   "advantage_heading": "Vorteil",
-  "advantage_mate": "{who}: gewinnt erzwungen in {plies} Halbzügen",
+  "advantage_mate": "{who}: gewinnt garantiert in {plies} Halbzügen",
   "advantage_race": "{who}: vorn im Wettlauf",
   "advantage_slight": "{who}: leicht vorn",
   "advantage_updating": "wird aktualisiert",
