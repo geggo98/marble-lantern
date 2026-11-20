@@ -26,7 +26,9 @@ npm exec --no -- playwright test --project=chromium --project=firefox "$@"
 gate=$?
 
 print -u2 "web:e2e: informative project webkit (does not change the exit code)"
-npm exec --no -- playwright test --project=webkit "$@"
+# Capped: on the CI runner Playwright's WebKit crashes and restarts workers (every ~23 s a new one), so an uncapped run took more than
+# 45 minutes and the job timeout (60 min) cancelled the whole job, including the Pages deploy (2026-11-20). 10 minutes or 3 failures end it.
+npm exec --no -- playwright test --project=webkit --global-timeout=600000 --max-failures=3 "$@"
 info=$?
 
 print -u2 "web:e2e: gate exit $gate, webkit (informative) exit $info"
