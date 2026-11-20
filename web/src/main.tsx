@@ -7,6 +7,11 @@ import './ui/guides.css';
 import { i18n } from './i18n/i18n';
 import { App } from './app/App';
 import type { BenchRunner } from './ui/Screens';
+import { browserPwa } from './pwa/pwa';
+
+// Installable app: created before the first render, so that it catches beforeinstallprompt. The service worker registers only in the
+// production build (vite dev serves no sw.js); the app starts the registration once the first engine has loaded.
+const pwa = browserPwa(import.meta.env.PROD);
 
 // The benchmark code loads on the first start of the benchmark, not with the app.
 const benchRunner: BenchRunner = {
@@ -24,6 +29,6 @@ i18n.subscribe(syncLang);
 
 createRoot(root).render(
   <StrictMode>
-    <App benchRunner={benchRunner} />
+    <App benchRunner={benchRunner} pwa={pwa} />
   </StrictMode>,
 );

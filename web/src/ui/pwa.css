@@ -1,0 +1,24 @@
+/* The update notice of the installable app (PwaUi.tsx): a small bar at the bottom edge, above the action bar of a phone. */
+.ml-update {
+  position: fixed;
+  z-index: 15; /* below the sheets and dialogs (20) */
+  inset-inline: 0;
+  bottom: calc(var(--ml-space-4) + 4rem + env(safe-area-inset-bottom));
+  margin-inline: auto;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--ml-space-4));
+  display: flex;
+  align-items: center;
+  gap: var(--ml-space-2);
+  padding: var(--ml-space-2) var(--ml-space-2) var(--ml-space-2) var(--ml-space-3);
+  border-radius: var(--ml-radius-md);
+  background: var(--ml-color-surface);
+  color: var(--ml-color-ink);
+  box-shadow: var(--ml-shadow-sheet);
+  font-size: var(--ml-text-sm);
+}
+.ml-update__text { flex: 1; }
+.ml-update__close { padding-inline: var(--ml-space-2); }
+@media (min-width: 60rem) {
+  .ml-update { bottom: calc(var(--ml-space-4) + env(safe-area-inset-bottom)); }
+}

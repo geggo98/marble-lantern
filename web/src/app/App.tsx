@@ -39,6 +39,8 @@ import { StartDialog } from '../ui/StartDialog';
 import type { StartDialogModel } from '../ui/StartDialog';
 import { PlayScreen } from './PlayScreen';
 import type { PlayModel } from './PlayScreen';
+import { UpdateNotice } from '../ui/PwaUi';
+import type { PwaPort } from '../pwa/pwa';
 
 export interface AppProps {
   /** Tests replace the manifest loader; the default registers the adapters and fetches engines.json. */
@@ -56,6 +58,8 @@ export interface AppProps {
   initialSetup?: GameSetup;
   /** The selection of the net engines (engine, model, simulations). Tests pass a store with a fake probe; the default keeps it in localStorage. */
   netSelection?: NetSelectionStore;
+  /** The installable app (service worker, update notice, install entry). Only the static site passes one (main.tsx). */
+  pwa?: PwaPort;
 }
 
 /** What stands before the game. */
@@ -104,7 +108,7 @@ function whenIdle(game: GameController): Promise<void> {
 /** A link for three players names its seats, so it needs no dialog: the app continues it at once. */
 const continuesAtOnce = (link: GameLink): boolean => (link.variant?.players ?? 2) === 3;
 
-export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup, netSelection }: AppProps): React.JSX.Element {
+export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup, netSelection, pwa }: AppProps): React.JSX.Element {
   const nav = useMemo(() => navigation ?? browserNavigation(), [navigation]);
   const [screen, setScreen] = useState<Screen>(() => screenFromHash(nav.hash));
   const [flow, setFlowState] = useState<Flow>(() => {
@@ -180,6 +184,12 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   useEffect(() => {
     if (loadedId && netStore.selection.engine !== loadedId) netStore.setSelection({ engine: loadedId });
   }, [loadedId, netStore]);
+
+  // The service worker registers after the first engine load (ready or failed), so that its precache does not compete with that download.
+  const settled = sessionState.phase === 'ready' || sessionState.phase === 'failed';
+  useEffect(() => {
+    if (settled) void pwa?.start();
+  }, [settled, pwa]);
 
   const snapshot = (): UrlSnapshot => snapshotOf(game.state.history, setupRef.current, lastHuman.current, levelRef.current);
 
@@ -389,6 +399,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     demo,
     level,
     tracker,
+    ...(pwa ? { pwa } : {}),
     presetLevel: presetLevel.current,
     canShare: playing && !demo,
     getUrl: () => nav.href,
@@ -509,6 +520,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         {screen === 'bench' && <BenchScreen runner={benchRunner} />}
         {screen === 'about' && <AboutScreen />}
         <Footer />
+        <UpdateNotice {...(pwa ? { pwa } : {})} />
       </div>
       {showDialog && dialogModel && <StartDialog model={dialogModel} onCancel={started.current ? keepGame : undefined} />}
     </>

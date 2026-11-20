@@ -68,10 +68,18 @@ function readTheme(): ThemeChoice {
   }
 }
 
+/** --ml-color-bg of web/design/tokens.css: the browser bar and the title bar of the installed app use it (meta theme-color). */
+export const THEME_COLORS = { light: '#f5f0e6', dark: '#14110e' } as const;
+
 export function applyTheme(theme: ThemeChoice): void {
   const root = document.documentElement;
   if (theme === 'auto') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', theme);
+  // index.html has one meta per colour scheme; a forced theme sets both to its colour, 'auto' restores each one's own.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"][media]')) {
+    const own = meta.media.includes('dark') ? THEME_COLORS.dark : THEME_COLORS.light;
+    meta.content = theme === 'auto' ? own : THEME_COLORS[theme];
+  }
 }
 
 // One store for the choice: the footer and the menu on a small screen both show the switch and must agree.
