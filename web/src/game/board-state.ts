@@ -1,7 +1,7 @@
 // Pure game state: the move history is the state; this module replays it into an owner array.
-import { CELL_COUNT, GOAL_CELLS, GOAL_CELLS_3, START_CELLS, START_CELLS_3 } from '../board/cells';
+import { CELL_COUNT, goalHouses, startHouses } from '../board/cells';
 import { moveFrom, moveTo } from '../engines/engine';
-import { DEFAULT_VARIANT, moveLimit, playsOn } from './variant';
+import { DEFAULT_VARIANT, moveLimit, playsOn, rowsOf } from './variant';
 import type { Player, Variant } from './variant';
 
 /** The side of a two-player game. */
@@ -26,9 +26,9 @@ export type Outcome =
    */
   | { kind: 'ranking'; ranking: readonly [Player, Player, Player]; reason: 'complete' | 'move-limit' | 'stalled' };
 
-/** Start corners per seat: top and bottom for two players, the three clockwise corners for three (board/cells.ts). */
-export const startCells = (variant: Variant): readonly (readonly number[])[] => (variant.players === 3 ? START_CELLS_3 : START_CELLS);
-export const goalCells = (variant: Variant): readonly (readonly number[])[] => (variant.players === 3 ? GOAL_CELLS_3 : GOAL_CELLS);
+/** Start houses per seat: top and bottom for two players, the three clockwise corners for three; 10 cells with 4 rows, 15 with 5 (board/cells.ts). */
+export const startCells = (variant: Variant): readonly (readonly number[])[] => startHouses(variant.players, rowsOf(variant));
+export const goalCells = (variant: Variant): readonly (readonly number[])[] => goalHouses(variant.players, rowsOf(variant));
 
 /** owner[cell] is the seat (0, 1 or 2), or -1 for an empty cell. */
 export function initialOwners(variant: Variant = DEFAULT_VARIANT): Int8Array {

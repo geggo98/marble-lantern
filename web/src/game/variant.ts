@@ -1,5 +1,7 @@
 // The game variant: which jump rule and how many players. The default (adjacent jumps, two players) is the game the
 // app has always played; every other variant is opt-in (docs/web-ui.md, section "Game variants").
+import type { BoardRows } from '../board/cells';
+
 export type JumpRule = 'adjacent' | 'long';
 export type PlayerCount = 2 | 3;
 /**
@@ -20,6 +22,9 @@ export type ForeignCamps = 'closed' | 'pass-through' | 'open';
 /** A seat of the game: 0 moves first; the side to move is `ply % players`. */
 export type Player = 0 | 1 | 2;
 
+/** Rows of a house, 4 (10 pieces per seat) or 5 (15 pieces); the engine's RuleSet.TriangleRows (defined in board/cells.ts). */
+export type { BoardRows };
+
 export interface Variant {
   jump: JumpRule;
   players: PlayerCount;
@@ -27,6 +32,8 @@ export interface Variant {
   ranking?: RankingRule;
   /** Missing means `closed`, so every variant that was written before the field existed keeps its meaning. */
   camps?: ForeignCamps;
+  /** Missing means 4 rows, so every variant that was written before the field existed keeps its meaning. */
+  rows?: BoardRows;
 }
 
 export const DEFAULT_VARIANT: Readonly<Variant> = Object.freeze({ jump: 'adjacent', players: 2 });
@@ -34,6 +41,11 @@ export const DEFAULT_VARIANT: Readonly<Variant> = Object.freeze({ jump: 'adjacen
 /** The ranking rule of the variant; `first` when the field is missing. */
 export function rankingOf(variant: Variant): RankingRule {
   return variant.ranking ?? 'first';
+}
+
+/** The house size of the variant; 4 when the field is missing. */
+export function rowsOf(variant: Variant): BoardRows {
+  return variant.rows ?? 4;
 }
 
 /** The foreign-corner rule of the variant; `closed` when the field is missing. */
@@ -69,11 +81,11 @@ export function moveLimit(variant: Variant): number {
 }
 
 export function isDefault(variant: Variant): boolean {
-  return variant.jump === 'adjacent' && variant.players === 2 && rankingOf(variant) === 'first' && campsOf(variant) === 'closed';
+  return variant.jump === 'adjacent' && variant.players === 2 && rankingOf(variant) === 'first' && campsOf(variant) === 'closed' && rowsOf(variant) === 4;
 }
 
 export function sameVariant(a: Variant, b: Variant): boolean {
-  return a.jump === b.jump && a.players === b.players && rankingOf(a) === rankingOf(b) && campsOf(a) === campsOf(b);
+  return a.jump === b.jump && a.players === b.players && rankingOf(a) === rankingOf(b) && campsOf(a) === campsOf(b) && rowsOf(a) === rowsOf(b);
 }
 
 /**

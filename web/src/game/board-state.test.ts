@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BOTTOM_CORNER, CELL_COUNT, TOP_CORNER, cellId } from '../board/cells';
 import { makeMove } from '../engines/engine';
-import { MOVE_LIMIT, applyMove, hasWon, initialOwners, outcomeOf, replay, sideToMove } from './board-state';
+import { MOVE_LIMIT, applyMove, goalCells, hasWon, initialOwners, outcomeOf, replay, sideToMove } from './board-state';
 
 const count = (o: Int8Array, side: number): number => o.filter((x) => x === side).length;
 
@@ -86,5 +86,38 @@ describe('win (Definition 1, blockadeRule = OPPONENT_FILLS)', () => {
 
   it('has no outcome at the start', () => {
     expect(outcomeOf(initialOwners(), [])).toBeNull();
+  });
+});
+
+describe('5 rows', () => {
+  const five = { jump: 'adjacent', players: 2, rows: 5 } as const;
+  const five3 = { jump: 'adjacent', players: 3, rows: 5 } as const;
+
+  it('puts 15 pieces per seat into the 15-cell start houses, for two and three players', () => {
+    for (const v of [five, five3]) {
+      const o = initialOwners(v);
+      for (let seat = 0; seat < v.players; seat++) expect(count(o, seat)).toBe(15);
+      expect(o.filter((x) => x === -1)).toHaveLength(CELL_COUNT - 15 * v.players);
+    }
+  });
+
+  it('keeps the 4-row start position for a variant without a size', () => {
+    expect(initialOwners({ jump: 'adjacent', players: 2 })).toEqual(initialOwners({ jump: 'adjacent', players: 2, rows: 4 }));
+    expect(count(initialOwners({ jump: 'adjacent', players: 3, rows: 4 }), 0)).toBe(10);
+  });
+
+  it('needs all 15 goal cells filled, one own piece at least', () => {
+    const o = new Int8Array(CELL_COUNT).fill(-1);
+    const goal = goalCells(five)[0]!;
+    goal.forEach((c) => (o[c] = 1));
+    expect(hasWon(o, 0, five)).toBe(false); // full, but no own piece
+    o[goal[0]!] = 0;
+    expect(hasWon(o, 0, five)).toBe(true);
+    o[goal[14]!] = -1;
+    expect(hasWon(o, 0, five)).toBe(false); // 14 of 15
+    // the 4-row goal is full after 10 pieces: the 15-cell goal is not
+    const o4 = new Int8Array(CELL_COUNT).fill(-1);
+    goalCells({ jump: 'adjacent', players: 2 })[0]!.forEach((c) => (o4[c] = 0));
+    expect(hasWon(o4, 0, five)).toBe(false);
   });
 });

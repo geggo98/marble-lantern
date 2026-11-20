@@ -70,6 +70,51 @@ export const GOAL_CELLS_3: readonly [readonly number[], readonly number[], reado
   cornerWhere((q) => q > 4),
 ];
 
+/**
+ * Board size of the game: the rows of a house (RuleSet.TriangleRows of the engine). 4 rows are the 10-cell corner triangles,
+ * 5 rows add the hexagon edge row in front of the corner: 15 cells, 5 per triangle side. The 121 cells are the same.
+ */
+export type BoardRows = 4 | 5;
+
+/**
+ * A house is the corner of a start or goal (the cells beyond the threshold, `r < -4` and so on) and, with 5 rows, the cells of
+ * the hexagon edge row in front of it (`r = -4` with |q| <= 4 and |s| <= 4). Row r = -4 also holds cells of the two neighbouring
+ * corner triangles outside the hexagon, which never belong to the house. Cells come in id order.
+ */
+const house = (rows: BoardRows, coordinate: (c: Cell) => number): readonly number[] =>
+  CELLS.filter((c) => {
+    const v = coordinate(c);
+    if (v < -4) return true;
+    if (rows === 4 || v !== -4) return false;
+    return Math.max(Math.abs(c.q), Math.abs(c.r), Math.abs(c.q + c.r)) <= 4;
+  }).map((c) => c.id);
+
+const R_NEG = (c: Cell): number => c.r;
+const R_POS = (c: Cell): number => -c.r;
+const S_NEG = (c: Cell): number => -c.q - c.r;
+const S_POS = (c: Cell): number => c.q + c.r;
+const Q_NEG = (c: Cell): number => c.q;
+const Q_POS = (c: Cell): number => -c.q;
+
+type Houses = readonly (readonly number[])[];
+const HOUSES: Record<BoardRows, { start2: Houses; goal2: Houses; start3: Houses; goal3: Houses }> = {
+  4: houses(4),
+  5: houses(5),
+};
+function houses(rows: BoardRows) {
+  return {
+    start2: [house(rows, R_NEG), house(rows, R_POS)],
+    goal2: [house(rows, R_POS), house(rows, R_NEG)],
+    start3: [house(rows, R_NEG), house(rows, S_NEG), house(rows, Q_NEG)],
+    goal3: [house(rows, R_POS), house(rows, S_POS), house(rows, Q_POS)],
+  };
+}
+
+/** The start houses per seat for a player count and a board size: top and bottom (2), or the three clockwise corners (3). */
+export const startHouses = (players: 2 | 3, rows: BoardRows): Houses => (players === 3 ? HOUSES[rows].start3 : HOUSES[rows].start2);
+/** The goal houses per seat: the opposite house of each start house. */
+export const goalHouses = (players: 2 | 3, rows: BoardRows): Houses => (players === 3 ? HOUSES[rows].goal3 : HOUSES[rows].goal2);
+
 /** Screen position of a cell centre for a unit length u (design-notes.md, section 6): pointy-top layout. */
 export function cellCentre(id: number, unit = 20): { x: number; y: number } {
   const c = cellAt(id);
