@@ -193,7 +193,7 @@
   "advantage_engine": "Engine",
   "advantage_even": "Even",
   "advantage_heading": "Advantage",
-  "advantage_mate": "{who}: wins by force in {plies} plies",
+  "advantage_mate": "{who}: guaranteed to win in {plies} plies",
   "advantage_race": "{who}: ahead in the race",
   "advantage_slight": "{who}: slightly ahead",
   "advantage_updating": "updating",
