@@ -238,7 +238,8 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-trail--fading { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .ml-trail { transition: none; } }
 .ml-trail-card { display: grid; gap: var(--ml-space-2); }
-.ml-trail-card input[type="range"] { inline-size: 100%; accent-color: var(--ml-color-primary); }
+/* the touch target of the slider is at least 44 px high (e2e/mobile.spec.ts checks every control of the menu) */
+.ml-trail-card input[type="range"] { inline-size: 100%; min-block-size: 44px; accent-color: var(--ml-color-primary); }
 .ml-trail-card output { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 
 /* keyboard focus on a cell, illegal click, result halo */
