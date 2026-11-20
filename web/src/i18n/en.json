@@ -422,5 +422,9 @@
   "rules_suicide_illegal": "Not allowed",
   "rules_suicide_illegal_hint": "No move may fill an opponent's goal so that the opponent wins.",
   "rules_reason_selected_engine": "The model of the selected net engine does not play this rule, so the engine moves at random. After the start, you can choose a classical engine under “Engine and strength”.",
+  "rules_reason_net_no_model": "No model plays this rule, so the selected net engine moves at random. After the start, you can choose a classical engine under “Engine and strength”.",
+  "rules_reason_net_mismatch": "The model you chose does not play this rule, so the net engine moves at random. After the start, you can choose a classical engine under “Engine and strength”.",
+  "rules_summary_more": "+{n} more",
+  "rules_hint_toggle": "More about “{rule}”",
   "rules_reason_no_engine": "No engine in this build plays “{value}”."
 }

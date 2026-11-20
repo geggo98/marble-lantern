@@ -37,6 +37,25 @@ describe('AdvantageBar states', () => {
     expect([...host.querySelectorAll('.ml-advantage__gauge use')].map((u) => u.getAttribute('href'))).toEqual(['#ml-piece-b', '#ml-piece-a']);
   });
 
+  it('the fill has the colour of the marble at the end it grows towards, whichever side the person plays', async () => {
+    for (const [ends, you, engine] of [
+      [{ engine: 'b', you: 'a' }, 'a', 'b'],
+      [{ engine: 'a', you: 'b' }, 'b', 'a'],
+    ] as const) {
+      await draw(<AdvantageBar state="value" info={describeAdvantage(150)} ends={ends} />);
+      expect(q('.ml-advantage__fill')?.getAttribute('data-fill'), `you ahead, you play ${you}`).toBe(you);
+      expect(q('.ml-advantage__fill')?.getAttribute('style')).toContain('inset-inline-start: 50%'); // grows to the right, to your marble
+      await draw(<AdvantageBar state="value" info={describeAdvantage(-150)} ends={ends} />);
+      expect(q('.ml-advantage__fill')?.getAttribute('data-fill'), `engine ahead, engine plays ${engine}`).toBe(engine);
+      expect(q('.ml-advantage__fill')?.getAttribute('style')).toContain('inset-inline-end: 50%');
+    }
+  });
+
+  it('without marbles the fill has no side colour (it keeps the colours of the bands)', async () => {
+    await draw(<AdvantageBar state="value" info={describeAdvantage(150)} />);
+    expect(q('.ml-advantage__fill')?.hasAttribute('data-fill')).toBe(false);
+  });
+
   it('pending: the muted text, an empty track with the centre mark, no meter value', async () => {
     await draw(<AdvantageBar state="pending" ends={{ engine: 'b', you: 'a' }} />);
     expect(q('.ml-advantage')?.getAttribute('data-state')).toBe('pending');

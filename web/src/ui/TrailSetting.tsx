@@ -1,7 +1,7 @@
 // How long the trail of the last move stays visible: a two-way choice ("Fade out" or "Always show") and, for "Fade out", a slider of
 // 1 to 10 seconds. The stored value keeps its format: 0 means always shown (docs/web-ui.md, "Fading move trail").
-import { useId, useRef } from 'react';
-import { TRAIL_DEFAULT_SECONDS, TRAIL_MAX_SECONDS, TRAIL_MIN_SECONDS } from './trail-fade';
+import { useEffect, useId } from 'react';
+import { TRAIL_MAX_SECONDS, TRAIL_MIN_SECONDS, loadLastTrailSeconds, saveLastTrailSeconds } from './trail-fade';
 import { useT } from './texts';
 
 export function TrailSetting({ seconds, onChange }: { seconds: number; onChange: (seconds: number) => void }): React.JSX.Element {
@@ -9,16 +9,17 @@ export function TrailSetting({ seconds, onChange }: { seconds: number; onChange:
   const id = useId();
   const name = useId();
   const always = seconds === 0;
-  // "Fade out" again restores the last time of this session, or the default
-  const lastTimed = useRef(always ? TRAIL_DEFAULT_SECONDS : seconds);
-  if (!always) lastTimed.current = seconds;
+  // "Fade out" again restores the last time: kept in storage, not in this component, which unmounts with the menu sheet
+  useEffect(() => {
+    if (!always) saveLastTrailSeconds(seconds);
+  }, [always, seconds]);
   return (
     <section className="ml-card ml-trail-card" aria-label={t('trail_legend')} data-trail-card="" data-trail-mode={always ? 'always' : 'timed'}>
       <fieldset className="ml-trail-card__fieldset">
         <legend className="ml-kicker">{t('trail_legend')}</legend>
         <div className="ml-trail-card__modes">
           <label className="ml-trail-card__mode">
-            <input type="radio" name={name} value="timed" checked={!always} data-trail-mode-input="timed" onChange={() => onChange(lastTimed.current)} />
+            <input type="radio" name={name} value="timed" checked={!always} data-trail-mode-input="timed" onChange={() => onChange(loadLastTrailSeconds())} />
             <span>{t('trail_mode_timed')}</span>
           </label>
           <label className="ml-trail-card__mode">

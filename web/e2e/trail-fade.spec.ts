@@ -54,9 +54,9 @@ test('"Always show" is a visible choice, is remembered, and keeps the trail on t
   await page.locator('[data-choice="link-side-to-move"]').click(); // the address holds the game: "Continue this game?"
   await waitForHumanTurn(page);
   await expect(page.locator('[data-trail-mode-input="always"]')).toBeChecked(); // remembered
-  // back to "Fade out": the slider returns with the default time
+  // back to "Fade out": the slider returns with the last time of "Fade out", also after a reload (it is stored apart: ml.trail-last-seconds)
   await page.locator('[data-trail-mode-input="timed"]').check();
-  await expect(page.locator('[data-trail-setting]')).toHaveValue('3');
-  expect(await page.evaluate(() => localStorage.getItem('ml.trail-seconds'))).toBe('3');
+  await expect(page.locator('[data-trail-setting]')).toHaveValue('1');
+  expect(await page.evaluate(() => localStorage.getItem('ml.trail-seconds'))).toBe('1');
   errors.expectNone();
 });

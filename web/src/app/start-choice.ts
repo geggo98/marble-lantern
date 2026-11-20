@@ -13,7 +13,7 @@ export interface StartChoice {
   camps: ForeignCamps;
   /**
    * The house size of a NEW game: 4 rows (10 pieces) or 5 rows (15 pieces). The dialog preselects 5 unless the person chose a size: a
-   * fresh visitor and a stored choice without the field (written before the dialog offered a size) both read as 5. Only games that
+   * fresh visitor and a stored choice without the field, or without the version marker (CHOICE_VERSION), both read as 5. Only games that
    * already exist stay on 4 rows: a game link without `t=` (game-url.ts) and the board behind a link dialog (App.tsx).
    */
   rows: BoardRows;
@@ -31,6 +31,11 @@ export interface StartChoice {
 
 export const DEFAULT_CHOICE: Readonly<StartChoice> = Object.freeze({ jump: 'adjacent', camps: 'closed', rows: 5, ranking: 'first', mode: 'two', humanSeat: 0, engineSeat: 2 });
 export const CHOICE_KEY = 'ml.start-choice';
+/**
+ * Version of the stored choice. Version 2 (2026-11-20) marks a choice in which `rows` was chosen with the 5-row default in view: only then an
+ * explicit 4 is a decision. A choice without the marker was written while 4 was preselected, so its 4 only records the old default.
+ */
+export const CHOICE_VERSION = 2;
 
 const isSeat = (v: unknown): v is Player => v === 0 || v === 1 || v === 2;
 
@@ -43,9 +48,10 @@ export function parseChoice(text: string | null): StartChoice {
     return {
       jump: raw.jump === 'long' ? 'long' : 'adjacent',
       camps: raw.camps === 'pass-through' || raw.camps === 'open' ? raw.camps : 'closed',
-      // An explicit 4 or 5 stays as chosen. A missing or invalid size is "no size chosen" and reads as the default 5: the stored choice is
-      // the state of the dialog, not of a game, so it cannot turn an existing game into a 5-row game (those come from links only).
-      rows: raw.rows === 4 ? 4 : DEFAULT_CHOICE.rows,
+      // Only a choice with the version marker keeps an explicit 4. Without the marker the 4 was preselected, not chosen (owner wish 2026-11-20),
+      // and a missing or invalid size is "no size chosen" too: both read as the default 5. The stored choice is the state of the dialog, not
+      // of a game, so it cannot turn an existing game into a 5-row game (those come from links only).
+      rows: raw.v === CHOICE_VERSION && raw.rows === 4 ? 4 : DEFAULT_CHOICE.rows,
       ranking: raw.ranking === 'full' ? 'full' : 'first',
       mode: raw.mode === 'hotseat' || raw.mode === 'engines' ? raw.mode : 'two',
       humanSeat: isSeat(raw.humanSeat) ? raw.humanSeat : DEFAULT_CHOICE.humanSeat,
@@ -66,7 +72,7 @@ export function loadChoice(storage: Pick<Storage, 'getItem'> | null = defaultSto
 
 export function saveChoice(choice: StartChoice, storage: Pick<Storage, 'setItem'> | null = defaultStorage()): void {
   try {
-    storage?.setItem(CHOICE_KEY, JSON.stringify(choice));
+    storage?.setItem(CHOICE_KEY, JSON.stringify({ ...choice, v: CHOICE_VERSION }));
   } catch {
     // blocked or full: the dialog starts from the default next time
   }

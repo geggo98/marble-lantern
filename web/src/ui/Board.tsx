@@ -35,6 +35,11 @@ export interface BoardProps {
   trailSeconds?: number;
   /** Draw the legal targets of the selected piece (default true). False: no target marks; the selected piece keeps its highlight, and taps, keys and the cell labels work as before. */
   targetMarks?: boolean;
+  /**
+   * Move guides at the level "with evaluation": while a piece is selected, every other piece and every empty cell is drawn dimmed, so that the
+   * rated targets stand out. Drawing only (opacity): hit targets, keys and focus are as without it. Default false.
+   */
+  dimOthers?: boolean;
   owner: Int8Array;
   legal: readonly number[];
   /** True while the human may move. Otherwise the board is inert. */
@@ -398,6 +403,7 @@ export function Board(props: BoardProps): React.JSX.Element {
 
   const selectedPoint = selected === null ? null : pos(selected);
   const focusPoint = keyboard ? pos(tabCell) : null;
+  const dimmed = (props.dimOthers ?? false) && interactive && selected !== null && (props.targetMarks ?? true);
   const trailVisible = last !== null && selected === null && trailPhase !== 'gone';
   const lastStyle = last ? styleOf(last.side) : 'a';
 
@@ -406,6 +412,7 @@ export function Board(props: BoardProps): React.JSX.Element {
       <svg
         ref={svgRef}
         className={inert ? 'ml-board__svg is-inert' : 'ml-board__svg'}
+        {...(dimmed ? { 'data-dim': '' } : {})}
         viewBox={`${VIEW_BOX.x} ${VIEW_BOX.y} ${VIEW_BOX.width} ${VIEW_BOX.height}`}
         role="group"
         aria-label={t('board_label')}
@@ -496,7 +503,7 @@ export function Board(props: BoardProps): React.JSX.Element {
               const band = guides.pieces.get(c);
               if (!band) return null;
               return (
-                <g key={c} className={`ml-guide ml-guide--${band}`} data-guide="piece" data-band={band} data-cell-of={c} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
+                <g key={c} className={`ml-guide ml-guide--${band}`} data-guide="piece" data-band={band} data-cell-of={c} {...(c === selected ? { 'data-selected': '' } : {})} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
                   <GuideRing band={band} r={16.8} />
                   <g transform={`translate(12 -12) scale(${boost.toFixed(2)})`}>
                     <circle className="ml-guide__badge" r={8.2} />

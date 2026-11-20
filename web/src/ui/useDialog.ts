@@ -40,7 +40,10 @@ export function useDialog<T extends HTMLElement>({ onEscape, focusKey, isolate =
   useEffect(() => {
     const root = ref.current;
     const first = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>(TABBABLE);
-    first?.focus();
+    // preventScroll: focusing a button at the bottom edge of a long sheet (the sticky "Yes" of the start dialog) must not scroll the sheet
+    // away from its title; a dialog opens at the top.
+    first?.focus({ preventScroll: true });
+    if (root) root.scrollTop = 0;
   }, [focusKey]);
 
   // Declared before the focus return: cleanups run in this order, and focus cannot go to an element that is still inert.

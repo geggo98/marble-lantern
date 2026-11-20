@@ -37,7 +37,7 @@ let root: Root;
 const all = (selector: string): HTMLElement[] => [...host.querySelectorAll<HTMLElement>(selector)];
 const cell = (id: number): HTMLElement => host.querySelector<HTMLElement>(`[data-cell="${id}"]`)!;
 
-async function draw(props: { guides?: BoardGuides | null; interactive?: boolean }): Promise<void> {
+async function draw(props: { guides?: BoardGuides | null; interactive?: boolean; dimOthers?: boolean; targetMarks?: boolean }): Promise<void> {
   await act(async () => {
     root.render(
       <Board
@@ -53,6 +53,8 @@ async function draw(props: { guides?: BoardGuides | null; interactive?: boolean 
         sideLabel={() => 'your piece'}
         onMove={() => undefined}
         {...(props.guides !== undefined ? { guides: props.guides } : {})}
+        {...(props.dimOthers !== undefined ? { dimOthers: props.dimOthers } : {})}
+        {...(props.targetMarks !== undefined ? { targetMarks: props.targetMarks } : {})}
       />,
     );
   });
@@ -163,5 +165,54 @@ describe('Board with guides', () => {
   it('moves are keyed from | to << 8', () => {
     const m = legal[0]!;
     expect(makeMove(moveFrom(m), moveTo(m))).toBe(m);
+  });
+});
+
+describe('dimming the rest of the board (move guides, level "with evaluation")', () => {
+  const svg = (): SVGElement => host.querySelector<SVGElement>('.ml-board__svg')!;
+  const keydown = async (el: Element, key: string): Promise<void> => {
+    await act(async () => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  };
+
+  it('a selected piece dims the board; without a selection, nothing is dimmed; Escape ends it', async () => {
+    await draw({ guides: guidesFor(), dimOthers: true });
+    expect(svg().hasAttribute('data-dim')).toBe(false);
+    await click(cell(first));
+    expect(svg().hasAttribute('data-dim')).toBe(true);
+    await keydown(cell(first), 'Escape');
+    expect(svg().hasAttribute('data-dim')).toBe(false);
+  });
+
+  it('works from the keyboard as well', async () => {
+    await draw({ guides: guidesFor(), dimOthers: true });
+    await keydown(cell(first), 'Enter');
+    expect(svg().hasAttribute('data-dim')).toBe(true);
+  });
+
+  it('dims nothing at the levels "none" and "targets" (dimOthers false or absent), and never while the board is inert or without target marks', async () => {
+    for (const props of [{}, { dimOthers: false }, { dimOthers: true, targetMarks: false }] as const) {
+      await draw({ guides: guidesFor(), ...props });
+      await click(cell(first));
+      expect(svg().hasAttribute('data-dim'), JSON.stringify(props)).toBe(false);
+    }
+    await draw({ guides: guidesFor(), dimOthers: true, interactive: false });
+    expect(svg().hasAttribute('data-dim')).toBe(false);
+  });
+
+  it('changes only the look: the same hit circles, tab stop and accessible names with and without it; the selected piece and the rated targets stay', async () => {
+    await draw({ guides: guidesFor(), dimOthers: false });
+    await click(cell(first));
+    const plain = all('[data-cell]').map((c) => `${c.getAttribute('data-cell')}|${c.getAttribute('tabindex')}|${c.getAttribute('aria-label')}|${c.getAttribute('r')}`);
+    await draw({ guides: guidesFor(), dimOthers: true });
+    // draw() re-renders into the same board: the selection is still there
+    expect(svg().hasAttribute('data-dim')).toBe(true);
+    const dimmed = all('[data-cell]').map((c) => `${c.getAttribute('data-cell')}|${c.getAttribute('tabindex')}|${c.getAttribute('aria-label')}|${c.getAttribute('r')}`);
+    expect(dimmed).toEqual(plain);
+    expect(all('.ml-pieces .is-selected')).toHaveLength(1); // the CSS exempts it: .ml-pieces use:not(.is-selected)
+    expect(all('[data-guide="target"]')).toHaveLength(firstTargets.length);
+    expect(all('[data-guide="target"]').every((g) => g.closest('.ml-board__sockets, .ml-pieces') === null)).toBe(true); // not inside a dimmed layer
+    expect(all('.ml-guides [data-selected]')).toHaveLength(1); // the badge of the selected piece is exempt as well
   });
 });

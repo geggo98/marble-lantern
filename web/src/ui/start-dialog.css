@@ -25,7 +25,11 @@
   font: var(--ml-weight-medium) var(--ml-text-sm)/1.25 var(--ml-font-ui);
 }
 .ml-start__list .ml-start__opt { justify-content: center; align-items: flex-start; text-align: start; }
-.ml-start__label { display: inline-flex; align-items: center; gap: var(--ml-space-1); text-align: center; }
+.ml-start__label { display: inline-flex; align-items: center; gap: var(--ml-space-1); text-align: center; min-inline-size: 0; max-inline-size: 100%; }
+/* a long option name ("Durchspringen") breaks at a syllable or, failing that, anywhere, instead of running out of its button; the button grows in height only */
+.ml-start__text { min-inline-size: 0; overflow-wrap: anywhere; hyphens: auto; text-wrap: balance; }
+.ml-start__opt { min-inline-size: 0; }
+.ml-start__seg .ml-start__opt { padding-inline: 0.25rem; }
 .ml-start__opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ml-start__opt[data-checked] { background: var(--ml-color-primary); border-color: var(--ml-color-primary); color: var(--ml-color-on-primary); }
 .ml-start__opt:focus-within { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
@@ -60,18 +64,29 @@
 .ml-rules__count { padding: 0.125rem 0.5rem; border-radius: var(--ml-radius-pill); background: var(--ml-color-primary); color: var(--ml-color-on-primary); font: var(--ml-weight-medium) var(--ml-text-xs)/1.2 var(--ml-font-ui); }
 .ml-rules__now {
   grid-column: 2 / -1; color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); line-height: 1.3;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.ml-rules__now [data-rules-more] { white-space: nowrap; }
 .ml-rules__now[data-changed] { color: var(--ml-color-ink); font-weight: var(--ml-weight-medium); }
 .ml-rules__body { display: grid; gap: var(--ml-space-4); padding: var(--ml-space-2) var(--ml-space-3) var(--ml-space-3); border-block-start: var(--ml-border) solid var(--ml-color-line); }
 .ml-rules__family { display: grid; gap: var(--ml-space-3); min-inline-size: 0; }
 .ml-rules__family > h3 { margin: 0; font: var(--ml-weight-medium) var(--ml-text-md)/1.25 var(--ml-font-display); }
-.ml-rules__fixed { display: grid; gap: var(--ml-space-2); margin: 0; font-size: var(--ml-text-sm); }
-.ml-rules__fixed > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--ml-space-1) var(--ml-space-3); padding-block: var(--ml-space-1); border-block-start: var(--ml-border) solid var(--ml-color-line); }
-.ml-rules__fixed dt { color: var(--ml-color-ink-muted); }
-.ml-rules__fixed dd { display: grid; gap: 2px; margin: 0; }
-.ml-rules__fixed dd > span { font-weight: var(--ml-weight-medium); }
-.ml-rules__fixed small { color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); line-height: 1.3; }
+.ml-rules__fixed { display: grid; margin: 0; font-size: var(--ml-text-sm); }
+/* one compact row per fixed rule (about 33 px): the rule, its value, and a button for the long explanation, which stays hidden until asked for */
+.ml-rules__fixed > div {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; column-gap: var(--ml-space-3);
+  min-block-size: 2.0625rem; border-block-start: var(--ml-border) solid var(--ml-color-line); line-height: 1.25;
+}
+.ml-rules__fixed dt { color: var(--ml-color-ink-muted); padding-block: 0.25rem; }
+.ml-rules__fixed dd { margin: 0; padding-block: 0.25rem; font-weight: var(--ml-weight-medium); }
+/* the hit area is 44 px, the row stays 33 px: the button reaches over the border into the neighbouring rows */
+.ml-rules__more {
+  inline-size: var(--ml-size-control); block-size: var(--ml-size-control); margin-block: calc((2.0625rem - var(--ml-size-control)) / 2); margin-inline-end: -0.625rem;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ml-color-ink-muted); cursor: pointer; border-radius: var(--ml-radius-md);
+}
+.ml-rules__more .ml-icon { inline-size: 1.125rem; block-size: 1.125rem; }
+.ml-rules__more[aria-expanded="true"] { color: var(--ml-color-ink); }
+.ml-rules__more:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
+.ml-rules__fixed small { grid-column: 1 / -1; padding-block: 0 var(--ml-space-2); color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); line-height: 1.3; }
 .ml-rules__foot { display: grid; gap: var(--ml-space-1); }
 .ml-rules__foot .ml-btn { justify-self: start; }
 .ml-rules__foot .ml-btn[aria-disabled="true"] { color: var(--ml-color-ink-muted); cursor: default; }
@@ -92,6 +107,14 @@
 .ml-start__actions[data-two] .ml-start__question { grid-column: 1 / -1; margin: 0; }
 .ml-start__actions[data-two] .ml-btn { min-inline-size: 0; white-space: normal; }
 .ml-start__tail { display: grid; gap: var(--ml-space-2); padding-block-end: calc(var(--ml-space-4) + env(safe-area-inset-bottom)); }
+/* A short landscape window (a phone on its side): the footer is one row, so that the panel keeps its room. Before: 28 % of the sheet at 844x390. */
+@media (orientation: landscape) and (max-height: 32rem) {
+  .ml-sheet.ml-start[data-dialog="begin"] { scroll-padding-block-end: 4.5rem; }
+  .ml-sheet.ml-start[data-dialog="begin"] .ml-start__actions { padding-block: var(--ml-space-2); gap: var(--ml-space-2); }
+  .ml-start__actions[data-two] { grid-template-columns: auto 1fr 1fr; align-items: stretch; column-gap: var(--ml-space-2); }
+  .ml-start__actions[data-two] .ml-start__question { grid-column: auto; align-self: center; }
+  .ml-start__tail { padding-block-end: var(--ml-space-3); }
+}
 @media (min-width: 40rem) {
   .ml-sheet.ml-start[data-dialog="begin"] .ml-start__actions { margin-inline: calc(-1 * var(--ml-space-5)); padding-inline: var(--ml-space-5); }
   .ml-start__tail { padding-block-end: var(--ml-space-5); }

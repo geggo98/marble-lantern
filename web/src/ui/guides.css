@@ -35,19 +35,25 @@
 .ml-advantage { display: grid; gap: 2px; align-content: center; block-size: 100%; margin: 0; min-inline-size: 0; }
 .ml-advantage__text {
   margin: 0; font-size: var(--ml-text-sm); line-height: 1.25; font-weight: var(--ml-weight-medium);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-inline-size: 0;
+  min-inline-size: 0; overflow-wrap: break-word; /* wraps: the number of plies and the "updating" marker are never cut off */
 }
 .ml-advantage__text span { color: var(--ml-color-ink-muted); font-weight: var(--ml-weight-regular); }
 /* the marbles of the two sides stand at the ends of the track: engine left, person right */
-.ml-advantage__gauge { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--ml-space-2); }
-.ml-advantage__gauge .ml-swatch { inline-size: 0.875rem; block-size: 0.875rem; }
+.ml-advantage__gauge { display: flex; align-items: center; gap: var(--ml-space-2); }
+.ml-advantage__gauge .ml-swatch { inline-size: 0.875rem; block-size: 0.875rem; flex: none; }
+/* the track takes all the width the marbles leave, with or without marbles (a demo has none) */
 .ml-advantage__track {
-  position: relative; block-size: 0.75rem; border-radius: var(--ml-radius-pill);
+  flex: 1 1 0; min-inline-size: 0; position: relative; block-size: 0.75rem; border-radius: var(--ml-radius-pill);
   background: var(--ml-color-surface-sunken); border: var(--ml-border) solid var(--ml-color-line-strong); overflow: hidden;
 }
 .ml-advantage__fill { position: absolute; inset-block: 0; }
+/* the fill has the colour of the marble it grows towards (the marble at that end of the track); an outline in the edge colour of the
+   marble keeps it visible against the track in light and dark. Without marbles (no style) the fill keeps the colours of the guide bands. */
 .ml-advantage__fill--you { background: var(--ml-guide-better); }
 .ml-advantage__fill--engine { background: var(--ml-guide-worse); }
+.ml-advantage__fill[data-fill="a"] { background: var(--ml-piece-a); box-shadow: inset 0 0 0 1.5px var(--ml-piece-a-edge); }
+.ml-advantage__fill[data-fill="b"] { background: var(--ml-piece-b); box-shadow: inset 0 0 0 1.5px var(--ml-piece-b-edge); }
+.ml-advantage__fill[data-fill="c"] { background: var(--ml-piece-c); box-shadow: inset 0 0 0 1.5px var(--ml-piece-c-edge); }
 .ml-advantage__centre { position: absolute; inset-block: 0; inset-inline-start: 50%; inline-size: 2px; background: var(--ml-color-ink); transform: translateX(-1px); }
 .ml-advantage.is-stale .ml-advantage__fill { opacity: 0.55; }
 /* no value yet, or no value possible: an empty track; the dashed border tells "unavailable" apart without colour */
@@ -78,15 +84,15 @@
     background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card);
   }
   .ml-advantage { grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); gap: var(--ml-space-4); align-items: center; }
-  .ml-advantage__text { max-inline-size: 22rem; }
+  .ml-advantage__text { max-inline-size: 26rem; }
 }
 
 @media (forced-colors: active) {
   .ml-guide__glyph { fill: CanvasText; stroke: Canvas; }
   .ml-guide__badge, .ml-guide__socket { fill: Canvas; }
   .ml-guide__ring, .ml-guide__badge { stroke: CanvasText; }
-  .ml-advantage__fill { background: Highlight; forced-color-adjust: none; }
-  .ml-advantage__fill--engine { background: GrayText; }
+  .ml-advantage__fill, .ml-advantage__fill[data-fill] { background: Highlight; forced-color-adjust: none; box-shadow: none; }
+  .ml-advantage__fill--engine, .ml-advantage__fill--engine[data-fill] { background: GrayText; }
   .ml-advantage__centre { background: CanvasText; }
   .ml-adv3__seg { background: Canvas; border: 1px solid CanvasText; }
 }

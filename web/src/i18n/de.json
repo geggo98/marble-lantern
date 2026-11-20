@@ -422,5 +422,9 @@
   "rules_suicide_illegal": "Verboten",
   "rules_suicide_illegal_hint": "Kein Zug darf das Ziel eines Gegners so füllen, dass dieser gewinnt.",
   "rules_reason_selected_engine": "Das Modell der gewählten Netz-Engine spielt diese Regel nicht, die Engine zieht dann zufällig. Nach dem Start kannst du unter „Engine und Spielstärke“ eine klassische Engine wählen.",
+  "rules_reason_net_no_model": "Kein Modell spielt diese Regel, die gewählte Netz-Engine zieht dann zufällig. Nach dem Start kannst du unter „Engine und Spielstärke“ eine klassische Engine wählen.",
+  "rules_reason_net_mismatch": "Das gewählte Modell spielt diese Regel nicht, die Netz-Engine zieht dann zufällig. Nach dem Start kannst du unter „Engine und Spielstärke“ eine klassische Engine wählen.",
+  "rules_summary_more": "+{n} weitere",
+  "rules_hint_toggle": "Mehr zu „{rule}“",
   "rules_reason_no_engine": "Keine Engine in diesem Build spielt „{value}“."
 }

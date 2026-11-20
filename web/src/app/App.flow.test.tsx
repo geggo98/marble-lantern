@@ -139,7 +139,7 @@ describe('the start dialog', () => {
   });
 
   it('"Yes" lets the human begin: the human is side 0, nothing is on the board, the address shows the game', async () => {
-    localStorage.setItem('ml.start-choice', '{"rows":4}'); // a person who has played before the board size existed
+    localStorage.setItem('ml.start-choice', '{"v":2,"rows":4}'); // a person who chose 4 rows on purpose (with the version marker)
     const nav = new FakeNavigation('');
     await mount(nav);
     await click(choice('begin-yes'));

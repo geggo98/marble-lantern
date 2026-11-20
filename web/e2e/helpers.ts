@@ -44,7 +44,7 @@ export async function openApp(
         try {
           const text = localStorage.getItem(key!);
           const stored = text === null ? {} : (JSON.parse(text) as Record<string, unknown>);
-          if (stored && typeof stored === 'object' && !('rows' in stored)) localStorage.setItem(key!, JSON.stringify({ ...stored, rows: Number(size) }));
+          if (stored && typeof stored === 'object' && !('rows' in stored)) localStorage.setItem(key!, JSON.stringify({ ...stored, rows: Number(size), v: 2 }));
         } catch {
           // the page falls back to the default choice
         }

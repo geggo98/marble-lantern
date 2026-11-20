@@ -6,6 +6,7 @@ import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import en from '../i18n/en.json';
 import { TrailSetting } from './TrailSetting';
+import { TRAIL_LAST_KEY } from './trail-fade';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -42,6 +43,7 @@ const slide = async (value: number): Promise<void> => {
 };
 
 beforeEach(() => {
+  localStorage.clear();
   stored = [];
   host = document.createElement('div');
   document.body.append(host);
@@ -90,6 +92,32 @@ describe('TrailSetting', () => {
     await pick('always');
     await pick('timed');
     expect(stored).toEqual([7, 0, 7]);
+  });
+
+  it('the last time survives the unmounting of the card (the menu sheet) and a new session', async () => {
+    await mount(3);
+    await slide(7);
+    await pick('always');
+    await act(async () => root.unmount()); // the sheet closes
+    root = createRoot(host);
+    await mount(0); // reopened: the preference is "always"
+    await pick('timed');
+    expect(stored).toEqual([7, 0, 7]);
+    expect(localStorage.getItem(TRAIL_LAST_KEY)).toBe('7');
+  });
+
+  it('a damaged remembered time gives the default of 3 s; the value 0 is never remembered', async () => {
+    for (const bad of ['0', '11', 'x', '-1', '2.5', '']) {
+      localStorage.setItem(TRAIL_LAST_KEY, bad);
+      stored = [];
+      await mount(0);
+      await pick('timed');
+      expect(stored, bad).toEqual([3]);
+      await act(async () => root.render(null));
+    }
+    localStorage.clear();
+    await mount(0); // "always" alone writes nothing
+    expect(localStorage.getItem(TRAIL_LAST_KEY)).toBeNull();
   });
 
   it('the slider never reaches 0: "always" is its own choice', async () => {

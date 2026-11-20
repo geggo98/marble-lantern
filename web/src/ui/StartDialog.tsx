@@ -8,11 +8,12 @@ import type { Side } from '../game/board-state';
 import { DEFAULT_VARIANT, campsOf, moveLimit, rowsOf } from '../game/variant';
 import type { BoardRows, JumpRule, Player, Variant } from '../game/variant';
 import type { GameMode, StartChoice } from '../app/start-choice';
-import { RULES, changedRules, choiceMoveLimit, resetRules, ruleApplies, variantOfChoice, variantWithRule } from '../app/start-rules';
+import { RULES, changedRules, choiceMoveLimit, resetRules, ruleApplies, summaryItems, variantOfChoice, variantWithRule } from '../app/start-rules';
 import type { RuleDef } from '../app/start-rules';
 import { useNetSelection } from '../app/net-selection';
 import type { NetSelectionStore } from '../app/net-selection';
 import { evaluateSelection } from '../engines/net/selection';
+import type { SelectionEvaluation } from '../engines/net/selection';
 import { listDefinitions } from '../engines/registry';
 import { NetWarnings } from './net-warnings';
 import { Icon } from './primitives';
@@ -252,7 +253,7 @@ function Radios<T extends string | number>(props: {
               />
               <span className="ml-start__label">
                 {state === 'warn' && <Icon name="alert" />}
-                {o.label}
+                <span className="ml-start__text">{o.label}</span>
               </span>
               {props.defaultValue !== undefined && o.value === props.defaultValue && <span className="ml-start__default">{t('rules_default_tag')}</span>}
             </label>
@@ -341,14 +342,22 @@ const engineStateOf: StateOf = (choice, rule, value) => {
  */
 function NetRulesPanel({ choice, onChange, store }: { choice: StartChoice; onChange: (c: StartChoice) => void; store: NetSelectionStore }): React.JSX.Element {
   const { selection, availability, lastModel, models } = useNetSelection(store, variantOfChoice(choice));
-  const warns = (rule: RuleDef, value: string): boolean =>
-    evaluateSelection(selection, variantWithRule(choice, rule, value), availability, models, lastModel).warnings.length > 0;
+  const evaluate = (rule: RuleDef, value: string): SelectionEvaluation =>
+    evaluateSelection(selection, variantWithRule(choice, rule, value), availability, models, lastModel);
+  // `usable` false is the notice "the engine moves at random" of the play screen (netNoticeKind); a CPU instead of the GPU is no warning here.
+  const randomMoves = (rule: RuleDef, value: string): boolean => !evaluate(rule, value).usable;
   const stateOf: StateOf = (c, rule, value) => {
     const unavailable = engineStateOf(c, rule, value);
     if (unavailable) return unavailable;
-    return value !== rule.default && warns(rule, value) && !warns(rule, rule.default) ? 'warn' : undefined;
+    return value !== rule.default && randomMoves(rule, value) && !randomMoves(rule, rule.default) ? 'warn' : undefined;
   };
-  return <RulesPanel choice={choice} onChange={onChange} stateOf={stateOf} />;
+  // The cause is the one the engine sheet and the warning below the panel name (resolveModel decides it): nothing chosen and no model fits
+  // ("no-model"), or a model the person chose that cannot play it ("model-variant-mismatch").
+  const warnReason = (rule: RuleDef, value: string): TextKey => {
+    const cause = evaluate(rule, value).warnings.find((w) => w.code === 'no-model' || w.code === 'model-variant-mismatch')?.code;
+    return cause === 'no-model' ? 'rules_reason_net_no_model' : cause === 'model-variant-mismatch' ? 'rules_reason_net_mismatch' : 'rules_reason_selected_engine';
+  };
+  return <RulesPanel choice={choice} onChange={onChange} stateOf={stateOf} warnReason={warnReason} />;
 }
 
 /** The text of a rule's current value for the summary line. */
@@ -359,16 +368,18 @@ const valueText = (rule: RuleDef, choice: StartChoice, t: (k: TextKey) => string
  * The collapsed panel of the rules (docs/web-ui.md, "Rules panel"): the editable rules from the table in start-rules.ts, then the rules of
  * the engine that no browser engine takes a value for, as text. The summary names the rules that differ from the default.
  */
-function RulesPanel({ choice, onChange, stateOf }: { choice: StartChoice; onChange: (c: StartChoice) => void; stateOf: StateOf }): React.JSX.Element {
+function RulesPanel({ choice, onChange, stateOf, warnReason }: { choice: StartChoice; onChange: (c: StartChoice) => void; stateOf: StateOf; warnReason?: (rule: RuleDef, value: string) => TextKey }): React.JSX.Element {
   const { t } = useT();
   const id = useId();
   const nowId = `${id}-now`;
   const changed = changedRules(choice);
   const [resetDone, setResetDone] = useState(false);
+  // Every changed rule is named, wrapped over as many lines as it needs; only beyond SUMMARY_MAX_ITEMS the rest is counted ("+2 more").
+  const { shown, more } = summaryItems(changed);
   const summary =
     changed.length === 0
       ? t('rules_summary_default')
-      : changed.map((r) => t('rules_summary_item', { rule: t(r.legend as TextKey), value: valueText(r, choice, t) })).join(' · ');
+      : shown.map((r) => t('rules_summary_item', { rule: t(r.legend as TextKey), value: valueText(r, choice, t) })).join(' · ');
   const three = choice.mode !== 'two';
   const editable = (family: RuleDef['family']): React.JSX.Element[] =>
     RULES.filter((r) => r.family === family && ruleApplies(r, choice)).map((r) => {
@@ -379,7 +390,7 @@ function RulesPanel({ choice, onChange, stateOf }: { choice: StartChoice; onChan
         noEngine && (selectedState !== 'warn')
           ? t('rules_reason_no_engine', { value: t(noEngine.label as TextKey) })
           : selectedState === 'warn'
-            ? t('rules_reason_selected_engine')
+            ? t(warnReason ? warnReason(r, choice[r.field]) : 'rules_reason_selected_engine')
             : undefined;
       return (
         <Radios<string>
@@ -399,13 +410,7 @@ function RulesPanel({ choice, onChange, stateOf }: { choice: StartChoice; onChan
   const fixed = (rows: { key: string; legend: string; value: string; hint?: string }[]): React.JSX.Element => (
     <dl className="ml-rules__fixed" aria-label={t('rules_fixed_label')}>
       {rows.map((r) => (
-        <div key={r.key} data-fixed-rule={r.key}>
-          <dt>{r.legend}</dt>
-          <dd>
-            <span>{r.value}</span>
-            {r.hint && <small>{r.hint}</small>}
-          </dd>
-        </div>
+        <FixedRule key={r.key} ruleKey={r.key} id={`${id}-fixed-${r.key}`} legend={r.legend} value={r.value} hint={r.hint} />
       ))}
     </dl>
   );
@@ -434,6 +439,7 @@ function RulesPanel({ choice, onChange, stateOf }: { choice: StartChoice; onChan
         )}
         <span className="ml-rules__now" id={nowId} data-rules-now="" {...(changed.length > 0 ? { 'data-changed': '' } : {})}>
           {summary}
+          {more > 0 && <span data-rules-more="">{` · ${t('rules_summary_more', { n: more })}`}</span>}
         </span>
       </summary>
       <div className="ml-rules__body">
@@ -476,6 +482,39 @@ function RulesPanel({ choice, onChange, stateOf }: { choice: StartChoice; onChan
         </div>
       </div>
     </details>
+  );
+}
+
+/**
+ * A rule that no browser engine takes a value for: one compact row (rule, value). The long explanation appears on demand, behind a
+ * button (aria-expanded) that the keyboard reaches like any other; collapsed, it takes no room, so the editable rules stay prominent.
+ */
+function FixedRule(props: { id: string; ruleKey: string; legend: string; value: string; hint?: string | undefined }): React.JSX.Element {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const hintId = `${props.id}-hint`;
+  return (
+    <div data-fixed-rule={props.ruleKey} {...(open ? { 'data-open': '' } : {})}>
+      <dt>{props.legend}</dt>
+      <dd>{props.value}</dd>
+      {props.hint && (
+        <>
+          <button
+            type="button"
+            className="ml-rules__more"
+            aria-expanded={open}
+            aria-controls={hintId}
+            aria-label={t('rules_hint_toggle', { rule: props.legend })}
+            onClick={() => setOpen(!open)}
+          >
+            <Icon name="info" />
+          </button>
+          <small id={hintId} hidden={!open}>
+            {props.hint}
+          </small>
+        </>
+      )}
+    </div>
   );
 }
 

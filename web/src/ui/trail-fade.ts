@@ -40,6 +40,34 @@ export function saveTrailSeconds(seconds: number, store: KeyValueStore | null = 
   }
 }
 
+/**
+ * The last time of "Fade out" (1..10 s), kept apart from TRAIL_KEY: "Always show" stores 0 there, so "Fade out" again would lose the time.
+ * A separate key survives the unmounting of the settings card (the menu sheet of a small screen) and a new session.
+ */
+export const TRAIL_LAST_KEY = 'ml.trail-last-seconds';
+
+/** The remembered time of "Fade out", 1..10; the default for a missing, blocked or unknown value (0 is no time). */
+export function loadLastTrailSeconds(store: KeyValueStore | null = defaultStore()): number {
+  try {
+    const raw = store?.getItem(TRAIL_LAST_KEY);
+    if (raw == null || !/^\d{1,2}$/.test(raw)) return TRAIL_DEFAULT_SECONDS;
+    const n = Number(raw);
+    return n >= TRAIL_MIN_SECONDS && n <= TRAIL_MAX_SECONDS ? n : TRAIL_DEFAULT_SECONDS;
+  } catch {
+    return TRAIL_DEFAULT_SECONDS;
+  }
+}
+
+/** Remembers a time of "Fade out"; a value outside 1..10 (0 means "always") is ignored. */
+export function saveLastTrailSeconds(seconds: number, store: KeyValueStore | null = defaultStore()): void {
+  if (!Number.isInteger(seconds) || seconds < TRAIL_MIN_SECONDS || seconds > TRAIL_MAX_SECONDS) return;
+  try {
+    store?.setItem(TRAIL_LAST_KEY, String(seconds));
+  } catch {
+    // the time is then remembered for this page only
+  }
+}
+
 export type TrailPhase = 'shown' | 'fading' | 'gone';
 
 /**

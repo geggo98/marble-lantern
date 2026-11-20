@@ -39,7 +39,14 @@ export function AdvantageBar({ state, info = null, stale = false, ends = null }:
         ? { role: 'meter', 'aria-label': t('advantage_heading'), 'aria-valuemin': -100, 'aria-valuemax': 100, 'aria-valuenow': Math.round(value.value * 100), 'aria-valuetext': text }
         : { role: 'img', 'aria-label': `${t('advantage_heading')}: ${text}` })}
     >
-      {value && value.lead !== 'none' && <div className={`ml-advantage__fill ml-advantage__fill--${value.lead}`} style={fillStyle} />}
+      {value && value.lead !== 'none' && (
+        <div
+          className={`ml-advantage__fill ml-advantage__fill--${value.lead}`}
+          // the colour of the marble at the end the fill grows towards: "you" grows to the right (your marble), the engine to the left
+          {...(ends ? { 'data-fill': value.lead === 'you' ? ends.you : ends.engine } : {})}
+          style={fillStyle}
+        />
+      )}
       <div className="ml-advantage__centre" />
     </div>
   );

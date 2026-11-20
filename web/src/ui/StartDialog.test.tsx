@@ -10,6 +10,10 @@ import type { StartChoice } from '../app/start-choice';
 import { StartDialog } from './StartDialog';
 import type { StartDialogModel } from './StartDialog';
 import type { Variant } from '../game/variant';
+import en from '../i18n/en.json';
+import { evaluateSelection } from '../engines/net/selection';
+import { listModels } from '../engines/net/model-manifest';
+import { summaryItems, variantOfChoice } from '../app/start-rules';
 import { NetSelectionStore } from '../app/net-selection';
 import { clearEngines, registerEngine } from '../engines/registry';
 import type { EngineDefinition } from '../engines/registry';
@@ -52,6 +56,19 @@ describe('the begin dialog', () => {
     await click(choice('begin-yes'));
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onStart).toHaveBeenCalledWith(DEFAULT_CHOICE, true);
+  });
+
+  it('the first focus does not scroll the sheet (preventScroll), and the sheet opens at its top', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      await open(vi.fn());
+      const first = focus.mock.calls.findIndex((_, i) => focus.mock.instances[i] === choice('begin-yes'));
+      expect(first, 'the primary button was focused').toBeGreaterThanOrEqual(0);
+      expect(focus.mock.calls[first]![0]).toEqual({ preventScroll: true });
+      expect(q('[role="dialog"]')!.scrollTop).toBe(0);
+    } finally {
+      focus.mockRestore();
+    }
   });
 
   it('"No, the engine begins" answers false', async () => {
@@ -312,8 +329,45 @@ describe('the rules panel', () => {
     expect(fixed('draw')).toContain('Distance decides');
     expect(fixed('repetition')).toContain('Play goes on');
     expect(fixed('blockade')).toContain('Count');
-    // fixed rules have no control
-    expect(q('[data-fixed-rule]')!.querySelector('input, button')).toBeNull();
+    // fixed rules cannot be changed: no radio; the one control of a row opens its explanation
+    for (const row of document.querySelectorAll('[data-fixed-rule]')) {
+      expect(row.querySelector('input')).toBeNull();
+      expect(row.querySelectorAll('button')).toHaveLength(1);
+    }
+  });
+
+  it('a fixed rule is one compact row; its long explanation is hidden until the button opens it (aria-expanded, aria-controls), and the button closes it again', async () => {
+    await open(vi.fn());
+    for (const row of document.querySelectorAll<HTMLElement>('[data-fixed-rule]')) {
+      const button = row.querySelector<HTMLButtonElement>('button')!;
+      const hint = row.querySelector<HTMLElement>('small')!;
+      expect(hint.hidden, row.dataset.fixedRule).toBe(true);
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      expect(button.getAttribute('aria-controls')).toBe(hint.id);
+      expect(button.getAttribute('aria-label')).toContain(row.querySelector('dt')!.textContent!); // the name says which rule
+      await click(button);
+      expect(hint.hidden).toBe(false);
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      await click(button);
+      expect(hint.hidden).toBe(true);
+    }
+  });
+
+  it('the summary names all three changed rules (none is dropped from the text)', async () => {
+    await open(vi.fn(), { ...DEFAULT_CHOICE, rows: 4 });
+    await click(choice('mode-hotseat'));
+    await click(choice('jump-long'));
+    await click(choice('camps-open'));
+    await click(choice('ranking-full'));
+    expect(summary()).toBe('Jump rule: Long hop · Foreign triangles: Open · After the first win: Play for 2nd place');
+    expect(q('[data-rules-more]')).toBeNull();
+  });
+
+  it('summaryItems keeps the first SUMMARY_MAX_ITEMS and counts the rest', () => {
+    expect(summaryItems([1, 2, 3])).toEqual({ shown: [1, 2, 3], more: 0 });
+    expect(summaryItems([1, 2, 3, 4])).toEqual({ shown: [1, 2, 3, 4], more: 0 });
+    expect(summaryItems([1, 2, 3, 4, 5, 6])).toEqual({ shown: [1, 2, 3, 4], more: 2 });
+    expect(summaryItems([])).toEqual({ shown: [], more: 0 });
   });
 
   it('reset puts the three editable rules back, keeps board size, mode and seats, and announces it', async () => {
@@ -408,6 +462,37 @@ describe('the rules panel and the engines', () => {
     await click(choice('camps-open'));
     expect(choice('camps-open').checked).toBe(true); // a warning, not a ban
     expect(q('[data-rule-reason]')!.textContent).toContain('selected net engine');
+  });
+
+  it('the reason line names the cause that the engine sheet names (resolveModel): no stored model is "no model", a chosen model is "the model you chose"', async () => {
+    const EXPERT = 'small-2p-adjacent-expert';
+    const expertOnly = listModels().filter((m) => m.id === EXPERT); // no model plays the long hop
+    const long: StartChoice = { ...DEFAULT_CHOICE, rows: 4, jump: 'long' };
+    const cases = [
+      { modelId: undefined, code: 'no-model', text: en.rules_reason_net_no_model },
+      { modelId: EXPERT, code: 'model-variant-mismatch', text: en.rules_reason_net_mismatch },
+    ] as const;
+    for (const c of cases) {
+      const net = new NetSelectionStore({ initial: { engine: 'net-wasm', modelId: c.modelId, sims: 200 }, storage: null, wasm: true, lastModel: null, models: expertOnly });
+      // what the sheet says for this selection and variant
+      const sheet = evaluateSelection({ engine: 'net-wasm', modelId: c.modelId, sims: 200 }, variantOfChoice(long), net.getState().availability, expertOnly, null);
+      expect(sheet.warnings.map((w) => w.code), 'the sheet').toContain(c.code);
+      await act(async () => {
+        root.render(<StartDialog model={{ kind: 'begin', initial: long, onStart: () => undefined, net }} />);
+      });
+      expect(choice('jump-long').closest('label')!.hasAttribute('data-engine-warn'), c.code).toBe(true);
+      expect(q('[data-rule-reason]')!.textContent, c.code).toBe(c.text);
+      await act(async () => root.render(null));
+    }
+  });
+
+  it('a model that is picked automatically for the option is no warning (the same resolution as the sheet): with all models the long hop is playable', async () => {
+    const net = new NetSelectionStore({ initial: { engine: 'net-wasm', modelId: 'small-2p-adjacent-expert', sims: 200 }, storage: null, wasm: true, lastModel: null });
+    await act(async () => {
+      root.render(<StartDialog model={{ kind: 'begin', initial: { ...DEFAULT_CHOICE, rows: 4, jump: 'long' }, onStart: () => undefined, net }} />);
+    });
+    expect(choice('jump-long').closest('label')!.hasAttribute('data-engine-warn')).toBe(false);
+    expect(q('[data-rule-reason]')).toBeNull();
   });
 
   it('without a net engine selected no option is marked', async () => {

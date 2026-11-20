@@ -423,6 +423,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             inert={!humanTurn}
             guides={boardGuides}
             targetMarks={guideLevel !== 'none'}
+            dimOthers={guidesOn}
             aSide={aSide as Side}
             rotated={rotated}
             plies={state.history.length}

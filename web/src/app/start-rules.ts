@@ -82,3 +82,11 @@ export function variantOfChoice(choice: StartChoice): Variant {
 export function variantWithRule(choice: StartChoice, rule: RuleDef, value: string): Variant {
   return variantOfChoice({ ...choice, [rule.field]: value } as StartChoice);
 }
+
+/** Most rules the collapsed summary names one by one; the others are counted ("+2 more"), so a long list cannot fill the sheet. */
+export const SUMMARY_MAX_ITEMS = 4;
+
+/** The changed rules the summary names, and how many more there are. */
+export function summaryItems<T>(changed: readonly T[], max: number = SUMMARY_MAX_ITEMS): { shown: T[]; more: number } {
+  return { shown: changed.slice(0, max), more: Math.max(0, changed.length - max) };
+}
