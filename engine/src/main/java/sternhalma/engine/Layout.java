@@ -5,15 +5,27 @@ import java.util.ArrayDeque;
 /**
  * Start and goal corners, the cells each player may enter, and the single-agent distance tables.
  *
- * <p>Player 0 starts in the top corner (r &lt; -4). With three players the play order is clockwise
+ * <p>Player 0 starts in the top corner (r &lt; -4, or r &lt;= -4 with 5-row houses). With three players the play order is clockwise
  * (docs/rules.md): top, lower right, lower left. Every goal is the corner opposite to the start corner.
  */
 public final class Layout {
 
-    private static final Layout TWO = new Layout(2);
-    private static final Layout THREE = new Layout(3);
+    private static final Layout[][] CACHE = new Layout[2][4];
+
+    static {
+        for (RuleSet.TriangleRows rows : RuleSet.TriangleRows.values()) {
+            CACHE[rows.ordinal()][2] = new Layout(2, rows);
+            CACHE[rows.ordinal()][3] = new Layout(3, rows);
+        }
+    }
 
     private final int players;
+    private final RuleSet.TriangleRows rows;
+    /** Per player: whether the cell is in the player's start house, and in the goal house. They overlap across players. */
+    private final boolean[][] inStart;
+    private final boolean[][] inGoal;
+    private final int[][] startCells;
+    private final int[][] goalCells;
     private final int[] startCorner;
     private final int[] goalCorner;
     private final int[] goalPlayer = new int[6];
@@ -27,8 +39,9 @@ public final class Layout {
     private final int[][] distance;
     private final int[] maxDistance;
 
-    private Layout(int players) {
+    private Layout(int players, RuleSet.TriangleRows rows) {
         this.players = players;
+        this.rows = rows;
         this.startCorner = players == 2
                 ? new int[] {Corner.R_NEG.ordinal(), Corner.R_POS.ordinal()}
                 : new int[] {Corner.R_NEG.ordinal(), Corner.S_NEG.ordinal(), Corner.Q_NEG.ordinal()};
@@ -38,9 +51,30 @@ public final class Layout {
             goalCorner[p] = Corner.ofIndex(startCorner[p]).opposite().ordinal();
             goalPlayer[goalCorner[p]] = p;
         }
-        for (int c = 0; c < Geometry.CELLS; c++) {
-            int corner = Geometry.cornerOf(c);
-            goalPlayerOfCell[c] = corner < 0 ? -1 : goalPlayer[corner];
+        // Houses: per player a start and a goal house of rows.rows() rows. Under FIVE two houses of adjacent corners
+        // share the cell at a hexagon vertex, so membership is per player, never one corner index per cell.
+        this.inStart = new boolean[players][Geometry.CELLS];
+        this.inGoal = new boolean[players][Geometry.CELLS];
+        this.startCells = new int[players][];
+        this.goalCells = new int[players][];
+        java.util.Arrays.fill(goalPlayerOfCell, -1);
+        for (int p = 0; p < players; p++) {
+            for (int c = 0; c < Geometry.CELLS; c++) {
+                inStart[p][c] = Geometry.inHouse(startCorner[p], c, rows.rows());
+                inGoal[p][c] = Geometry.inHouse(goalCorner[p], c, rows.rows());
+                if (inGoal[p][c]) {
+                    if (goalPlayerOfCell[c] >= 0) {
+                        throw new IllegalStateException("goal houses overlap at cell " + c);
+                    }
+                    goalPlayerOfCell[c] = p;
+                }
+            }
+            startCells[p] = cellsOf(inStart[p]);
+            goalCells[p] = cellsOf(inGoal[p]);
+            if (startCells[p].length != rows.pieces() || goalCells[p].length != rows.pieces()) {
+                throw new IllegalStateException("house of player " + p + " has " + startCells[p].length + "/"
+                        + goalCells[p].length + " cells, expected " + rows.pieces());
+            }
         }
         this.allowed = new boolean[players][Geometry.CELLS];
         this.distance = new int[players][Geometry.CELLS];
@@ -64,12 +98,33 @@ public final class Layout {
         }
     }
 
+    private static int[] cellsOf(boolean[] mask) {
+        int n = 0;
+        for (boolean b : mask) {
+            if (b) {
+                n++;
+            }
+        }
+        int[] cells = new int[n];
+        int i = 0;
+        for (int c = 0; c < mask.length; c++) {
+            if (mask[c]) {
+                cells[i++] = c;
+            }
+        }
+        return cells;
+    }
+
+    /** The layout with 4-row houses. */
     public static Layout of(int players) {
-        return switch (players) {
-            case 2 -> TWO;
-            case 3 -> THREE;
-            default -> throw new IllegalArgumentException("players must be 2 or 3, got " + players);
-        };
+        return of(players, RuleSet.TriangleRows.FOUR);
+    }
+
+    public static Layout of(int players, RuleSet.TriangleRows rows) {
+        if (players != 2 && players != 3) {
+            throw new IllegalArgumentException("players must be 2 or 3, got " + players);
+        }
+        return CACHE[rows.ordinal()][players];
     }
 
     /** Breadth-first search from the goal cells over the cells the player may enter. */
@@ -77,7 +132,7 @@ public final class Layout {
         int[] dist = distance[p];
         java.util.Arrays.fill(dist, -1);
         ArrayDeque<Integer> queue = new ArrayDeque<>();
-        for (int c : Geometry.cornerCells(goalCorner[p])) {
+        for (int c : goalCells[p]) {
             dist[c] = 0;
             queue.add(c);
         }
@@ -95,7 +150,7 @@ public final class Layout {
         // number of steps to the nearest goal cell over all board cells; the cells above keep their values.
         int[] all = new int[Geometry.CELLS];
         java.util.Arrays.fill(all, -1);
-        for (int c : Geometry.cornerCells(goalCorner[p])) {
+        for (int c : goalCells[p]) {
             all[c] = 0;
             queue.add(c);
         }
@@ -128,6 +183,46 @@ public final class Layout {
         return players;
     }
 
+    /** The house size of this layout. */
+    public RuleSet.TriangleRows rows() {
+        return rows;
+    }
+
+    /** Pieces per player, which is the number of cells of a house: 10 or 15. */
+    public int pieces() {
+        return rows.pieces();
+    }
+
+    /** Cells of the goal house; a goal is full when this many cells hold a piece. Same as {@link #pieces()}. */
+    public int goalSize() {
+        return rows.pieces();
+    }
+
+    /** Whether the cell is in the start house of the player. */
+    public boolean inStart(int player, int cell) {
+        return inStart[player][cell];
+    }
+
+    /** Whether the cell is in the goal house of the player. */
+    public boolean inGoal(int player, int cell) {
+        return inGoal[player][cell];
+    }
+
+    /** The goal-house membership of a player per cell. Shared, read-only. */
+    boolean[] goalMask(int player) {
+        return inGoal[player];
+    }
+
+    /** The cells of the start house of a player in ascending order, as a new array. */
+    public int[] startCells(int player) {
+        return startCells[player].clone();
+    }
+
+    /** The cells of the goal house of a player in ascending order, as a new array. */
+    public int[] goalCells(int player) {
+        return goalCells[player].clone();
+    }
+
     /** Clockwise index of the start corner of a player. */
     public int startCorner(int player) {
         return startCorner[player];
@@ -143,7 +238,7 @@ public final class Layout {
         return corner < 0 ? -1 : goalPlayer[corner];
     }
 
-    /** The player whose goal corner contains the cell, or -1 (central hexagon or nobody's goal). */
+    /** The player whose goal house contains the cell, or -1 (nobody's goal). */
     public int goalPlayerOfCell(int cell) {
         return goalPlayerOfCell[cell];
     }

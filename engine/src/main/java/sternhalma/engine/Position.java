@@ -15,10 +15,12 @@ import sternhalma.engine.RuleSet.SuicideMoves;
  */
 public final class Position {
 
-    /** Pieces per player. */
+    /** Pieces per player on the 4-row board ({@link RuleSet.TriangleRows#FOUR}); see {@link Layout#pieces()}. */
     public static final int PIECES = Geometry.CORNER_SIZE;
-    /** Upper bound on legal moves: 10 pieces times 121 end cells. */
-    public static final int MAX_MOVES = PIECES * Geometry.CELLS;
+    /** Pieces per player on the 5-row board ({@link RuleSet.TriangleRows#FIVE}). */
+    public static final int MAX_PIECES = RuleSet.TriangleRows.FIVE.pieces();
+    /** Upper bound on legal moves: 15 pieces (the larger house) times 121 end cells. */
+    public static final int MAX_MOVES = MAX_PIECES * Geometry.CELLS;
 
     private static final long[][] PIECE_KEY = new long[3][Geometry.CELLS];
     private static final long[] SIDE_KEY = new long[3];
@@ -48,7 +50,7 @@ public final class Position {
     private final int[] goalOwn;
     /**
      * The cells of each player's pieces, ascending; kept by {@link #put}, {@link #make} and {@link #unmake}.
-     * A row has room for {@link #PIECES} entries and grows only if a setup places more.
+     * A row has room for {@link Layout#pieces()} entries and grows only if a setup places more.
      */
     private final int[][] pieceCells;
     private final int[] pieceCount;
@@ -87,14 +89,14 @@ public final class Position {
 
     private Position(RuleSet rules) {
         this.rules = rules;
-        this.layout = Layout.of(rules.players());
+        this.layout = Layout.of(rules.players(), rules.triangleRows());
         this.longJump = rules.jumpRule() == RuleSet.JumpRule.LONG;
         this.passForeign = rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED;
         this.endForeign = rules.foreignCamps() == RuleSet.ForeignCamps.OPEN;
         this.playOn = rules.playsOnAfterWin();
         this.goalOccupied = new int[rules.players()];
         this.goalOwn = new int[rules.players()];
-        this.pieceCells = new int[rules.players()][PIECES];
+        this.pieceCells = new int[rules.players()][layout.pieces()];
         this.pieceCount = new int[rules.players()];
         this.stepTo = new int[rules.players()][];
         this.jumpTo = new int[rules.players()][];
@@ -115,7 +117,7 @@ public final class Position {
     public static Position initial(RuleSet rules) {
         Position position = new Position(rules);
         for (int p = 0; p < rules.players(); p++) {
-            for (int cell : Geometry.cornerCells(position.layout.startCorner(p))) {
+            for (int cell : position.layout.startCells(p)) {
                 position.put(p, cell);
             }
         }
@@ -177,7 +179,7 @@ public final class Position {
     private void insertPiece(int player, int cell) {
         int n = pieceCount[player];
         if (n == pieceCells[player].length) {
-            pieceCells[player] = Arrays.copyOf(pieceCells[player], n + PIECES);
+            pieceCells[player] = Arrays.copyOf(pieceCells[player], n + layout.pieces());
         }
         int[] cells = pieceCells[player];
         int i = n;
@@ -335,8 +337,8 @@ public final class Position {
     /** The cells of a player's pieces in ascending order, as a new array. */
     public int[] pieces(int player) {
         int n = pieceCount[player];
-        if (n > PIECES) {
-            throw new IllegalStateException("player " + player + " has more than " + PIECES + " pieces");
+        if (n > layout.pieces()) {
+            throw new IllegalStateException("player " + player + " has more than " + layout.pieces() + " pieces");
         }
         return Arrays.copyOf(pieceCells[player], n);
     }
@@ -468,45 +470,42 @@ public final class Position {
         int p = sideToMove;
         int[] steps = stepTo[p];
         int[] jumps = jumpTo[p];
-        int goal = layout.goalCorner(p);
+        boolean[] goalMask = layout.goalMask(p);
         boolean leaveForbidden = rules.leaveGoal() == LeaveGoal.FORBIDDEN;
-        // Definition 2 can only forbid a move when an opponent's goal already holds 9 of its 10 cells: a move
-        // adds at most one piece to another goal. Below that, handsOpponentTheWin is false for every move.
+        // Definition 2 can only forbid a move when an opponent's goal already holds all but one of its cells: a move
+        // adds at most one piece to another goal (a pure pre-check: a lower threshold changes no result). Below that, handsOpponentTheWin is false for every move.
         boolean suicideCheck = rules.suicideMoves() == SuicideMoves.ILLEGAL && opponentGoalNearlyFull(p);
         int[] cells = pieceCells[p];
         int pieces = pieceCount[p];
         int count = 0;
         for (int i = 0; i < pieces; i++) {
             int from = cells[i];
-            boolean stayInGoal = leaveForbidden && Geometry.cornerOf(from) == goal;
+            boolean stayInGoal = leaveForbidden && goalMask[from];
             owner[from] = -1; // the moving piece leaves its cell, so the cell counts as empty during jumps
             int base = from * Geometry.DIRECTIONS;
             for (int d = 0; d < Geometry.DIRECTIONS; d++) {
                 int n = steps[base + d];
                 if (n >= 0 && owner[n] < 0
-                        && (!stayInGoal || Geometry.cornerOf(n) == goal)
+                        && (!stayInGoal || goalMask[n])
                         && (!suicideCheck || !handsOpponentTheWin(p, from, n))) {
                     out[count++] = Move.of(from, n);
                 }
             }
-            int requiredCorner = stayInGoal ? goal : NO_CORNER;
+            boolean[] required = stayInGoal ? goalMask : null;
             // PASS_THROUGH: the chain may land on a foreign corner, but a move must not end there
             boolean homeEnd = passForeign && !endForeign;
             count = longJump
-                    ? addLongJumps(p, from, out, count, requiredCorner, suicideCheck, homeEnd)
-                    : addJumps(p, from, out, count, jumps, requiredCorner, suicideCheck, homeEnd);
+                    ? addLongJumps(p, from, out, count, required, suicideCheck, homeEnd)
+                    : addJumps(p, from, out, count, jumps, required, suicideCheck, homeEnd);
             owner[from] = (byte) p;
         }
         return count;
     }
 
-    /** A corner index that no cell has (corner indices are -1 to 5). */
-    private static final int NO_CORNER = -2;
-
-    /** Whether some opponent's goal holds at least {@code CORNER_SIZE - 1} pieces. */
+    /** Whether some opponent's goal holds at least {@code goalSize - 1} pieces. */
     private boolean opponentGoalNearlyFull(int p) {
         for (int q = 0; q < goalOccupied.length; q++) {
-            if (q != p && !isFinished(q) && goalOccupied[q] >= Geometry.CORNER_SIZE - 1) {
+            if (q != p && !isFinished(q) && goalOccupied[q] >= layout.goalSize() - 1) {
                 return true;
             }
         }
@@ -516,11 +515,11 @@ public final class Position {
     /**
      * Depth-first search over jump landings; the visited set deduplicates (start, end) pairs. It is a 128-bit
      * set in two longs (cells 0 to 120), kept in registers; a shift by {@code cell} uses {@code cell mod 64}.
-     * {@code requiredCorner} is the goal corner if the piece may not leave it, else {@link #NO_CORNER}.
+     * {@code required} is the goal-house membership of the player if the piece may not leave the goal, else null.
      * {@code homeEnd}: a landing is a move only if it is a home cell of {@code p} ({@link Layout#allowed}); the
      * search still continues from every landing ({@link RuleSet.ForeignCamps#PASS_THROUGH}).
      */
-    private int addJumps(int p, int from, int[] out, int countIn, int[] jumps, int requiredCorner,
+    private int addJumps(int p, int from, int[] out, int countIn, int[] jumps, boolean[] required,
             boolean suicideCheck, boolean homeEnd) {
         int count = countIn;
         long low = 0;
@@ -553,7 +552,7 @@ public final class Position {
                     high |= bit;
                 }
                 stack[top++] = land;
-                if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                if ((required == null || required[land])
                         && (!homeEnd || layout.allowed(p, land))
                         && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
                     out[count++] = Move.of(from, land);
@@ -571,7 +570,7 @@ public final class Position {
      * the player must be allowed to stand on it. For k = 1 this is exactly the single jump of {@link #addJumps}.
      * There is at most one landing per direction.
      */
-    private int addLongJumps(int p, int from, int[] out, int countIn, int requiredCorner, boolean suicideCheck,
+    private int addLongJumps(int p, int from, int[] out, int countIn, boolean[] required, boolean suicideCheck,
             boolean homeEnd) {
         int count = countIn;
         long low = 0;
@@ -603,7 +602,7 @@ public final class Position {
                     high |= bit;
                 }
                 stack[top++] = land;
-                if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                if ((required == null || required[land])
                         && (!homeEnd || layout.allowed(p, land))
                         && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
                     out[count++] = Move.of(from, land);
@@ -654,10 +653,11 @@ public final class Position {
 
     /** Definition 1 (or the plain rule with {@code BlockadeRule.NONE}): goal full, with an own piece. */
     private boolean isWin(int occupied, int own) {
-        if (occupied != Geometry.CORNER_SIZE) {
+        int size = layout.goalSize();
+        if (occupied != size) {
             return false;
         }
-        return rules.blockadeRule() == BlockadeRule.OPPONENT_FILLS ? own >= 1 : own == Geometry.CORNER_SIZE;
+        return rules.blockadeRule() == BlockadeRule.OPPONENT_FILLS ? own >= 1 : own == size;
     }
 
     /** Whether the player meets the winning condition in this position. */
@@ -782,7 +782,7 @@ public final class Position {
             maxDistance = Math.max(maxDistance, layout.maxDistance(q));
         }
         mean /= open;
-        double scale = (double) PIECES * maxDistance;
+        double scale = (double) layout.pieces() * maxDistance;
         for (int q : rest) {
             values[q] = rules.drawHandling() == DrawHandling.DRAW ? share : share + (mean - sums[q]) / scale;
         }
@@ -814,7 +814,7 @@ public final class Position {
             maxDistance = Math.max(maxDistance, layout.maxDistance(p));
         }
         mean /= players;
-        double scale = (double) PIECES * maxDistance; // no player can be farther than this from the goal
+        double scale = (double) layout.pieces() * maxDistance; // no player can be farther than this from the goal
         for (int p = 0; p < players; p++) {
             values[p] = (mean - sums[p]) / scale;
         }
@@ -854,6 +854,7 @@ public final class Position {
                 && rules.players() == other.rules.players()
                 && rules.jumpRule() == other.rules.jumpRule()
                 && rules.foreignCamps() == other.rules.foreignCamps()
+                && rules.triangleRows() == other.rules.triangleRows()
                 && rules.playsOnAfterWin() == other.rules.playsOnAfterWin()
                 && finishedMask == other.finishedMask
                 && Arrays.equals(owner, other.owner);

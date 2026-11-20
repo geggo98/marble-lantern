@@ -161,6 +161,29 @@ public final class Geometry {
         return CORNER[cell];
     }
 
+    /**
+     * Whether the cell belongs to the house of a corner for a house of {@code rows} rows (4 or 5). The house of 4 rows is
+     * the corner triangle itself ({@link #cornerOf}); the house of 5 rows adds the hexagon edge row next to the corner,
+     * that is, the hexagon cells whose defining coordinate is +-4. A cell at a vertex of the central hexagon
+     * lies in the 5-row houses of two adjacent corners.
+     */
+    public static boolean inHouse(int cornerIndex, int cell, int rows) {
+        if (CORNER[cell] >= 0) {
+            return CORNER[cell] == cornerIndex; // a cell of any corner triangle is in the house of that triangle only
+        }
+        if (rows == 4) {
+            return false;
+        }
+        return switch (Corner.ofIndex(cornerIndex)) { // hexagon cells: the edge row next to the corner
+            case Q_POS -> Q[cell] >= 4;
+            case S_NEG -> s(cell) <= -4;
+            case R_POS -> R[cell] >= 4;
+            case Q_NEG -> Q[cell] <= -4;
+            case S_POS -> s(cell) >= 4;
+            case R_NEG -> R[cell] <= -4;
+        };
+    }
+
     /** The 10 cells of a corner. The returned array must not be modified. */
     public static int[] cornerCells(int cornerIndex) {
         return CORNER_CELLS[cornerIndex];
