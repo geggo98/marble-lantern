@@ -215,6 +215,7 @@
   "guides_legend": "Was die Markierungen bedeuten",
   "guides_legend_move": "Zielfeld",
   "guides_legend_note": "Wähle eine Figur, um ihre Zielfelder zu sehen. Figuren und Zielfelder haben dieselbe Skala: Jeder Zug wird mit dem besten Zug der Stellung verglichen, daher zeigt der beste Zug „sehr gut“. Das Abzeichen auf einer Figur bewertet den besten Zug dieser Figur.",
+  "guides_note_net": "Ein neuronales Netz spielt. Die Markierungen und der Vorteil kommen von der klassischen Engine {engine}, die nebenher in diesem Browser läuft.",
   "guides_note_three": "Bei drei Spielern vergleicht jede Markierung einen Zug des Spielers am Zug mit dem besten Zug. Die Werte nehmen an, dass beide anderen Spieler gegen ihn spielen. Lies die Markierungen als Rangfolge der Züge, nicht als Gewinnchance.",
   "guides_legend_piece": "Figur",
   "guides_toggle": "Zughilfen anzeigen",

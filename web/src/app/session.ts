@@ -5,7 +5,7 @@ import type { Engine, EngineId, Progress } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
 import { createEngine, describeEngines } from '../engines/registry';
 import type { EngineChoice, EnginesManifest } from '../engines/registry';
-import type { NetModel, SwitchableEngine } from './switchable-engine';
+import type { AnalysisSource, NetModel, SwitchableEngine } from './switchable-engine';
 import { DEFAULT_VARIANT, isDefault } from '../game/variant';
 import type { Variant } from '../game/variant';
 
@@ -49,6 +49,14 @@ export function defaultChoice(choices: readonly EngineChoice[]): EngineChoice | 
   return choices.find((c) => c.available && !isNetEngine(c.info.id)) ?? null;
 }
 
+/**
+ * The engine that analyses while a net engine plays: the first available classical engine of this browser, in the order of
+ * defaultChoice (java-wasmgc, cpp-wasm, java-js). The server engines cannot analyse, so they never stand in.
+ */
+export function analysisChoice(choices: readonly EngineChoice[]): EngineChoice | null {
+  return choices.find((c) => c.available && !isNetEngine(c.info.id) && c.info.runtime !== 'server') ?? null;
+}
+
 export function toSessionError(e: unknown): SessionError {
   const code = typeof (e as { code?: unknown } | null)?.code === 'string' ? (e as { code: string }).code : 'internal';
   const message = e instanceof Error ? e.message : String(e);
@@ -66,6 +74,15 @@ export class EngineSession {
     this.deps = deps;
     // The warnings of the net engine in use follow its newGame and choose calls.
     deps.engine.subscribeWarnings(() => this.set({ warnings: deps.engine.warnings }));
+    deps.engine.setAnalysisSource(() => this.analysisSource());
+  }
+
+  /** The classical engine that analyses for a net engine (docs/web-ui.md, "Analysis for the net engines"); null before start() or without one. */
+  analysisSource(): AnalysisSource | null {
+    const manifest = this.manifest;
+    const choice = analysisChoice(this.state.choices);
+    if (!manifest || !choice) return null;
+    return { id: choice.info.id, create: () => createEngine(choice, manifest, this.deps.baseUrl) };
   }
 
   getState = (): SessionState => this.state;

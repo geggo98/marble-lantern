@@ -215,6 +215,7 @@
   "guides_legend": "What the marks mean",
   "guides_legend_move": "Target",
   "guides_legend_note": "Select a piece to see its targets. Pieces and targets share one scale: each move is compared with the best move of the position, so the best move shows as “top”. The badge on a piece rates the best move of that piece.",
+  "guides_note_net": "A neural network plays. The marks and the advantage come from the classical engine {engine}, which runs alongside it in this browser.",
   "guides_note_three": "With three players, each mark compares a move of the player to move with the best move. The scores assume that both other players play against that player. Read the marks as a ranking of the moves, not as a chance to win.",
   "guides_legend_piece": "Piece",
   "guides_toggle": "Show move guides",

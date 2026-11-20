@@ -5,6 +5,7 @@ import { BAND_ORDER } from '../guides/bands';
 import type { GuideStatus } from '../guides/analyser';
 import { GuideGlyph, bandTextKey, pieceTextKey } from './GuideGlyph';
 import { useT } from './texts';
+import type { TextKey } from './texts';
 
 export interface GuideSettingsProps {
   enabled: boolean;
@@ -13,9 +14,14 @@ export interface GuideSettingsProps {
   status: GuideStatus | 'off';
   /** A three-player game: the scores are paranoid scores, a note says how to read the marks. */
   three?: boolean;
+  /**
+   * A net engine plays and a classical engine computes the marks (docs/web-ui.md, "Analysis for the net engines"): the label key
+   * of that engine. A note then says where the marks come from, so that nobody reads them as the net's own view.
+   */
+  analysisLabelKey?: string;
 }
 
-export function GuideSettings({ enabled, onChange, status, three = false }: GuideSettingsProps): React.JSX.Element {
+export function GuideSettings({ enabled, onChange, status, three = false, analysisLabelKey }: GuideSettingsProps): React.JSX.Element {
   const { t } = useT();
   const hintId = useId();
   const message =
@@ -37,6 +43,11 @@ export function GuideSettings({ enabled, onChange, status, three = false }: Guid
         {t('guides_hint')}
       </p>
       {three && <p className="ml-guides-card__note" data-guides-note-three="">{t('guides_note_three')}</p>}
+      {enabled && analysisLabelKey && (
+        <p className="ml-guides-card__note" data-guides-note-net="">
+          {t('guides_note_net', { engine: t(analysisLabelKey as TextKey) })}
+        </p>
+      )}
       <p className="ml-guides-card__status" role="status" aria-live="polite" aria-busy={status === 'analysing'}>
         {enabled ? message : ''}
       </p>
