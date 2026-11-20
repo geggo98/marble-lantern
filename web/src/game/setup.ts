@@ -11,8 +11,8 @@
 // that UI before the controller plays such a seat.
 import type { EngineId } from '../engines/engine';
 import type { ControllerSeat } from './game';
-import { DEFAULT_VARIANT, withCamps } from './variant';
-import type { ForeignCamps, JumpRule, Player, Variant } from './variant';
+import { DEFAULT_VARIANT, withCamps, withRows } from './variant';
+import type { BoardRows, ForeignCamps, JumpRule, Player, Variant } from './variant';
 import type { Side } from './board-state';
 
 export type SeatKind = 'human' | 'engine' | 'network';
@@ -62,6 +62,11 @@ export function humanVsTwoEngines(humanSeat: Player, level: number, jump: JumpRu
 /** The same seats with another foreign-corner rule (docs/rules.md, "Foreign corners"); `closed` leaves no trace in the variant. */
 export function withForeignCamps(setup: GameSetup, camps: ForeignCamps): GameSetup {
   return { ...setup, variant: withCamps(variantOf(setup), camps) };
+}
+
+/** The same seats on another house size (4 or 5 rows); 4 leaves no trace in the variant. */
+export function withBoardRows(setup: GameSetup, rows: BoardRows): GameSetup {
+  return { ...setup, variant: withRows(variantOf(setup), rows) };
 }
 
 /** The seats that a person plays. */

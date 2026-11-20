@@ -79,7 +79,7 @@ for (const device of DEVICES) {
 
     test('fits the screen without horizontal scroll, targets are 44 px, the board does not move while the engine loads', async ({ page }, info) => {
       const errors = watchPageErrors(page);
-      await openApp(page, 'en', '', 'ask');
+      await openApp(page, 'en', '', 'ask', 5);
       await page.locator('[data-choice="begin-yes"]').click();
       const svg = page.locator('svg.ml-board__svg');
       await expect(svg).toBeVisible();

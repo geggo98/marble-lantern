@@ -69,6 +69,7 @@ beforeEach(async () => {
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   })) as unknown as typeof window.matchMedia;
+  localStorage.setItem('ml.start-choice', '{"rows":4}'); // these tests play the 4-row board (the default for a fresh visitor is 5 rows)
   clearEngines();
   registerFakeEngine(0);
   // Java engines this browser cannot run: wasm-gc is not in the manifest (not shipped), java-js is shipped but unsupported here.
@@ -86,6 +87,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  localStorage.clear();
   await act(async () => root.unmount());
   host.remove();
   document.documentElement.removeAttribute('data-theme');

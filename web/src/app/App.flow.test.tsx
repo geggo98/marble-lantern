@@ -86,6 +86,7 @@ async function mount(nav: FakeNavigation, delayMs = 0): Promise<void> {
 }
 
 afterEach(async () => {
+  localStorage.clear(); // the start choice is remembered; every test starts as a fresh visitor (5 rows)
   await act(async () => root.unmount());
   host.remove();
   Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
@@ -128,7 +129,7 @@ describe('the start dialog', () => {
     lastStop.focus();
     const forward = await key(lastStop, 'Tab');
     expect(forward.defaultPrevented).toBe(true); // wraps to the first stop instead of leaving the dialog
-    const firstStop = choice('jump-adjacent'); // the checked radio of the first group (unchecked radios are no Tab stops)
+    const firstStop = choice('rows-5'); // the checked radio of the first group (the board size; 5 rows is the default) (unchecked radios are no Tab stops)
     firstStop.focus();
     const backward = await key(firstStop, 'Tab', { shiftKey: true });
     expect(backward.defaultPrevented).toBe(true);
@@ -138,6 +139,7 @@ describe('the start dialog', () => {
   });
 
   it('"Yes" lets the human begin: the human is side 0, nothing is on the board, the address shows the game', async () => {
+    localStorage.setItem('ml.start-choice', '{"rows":4}'); // a person who has played before the board size existed
     const nav = new FakeNavigation('');
     await mount(nav);
     await click(choice('begin-yes'));

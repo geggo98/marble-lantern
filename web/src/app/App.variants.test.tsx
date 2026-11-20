@@ -250,3 +250,64 @@ describe('game links with variants', () => {
     expect(nav.hash).toBe('');
   });
 });
+
+describe('the board size (4 or 5 rows) through the dialog and links', () => {
+  const FIVE: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+  const pieces = (): number => all('.ml-pieces use').length;
+
+  it('a fresh visitor sees the 5-row board behind the dialog, with 5 rows preselected; "Yes" starts it and the address says t=5', async () => {
+    const nav = new FakeNavigation('');
+    await mount(nav);
+    expect(dialog()).not.toBeNull();
+    expect(pieces()).toBe(30); // the board behind the dialog is the default choice
+    expect(q<HTMLInputElement>('[data-choice="rows-5"]')!.checked).toBe(true);
+    await click(q('[data-choice="begin-yes"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'the human may move');
+    expect(pieces()).toBe(30);
+    expect(nav.hash).toContain('&t=5');
+  });
+
+  it('a stored choice without a size is the 4-row board, behind the dialog and in the game; no t= in the address', async () => {
+    localStorage.setItem('ml.start-choice', '{"jump":"adjacent","mode":"two"}');
+    const nav = new FakeNavigation('');
+    await mount(nav);
+    expect(pieces()).toBe(20);
+    expect(q<HTMLInputElement>('[data-choice="rows-4"]')!.checked).toBe(true);
+    await click(q('[data-choice="begin-yes"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'the human may move');
+    expect(pieces()).toBe(20);
+    expect(nav.hash).not.toContain('t=');
+  });
+
+  it('the size chosen in the dialog is stored and starts the game', async () => {
+    const nav = new FakeNavigation('');
+    await mount(nav);
+    await click(q('[data-choice="rows-4"]')!);
+    await click(q('[data-choice="begin-yes"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'the human may move');
+    expect(pieces()).toBe(20);
+    expect(JSON.parse(localStorage.getItem('ml.start-choice')!).rows).toBe(4);
+  });
+
+  it('a 5-row link names its size in the dialog and continues on 5 rows (also with the other side)', async () => {
+    const moves = legalGame(3, FIVE);
+    const nav = new FakeNavigation(`#g=v1.${encodeMoves(moves)}&h=0&l=2&t=5`);
+    await mount(nav);
+    await until(() => (dialog()?.textContent ?? '').includes('Continue this game'), 'the link dialog');
+    expect(q('[data-testid="link-rows"]')).not.toBeNull();
+    expect(dialog()!.textContent).toContain('of 250'); // the move limit of 5 rows
+    await click(q('[data-choice="link-side-to-move"]')!);
+    await until(() => dialog() === null && plies() >= 3, 'the linked game runs');
+    expect(pieces()).toBe(30);
+    expect(nav.hash).toContain('&t=5');
+  });
+
+  it('a 4-row link shows no size line', async () => {
+    const moves = legalGame(3, { jump: 'adjacent', players: 2 });
+    const nav = new FakeNavigation(`#g=v1.${encodeMoves(moves)}&h=0&l=2`);
+    await mount(nav);
+    await until(() => (dialog()?.textContent ?? '').includes('Continue this game'), 'the link dialog');
+    expect(q('[data-testid="link-rows"]')).toBeNull();
+    expect(dialog()!.textContent).toContain('of 200');
+  });
+});

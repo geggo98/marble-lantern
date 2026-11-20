@@ -220,7 +220,7 @@ describe('start dialog', () => {
     models?: readonly ModelInfo[],
   ): Promise<NetSelectionStore> => {
     const net = new NetSelectionStore({ initial: { ...selection, sims: 200 }, storage: null, wasm: true, lastModel: null, ...(models ? { models } : {}) });
-    await render(<StartDialog model={{ kind: 'begin', initial: { camps: 'closed', ...initial }, onStart: () => undefined, net }} />);
+    await render(<StartDialog model={{ kind: 'begin', initial: { camps: 'closed', rows: 4, ...initial }, onStart: () => undefined, net }} />);
     return net;
   };
   const warns = (): string[] => Array.from(document.body.querySelectorAll('[data-net-warning]')).map((e) => e.getAttribute('data-net-warning')!);
@@ -300,7 +300,7 @@ describe('start dialog', () => {
     expect(warns()).toEqual([]);
     act(() => root?.unmount());
     document.body.innerHTML = '';
-    await render(<StartDialog model={{ kind: 'begin', initial: { jump: 'adjacent', camps: 'closed', mode: 'two', humanSeat: 0, engineSeat: 2 }, onStart: () => undefined }} />);
+    await render(<StartDialog model={{ kind: 'begin', initial: { jump: 'adjacent', camps: 'closed', rows: 4, mode: 'two', humanSeat: 0, engineSeat: 2 }, onStart: () => undefined }} />);
     expect(warns()).toEqual([]);
   });
 });

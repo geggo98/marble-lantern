@@ -1,8 +1,8 @@
 // Between the game URL and the game setup: pure functions, no DOM, no engine.
 import type { GameSetup, Seat } from '../game/setup';
-import { controllerSeats, humanVsEngine, variantOf, withForeignCamps } from '../game/setup';
+import { controllerSeats, humanVsEngine, variantOf, withBoardRows, withForeignCamps } from '../game/setup';
 import type { Side } from '../game/board-state';
-import { DEFAULT_VARIANT, campsOf, isDefault } from '../game/variant';
+import { DEFAULT_VARIANT, campsOf, isDefault, rowsOf } from '../game/variant';
 import type { UrlSnapshot } from './game-nav';
 import type { GameLink } from './game-url';
 import { variantOfLink } from './game-url';
@@ -15,7 +15,7 @@ export function setupFromLink(link: GameLink, fallback: { humanSide: Side; level
     const seats = (link.seats ?? []).map((kind): Seat => (kind === 'human' ? { kind } : { kind, level }));
     return { variant, seats };
   }
-  return withForeignCamps(humanVsEngine(link.humanSide ?? fallback.humanSide, level, variant.jump), campsOf(variant));
+  return withBoardRows(withForeignCamps(humanVsEngine(link.humanSide ?? fallback.humanSide, level, variant.jump), campsOf(variant)), rowsOf(variant));
 }
 
 /** What the URL has to say about a setup and a game: variant and seats appear for the variants only. */

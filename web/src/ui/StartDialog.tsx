@@ -5,8 +5,8 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Side } from '../game/board-state';
-import { DEFAULT_VARIANT, campsOf, moveLimit, withCamps } from '../game/variant';
-import type { ForeignCamps, JumpRule, Player, Variant } from '../game/variant';
+import { DEFAULT_VARIANT, campsOf, moveLimit, rowsOf, withCamps, withRows } from '../game/variant';
+import type { BoardRows, ForeignCamps, JumpRule, Player, Variant } from '../game/variant';
 import type { GameMode, StartChoice } from '../app/start-choice';
 import { useNetSelection } from '../app/net-selection';
 import type { NetSelectionStore } from '../app/net-selection';
@@ -82,6 +82,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         {model.variant && campsOf(model.variant) !== 'closed' && (
           <p data-testid="link-camps">{t('link_camps', { rule: t(CAMPS_LABEL[campsOf(model.variant)]) })}</p>
         )}
+        {model.variant && rowsOf(model.variant) === 5 && <p data-testid="link-rows">{t('link_rows', { rows: 5 })}</p>}
         <p className="ml-hint">{t('link_as_hint')}</p>
       </>
     );
@@ -156,7 +157,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         <h2 className="ml-sheet__title" id={titleId}>{title}</h2>
         {body}
         {model.kind === 'begin' && <BeginChoices choice={choice} onChange={setChoice} />}
-        {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} variant={withCamps({ jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 }, choice.camps)} />}
+        {model.kind === 'begin' && model.net && <StartNetWarning store={model.net} variant={withRows(withCamps({ jump: choice.jump, players: choice.mode === 'two' ? 2 : 3 }, choice.camps), choice.rows)} />}
         {model.kind === 'link' && model.net && model.variant && <StartNetWarning store={model.net} variant={model.variant} />}
         <div className="ml-start__actions">{actions}</div>
         <DialogLanguageRow />
@@ -175,7 +176,7 @@ function StartNetWarning({ store, variant }: { store: NetSelectionStore; variant
   return <NetWarnings warnings={evaluation.warnings} live />;
 }
 
-const DEFAULT_CHOICE_FALLBACK: StartChoice = { jump: 'adjacent', camps: 'closed', mode: 'two', humanSeat: 0, engineSeat: 2 };
+const DEFAULT_CHOICE_FALLBACK: StartChoice = { jump: 'adjacent', camps: 'closed', rows: 4, mode: 'two', humanSeat: 0, engineSeat: 2 };
 
 /** The short name of each foreign-corner rule (the labels of the radio group). */
 const CAMPS_LABEL = { closed: 'start_camps_closed', 'pass-through': 'start_camps_pass', open: 'start_camps_open' } as const;
@@ -226,6 +227,17 @@ function BeginChoices({ choice, onChange }: { choice: StartChoice; onChange: (c:
     ([0, 1, 2] as const).map((seat) => ({ value: seat, label: t(`start_seat_${seat + 1}` as 'start_seat_1'), choice: `${name}-${seat + 1}` }));
   return (
     <div className="ml-start__choices">
+      <Radios<BoardRows>
+        legend={t('start_rows_legend')}
+        name="ml-rows"
+        value={choice.rows}
+        layout="seg"
+        options={[
+          { value: 4, label: t('start_rows_4'), hint: t('start_rows_4_hint'), choice: 'rows-4' },
+          { value: 5, label: t('start_rows_5'), hint: t('start_rows_5_hint'), choice: 'rows-5' },
+        ]}
+        onChange={(rows) => onChange({ ...choice, rows })}
+      />
       <Radios<JumpRule>
         legend={t('start_jump_legend')}
         name="ml-jump"

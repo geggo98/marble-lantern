@@ -64,8 +64,8 @@ describe('the begin dialog', () => {
     expect(d.getAttribute('aria-modal')).toBe('true');
     expect(d.getAttribute('aria-labelledby')).toBe(d.querySelector('h2')!.id);
     const groups = [...d.querySelectorAll('fieldset')];
-    // jump rule, foreign triangles (added 2026-11-20) and game mode; no seat group in the two-player mode
-    expect(groups).toHaveLength(3);
+    // board size, jump rule, foreign triangles (added 2026-11-20) and game mode; no seat group in the two-player mode
+    expect(groups).toHaveLength(4);
     for (const g of groups) {
       expect(g.querySelector('legend')!.textContent).not.toBe('');
       expect(g.querySelectorAll('input[type="radio"]').length).toBeGreaterThanOrEqual(2);
@@ -123,11 +123,11 @@ describe('the begin dialog', () => {
     await click(choice('human-seat-3'));
     await click(choice('jump-long'));
     await click(choice('begin-start'));
-    expect(onStart).toHaveBeenCalledWith({ jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
+    expect(onStart).toHaveBeenCalledWith({ jump: 'long', camps: 'closed', rows: 5, mode: 'engines', humanSeat: 2, engineSeat: 2 }, true);
   });
 
   it('starts from the remembered choice', async () => {
-    await open(vi.fn(), { jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 1, engineSeat: 0 });
+    await open(vi.fn(), { jump: 'long', camps: 'closed', rows: 4, mode: 'engines', humanSeat: 1, engineSeat: 0 });
     expect(choice('jump-long').checked).toBe(true);
     expect(choice('mode-engines').checked).toBe(true);
     expect(choice('human-seat-2').checked).toBe(true);
@@ -195,10 +195,10 @@ describe('the begin dialog', () => {
       last.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(choice('jump-adjacent'));
+    expect(document.activeElement).toBe(choice('rows-5')); // the board size is the first group; 5 rows is the default
     const back = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
     await act(async () => {
-      choice('jump-adjacent').dispatchEvent(back);
+      choice('rows-5').dispatchEvent(back);
     });
     expect(back.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(last);

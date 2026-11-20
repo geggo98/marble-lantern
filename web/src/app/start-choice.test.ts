@@ -4,7 +4,8 @@ import type { JumpRule, Player } from '../game/variant';
 import { CHOICE_KEY, DEFAULT_CHOICE, loadChoice, parseChoice, saveChoice, setupOfChoice } from './start-choice';
 import type { GameMode, StartChoice } from './start-choice';
 
-const choice = (over: Partial<StartChoice>): StartChoice => ({ ...DEFAULT_CHOICE, ...over });
+// rows: 4 here, so that the tests of the older rules keep their meaning; the default of 5 rows (2026-11-20) has its own tests below
+const choice = (over: Partial<StartChoice>): StartChoice => ({ ...DEFAULT_CHOICE, rows: 4, ...over });
 const kinds = (c: StartChoice, begins = true): string => setupOfChoice(c, begins, 2).seats.map((s) => s.kind[0]).join('');
 
 describe('setupOfChoice: every mode, jump rule and seat gives the right game', () => {
@@ -41,7 +42,7 @@ describe('setupOfChoice: every mode, jump rule and seat gives the right game', (
 
   it('the default is the classic game, engine on the last seat in hot-seat', () => {
     // camps: added on 2026-11-20 (foreign-corner rule); closed is the rule the app has always played
-    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', camps: 'closed', mode: 'two', humanSeat: 0, engineSeat: 2 });
+    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', camps: 'closed', rows: 5, mode: 'two', humanSeat: 0, engineSeat: 2 });
     expect(kinds(choice({ mode: 'hotseat' }))).toBe('hhe');
   });
 });
@@ -66,14 +67,16 @@ describe('the remembered choice', () => {
 
   it('gives the default for nothing, for damaged text and for values that are not choices', () => {
     expect(loadChoice(memory())).toEqual(DEFAULT_CHOICE);
-    for (const text of ['', '{', 'null', '7', '"x"', '[]', '{"jump":"far","mode":"four","humanSeat":9,"engineSeat":"2"}']) {
+    for (const text of ['', '{', 'null', '7', '"x"', '[]']) {
       expect(parseChoice(text), text).toEqual(DEFAULT_CHOICE);
     }
+    // an object is a stored choice, so its missing size is the old 4 rows
+    expect(parseChoice('{"jump":"far","mode":"four","humanSeat":9,"engineSeat":"2"}')).toEqual({ ...DEFAULT_CHOICE, rows: 4 });
   });
 
   it('reads the foreign-corner rule, and a choice stored before the field existed as closed', () => {
     expect(parseChoice('{"jump":"long","mode":"engines","humanSeat":1,"engineSeat":2}')).toEqual({
-      jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 1, engineSeat: 2,
+      jump: 'long', camps: 'closed', rows: 4, mode: 'engines', humanSeat: 1, engineSeat: 2,
     });
     expect(parseChoice('{"camps":"open"}').camps).toBe('open');
     expect(parseChoice('{"camps":"pass-through"}').camps).toBe('pass-through');
@@ -89,7 +92,7 @@ describe('the remembered choice', () => {
   });
 
   it('keeps the valid fields of a partly valid value', () => {
-    expect(parseChoice('{"jump":"long","mode":"x"}')).toEqual({ ...DEFAULT_CHOICE, jump: 'long' });
+    expect(parseChoice('{"jump":"long","mode":"x"}')).toEqual({ ...DEFAULT_CHOICE, rows: 4, jump: 'long' });
     const modes: GameMode[] = ['hotseat', 'engines'];
     for (const mode of modes) expect(parseChoice(JSON.stringify({ mode })).mode).toBe(mode);
   });
@@ -99,5 +102,34 @@ describe('the remembered choice', () => {
     expect(() => saveChoice(DEFAULT_CHOICE, throwing)).not.toThrow();
     expect(loadChoice(null)).toEqual(DEFAULT_CHOICE);
     expect(() => saveChoice(DEFAULT_CHOICE, null)).not.toThrow();
+  });
+});
+
+describe('the board size of the choice (RuleSet.TriangleRows)', () => {
+  it('a fresh visitor gets 5 rows; a stored choice without a size, or with a size that is not 4 or 5, reads as 4 rows', () => {
+    expect(parseChoice(null).rows).toBe(5);
+    expect(parseChoice('{"jump":"long"}').rows).toBe(4);
+    expect(parseChoice('{}').rows).toBe(4);
+    for (const bad of ['6', '"5"', 'null', '0', 'true']) expect(parseChoice(`{"rows":${bad}}`).rows, bad).toBe(4);
+    expect(parseChoice('{"rows":5}').rows).toBe(5);
+    expect(parseChoice('{"rows":4}').rows).toBe(4);
+  });
+
+  it('round-trips through storage in both sizes', () => {
+    for (const rows of [4, 5] as const) {
+      const data: Record<string, string> = {};
+      saveChoice({ ...DEFAULT_CHOICE, rows }, { setItem: (k, v) => { data[k] = v; } });
+      expect(loadChoice({ getItem: (k) => data[k] ?? null }).rows).toBe(rows);
+    }
+  });
+
+  it('puts the size into the variant of every mode; 4 rows leave no field', () => {
+    for (const mode of ['two', 'hotseat', 'engines'] as const) {
+      for (const jump of ['adjacent', 'long'] as const) {
+        expect(variantOf(setupOfChoice(choice({ mode, jump, rows: 5 }), true, 1))).toEqual({ jump, players: mode === 'two' ? 2 : 3, rows: 5 });
+        expect('rows' in variantOf(setupOfChoice(choice({ mode, jump, rows: 4 }), true, 1))).toBe(false);
+      }
+      expect(variantOf(setupOfChoice(choice({ mode, rows: 5, camps: 'open' }), true, 1))).toMatchObject({ camps: 'open', rows: 5 });
+    }
   });
 });

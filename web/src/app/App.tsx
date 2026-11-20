@@ -15,8 +15,8 @@ import type { GameLink } from './game-url';
 import { GameController } from '../game/game';
 import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withForeignCamps, withHumanSeat, withLevel } from '../game/setup';
-import { campsOf, rankingOf, variantKey, withRanking } from '../game/variant';
+import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withBoardRows, withForeignCamps, withHumanSeat, withLevel } from '../game/setup';
+import { DEFAULT_VARIANT, campsOf, rankingOf, rowsOf, variantKey, withRanking, withRows } from '../game/variant';
 import type { Player } from '../game/variant';
 import { loadChoice, saveChoice, setupOfChoice } from './start-choice';
 import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
@@ -120,7 +120,8 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   const [setup, setSetupState] = useState<GameSetup>(() => {
     const parsed = parseHash(nav.hash);
     if (parsed.kind === 'game' && isVariantLink(parsed.link)) return setupFromLink(parsed.link, { humanSide: 1, level: DEFAULT_LEVEL });
-    return initialSetup ?? humanVsEngine(1, DEFAULT_LEVEL);
+    // The board behind the start dialog is the one the dialog preselects: the stored choice, or the default.
+    return initialSetup ?? withBoardRows(humanVsEngine(1, DEFAULT_LEVEL), loadChoice().rows);
   });
   const flowRef = useRef(flow);
   const setupRef = useRef(setup);
@@ -150,7 +151,9 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     const engine = new SwitchableEngine();
     const nodes = NODE_LEVELS[DEFAULT_LEVEL];
     engine.setNodes(nodes);
-    const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 1, nodes: [nodes, nodes] });
+    // The board behind the start dialog has the size the dialog preselects (the stored or default choice, or the size of the link).
+    const rows = rowsOf(variantOf(setupRef.current));
+    const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 1, nodes: [nodes, nodes], ...(rows === 4 ? {} : { variant: withRows(DEFAULT_VARIANT, rows) }) });
     const baseUrl = import.meta.env.BASE_URL;
     const netStore = netSelection ?? new NetSelectionStore();
     // The session always starts with a classical engine (never a net engine, defaultChoice): the stored net engine does not play, so it
@@ -361,7 +364,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
 
   /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
   const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current, variant = variantOf(setupRef.current)): void => {
-    startSetup(withForeignCamps(humanVsEngine(humanSide, level, variant.jump), campsOf(variant)), moves);
+    startSetup(withBoardRows(withForeignCamps(humanVsEngine(humanSide, level, variant.jump), campsOf(variant)), rowsOf(variant)), moves);
   };
 
   /** Escape, a click beside the dialog or "keep my game": the dialog closes, the running game goes on untouched, the address shows it again. */

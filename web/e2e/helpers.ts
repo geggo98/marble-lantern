@@ -6,18 +6,27 @@ import type { Locator, Page } from '@playwright/test';
 export type EngineId = 'cpp-wasm' | 'java-wasmgc' | 'java-js' | 'net-wasm' | 'net-webgpu';
 
 export const LANGUAGE_KEY = 'ml.language';
+export const CHOICE_KEY = 'ml.start-choice';
+
+/**
+ * The board size a page starts with. A fresh visitor gets 5 rows (the default of the start dialog); the older specs play the 4-row board,
+ * so `openApp` stores 4 rows unless a spec asks for 5, or for 'fresh', which stores nothing and shows the real default.
+ */
+export type RowsOption = 4 | 5 | 'fresh';
 
 /**
  * Opens the page in the given language (the UI reads the stored choice before the browser language).
  * A page without a game link asks "Do you want to begin?" first; `begin` answers it: 'human' (the default) lets the
  * human move first, 'engine' lets the engine begin, 'ask' leaves the dialog open. Routes (#/bench, #/about) and game
- * links have no such question, so nothing is answered for them.
+ * links have no such question, so nothing is answered for them. `rows` is the board size the stored start choice holds; a stored
+ * choice that has a size already (a spec that saved one) is kept.
  */
 export async function openApp(
   page: Page,
   language: 'en' | 'de' = 'en',
   hash = '',
   begin: 'human' | 'engine' | 'ask' = 'human',
+  rows: RowsOption = 4,
 ): Promise<void> {
   await page.addInitScript(
     ([key, value]) => {
@@ -29,6 +38,20 @@ export async function openApp(
     },
     [LANGUAGE_KEY, language],
   );
+  if (rows !== 'fresh') {
+    await page.addInitScript(
+      ([key, size]) => {
+        try {
+          const text = localStorage.getItem(key!);
+          const stored = text === null ? {} : (JSON.parse(text) as Record<string, unknown>);
+          if (stored && typeof stored === 'object' && !('rows' in stored)) localStorage.setItem(key!, JSON.stringify({ ...stored, rows: Number(size) }));
+        } catch {
+          // the page falls back to the default choice
+        }
+      },
+      [CHOICE_KEY, String(rows)],
+    );
+  }
   await page.goto(hash);
   if (begin !== 'ask' && !hash.startsWith('#/') && !hash.startsWith('#g=')) {
     await page.locator(`[data-choice="begin-${begin === 'human' ? 'yes' : 'no'}"]`).click();

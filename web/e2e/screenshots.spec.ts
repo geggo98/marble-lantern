@@ -13,7 +13,7 @@ for (const language of ['de', 'en'] as const) {
   for (const size of WIDTHS) {
     test(`play screen at ${size.name} px in ${language}`, async ({ page }, info) => {
       await page.setViewportSize({ width: size.width, height: size.height });
-      await openApp(page, language);
+      await openApp(page, language, '', 'human', 5); // the docs show the 5-row board (the default of the start dialog)
       await waitForHumanTurn(page);
       await expect(page.locator('svg [data-cell]').first()).toBeAttached();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
