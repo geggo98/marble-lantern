@@ -15,8 +15,8 @@ import type { GameLink } from './game-url';
 import { GameController } from '../game/game';
 import { sideToMove } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withHumanSeat, withLevel } from '../game/setup';
-import { rankingOf, variantKey, withRanking } from '../game/variant';
+import { controllerSeats, humanSeatOf, humanSideOf, humanVsEngine, isDemo, levelOf, variantOf, withAllEngines, withForeignCamps, withHumanSeat, withLevel } from '../game/setup';
+import { campsOf, rankingOf, variantKey, withRanking } from '../game/variant';
 import type { Player } from '../game/variant';
 import { loadChoice, saveChoice, setupOfChoice } from './start-choice';
 import { isVariantLink, setupFromLink, snapshotOf, snapshotOfLink } from './link-setup';
@@ -360,8 +360,8 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   };
 
   /** The dialog is answered: start a new game, or continue the game of a link, on the chosen side. */
-  const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current, jump = variantOf(setupRef.current).jump): void => {
-    startSetup(humanVsEngine(humanSide, level, jump), moves);
+  const startGame = (humanSide: Side, moves?: readonly number[], level = levelRef.current, variant = variantOf(setupRef.current)): void => {
+    startSetup(withForeignCamps(humanVsEngine(humanSide, level, variant.jump), campsOf(variant)), moves);
   };
 
   /** Escape, a click beside the dialog or "keep my game": the dialog closes, the running game goes on untouched, the address shows it again. */
@@ -499,7 +499,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
       net: netStore,
       sideToMove: sideToMove(link.moves.length),
       preferred: link.humanSide,
-      onContinueAs: (side) => startGame(side, link.moves, link.level, variantOfLink(link).jump),
+      onContinueAs: (side) => startGame(side, link.moves, link.level, variantOfLink(link)),
       onNew: () => {
         // the linked game stays reachable with Back: its entry becomes an entry of this page
         const landing = snapshotOfLink(link, { humanSide: lastHuman.current, level: levelRef.current });

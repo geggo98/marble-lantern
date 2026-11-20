@@ -193,6 +193,8 @@ class SelfPlayVariantsTest {
         assertEquals(RuleSet.defaults(3), GameShard.rules(Map.of("players", "3")));
         RuleSet custom = RuleSet.defaults(3).withJumpRule(JumpRule.LONG).withMoveLimit(123);
         assertEquals(custom, GameShard.rules(Map.of("players", "3", "rules", custom.toString())));
+        RuleSet open = RuleSet.defaults(2).withForeignCamps(RuleSet.ForeignCamps.OPEN);
+        assertEquals(open, GameShard.rules(Map.of("players", "2", "rules", open.toString())));
         assertThrows(IllegalArgumentException.class,
                 () -> GameShard.rules(Map.of("players", "2", "rules", RuleSet.defaults(3).toString())));
     }

@@ -3,6 +3,7 @@
 // card (from the session). The wording lives in the i18n catalogs (keys net.warn.*).
 import { listModels } from '../engines/net/model-manifest';
 import type { EngineWarning, ReasonCode } from '../engines/warnings';
+import { campsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { Icon } from './primitives';
 import { useT } from './texts';
@@ -20,10 +21,13 @@ export interface DescribedWarning {
   detail?: string;
 }
 
-/** The jump rule and the number of players of a variant as short data text. */
+/** The jump rule and the number of players of a variant as short data text, and the foreign-corner rule when it is not `closed`. */
 export function variantText(variant: Variant | undefined, t: Translate): string {
   if (!variant) return '';
-  return `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
+  const base = `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
+  const camps = campsOf(variant);
+  if (camps === 'closed') return base;
+  return `${base} · ${t('link_camps', { rule: t(camps === 'open' ? 'start_camps_open' : 'start_camps_pass') })}`;
 }
 
 /** The localized text of a reason code (catalog keys net.reason.<code>); empty for no code. */

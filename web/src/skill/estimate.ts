@@ -6,6 +6,7 @@
 // with `calibrated: false`.
 import { estimateSkill } from './calibration';
 import type { Calibration, SkillEstimate } from './calibration';
+import { campsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 
 export type VariantEstimate = SkillEstimate & {
@@ -16,8 +17,8 @@ export type VariantEstimate = SkillEstimate & {
 /** Moves are measured and an estimate is offered: two players. */
 export const skillEnabled = (variant: Variant): boolean => variant.players === 2;
 
-/** The calibration was measured for this variant: two players with the adjacent jump rule. */
-export const skillCalibrated = (variant: Variant): boolean => variant.players === 2 && variant.jump === 'adjacent';
+/** The calibration was measured for this variant: two players with the adjacent jump rule and closed foreign corners. */
+export const skillCalibrated = (variant: Variant): boolean => variant.players === 2 && variant.jump === 'adjacent' && campsOf(variant) === 'closed';
 
 /** The estimate from the losses of `variant`, or null for a variant without skill measurement (three players). */
 export function estimateForVariant(losses: readonly number[], calibration: Calibration, variant: Variant): VariantEstimate | null {

@@ -27,6 +27,8 @@ int shw_last_depth(int id);
 double shw_total_nodes(int id);
 void shw_player_clear(int id);
 int shw_jump_rule();
+int shw_game_new4(int jump, int players, int ranking, int camps);
+int shw_foreign_camps();
 int shw_side_to_move();
 int shw_owner(int cell);
 int shw_legal_moves(std::int32_t* out, int cap);
@@ -63,6 +65,33 @@ SH_TEST(game_new_takes_the_jump_rule) {
     CHECK_EQ(shw_jump_rule(), 1);  // unchanged
     CHECK(std::string(shw_error()).find("jump must be 0") != std::string::npos);
     CHECK_EQ(shw_player_new(100, 7), -1);
+}
+
+SH_TEST(game_new4_takes_the_foreign_corner_rule) {
+    CHECK_EQ(shw_game_new4(0, 2, 0, 2), 0);
+    CHECK_EQ(shw_foreign_camps(), 2);
+    CHECK_EQ(shw_game_new4(1, 3, 0, 1), 0);
+    CHECK_EQ(shw_foreign_camps(), 1);
+    CHECK_EQ(shw_players(), 3);
+    CHECK_EQ(shw_jump_rule(), 1);
+    CHECK_EQ(shw_game_new4(0, 2, 0, 3), -1);
+    CHECK_EQ(shw_foreign_camps(), 1);  // unchanged
+    CHECK(std::string(shw_error()).find("camps must be") != std::string::npos);
+    CHECK_EQ(shw_game_new3(0, 2, 0), 0);
+    CHECK_EQ(shw_foreign_camps(), 0);  // the older entry points start closed games
+}
+
+// The classical player (with race play) plays legal moves in an open game: the race guard keeps it to the search.
+SH_TEST(classical_player_plays_legal_moves_with_open_corners) {
+    const int player = shw_player_new(300, 0);
+    CHECK(player >= 0);
+    CHECK_EQ(shw_game_new4(0, 2, 0, 2), 0);
+    for (int ply = 0; ply < 40 && shw_outcome() < 0; ++ply) {
+        const auto legal = legal_pairs();
+        const int move = shw_choose(player);
+        CHECK(legal.contains({move & 0xff, move >> 8}));
+        CHECK_EQ(shw_play(move), 0);
+    }
 }
 
 SH_TEST(long_player_plays_a_long_game_and_refuses_an_adjacent_game) {

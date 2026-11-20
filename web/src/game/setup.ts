@@ -11,8 +11,8 @@
 // that UI before the controller plays such a seat.
 import type { EngineId } from '../engines/engine';
 import type { ControllerSeat } from './game';
-import { DEFAULT_VARIANT } from './variant';
-import type { JumpRule, Player, Variant } from './variant';
+import { DEFAULT_VARIANT, withCamps } from './variant';
+import type { ForeignCamps, JumpRule, Player, Variant } from './variant';
 import type { Side } from './board-state';
 
 export type SeatKind = 'human' | 'engine' | 'network';
@@ -57,6 +57,11 @@ export function hotSeatVsEngine(level: number, engineSeat: Player = 2, jump: Jum
 export function humanVsTwoEngines(humanSeat: Player, level: number, jump: JumpRule = 'adjacent'): GameSetup {
   const seats = [0, 1, 2].map((seat): Seat => (seat === humanSeat ? { kind: 'human' } : { kind: 'engine', level }));
   return { seats, variant: variantFor(3, jump) };
+}
+
+/** The same seats with another foreign-corner rule (docs/rules.md, "Foreign corners"); `closed` leaves no trace in the variant. */
+export function withForeignCamps(setup: GameSetup, camps: ForeignCamps): GameSetup {
+  return { ...setup, variant: withCamps(variantOf(setup), camps) };
 }
 
 /** The seats that a person plays. */

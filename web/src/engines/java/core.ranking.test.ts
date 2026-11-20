@@ -31,7 +31,8 @@ function stub(reply: string): { module: JavaModule; calls: Call[] } {
 }
 
 describe('ranking in the Java core', () => {
-  it('passes the ranking as the last argument of every call, "first" when the variant has none', () => {
+  // Since 2026-11-20 the foreign-corner rule (camps) follows the ranking as the last argument; the ranking is the one before it.
+  it('passes the ranking before the foreign-corner rule in every call, "first" when the variant has none', () => {
     const { module, calls } = stub('ok ongoing');
     const core = JavaCore.create(module);
     core.newGame({ nodes: [100, 100, 100], variant: { jump: 'long', players: 3, ranking: 'full' } });
@@ -44,7 +45,7 @@ describe('ranking in the Java core', () => {
     core.evaluate3([], { jump: 'long', players: 3 });
     core.legalMoves([], { jump: 'long', players: 3 });
     core.outcome([], { jump: 'long', players: 3 });
-    const last = (name: string, index: number): unknown => calls.filter((c) => c.name === name)[index]!.args.at(-1);
+    const last = (name: string, index: number): unknown => calls.filter((c) => c.name === name)[index]!.args.at(-2);
     expect(last('newGame', 0)).toBe('full');
     expect(last('legalMoves', 0)).toBe('full');
     expect(last('choose', 0)).toBe('full');
@@ -55,6 +56,25 @@ describe('ranking in the Java core', () => {
     expect(last('evaluate3', 1)).toBe('first');
     expect(last('legalMoves', 1)).toBe('first');
     expect(last('outcome', 1)).toBe('first');
+    expect(calls.every((c) => c.args.at(-1) === 'closed'), 'camps "closed" for a variant without the field').toBe(true);
+  });
+
+  it('passes the foreign-corner rule as the last argument of every call', () => {
+    const { module, calls } = stub('ok ongoing');
+    const core = JavaCore.create(module);
+    for (const camps of ['pass-through', 'open'] as const) {
+      const variant = { jump: 'adjacent', players: 3, camps } as const;
+      core.newGame({ nodes: [100, 100, 100], variant });
+      core.legalMoves([], variant);
+      core.choose([], variant);
+      core.outcome([], variant);
+      core.bench(3, 100, variant);
+      core.analyse([], null, 100, variant);
+      core.evaluate3([], variant);
+    }
+    expect(calls).toHaveLength(14);
+    expect(calls.slice(0, 7).every((c) => c.args.at(-1) === 'pass-through')).toBe(true);
+    expect(calls.slice(7).every((c) => c.args.at(-1) === 'open')).toBe(true);
   });
 
   it('reads the outcome replies of a full-ranking game', () => {

@@ -1,9 +1,11 @@
-// A tiny move generator, used only by the fake engine in tests: steps and jump chains, for two or three players and for
-// both jump rules. It knows no rule beyond "a piece may enter the centre, its own start corner and its own goal corner".
-// It is not an oracle for the real engines. Do not import it from production code.
+// A tiny move generator, used by the fake engine in tests and as the TypeScript side of the foreign-corner cross test
+// (camps.cross.test.ts): steps and jump chains, for two or three players, both jump rules and the three foreign-corner rules
+// (variant.camps). It knows no rule beyond the cells a piece may enter: the centre, its own start corner and its own goal
+// corner, and the foreign corners as the variant allows. It has no leave-goal and no Definition-2 filter. Do not import it from
+// production code.
 import { CELLS, DIRECTIONS, TOP_CORNER, BOTTOM_CORNER, neighbor } from '../../board/cells';
 import { goalCells, startCells } from '../../game/board-state';
-import { DEFAULT_VARIANT } from '../../game/variant';
+import { DEFAULT_VARIANT, campsOf } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import { makeMove } from '../engine';
 
@@ -22,14 +24,19 @@ export function allowed(side: number, id: number, variant: Variant = DEFAULT_VAR
   return startCells(variant)[side]!.includes(id) || goalCells(variant)[side]!.includes(id);
 }
 
-/** All moves of one side as from | (to << 8), without duplicates. */
+/**
+ * All moves of one side as from | (to << 8), without duplicates. Foreign corners (docs/rules.md, "Foreign corners"): `closed` never
+ * lands there, `pass-through` lands there inside a chain but does not end there, `open` ends there too.
+ */
 export function tinyLegalMoves(owner: Int8Array, side: number, variant: Variant = DEFAULT_VARIANT): number[] {
+  const camps = campsOf(variant);
+  const open = camps === 'open';
   const moves = new Set<number>();
   for (let from = 0; from < owner.length; from++) {
     if (owner[from] !== side) continue;
     for (let d = 0; d < DIRECTIONS; d++) {
       const step = neighbor(from, d);
-      if (step >= 0 && owner[step] === -1 && allowed(side, step, variant)) moves.add(makeMove(from, step));
+      if (step >= 0 && owner[step] === -1 && (open || allowed(side, step, variant))) moves.add(makeMove(from, step));
     }
     // jump chains: breadth-first over landing cells, the moving piece's start cell counts as empty
     const empty = (id: number): boolean => owner[id] === -1 || id === from;
@@ -39,10 +46,12 @@ export function tinyLegalMoves(owner: Int8Array, side: number, variant: Variant 
       const at = queue[head]!;
       for (let d = 0; d < DIRECTIONS; d++) {
         const land = variant.jump === 'long' ? longLanding(at, d, empty, from) : adjacentLanding(at, d, empty, from);
-        if (land < 0 || seen.has(land) || !allowed(side, land, variant)) continue;
+        if (land < 0 || seen.has(land)) continue;
+        const home = allowed(side, land, variant);
+        if (!home && camps === 'closed') continue;
         seen.add(land);
         queue.push(land);
-        moves.add(makeMove(from, land));
+        if (home || open) moves.add(makeMove(from, land));
       }
     }
   }

@@ -91,6 +91,29 @@ public final class Layout {
                 }
             }
         }
+        // Foreign corners (RuleSet.ForeignCamps): a piece of p stands there only under OPEN. Their distance is the
+        // number of steps to the nearest goal cell over all board cells; the cells above keep their values.
+        int[] all = new int[Geometry.CELLS];
+        java.util.Arrays.fill(all, -1);
+        for (int c : Geometry.cornerCells(goalCorner[p])) {
+            all[c] = 0;
+            queue.add(c);
+        }
+        while (!queue.isEmpty()) {
+            int c = queue.poll();
+            for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                int n = Geometry.neighbor(c, d);
+                if (n >= 0 && all[n] < 0) {
+                    all[n] = all[c] + 1;
+                    queue.add(n);
+                }
+            }
+        }
+        for (int c = 0; c < Geometry.CELLS; c++) {
+            if (!allowed[p][c]) {
+                dist[c] = all[c];
+            }
+        }
         for (int c = 0; c < Geometry.CELLS; c++) {
             if (allowed[p][c]) {
                 if (dist[c] < 0) {
@@ -135,20 +158,25 @@ public final class Layout {
         return jumpTo[player];
     }
 
-    /** Whether the player may stand on the cell: central hexagon, own start corner or own goal corner. */
+    /**
+     * Whether the cell is a home cell of the player: central hexagon, own start corner or own goal corner. Under
+     * {@link RuleSet.ForeignCamps#CLOSED} and {@code PASS_THROUGH} a move ends only on such a cell.
+     */
     public boolean allowed(int player, int cell) {
         return allowed[player][cell];
     }
 
     /**
      * Single-agent distance of a cell for a player: the number of steps to the nearest goal cell on an
-     * empty board, over the cells the player may enter (docs/search-and-evaluation.md, stage 2).
+     * empty board, over the home cells of the player (docs/search-and-evaluation.md, stage 2). A cell of a foreign
+     * corner, where a piece stands only under {@link RuleSet.ForeignCamps#OPEN}, gets the number of steps over all
+     * cells.
      */
     public int distance(int player, int cell) {
         return distance[player][cell];
     }
 
-    /** The largest distance in the table of a player. */
+    /** The largest distance of a home cell of the player. */
     public int maxDistance(int player) {
         return maxDistance[player];
     }

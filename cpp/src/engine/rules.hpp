@@ -22,6 +22,10 @@ public:
     enum class Ranking : std::uint8_t { FirstWinnerOnly, FullRanking };
     // How a piece jumps: Adjacent = over one adjacent piece to the cell right behind it (default); Long = the Halma long hop (docs/rules.md, "Jump rule").
     enum class JumpRule : std::uint8_t { Adjacent, Long };
+    // Whether a piece may enter a foreign corner, a corner that is neither its start nor its goal corner (docs/rules.md, "Foreign
+    // corners"): Closed = never, not even between two jumps (default); PassThrough = a jump chain may land there between two jumps,
+    // but the move must not end there; Open = a move may also end there.
+    enum class ForeignCamps : std::uint8_t { Closed, PassThrough, Open };
 
     // The fields of a rule set before validation; the defaults are the project defaults of docs/rules.md (200 plies for two players).
     struct Spec {
@@ -35,6 +39,7 @@ public:
         DrawHandling draw_handling = DrawHandling::ScoreByDistance;
         Ranking ranking = Ranking::FirstWinnerOnly;
         JumpRule jump_rule = JumpRule::Adjacent;
+        ForeignCamps foreign_camps = ForeignCamps::Closed;
         friend bool operator==(const Spec&, const Spec&) = default;
     };
 
@@ -54,6 +59,7 @@ public:
     DrawHandling draw_handling() const { return spec_.draw_handling; }
     Ranking ranking() const { return spec_.ranking; }
     JumpRule jump_rule() const { return spec_.jump_rule; }
+    ForeignCamps foreign_camps() const { return spec_.foreign_camps; }
     const Spec& spec() const { return spec_; }
 
     // Copies with one switch changed; the result is validated again (move limit must stay positive).
@@ -64,6 +70,7 @@ public:
     std::expected<RuleSet, std::string> with_draw_handling(DrawHandling value) const;
     std::expected<RuleSet, std::string> with_jump_rule(JumpRule value) const;
     std::expected<RuleSet, std::string> with_ranking(Ranking value) const;
+    std::expected<RuleSet, std::string> with_foreign_camps(ForeignCamps value) const;
 
     // Whether a player who fills the goal leaves the game while the others play on for the lower ranks (FullRanking with three
     // players; with two players the switch has no effect). Java: RuleSet.playsOnAfterWin.

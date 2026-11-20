@@ -1,7 +1,7 @@
 // The start dialog for the game variants and the play screen for three seats, in a real browser with the real engines (they need
 // no race table for these games). Screenshots go to SHOT_DIR (default test-results/screens) for the visual review.
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { LONG_HOP } from './fixtures';
 import { openApp, playHumanMove, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
@@ -237,3 +237,30 @@ test.describe('the dialog on a phone', () => {
     await shot(page, info.project.name, 'board-after-result-mobile-390');
   });
 });
+
+// The foreign-corner rule of the start dialog (docs/rules.md, "Foreign corners"). Cell ids count by row r, then q: (4,-5) is 9, (4,-4) is 18
+// and (5,-4) is 19, a cell of the corner q > 4, which is neither start nor goal of seat 0. After the step 9 -> 18 the piece on 18 has the
+// target 19 only when the dialog chose "Open". The target rings carry no cell id, so a ring is matched by the centre of the cell's hit area.
+for (const rule of ['closed', 'open'] as const) {
+  test(`the foreign-corner choice "${rule}" decides whether a step into a foreign corner is a highlighted target`, async ({ page }) => {
+    const errors = watchPageErrors(page);
+    await openApp(page, 'en', '', 'ask');
+    await expect(page.locator('[data-choice="camps-closed"]')).toBeChecked();
+    if (rule === 'open') await page.locator('[data-choice="camps-open"]').check();
+    await page.locator('[data-choice="begin-yes"]').click();
+    await waitForHumanTurn(page);
+    await page.locator('[data-cell="9"]').click();
+    await page.locator('[data-cell="18"]').click();
+    await expect.poll(() => plyOf(page)).toBe(2);
+    await waitForHumanTurn(page);
+    expect(new URL(page.url()).hash.includes('&c=open')).toBe(rule === 'open');
+    await page.locator('[data-cell="18"]').click();
+    const rings = page.locator('.ml-target__ring');
+    await expect(rings.first()).toBeAttached();
+    const centre = async (l: Locator): Promise<string> => `${await l.getAttribute('cx')},${await l.getAttribute('cy')}`;
+    const foreign = await centre(page.locator('[data-cell="19"]'));
+    const centres = await Promise.all((await rings.all()).map(centre));
+    expect(centres.includes(foreign), `targets of cell 18: ${centres.join(' ')}`).toBe(rule === 'open');
+    errors.expectNone();
+  });
+}

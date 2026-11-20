@@ -78,6 +78,7 @@ public final class WebCore {
     private int gamePlayers = 2;
     private RuleSet.JumpRule gameRule = RuleSet.JumpRule.ADJACENT;
     private RuleSet.Ranking gameRanking = RuleSet.Ranking.FIRST_WINNER_ONLY;
+    private RuleSet.ForeignCamps gameCamps = RuleSet.ForeignCamps.CLOSED;
     private RuleSet.JumpRule analysisRule;
 
     /**
@@ -128,11 +129,29 @@ public final class WebCore {
     }
 
     private static RuleSet rules(RuleSet.JumpRule jump, int playerCount) {
-        return rules(jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+        return rules(jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY, RuleSet.ForeignCamps.CLOSED);
     }
 
-    private static RuleSet rules(RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
-        return RuleSet.defaults(playerCount).withJumpRule(jump).withRanking(ranking);
+    private static RuleSet rules(RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        return RuleSet.defaults(playerCount).withJumpRule(jump).withRanking(ranking).withForeignCamps(camps);
+    }
+
+    /**
+     * The foreign-corner rule of a facade argument (docs/rules.md, "Foreign corners"): null, empty or {@code closed} is
+     * {@link RuleSet.ForeignCamps#CLOSED}, {@code pass-through} is {@code PASS_THROUGH}, {@code open} is {@code OPEN};
+     * anything else fails with {@code internal}.
+     */
+    public static RuleSet.ForeignCamps parseCamps(String text) {
+        if (text == null || text.isEmpty() || text.equals("closed")) {
+            return RuleSet.ForeignCamps.CLOSED;
+        }
+        if (text.equals("pass-through")) {
+            return RuleSet.ForeignCamps.PASS_THROUGH;
+        }
+        if (text.equals("open")) {
+            return RuleSet.ForeignCamps.OPEN;
+        }
+        throw new WebFailure("internal", "camps must be closed, pass-through or open, got '" + text + "'");
     }
 
     /**
@@ -194,6 +213,11 @@ public final class WebCore {
 
     /** {@link #newGame(int, int, RuleSet.JumpRule)} with a ranking rule; for two players it has no effect on play. */
     public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
+        newGame(nodes0, nodes1, jump, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #newGame(int, int, RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
+    public void newGame(int nodes0, int nodes1, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
         if (nodes0 <= 0 || nodes1 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1);
         }
@@ -202,6 +226,7 @@ public final class WebCore {
         gamePlayers = 2;
         gameRule = jump;
         gameRanking = ranking;
+        gameCamps = camps;
     }
 
     /**
@@ -214,6 +239,11 @@ public final class WebCore {
 
     /** {@link #newGame3(int, int, int, RuleSet.JumpRule)} with a ranking rule: {@code FULL_RANKING} plays on for the lower ranks. */
     public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
+        newGame3(nodes0, nodes1, nodes2, jump, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #newGame3(int, int, int, RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
+    public void newGame3(int nodes0, int nodes1, int nodes2, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
         if (nodes0 <= 0 || nodes1 <= 0 || nodes2 <= 0) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes0 + ", " + nodes1 + ", " + nodes2);
         }
@@ -222,6 +252,7 @@ public final class WebCore {
         gamePlayers = 3;
         gameRule = jump;
         gameRanking = ranking;
+        gameCamps = camps;
     }
 
     private static ThreePlayerPlayer player3(int nodes, RuleSet.JumpRule jump) {
@@ -249,7 +280,12 @@ public final class WebCore {
      * a finished player is skipped: the moves are those of the next player who has not finished.
      */
     public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
-        Position position = replay(history, jump, playerCount, ranking);
+        return legalMoves(history, jump, playerCount, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #legalMoves(int[], RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
+    public int[] legalMoves(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        Position position = replay(history, jump, playerCount, ranking, camps);
         return position.outcome() != null ? new int[0] : position.legalMoves();
     }
 
@@ -272,7 +308,12 @@ public final class WebCore {
 
     /** {@link #outcome(int[], RuleSet.JumpRule, int)} with a ranking rule, and the finished set. */
     public State state(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
-        Position position = replay(history, jump, playerCount, ranking);
+        return state(history, jump, playerCount, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #state(int[], RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
+    public State state(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        Position position = replay(history, jump, playerCount, ranking, camps);
         Outcome outcome = position.outcome();
         if (outcome == null && position.generate(new int[Position.MAX_MOVES]) == 0) {
             outcome = position.noMovesOutcome();
@@ -304,15 +345,23 @@ public final class WebCore {
 
     /** {@link #choose(int[], RuleSet.JumpRule, int)} with a ranking rule, which must be the one of the current game. */
     public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
-        Position position = replay(history, jump, playerCount, ranking);
+        return choose(history, jump, playerCount, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /**
+     * {@link #choose(int[], RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule, which must be the one of
+     * the current game.
+     */
+    public Choice choose(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        Position position = replay(history, jump, playerCount, ranking, camps);
         if (position.outcome() != null || position.generate(new int[Position.MAX_MOVES]) == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
         }
         if (players == null && players3 == null) {
             if (playerCount == 3) {
-                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump, ranking);
+                newGame3(DEFAULT_NODES, DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps);
             } else {
-                newGame(DEFAULT_NODES, DEFAULT_NODES, jump, ranking);
+                newGame(DEFAULT_NODES, DEFAULT_NODES, jump, ranking, camps);
             }
         } else if (gamePlayers != playerCount) {
             throw new WebFailure("internal", "the game has " + gamePlayers + " players, not " + playerCount + "; call newGame first");
@@ -320,6 +369,8 @@ public final class WebCore {
             throw new WebFailure("internal", "the game plays the " + gameRule + " rule, not " + jump + "; call newGame first");
         } else if (gameRanking != ranking) {
             throw new WebFailure("internal", "the game plays " + gameRanking + ", not " + ranking + "; call newGame first");
+        } else if (gameCamps != camps) {
+            throw new WebFailure("internal", "the game plays foreignCamps=" + gameCamps + ", not " + camps + "; call newGame first");
         }
         if (playerCount == 3) {
             return choose3(players3[position.sideToMove()], position);
@@ -387,10 +438,16 @@ public final class WebCore {
      */
     public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount,
             RuleSet.Ranking ranking) {
+        return analyse(history, moves, nodes, jump, playerCount, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #analyse(int[], int[], int, RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
+    public Analysis analyse(int[] history, int[] moves, int nodes, RuleSet.JumpRule jump, int playerCount,
+            RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
         if (nodes < 1) {
             throw new WebFailure("internal", "node budget must be positive: " + nodes);
         }
-        Position position = replay(history, jump, playerCount, ranking);
+        Position position = replay(history, jump, playerCount, ranking, camps);
         int[] legal = position.outcome() != null ? new int[0] : position.legalMoves();
         if (legal.length == 0) {
             throw new WebFailure("illegal-history", "the game is over after " + history.length + " plies");
@@ -467,7 +524,12 @@ public final class WebCore {
      * the active opponents (see {@link ThreePlayerPlayer#evaluation}).
      */
     public int[] evaluate3(int[] history, RuleSet.JumpRule jump, RuleSet.Ranking ranking) {
-        Position position = replay(history, jump, 3, ranking);
+        return evaluate3(history, jump, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #evaluate3(int[], RuleSet.JumpRule, RuleSet.Ranking)} with a foreign-corner rule. */
+    public int[] evaluate3(int[] history, RuleSet.JumpRule jump, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        Position position = replay(history, jump, 3, ranking, camps);
         if (analysisPlayer3 == null || analysisRule3 != jump) {
             analysisPlayer3 = player3(analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES, jump);
             analysisNodes3 = analysisNodes3 > 0 ? analysisNodes3 : DEFAULT_NODES;
@@ -499,13 +561,18 @@ public final class WebCore {
      * on after the first finisher until the ranking is complete or the plies are used up.
      */
     public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
+        return bench(plies, nodes, jump, playerCount, ranking, RuleSet.ForeignCamps.CLOSED);
+    }
+
+    /** {@link #bench(int, int, RuleSet.JumpRule, int, RuleSet.Ranking)} with a foreign-corner rule. */
+    public Bench bench(int plies, int nodes, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
         if (plies <= 0 || nodes <= 0) {
             throw new WebFailure("internal", "plies and nodes must be positive: " + plies + ", " + nodes);
         }
         AlphaBetaPlayer[] pair = playerCount == 3 ? null : new AlphaBetaPlayer[] {player(nodes, jump), player(nodes, jump)};
         ThreePlayerPlayer[] trio = playerCount == 3
                 ? new ThreePlayerPlayer[] {player3(nodes, jump), player3(nodes, jump), player3(nodes, jump)} : null;
-        Position position = Position.initial(rules(jump, playerCount, ranking));
+        Position position = Position.initial(rules(jump, playerCount, ranking, camps));
         List<Choice> played = new ArrayList<>();
         for (int ply = 0; ply < plies; ply++) {
             if (position.outcome() != null) {
@@ -539,11 +606,11 @@ public final class WebCore {
     }
 
     private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount) {
-        return replay(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY);
+        return replay(history, jump, playerCount, RuleSet.Ranking.FIRST_WINNER_ONLY, RuleSet.ForeignCamps.CLOSED);
     }
 
-    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking) {
-        Position position = Position.initial(rules(jump, playerCount, ranking));
+    private Position replay(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking, RuleSet.ForeignCamps camps) {
+        Position position = Position.initial(rules(jump, playerCount, ranking, camps));
         for (int ply = 0; ply < history.length; ply++) {
             int move = history[ply];
             if (!contains(position.legalMoves(), move)) {

@@ -40,7 +40,8 @@ describe('setupOfChoice: every mode, jump rule and seat gives the right game', (
   });
 
   it('the default is the classic game, engine on the last seat in hot-seat', () => {
-    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', mode: 'two', humanSeat: 0, engineSeat: 2 });
+    // camps: added on 2026-11-20 (foreign-corner rule); closed is the rule the app has always played
+    expect(DEFAULT_CHOICE).toEqual({ jump: 'adjacent', camps: 'closed', mode: 'two', humanSeat: 0, engineSeat: 2 });
     expect(kinds(choice({ mode: 'hotseat' }))).toBe('hhe');
   });
 });
@@ -67,6 +68,23 @@ describe('the remembered choice', () => {
     expect(loadChoice(memory())).toEqual(DEFAULT_CHOICE);
     for (const text of ['', '{', 'null', '7', '"x"', '[]', '{"jump":"far","mode":"four","humanSeat":9,"engineSeat":"2"}']) {
       expect(parseChoice(text), text).toEqual(DEFAULT_CHOICE);
+    }
+  });
+
+  it('reads the foreign-corner rule, and a choice stored before the field existed as closed', () => {
+    expect(parseChoice('{"jump":"long","mode":"engines","humanSeat":1,"engineSeat":2}')).toEqual({
+      jump: 'long', camps: 'closed', mode: 'engines', humanSeat: 1, engineSeat: 2,
+    });
+    expect(parseChoice('{"camps":"open"}').camps).toBe('open');
+    expect(parseChoice('{"camps":"pass-through"}').camps).toBe('pass-through');
+    for (const bad of ['"OPEN"', '"pass"', '1', 'null', 'true']) expect(parseChoice(`{"camps":${bad}}`).camps, bad).toBe('closed');
+  });
+
+  it('puts the foreign-corner rule into the variant of every mode; closed leaves no field', () => {
+    for (const mode of ['two', 'hotseat', 'engines'] as const) {
+      expect(variantOf(setupOfChoice(choice({ mode, camps: 'open' }), true, 1)).camps).toBe('open');
+      expect(variantOf(setupOfChoice(choice({ mode, camps: 'pass-through', jump: 'long' }), false, 1))).toMatchObject({ jump: 'long', camps: 'pass-through' });
+      expect('camps' in variantOf(setupOfChoice(choice({ mode }), true, 1))).toBe(false);
     }
   });
 

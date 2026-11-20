@@ -219,7 +219,8 @@ public final class GameShard {
      * The rules the shard's games were played under, parsed from the {@code rules} metadata ({@code
      * RuleSet.toString()}, e.g. {@code RuleSet[players=3, moveLimit=300, ..., jumpRule=LONG]}). A shard without the
      * key (or a key without {@code jumpRule}, written before the jump rule existed) means the defaults of
-     * {@code players} (2 if that is missing as well) with the adjacent jump. Every sample of the shard has these
+     * {@code players} (2 if that is missing as well) with the adjacent jump; a key without {@code foreignCamps}
+     * (written before that switch existed) means {@code CLOSED}. Every sample of the shard has these
      * rules; the move limit of a sample is also in the tensor {@code move_limit}.
      */
     public static RuleSet rules(Map<String, String> metadata) {
@@ -244,7 +245,8 @@ public final class GameShard {
                 RuleSet.Repetition.valueOf(kv.getOrDefault("repetition", d.repetition().name())),
                 RuleSet.DrawHandling.valueOf(kv.getOrDefault("drawHandling", d.drawHandling().name())),
                 RuleSet.Ranking.valueOf(kv.getOrDefault("ranking", d.ranking().name())),
-                RuleSet.JumpRule.valueOf(kv.getOrDefault("jumpRule", RuleSet.JumpRule.ADJACENT.name())));
+                RuleSet.JumpRule.valueOf(kv.getOrDefault("jumpRule", RuleSet.JumpRule.ADJACENT.name())),
+                RuleSet.ForeignCamps.valueOf(kv.getOrDefault("foreignCamps", RuleSet.ForeignCamps.CLOSED.name())));
         if (declared != null && r.players() != players) {
             throw new IllegalArgumentException("metadata players " + declared + " but rules " + text);
         }

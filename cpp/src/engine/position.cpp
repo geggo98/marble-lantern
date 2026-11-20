@@ -42,7 +42,7 @@ std::uint64_t Position::piece_key(int player, int cell) { return kKeys.piece[sz(
 std::uint64_t Position::finished_key(int player) { return kKeys.finished[sz(player)]; }
 
 Position::Position(const RuleSet& rules)
-    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), play_on_(rules.plays_on_after_win()), hash_(kKeys.side[0]), moves_(65), hashes_(65), movers_(65), masks_before_(65) {
+    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), pass_foreign_(rules.foreign_camps() != RuleSet::ForeignCamps::Closed), end_foreign_(rules.foreign_camps() == RuleSet::ForeignCamps::Open), play_on_(rules.plays_on_after_win()), hash_(kKeys.side[0]), moves_(65), hashes_(65), movers_(65), masks_before_(65) {
     owner_.fill(-1);
 }
 
@@ -85,7 +85,7 @@ std::expected<void, std::string> Position::put(int player, int cell) {
     if (ply_ > 0) return std::unexpected("setup is only allowed before the first move (ply " + std::to_string(ply_) + ")");
     if (player < 0 || player >= rules_.players()) return std::unexpected("player " + std::to_string(player) + " outside 0.." + std::to_string(rules_.players() - 1));
     if (cell < 0 || cell >= kCells) return std::unexpected("no such cell: " + std::to_string(cell));
-    if (!layout().allowed(player, cell)) {
+    if (!end_foreign_ && !layout().allowed(player, cell)) {
         return std::unexpected("player " + std::to_string(player) + " may not enter cell " + std::to_string(cell));
     }
     if (owner_[sz(cell)] >= 0) return std::unexpected("cell " + std::to_string(cell) + " is occupied");
@@ -262,8 +262,10 @@ void Position::update_goal_counts(int player, int cell, int delta) {
 
 int Position::generate(std::span<int, kMaxMoves> out) {
     const int p = side_;
-    const Layout::Table steps = layout().step_table(p);
-    const Layout::Table jumps = layout().jump_table(p);
+    // Closed: the layout's tables (home cells only). PassThrough: steps to home cells, jumps to any cell. Open: the plain board tables.
+    const Layout::Table steps = end_foreign_ ? geometry::step_table() : layout().step_table(p);
+    const Layout::Table jumps = pass_foreign_ ? geometry::land_table() : layout().jump_table(p);
+    const bool home_end = pass_foreign_ && !end_foreign_;  // PassThrough: a landing is a move only on a home cell
     const int goal = layout().goal_corner(p);
     const bool leave_forbidden = rules_.leave_goal() == RuleSet::LeaveGoal::Forbidden;
     // A move can only be forbidden when an opponent's goal already holds 9 of its 10 cells: a move adds at most one piece to another goal.
@@ -283,8 +285,8 @@ int Position::generate(std::span<int, kMaxMoves> out) {
             }
         }
         const int required_corner = stay_in_goal ? goal : kNoCorner;
-        count = long_jump_ ? add_long_jumps(p, from, out, count, required_corner, suicide_check)
-                           : add_jumps(p, from, out, count, jumps, required_corner, suicide_check);
+        count = long_jump_ ? add_long_jumps(p, from, out, count, required_corner, suicide_check, home_end)
+                           : add_jumps(p, from, out, count, jumps, required_corner, suicide_check, home_end);
         owner_[sz(from)] = static_cast<std::int8_t>(p);
     }
     return count;
@@ -299,9 +301,10 @@ bool Position::opponent_goal_nearly_full(int p) const {
 
 // Depth-first search over jump landings; the visited set deduplicates (start, end) pairs. It is a 128-bit set in two words
 // (cells 0 to 120); a shift by `cell` uses `cell mod 64`, as in Java. required_corner is the goal corner if the piece may not
-// leave it, else kNoCorner.
+// leave it, else kNoCorner. home_end: a landing is a move only on a home cell of p; the search still goes on from every landing
+// (ForeignCamps::PassThrough).
 int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, Layout::Table jumps, int required_corner,
-                        bool suicide_check) {
+                        bool suicide_check, bool home_end) {
     int count = count_in;
     std::uint64_t low = 0;
     std::uint64_t high = 0;
@@ -328,7 +331,7 @@ int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int coun
                 high |= bit;
             }
             stack_[sz(top++)] = land;
-            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) &&
+            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) && (!home_end || layout().allowed(p, land)) &&
                 (!suicide_check || !hands_opponent_the_win(p, from, land))) {
                 out[sz(count++)] = Move::of(from, land);
             }
@@ -339,7 +342,8 @@ int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int coun
 
 // The long-hop variant of add_jumps (JumpRule::Long): the same depth-first search, visited set and order, another landing rule (see
 // long_landing). There is at most one landing per direction; for k = 1 it is the single jump of add_jumps.
-int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, int required_corner, bool suicide_check) {
+int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, int required_corner, bool suicide_check,
+                             bool home_end) {
     int count = count_in;
     std::uint64_t low = 0;
     std::uint64_t high = 0;
@@ -364,7 +368,7 @@ int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int
                 high |= bit;
             }
             stack_[sz(top++)] = land;
-            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) &&
+            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) && (!home_end || layout().allowed(p, land)) &&
                 (!suicide_check || !hands_opponent_the_win(p, from, land))) {
                 out[sz(count++)] = Move::of(from, land);
             }
@@ -375,7 +379,8 @@ int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int
 
 // The landing of the long hop from cell c in direction d, or -1. The piece walks over empty cells to the first piece P, k steps away
 // (k >= 1); the landing is the cell k steps behind P (the mirror of c across P). The k - 1 cells between c and P, the k - 1 cells
-// between P and the landing and the landing itself must be empty and on the board, and player p must be allowed on the landing.
+// between P and the landing and the landing itself must be empty and on the board, and the landing must be a home cell of player p
+// unless foreign corners are passable (ForeignCamps other than Closed).
 int Position::long_landing(int p, int c, int d) const {
     const auto steps = geometry::step_table();
     int over = c;
@@ -390,7 +395,7 @@ int Position::long_landing(int p, int c, int d) const {
         land = steps[sz(land * kDirections + d)];
         if (land < 0 || owner_[sz(land)] >= 0) return -1;
     }
-    return layout().allowed(p, land) ? land : -1;
+    return pass_foreign_ || layout().allowed(p, land) ? land : -1;
 }
 
 // Whether the move would meet the winning condition of another player.

@@ -86,6 +86,37 @@ class WebNetCoreTest {
         }
     }
 
+    /**
+     * Under open foreign corners the search follows the move list of that rule: every chosen move is legal under OPEN,
+     * and the facade's legal moves and outcome take the rule of the call.
+     */
+    @Test
+    void playsLegalMovesWithOpenForeignCorners() {
+        for (Case c : CASES) {
+            Network network = new Network(Parameters.init(c.config(), 17));
+            WebNetCore core = new WebNetCore();
+            core.create(c.jump(), c.players(), RuleSet.ForeignCamps.OPEN, 30, 1, 5, "");
+            core.setWeightsInfo(c.config().planes().id(), c.config().players());
+            Position position = Position.initial(RuleSet.defaults(c.players()).withJumpRule(c.jump())
+                    .withForeignCamps(RuleSet.ForeignCamps.OPEN));
+            int[] history = new int[0];
+            for (int ply = 0; ply < 30 && position.outcome() == null; ply++) {
+                int[] legal = position.legalMoves();
+                assertArrayEquals(legal, core.legalMoves(history, c.jump(), c.players(), RuleSet.ForeignCamps.OPEN));
+                int n = core.begin(history);
+                while (n > 0) {
+                    n = forwardAndApply(core, network, n)[0];
+                }
+                int move = core.best().move();
+                assertTrue(java.util.Arrays.stream(legal).anyMatch(m -> m == move), c.name() + " ply " + ply);
+                position.make(move);
+                history = java.util.Arrays.copyOf(history, history.length + 1);
+                history[history.length - 1] = move;
+            }
+            assertEquals(null, core.outcome(history, c.jump(), c.players(), RuleSet.ForeignCamps.OPEN));
+        }
+    }
+
     @Test
     void goldenFilesAreTheCurrentJvmGames() throws Exception {
         Path dir = Path.of("test", "golden");

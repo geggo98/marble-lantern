@@ -68,16 +68,18 @@ public:
     constexpr Table step_table(int player) const { return step_to_[static_cast<std::size_t>(player)]; }
     // Flat jump-landing table of a player with the allowed cells folded in.
     constexpr Table jump_table(int player) const { return jump_to_[static_cast<std::size_t>(player)]; }
-    // Whether the player may stand on the cell: central hexagon, own start corner or own goal corner.
+    // Whether the cell is a home cell of the player: central hexagon, own start corner or own goal corner. Under ForeignCamps Closed and
+    // PassThrough a move ends only on such a cell.
     constexpr bool allowed(int player, int cell) const {
         return allowed_[static_cast<std::size_t>(player)][static_cast<std::size_t>(cell)];
     }
     // Single-agent distance of a cell for a player: the number of steps to the nearest goal cell on an empty board, over the
-    // cells the player may enter.
+    // home cells of the player. A cell of a foreign corner (a piece stands there only under ForeignCamps::Open) gets the number of
+    // steps over all cells.
     constexpr int distance(int player, int cell) const {
         return distance_[static_cast<std::size_t>(player)][static_cast<std::size_t>(cell)];
     }
-    // The largest distance in the table of a player.
+    // The largest distance of a home cell of the player.
     constexpr int max_distance(int player) const { return max_distance_[static_cast<std::size_t>(player)]; }
 
     // The shared layouts of the two-player and the three-player game; of(players) takes 2 or 3 (3 gives the three-player layout, anything else the two-player one).
@@ -107,6 +109,29 @@ private:
                     queue[static_cast<std::size_t>(tail++)] = n;
                 }
             }
+        }
+        // Foreign corners (RuleSet::ForeignCamps): a piece of p stands there only under Open. Their distance is the number of steps to
+        // the nearest goal cell over all board cells; the cells above keep their values.
+        std::array<int, kCells> all{};
+        for (auto& v : all) v = -1;
+        head = 0;
+        tail = 0;
+        for (const int c : geometry::corner_cells(goal_corner_[ps])) {
+            all[static_cast<std::size_t>(c)] = 0;
+            queue[static_cast<std::size_t>(tail++)] = c;
+        }
+        while (head < tail) {
+            const int c = queue[static_cast<std::size_t>(head++)];
+            for (int d = 0; d < kDirections; ++d) {
+                const int n = geometry::neighbor(c, d);
+                if (n >= 0 && all[static_cast<std::size_t>(n)] < 0) {
+                    all[static_cast<std::size_t>(n)] = all[static_cast<std::size_t>(c)] + 1;
+                    queue[static_cast<std::size_t>(tail++)] = n;
+                }
+            }
+        }
+        for (int c = 0; c < kCells; ++c) {
+            if (!allowed_[ps][static_cast<std::size_t>(c)]) dist[static_cast<std::size_t>(c)] = all[static_cast<std::size_t>(c)];
         }
         for (int c = 0; c < kCells; ++c) {
             if (allowed_[ps][static_cast<std::size_t>(c)]) {

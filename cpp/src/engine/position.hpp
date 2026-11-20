@@ -107,8 +107,9 @@ private:
     void move_piece(int player, int from, int to);
     void update_goal_counts(int player, int cell, int delta);
     bool opponent_goal_nearly_full(int p) const;
-    int add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, Layout::Table jumps, int required_corner, bool suicide_check);
-    int add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, int required_corner, bool suicide_check);
+    int add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, Layout::Table jumps, int required_corner, bool suicide_check,
+                  bool home_end);
+    int add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, int required_corner, bool suicide_check, bool home_end);
     int long_landing(int p, int c, int d) const;
     bool hands_opponent_the_win(int p, int from, int to) const;
     bool is_win(int occupied, int own) const;
@@ -123,6 +124,8 @@ private:
     RuleSet rules_;
     const Layout* layout_;  // the shared layout of rules_.players()
     bool long_jump_ = false;  // rules_.jump_rule() == Long, cached for generate()
+    bool pass_foreign_ = false;  // rules_.foreign_camps() != Closed: a jump chain may land on a foreign corner, cached
+    bool end_foreign_ = false;   // rules_.foreign_camps() == Open: a move may end on a foreign corner, cached
     bool play_on_ = false;    // rules_.plays_on_after_win(), cached
     std::array<std::int8_t, kCells> owner_{};
     std::array<int, Layout::kMaxPlayers> goal_occupied_{};  // cells of goal(p) that hold any piece

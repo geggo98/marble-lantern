@@ -72,4 +72,10 @@ std::expected<RuleSet, std::string> RuleSet::with_jump_rule(JumpRule value) cons
     return create(s);
 }
 
+std::expected<RuleSet, std::string> RuleSet::with_foreign_camps(ForeignCamps value) const {
+    Spec s = spec_;
+    s.foreign_camps = value;
+    return create(s);
+}
+
 }  // namespace sh

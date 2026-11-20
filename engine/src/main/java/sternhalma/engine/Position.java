@@ -59,6 +59,13 @@ public final class Position {
     private final int[][] jumpTo;
     /** Whether the rules use the Halma long hop ({@link RuleSet.JumpRule#LONG}). */
     private final boolean longJump;
+    /**
+     * Whether a jump chain may land on a cell of a foreign corner ({@link RuleSet.ForeignCamps} other than CLOSED);
+     * then {@link #jumpTo} holds the plain landing table of the board.
+     */
+    private final boolean passForeign;
+    /** Whether a move may end on a cell of a foreign corner ({@link RuleSet.ForeignCamps#OPEN}). */
+    private final boolean endForeign;
     /** Whether a player who fills the goal leaves the game and the others play on ({@link RuleSet#playsOnAfterWin}). */
     private final boolean playOn;
     private int sideToMove;
@@ -82,6 +89,8 @@ public final class Position {
         this.rules = rules;
         this.layout = Layout.of(rules.players());
         this.longJump = rules.jumpRule() == RuleSet.JumpRule.LONG;
+        this.passForeign = rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED;
+        this.endForeign = rules.foreignCamps() == RuleSet.ForeignCamps.OPEN;
         this.playOn = rules.playsOnAfterWin();
         this.goalOccupied = new int[rules.players()];
         this.goalOwn = new int[rules.players()];
@@ -90,8 +99,8 @@ public final class Position {
         this.stepTo = new int[rules.players()][];
         this.jumpTo = new int[rules.players()][];
         for (int p = 0; p < rules.players(); p++) {
-            stepTo[p] = layout.stepTable(p);
-            jumpTo[p] = layout.jumpTable(p);
+            stepTo[p] = endForeign ? Geometry.STEP : layout.stepTable(p);
+            jumpTo[p] = passForeign ? Geometry.LAND : layout.jumpTable(p);
         }
         Arrays.fill(owner, (byte) -1);
         this.hash = SIDE_KEY[0];
@@ -141,7 +150,8 @@ public final class Position {
     /**
      * Places a piece. For setup before the first {@link #make}.
      *
-     * @throws IllegalArgumentException if the player or cell does not exist, or the player may not enter the cell
+     * @throws IllegalArgumentException if the player or cell does not exist, or no move of the player may end on the
+     *                                  cell (a foreign corner unless {@link RuleSet.ForeignCamps#OPEN})
      * @throws IllegalStateException    if the cell is occupied or a move has been played
      */
     public Position put(int player, int cell) {
@@ -150,7 +160,7 @@ public final class Position {
         if (cell < 0 || cell >= Geometry.CELLS) {
             throw new IllegalArgumentException("no such cell: " + cell);
         }
-        if (!layout.allowed(player, cell)) {
+        if (!endForeign && !layout.allowed(player, cell)) {
             throw new IllegalArgumentException("player " + player + " may not enter cell " + cell);
         }
         if (owner[cell] >= 0) {
@@ -480,9 +490,11 @@ public final class Position {
                 }
             }
             int requiredCorner = stayInGoal ? goal : NO_CORNER;
+            // PASS_THROUGH: the chain may land on a foreign corner, but a move must not end there
+            boolean homeEnd = passForeign && !endForeign;
             count = longJump
-                    ? addLongJumps(p, from, out, count, requiredCorner, suicideCheck)
-                    : addJumps(p, from, out, count, jumps, requiredCorner, suicideCheck);
+                    ? addLongJumps(p, from, out, count, requiredCorner, suicideCheck, homeEnd)
+                    : addJumps(p, from, out, count, jumps, requiredCorner, suicideCheck, homeEnd);
             owner[from] = (byte) p;
         }
         return count;
@@ -505,9 +517,11 @@ public final class Position {
      * Depth-first search over jump landings; the visited set deduplicates (start, end) pairs. It is a 128-bit
      * set in two longs (cells 0 to 120), kept in registers; a shift by {@code cell} uses {@code cell mod 64}.
      * {@code requiredCorner} is the goal corner if the piece may not leave it, else {@link #NO_CORNER}.
+     * {@code homeEnd}: a landing is a move only if it is a home cell of {@code p} ({@link Layout#allowed}); the
+     * search still continues from every landing ({@link RuleSet.ForeignCamps#PASS_THROUGH}).
      */
     private int addJumps(int p, int from, int[] out, int countIn, int[] jumps, int requiredCorner,
-            boolean suicideCheck) {
+            boolean suicideCheck, boolean homeEnd) {
         int count = countIn;
         long low = 0;
         long high = 0;
@@ -540,6 +554,7 @@ public final class Position {
                 }
                 stack[top++] = land;
                 if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                        && (!homeEnd || layout.allowed(p, land))
                         && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
                     out[count++] = Move.of(from, land);
                 }
@@ -556,7 +571,8 @@ public final class Position {
      * the player must be allowed to stand on it. For k = 1 this is exactly the single jump of {@link #addJumps}.
      * There is at most one landing per direction.
      */
-    private int addLongJumps(int p, int from, int[] out, int countIn, int requiredCorner, boolean suicideCheck) {
+    private int addLongJumps(int p, int from, int[] out, int countIn, int requiredCorner, boolean suicideCheck,
+            boolean homeEnd) {
         int count = countIn;
         long low = 0;
         long high = 0;
@@ -588,6 +604,7 @@ public final class Position {
                 }
                 stack[top++] = land;
                 if ((requiredCorner == NO_CORNER || Geometry.cornerOf(land) == requiredCorner)
+                        && (!homeEnd || layout.allowed(p, land))
                         && (!suicideCheck || !handsOpponentTheWin(p, from, land))) {
                     out[count++] = Move.of(from, land);
                 }
@@ -614,7 +631,7 @@ public final class Position {
                 return -1;
             }
         }
-        return layout.allowed(p, land) ? land : -1;
+        return passForeign || layout.allowed(p, land) ? land : -1;
     }
 
     /** Whether the move would meet the winning condition of another player (Definition 2). */
@@ -836,6 +853,7 @@ public final class Position {
                 && sideToMove == other.sideToMove
                 && rules.players() == other.rules.players()
                 && rules.jumpRule() == other.rules.jumpRule()
+                && rules.foreignCamps() == other.rules.foreignCamps()
                 && rules.playsOnAfterWin() == other.rules.playsOnAfterWin()
                 && finishedMask == other.finishedMask
                 && Arrays.equals(owner, other.owner);

@@ -12,7 +12,7 @@ import type { AnalysisResult, Engine } from '../engines/engine';
 import { SKILL_NODES, scoreLoss } from '../engines/analysis';
 import type { GameState } from '../game/game';
 import type { Side } from '../game/board-state';
-import { DEFAULT_VARIANT } from '../game/variant';
+import { DEFAULT_VARIANT, campsOf } from '../game/variant';
 import type { JumpRule, Variant } from '../game/variant';
 import { skillCalibrated, skillEnabled } from './estimate';
 import { LEDGER_MAX, hashKey } from './ledger';
@@ -251,7 +251,7 @@ export class SkillTracker {
     const old = this.current;
     const enabled = skillEnabled(variant);
     const ledger = enabled ? [...this.cache.values()] : [];
-    const same = old.variant.jump === variant.jump && old.variant.players === variant.players;
+    const same = old.variant.jump === variant.jump && old.variant.players === variant.players && campsOf(old.variant) === campsOf(variant);
     if (same && old.paused === this.paused && old.ledger.length === ledger.length && old.ledger.every((l, i) => l === ledger[i]) && old.status === status && old.done === losses.length && old.total === moves.length && old.losses.length === losses.length && old.losses.every((l, i) => l === losses[i])) return;
     this.current = {
       status, done: losses.length, total: moves.length, losses, ledger, paused: this.paused, variant, enabled, calibrated: skillCalibrated(variant),

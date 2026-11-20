@@ -52,9 +52,11 @@ public:
     const Evaluator& base() const { return *base_; }
     const RaceTable* table() const { return table_.get(); }
 
-    // The rule preconditions: two players and no blocking-state rule (the table knows nothing about it).
+    // The rule preconditions: two players, closed foreign corners and no blocking-state rule (the table and the solitaire plans know
+    // only the default move set).
     static bool rules_apply(const RuleSet& rules) {
-        return rules.players() == 2 && rules.blocking_states() == RuleSet::BlockingStates::None;
+        return rules.players() == 2 && rules.foreign_camps() == RuleSet::ForeignCamps::Closed &&
+               rules.blocking_states() == RuleSet::BlockingStates::None;
     }
     // RaceAdjudication::passed without the scan over the board: the piece lists are sorted by cell id, and cell ids are ordered by row
     // r first, so player 0's rearmost row is that of its first piece and player 1's rearmost row (towards player 0) that of its last.
