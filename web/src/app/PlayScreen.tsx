@@ -40,6 +40,8 @@ import type { EngineSession } from './session';
 import type { SessionError } from './session';
 
 import type { NetSelectionStore } from './net-selection';
+import { InstallEntry } from '../ui/PwaUi';
+import type { PwaPort } from '../pwa/pwa';
 
 export interface PlayModel {
   game: GameController;
@@ -75,6 +77,8 @@ export interface PlayModel {
   onRetryNet?: () => void;
   onRestart: () => void;
   onSelect: (engine: EngineId) => void;
+  /** The installable app: the install entry in the side column and the menu. Absent in the online mode. */
+  pwa?: PwaPort;
 }
 
 /** E1 to E4 of the design: the error code decides title, text and actions. */
@@ -340,6 +344,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         }}
       />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
+      <InstallEntry {...(model.pwa ? { pwa: model.pwa } : {})} />
       <EngineCard
         info={s.current?.info ?? null}
         level={model.level}

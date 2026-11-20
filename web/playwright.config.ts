@@ -24,6 +24,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     reducedMotion: 'reduce',
     locale: 'en-US',
+    // The production build registers a service worker (docs/web-ui.md, "Installable app and offline cache"). It would serve later page
+    // loads from its cache and hide what a spec routes or counts, so the specs run without it; e2e/pwa.spec.ts allows it on purpose.
+    serviceWorkers: 'block',
   },
   ...(LIVE
     ? {}

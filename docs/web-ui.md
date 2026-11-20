@@ -10,6 +10,7 @@ The address of the page holds the current game, so a game can be shared as a lin
 The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
 The app also plays game variants: the long-hop jump rule and games with three players, with a human or an engine on each seat ([game variants](#game-variants)). The start dialog offers the jump rule and the game mode ([start dialog](#start-dialog)); a game link also starts a variant ([starting a variant](#starting-a-variant)).
 Two more browser engines play with a neural network instead of alpha-beta search: `net-wasm` computes the network on the CPU, `net-webgpu` on the GPU ([net engines](#net-engines)). The networks they load are described in [models](models.md).
+The static site can be installed as an app and plays offline after one visit ([installable app and offline cache](#installable-app-and-offline-cache)).
 
 ## Contents
 
@@ -25,10 +26,11 @@ Two more browser engines play with a neural network instead of alpha-beta search
 10. [Skill estimate](#skill-estimate)
 11. [Net engines](#net-engines)
 12. [Small screens and touch](#small-screens-and-touch)
-13. [Loading and checking the race table](#loading-and-checking-the-race-table)
-14. [Build, run and test](#build-run-and-test)
-15. [Continuous integration](#continuous-integration)
-16. [Known limits](#known-limits)
+13. [Installable app and offline cache](#installable-app-and-offline-cache)
+14. [Loading and checking the race table](#loading-and-checking-the-race-table)
+15. [Build, run and test](#build-run-and-test)
+16. [Continuous integration](#continuous-integration)
+17. [Known limits](#known-limits)
 
 The shipped network files have their own document: [models](models.md).
 
@@ -86,6 +88,7 @@ In the online mode, `app/build.gradle.kts` copies `web/public/engines/` and `web
 | `web/src/guides/` | move guides: bands, marks, advantage text, background analysis (see [move guides](#move-guides)) |
 | `web/src/skill/` | skill estimate: statistic, calibration, level encoding, background tracker (see [skill estimate](#skill-estimate)) |
 | `web/src/i18n/` | German and English texts |
+| `web/src/pwa/`, `web/tooling/` | installable app: service worker and its strategy, page-side controller; the Vite plugin that writes `sw.js` (see [installable app and offline cache](#installable-app-and-offline-cache)) |
 | `web/src/bench/`, `web/bench/` | benchmark (see [web benchmark](web-benchmark.md)) |
 | `web/e2e/` | Playwright browser tests |
 | `web/design/` | design tokens, mock-up and logo |
@@ -727,9 +730,9 @@ The WebGPU backend uses F32 kernels only and does not request the optional featu
 
 The play screen has two presentations of one set of content. The breakpoint is 60 rem (960 px at the default font size). `useWide()` in `web/src/ui/useMedia.ts` reads it for React, and `web/src/ui/mobile.css` repeats it as `max-width: 59.99rem` for the layout.
 
-**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the game buttons (Undo, New game, Swap sides, Engine vs. engine; Swap sides only when the game allows it), the seats card (three players only), the move guide switch, copy link, the engine card, the skill card, the figures of the last engine move and the move list.
+**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the game buttons (Undo, New game, Swap sides, Engine vs. engine; Swap sides only when the game allows it), the seats card (three players only), the move guide switch, copy link, the install entry (only when the browser offers an install), the engine card, the skill card, the figures of the last engine move and the move list.
 
-**Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: Swap sides, Engine vs. engine, move guides, copy link, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
+**Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: Swap sides, Engine vs. engine, move guides, copy link, the install entry, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
 
 - **Portrait.** Header (one row from 320 px; the mode badge keeps only its icon below 26 rem), status bar, board, advantage bar, bottom bar. The page is exactly as high as the viewport (`100dvh`) and does not scroll; the footer is hidden on this screen because the menu holds its content.
 - **Landscape phones** (height up to 32 rem). The header is one row. The board stands on the left. A column 12 to 17 rem wide holds the status bar, the advantage bar and the three actions, stacked.
@@ -757,6 +760,98 @@ The play screen has two presentations of one set of content. The breakpoint is 6
 - Playwright's WebKit is not Safari, and an emulated device is not a real one: nobody has tried the screen on a real iPhone or Android phone. The safe-area insets are zero in emulation.
 - Dragging is tested with the mouse in both browsers and with real touch events through the DevTools protocol in Chromium only.
 
+## Installable app and offline cache
+
+The static site is a progressive web app (PWA): a browser can install it like an app, and after one visit it starts and plays without network. Two parts make this work. A **web app manifest** (`web/public/manifest.webmanifest`) tells the browser the name, the icons and how the installed app opens. A **service worker** (`web/dist/sw.js`) is a script that the browser keeps for the site; it answers the site's requests from a cache. The online mode (Hilla) has neither: only `web/src/main.tsx`, the entry of the static site, creates the PWA controller.
+
+### Terms of this section
+
+- **Precache:** the files the service worker downloads when it installs, before the page needs them.
+- **Runtime cache:** files the service worker stores the first time the page loads them.
+- **Revision:** the first 16 hex digits of the SHA-256 of a file in `web/dist/`. A cache entry carries its revision in the response header `x-ml-revision`.
+- **Waiting worker:** a new service worker that is installed but does not control the page yet. The browser keeps it waiting while a page of the site is open.
+
+### What is cached
+
+The Vite plugin `web/tooling/pwa-plugin.ts` runs after `vite build`. It hashes every file in `web/dist/`, sorts the files as in the table, and bundles `web/src/pwa/sw.ts` into `web/dist/sw.js` with this list inlined. The build prints the totals; the numbers below are from the build of 2026-11-20.
+
+| Cache | Files | Size |
+|---|---|---|
+| Precache | `index.html`, everything in `assets/` (code, styles, workers), the manifest, icons and favicons, `engines/engines.json`, the files of the default engine `java-wasmgc` (ADR 0003), `tables/rows2.manifest.json` and `tables/rows2.bin.gz` | 22 files, 3,825,969 bytes |
+| Runtime cache | the other engines (`cpp-wasm`, `java-js`, the net engines with all flavours), `models/` | up to 15 files, 2,268,098 bytes |
+| Not cached | `sw.js`, source maps, dot files, any URL with a query string, other origins, POST requests, every path with `/connect/` (the server engines) | |
+
+The sizes are the file sizes in `web/dist/`. A server that sends `rows2.bin.gz` with `Content-Encoding: gzip` hands the service worker the inflated table, and the cache then holds 13 MB for it: `vite preview` does this, and the browser test measured a precache of 14,495,962 bytes.
+
+A navigation to the base path or to `index.html` gets the cached `index.html`, whatever the query string; the game itself is in the fragment ([game URL](#game-url)). Other navigations go to the network. The strategy is **cache first**: a cached file is answered without asking the network. A runtime entry whose revision differs from the current manifest counts as missing.
+
+**Cache names.** `ml:<base path>:precache-<version>` and `ml:<base path>:runtime-<version>`, for example `ml:/marble-lantern/:precache-b3d3efa44898`. The version is a hash over all entries. The base path is part of the name because GitHub Pages serves every project of one account from the same origin, and the cache storage belongs to the origin. The cleanup deletes only names that start with this site's prefix.
+
+**Checks.** The service worker stores a downloaded file only if its SHA-256 matches the revision. Reason: after a deployment, the content delivery network (CDN) of GitHub Pages can serve the old file for a short time next to the new `sw.js`. If a precache file still does not match after a second download with `cache: 'reload'`, the install fails; the old service worker stays in charge, and the browser tries again at the next update check. Exception: a `.gz` file that arrives with `Content-Encoding` is inflated by the browser and cannot match; it is stored without the check, because the app verifies the table and the models itself.
+
+**When the service worker registers.** Only in the production build (`import.meta.env.PROD`), never under `vite dev`, and only after the first engine has loaded or failed (`App.tsx` calls `pwa.start()`). The install can then read the engine and the table from the HTTP cache instead of downloading them a second time while the page loads them.
+
+### Versions and updates
+
+Every build whose files differ writes a different `sw.js`, because the manifest is inlined. The browser compares `sw.js` byte by byte at each page load; `web/src/pwa/pwa.ts` also asks every hour and when the page becomes visible again.
+
+1. The new service worker installs. It copies every file whose revision is unchanged from the old caches and downloads only the changed ones.
+2. It waits. The page shows the notice "A new version is available." with the buttons "Reload" and "Not now" (`UpdateNotice` in `web/src/ui/PwaUi.tsx`).
+3. "Reload" sends `SKIP_WAITING` to the waiting worker. It activates, deletes the old caches of this site and takes control. The `controllerchange` event then reloads this page. The page reloads only after this click: another tab that applies the update does not reload a page with a running game. A game survives the reload anyway, because its moves are in the address; the page then asks how to continue ([start dialog](#start-dialog)).
+4. "Not now" hides the notice for this page view. The new version starts when all tabs of the site are closed.
+
+The first install shows no notice: there is no old version, so the service worker activates at once and takes control (`clients.claim()`), and the site works offline from the first visit on.
+
+A tab that stays open on the old version after another tab applied the update still runs the old code. It loads its lazy chunks from the network; offline, a chunk that the new precache no longer holds fails to load.
+
+### Install
+
+- **Chrome, Edge, Android:** the page catches `beforeinstallprompt` and suppresses the browser's own install bar. The side column, or the menu on a small screen, then shows "Install app"; a click opens the browser's install dialog. After `appinstalled`, and in the installed app (`display-mode: standalone`), the entry is hidden.
+- **Safari on iOS and iPadOS:** Safari has no `beforeinstallprompt`. In Safari, but not in the installed app and not in other iOS browsers (CriOS, FxiOS, EdgiOS), the same place shows "To install the app, tap Share, then 'Add to Home Screen'." iPadOS reports itself as a Mac, so the check also accepts `MacIntel` with touch points.
+
+`index.html` links the manifest, the favicons and `icons/apple-touch-icon.png`, and sets `apple-mobile-web-app-capable`, `mobile-web-app-capable`, `apple-mobile-web-app-title` and the status bar style `default`. Reason for `default` instead of `black-translucent`: with `black-translucent` iOS draws white status-bar text over the page, which cannot be read on the light theme. The viewport already has `viewport-fit=cover` with safe-area padding ([small screens and touch](#small-screens-and-touch)). Two `theme-color` metas give the page colour of the light and the dark theme; when the theme switch forces a theme, `applyTheme` in `web/src/ui/Chrome.tsx` sets both to that theme's colour. The manifest can hold only one `theme_color` and `background_color`; both are the light page colour `#f5f0e6`.
+
+**Icons.** `scripts/web/icons.zsh` renders them from `web/public/logo.svg` with `rsvg-convert` (librsvg, part of `devenv.nix`) into `web/public/icons/`, and checks each size. The PNG files are committed; run the script again after a change to the logo (`devenv shell -- scripts/web/icons.zsh`). `icon-192.png` and `icon-512.png` have a transparent background. `icon-maskable-512.png` and `apple-touch-icon.png` (180 px) put the logo at 80 % on the dark page colour `#14110e`: a launcher crops a maskable icon to its own shape and needs a full background, and iOS fills transparent pixels with black.
+
+**No dependency.** The service worker is hand-written and the plugin uses only Vite and Node.js. `vite-plugin-pwa` would bring Workbox and its dependency tree into the supply chain ([supply-chain.md](supply-chain.md)), for a cache list and a cache-first strategy that fit in two short files.
+
+### Tests
+
+| File | Checks |
+|---|---|
+| `web/src/pwa/sw-core.test.ts` | routing, install with carry-over and revision check, retry with `cache: 'reload'`, cleanup of old caches (not those of other sites), cache-first answers, offline misses, a `.gz` with `Content-Encoding` |
+| `web/tooling/pwa-plugin.test.ts` | which file goes into which cache, stable version, refusal of a build without `index.html` or default engine; the web app manifest and the sizes of the icons |
+| `web/src/pwa/pwa.test.ts` | registration, update notice, reload only after the click, install offer, the iOS check |
+| `web/src/ui/PwaUi.test.tsx` | the notice and the install entry, in English and German |
+| `web/src/app/App.pwa.test.tsx` | the app registers after the first engine load; the notice appears over a running game and leaves it alone until "Reload" |
+| `web/e2e/pwa.spec.ts` | Chromium against `vite preview`: the manifest under the base path, the caches after one visit, then offline a fresh page load, a move of the default engine, and a move of `cpp-wasm` from the runtime cache |
+
+`scripts/web/build.zsh` checks that `dist/index.html` links the manifest and the apple-touch-icon under the base path and that `dist/sw.js` precaches the shell, the manifest, the default engine and the table.
+
+All other browser tests run with `serviceWorkers: 'block'` (`web/playwright.config.ts`): a service worker would answer later page loads from its cache and hide what a spec routes or counts. `pwa.spec.ts` sets `serviceWorkers: 'allow'`. It skips Firefox and WebKit, because Playwright drives service workers and offline mode reliably only in Chromium. Under `E2E_BASE_URL` (the live smoke test of the deployed site) it runs too and needs a deployment that has the service worker.
+
+### Manual test on a device
+
+Nobody has tried the installed app on a real phone yet. Test against the deployed site, <https://geggo98.github.io/marble-lantern/>.
+
+**Safari on iOS or iPadOS:**
+
+1. Open the site in Safari, start a game, and wait until the engine has made a move. The menu shows the hint "tap Share, then 'Add to Home Screen'".
+2. Tap Share, then "Add to Home Screen". The suggested name is "Marble Lantern" and the icon shows the logo on a dark background.
+3. Open the app from the home screen. It opens without the Safari address bar; the menu shows no install hint; the header is not under the status bar or the notch.
+4. Switch on flight mode, close the app completely (swipe it away), and open it again. The start dialog appears, and the engine plays.
+5. After the next deployment, open the app online. The notice "A new version is available." appears; "Reload" starts the new version.
+
+**Chrome on Android:**
+
+1. Open the site, start a game, wait for an engine move.
+2. Open the menu: "Install app" is there. Tap it and confirm the install dialog.
+3. Open the app from the launcher: no address bar, the logo as icon in the launcher's shape.
+4. Flight mode, close the app, open it again: the game starts and the engine plays.
+5. Optional: choose the C++ engine once online; offline it loads again from the cache.
+
+**On a desktop:** Chrome DevTools, panel "Application": "Manifest" shows errors of the manifest, "Service workers" shows the active and the waiting worker, "Cache storage" shows the two caches of the site. "Offline" in the panel "Network" simulates the flight mode.
+
 ## Loading and checking the race table
 
 `web/src/engines/tables.ts` loads `tables/rows2.manifest.json` and `tables/rows2.bin.gz`. Both are written by `devenv tasks run web:tables`, which calls `scripts/offline/pack-tables.py` (format in [offline mode, the table package](offline-mode.md#the-table-package)).
@@ -781,7 +876,7 @@ All commands run from the repository root, inside the devenv environment. `table
 | `web:engines` | `scripts/web/engines-manifest.zsh` | writes `web/public/engines/engines.json` |
 | `web:install` | `scripts/web/install.zsh` | `npm ci` in `web/` |
 | `web:test` | `scripts/web/test.zsh` | TypeScript type check and Vitest |
-| `web:build` | `scripts/web/build.zsh` | type check, Vite build into `web/dist/`, then two checks: `index.html` refers to assets under the base path, and no JavaScript file contains `connect/` |
+| `web:build` | `scripts/web/build.zsh` | type check, Vite build into `web/dist/` (with `sw.js`), then checks: `index.html` refers to assets and the manifest under the base path, no JavaScript file in `assets/` contains `connect/`, the models verify, the entry chunk has no WebGPU code, `sw.js` precaches the shell, the default engine and the table |
 | `web:bench` | `scripts/web/bench.zsh` | Node.js benchmark, see [web benchmark](web-benchmark.md) |
 | `web:e2e` | `scripts/web/e2e.zsh` | Playwright tests against `vite preview` |
 | `web:ci` | `scripts/web/ci.zsh` | all of the above in order, as the Pages workflow runs them |
@@ -864,4 +959,4 @@ The 14-day cooldown for npm, uv and Dependabot and the `.npmrc` files are descri
 - **Benchmark in the browser.** The benchmark screen of the app (`#/bench`) runs the benchmark in the browser, but a web page cannot read the CPU time of a worker and reads memory only for `cpp-wasm`. The separate benchmark page `web/bench/index.html` is not part of the Vite build, and under the Vite development server it fails to load the C++ engine. The benchmark in Node.js (`devenv tasks run web:bench`) works. Details in [web benchmark](web-benchmark.md#what-the-benchmark-does-not-measure).
 - **Node for the Hilla build.** The Vaadin Gradle plugin downloads its own Node.js (24.22.2) into `~/.vaadin` for the production front-end build. No plugin option to use the Node.js of devenv was found.
 - **TornadoVM in the online mode** was run once, on 2026-11-18 on an Apple M3 Max: the server selected the Metal device and `server:net` answered a move with a small test weights file. Its playing strength in the online mode was not measured.
-- **No offline cache.** The site has no service worker, so it needs the network on every visit.
+- **Installed app on real devices.** The install and the offline start were tested in Chromium only (`web/e2e/pwa.spec.ts`). Safari on iOS and Chrome on Android need the manual test in [installable app and offline cache](#installable-app-and-offline-cache).

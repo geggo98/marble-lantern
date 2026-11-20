@@ -55,4 +55,18 @@ perl -e '
   die "web:build: no chunk contains requestAdapter (the control of the WebGPU scan failed)\n" unless $elsewhere;
   print STDERR "web:build: entry chunk $entry has no WebGPU code ($elsewhere x requestAdapter in other chunks)\n";
 '
+# Check 5: the installable app. index.html links the manifest and the apple-touch-icon under the base path, and dist/sw.js
+# (written by web/tooling/pwa-plugin.ts) names index.html, the manifest, the default engine and the table in its precache.
+perl -e '
+  my $base = shift;
+  open my $h, "<", "dist/index.html" or die "dist/index.html: $!"; local $/; my $html = <$h>; close $h;
+  $html =~ m{<link rel="manifest" href="\Q${base}\Emanifest\.webmanifest"} or die "web:build: index.html does not link ${base}manifest.webmanifest\n";
+  $html =~ m{<link rel="apple-touch-icon" href="\Q${base}\Eicons/apple-touch-icon\.png"} or die "web:build: index.html has no apple-touch-icon under $base\n";
+  open my $s, "<", "dist/sw.js" or die "web:build: dist/sw.js is missing\n"; my $sw = <$s>; close $s;
+  for my $want ("index.html", "manifest.webmanifest", "engines/java/engine-java.wasm", "tables/rows2.bin.gz") {
+    die "web:build: dist/sw.js does not name $want\n" unless $sw =~ m{["\x60\x27]\Q$want\E["\x60\x27]}; # the minifier may quote with backticks
+  }
+  -f "dist/$_" or die "web:build: dist/$_ is missing\n" for qw(manifest.webmanifest icons/icon-192.png icons/icon-512.png icons/icon-maskable-512.png icons/apple-touch-icon.png);
+  print STDERR "web:build: installable app ok (manifest linked under $base, sw.js precaches shell, engine and table)\n";
+' $BASE_PATH
 print -u2 "web:build: dist/ is ready (base $BASE_PATH)"
