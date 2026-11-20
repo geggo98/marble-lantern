@@ -70,13 +70,13 @@ describe('the remembered choice', () => {
     for (const text of ['', '{', 'null', '7', '"x"', '[]']) {
       expect(parseChoice(text), text).toEqual(DEFAULT_CHOICE);
     }
-    // an object is a stored choice, so its missing size is the old 4 rows
-    expect(parseChoice('{"jump":"far","mode":"four","humanSeat":9,"engineSeat":"2"}')).toEqual({ ...DEFAULT_CHOICE, rows: 4 });
+    // an object is a stored choice; its missing size is "no size chosen", which preselects 5 rows
+    expect(parseChoice('{"jump":"far","mode":"four","humanSeat":9,"engineSeat":"2"}')).toEqual({ ...DEFAULT_CHOICE });
   });
 
   it('reads the foreign-corner rule, and a choice stored before the field existed as closed', () => {
     expect(parseChoice('{"jump":"long","mode":"engines","humanSeat":1,"engineSeat":2}')).toEqual({
-      jump: 'long', camps: 'closed', rows: 4, mode: 'engines', humanSeat: 1, engineSeat: 2,
+      jump: 'long', camps: 'closed', rows: 5, mode: 'engines', humanSeat: 1, engineSeat: 2,
     });
     expect(parseChoice('{"camps":"open"}').camps).toBe('open');
     expect(parseChoice('{"camps":"pass-through"}').camps).toBe('pass-through');
@@ -92,7 +92,7 @@ describe('the remembered choice', () => {
   });
 
   it('keeps the valid fields of a partly valid value', () => {
-    expect(parseChoice('{"jump":"long","mode":"x"}')).toEqual({ ...DEFAULT_CHOICE, rows: 4, jump: 'long' });
+    expect(parseChoice('{"jump":"long","mode":"x"}')).toEqual({ ...DEFAULT_CHOICE, jump: 'long' });
     const modes: GameMode[] = ['hotseat', 'engines'];
     for (const mode of modes) expect(parseChoice(JSON.stringify({ mode })).mode).toBe(mode);
   });
@@ -106,11 +106,11 @@ describe('the remembered choice', () => {
 });
 
 describe('the board size of the choice (RuleSet.TriangleRows)', () => {
-  it('a fresh visitor gets 5 rows; a stored choice without a size, or with a size that is not 4 or 5, reads as 4 rows', () => {
+  it('a fresh visitor gets 5 rows; a stored choice without a size, or with a size that is not 4 or 5, also preselects 5; an explicit 4 stays 4', () => {
     expect(parseChoice(null).rows).toBe(5);
-    expect(parseChoice('{"jump":"long"}').rows).toBe(4);
-    expect(parseChoice('{}').rows).toBe(4);
-    for (const bad of ['6', '"5"', 'null', '0', 'true']) expect(parseChoice(`{"rows":${bad}}`).rows, bad).toBe(4);
+    expect(parseChoice('{"jump":"long"}').rows).toBe(5);
+    expect(parseChoice('{}').rows).toBe(5);
+    for (const bad of ['6', '"5"', '"4"', 'null', '0', 'true']) expect(parseChoice(`{"rows":${bad}}`).rows, bad).toBe(5);
     expect(parseChoice('{"rows":5}').rows).toBe(5);
     expect(parseChoice('{"rows":4}').rows).toBe(4);
   });

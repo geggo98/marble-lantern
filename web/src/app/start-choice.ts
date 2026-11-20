@@ -11,8 +11,9 @@ export interface StartChoice {
   /** May pieces enter the foreign triangles (docs/rules.md, "Foreign corners")? A choice stored before the field existed reads as `closed`. */
   camps: ForeignCamps;
   /**
-   * The house size: 4 rows (10 pieces) or 5 rows (15 pieces). A fresh visitor gets 5; a choice stored before the field existed reads as 4
-   * (docs/rules.md, "House size"), because that is the board the person has been playing.
+   * The house size of a NEW game: 4 rows (10 pieces) or 5 rows (15 pieces). The dialog preselects 5 unless the person chose a size: a
+   * fresh visitor and a stored choice without the field (written before the dialog offered a size) both read as 5. Only games that
+   * already exist stay on 4 rows: a game link without `t=` (game-url.ts) and the board behind a link dialog (App.tsx).
    */
   rows: BoardRows;
   mode: GameMode;
@@ -36,8 +37,9 @@ export function parseChoice(text: string | null): StartChoice {
     return {
       jump: raw.jump === 'long' ? 'long' : 'adjacent',
       camps: raw.camps === 'pass-through' || raw.camps === 'open' ? raw.camps : 'closed',
-      // A stored choice without the field, or with a value that is neither 4 nor 5, is an old choice: 4 rows. Only no stored choice at all gives the default 5.
-      rows: raw.rows === 5 ? 5 : 4,
+      // An explicit 4 or 5 stays as chosen. A missing or invalid size is "no size chosen" and reads as the default 5: the stored choice is
+      // the state of the dialog, not of a game, so it cannot turn an existing game into a 5-row game (those come from links only).
+      rows: raw.rows === 4 ? 4 : DEFAULT_CHOICE.rows,
       mode: raw.mode === 'hotseat' || raw.mode === 'engines' ? raw.mode : 'two',
       humanSeat: isSeat(raw.humanSeat) ? raw.humanSeat : DEFAULT_CHOICE.humanSeat,
       engineSeat: isSeat(raw.engineSeat) ? raw.engineSeat : DEFAULT_CHOICE.engineSeat,

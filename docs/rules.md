@@ -309,7 +309,7 @@ Consequence: at the start, every goal house already holds two pieces of other pl
 ### Defaults
 
 - **Engine:** `RuleSet.defaults(players)` stays `FOUR`. `RuleSet.defaults(players, TriangleRows.FIVE)` returns the 5-row rules. The 4-row texts, hashes, golden files, shipped nets, race tables and the tablebase are byte-identical to the build before the switch. Rationale: the 4-row board is the game that every existing test, table and net was made for.
-- **Web:** the start dialog offers 4 and 5 rows. A first visit preselects 5 rows. A choice stored before the switch existed has no board size and reads as 4 rows, so a person who played 4 rows keeps that game. Origin: the owner's decisions of 2026-11-20. Details are in [web UI](web-ui.md#start-dialog).
+- **Web:** the start dialog offers 4 and 5 rows. The dialog preselects 5 rows for a new game, also when the stored choice has no board size; a stored explicit 4 stays 4. Games that already exist keep their size: a game link without `t=` is a 4-row game. Origin: the owner's decisions of 2026-11-20. Details are in [web UI](web-ui.md#start-dialog).
 
 ### Move limit
 

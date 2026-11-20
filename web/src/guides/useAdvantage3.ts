@@ -21,6 +21,8 @@ export interface Advantage3Model {
   shares: SeatShare[] | null;
   /** True while the shown shares are older than the position. */
   stale: boolean;
+  /** The engine has no static evaluation, or the last evaluation failed: no value will come for this position. */
+  failed: boolean;
 }
 
 export function useAdvantage3(input: UseAdvantage3Input): Advantage3Model {
@@ -29,16 +31,20 @@ export function useAdvantage3(input: UseAdvantage3Input): Advantage3Model {
   evaluateRef.current = evaluate3;
   const cache = useRef(new Map<string, SeatShare[]>());
   const [shown, setShown] = useState<{ key: string; shares: SeatShare[] } | null>(null);
+  // sticky until the next answer: an engine without static evaluation fails for every position, and the strip must not flicker between "pending" and "unavailable"
+  const [failed, setFailed] = useState(false);
   const key = scope === null ? null : `${scope}:${history.join(',')}`;
 
   useEffect(() => {
     if (!enabled || key === null) {
       setShown(null);
+      setFailed(false);
       return;
     }
     const cached = cache.current.get(key);
     if (cached) {
       setShown({ key, shares: cached });
+      setFailed(false);
       return;
     }
     let current = true; // false once the position or the switch changed: the answer is dropped
@@ -50,14 +56,18 @@ export function useAdvantage3(input: UseAdvantage3Input): Advantage3Model {
           shares = seatShares(values);
         } catch {
           setShown(null);
+          setFailed(true);
           return;
         }
+        setFailed(false);
         cache.current.set(key, shares);
         if (cache.current.size > 64) cache.current.delete(cache.current.keys().next().value!);
         setShown({ key, shares });
       },
       () => {
-        if (current) setShown(null); // no static evaluation (unsupported engine) or a failure: no indicator, the game goes on
+        if (!current) return;
+        setShown(null); // no static evaluation (unsupported engine) or a failure: the strip says so, the game goes on
+        setFailed(true);
       },
     );
     return () => {
@@ -67,5 +77,5 @@ export function useAdvantage3(input: UseAdvantage3Input): Advantage3Model {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, key]);
 
-  return { shares: enabled && shown ? shown.shares : null, stale: shown !== null && shown.key !== key };
+  return { shares: enabled && shown ? shown.shares : null, stale: shown !== null && shown.key !== key, failed: enabled && failed };
 }

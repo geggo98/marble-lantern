@@ -82,7 +82,7 @@ export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.El
         {model.variant && campsOf(model.variant) !== 'closed' && (
           <p data-testid="link-camps">{t('link_camps', { rule: t(CAMPS_LABEL[campsOf(model.variant)]) })}</p>
         )}
-        {model.variant && rowsOf(model.variant) === 5 && <p data-testid="link-rows">{t('link_rows', { rows: 5 })}</p>}
+        {model.variant && <p data-testid="link-rows">{t('link_rows', { rows: rowsOf(model.variant) })}</p>}
         <p className="ml-hint">{t('link_as_hint')}</p>
       </>
     );
@@ -176,6 +176,7 @@ function StartNetWarning({ store, variant }: { store: NetSelectionStore; variant
   return <NetWarnings warnings={evaluation.warnings} live />;
 }
 
+// Only the dialogs of a link and of a broken link use this; they never read the size from it (the game of a link has its own size, 4 rows without t=).
 const DEFAULT_CHOICE_FALLBACK: StartChoice = { jump: 'adjacent', camps: 'closed', rows: 4, mode: 'two', humanSeat: 0, engineSeat: 2 };
 
 /** The short name of each foreign-corner rule (the labels of the radio group). */

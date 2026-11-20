@@ -176,14 +176,16 @@ for (const size of [
     test('geometry: a net game without a notice has exactly the board box of a classical game; the notice moves it at apply, never during play', async ({ page }, info) => {
       await openApp(page, 'en');
       await waitForHumanTurn(page);
-      const svg = page.locator('svg.ml-board__svg');
-      // In page coordinates (viewport box plus the scroll offset): closing the menu can scroll the page, which moves the viewport box
-      // of an unchanged board (Firefox on the CI runner shifted it by 307 px while width and height stayed the same).
-      const box = async (): Promise<{ x: number; y: number; width: number; height: number }> => {
-        const b = (await svg.boundingBox())!;
-        const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
-        return { x: b.x + scroll.x, y: b.y + scroll.y, width: b.width, height: b.height };
-      };
+      // Relative to the stage (the column of status bar, board and advantage strip), both read in the same frame: closing the menu can scroll
+      // the page, and on a wide screen the stage is sticky, so neither the viewport box nor the page box of an unchanged board is stable
+      // (Firefox on the CI runner shifted the viewport box by 307 px while width and height stayed the same). The stage top moves with
+      // the board, so a moved board still shows as a changed offset inside the stage.
+      const box = async (): Promise<{ x: number; y: number; width: number; height: number }> =>
+        await page.evaluate(() => {
+          const b = document.querySelector('svg.ml-board__svg')!.getBoundingClientRect();
+          const stage = document.querySelector('.ml-play__stage')!.getBoundingClientRect();
+          return { x: b.x - stage.x, y: b.y - stage.y, width: b.width, height: b.height };
+        });
       const classical = await box();
       expect(await page.locator('.ml-play__netnote').count(), 'no notice element in a classical game').toBe(0);
       expect(await page.locator('.ml-play .ml-play__netnote, .ml-play [role="status"][aria-label]').count(), 'no extra live region').toBe(0);

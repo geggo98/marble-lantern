@@ -95,11 +95,14 @@ afterEach(async () => {
 });
 
 describe('move guides in the app', () => {
-  it('default is the level "targets": no marks, no bar, no analysis', async () => {
+  it('default is the level "targets": no marks, but the advantage strip is there and gets its value', async () => {
     await start();
     expect(level('targets').checked).toBe(true);
     expect(all('svg.ml-board__svg [data-band]')).toHaveLength(0);
-    expect(q('.ml-advantage')).toBeNull();
+    expect(q('.ml-advantage')).not.toBeNull();
+    await until(() => q('.ml-advantage')?.getAttribute('data-state') === 'value', 'the value of the strip');
+    expect(q('.ml-advantage__text')?.textContent).toMatch(/Advantage: (Even|You: |Engine: )/);
+    expect(all('[data-guide]')).toHaveLength(0);
   });
 
   it('show piece badges and an advantage text after the switch, and remember the choice', async () => {
@@ -152,7 +155,7 @@ describe('move guides in the app', () => {
     await click(level('targets'));
     expect(localStorage.getItem(GUIDES_KEY)).toBe('targets');
     expect(all('[data-band]').filter((e) => e.closest('svg.ml-board__svg'))).toHaveLength(0);
-    expect(q('.ml-advantage')).toBeNull();
+    expect(q('.ml-advantage')).not.toBeNull(); // the strip does not depend on the level
   });
 
   it('starts switched on when the stored choice says so', async () => {
@@ -170,6 +173,8 @@ describe('move guides in the app', () => {
     expect(q('.ml-guides-card__status')?.textContent).toContain('engine that runs in this browser');
     expect(all('[data-band]').filter((e) => e.closest('svg.ml-board__svg'))).toHaveLength(0);
     expect(status()).toBe('Your move'); // the game is not affected
+    expect(q('.ml-advantage')?.getAttribute('data-state')).toBe('unavailable'); // the strip stays and says so
+    expect(q('.ml-advantage__text')?.textContent).toBe(en.advantage_unavailable);
     await click(all('[data-cell][aria-label*="your piece"]')[0]!);
     expect(all('.ml-target__dot').length).toBeGreaterThan(0); // plain targets, as without guides
   });
@@ -181,19 +186,20 @@ describe('move guides in the app', () => {
     expect(items).toHaveLength(5);
     expect(new Set(items.map((i) => i.querySelector('path')?.getAttribute('d'))).size).toBe(5);
   });
-  it('level "targets": a selected piece shows plain targets, and nothing is analysed or rated', async () => {
+  it('level "targets": a selected piece shows plain targets, no mark is drawn, and the analysis serves the advantage strip only', async () => {
     const spy = vi.spyOn(WorkerEngine.prototype, 'analyse');
     try {
       await start();
       await click(all('[data-cell][aria-label*="your piece"]')[0]!);
       expect(all('.ml-target__dot').length).toBeGreaterThan(0);
       expect(all('[data-band]')).toHaveLength(0);
-      expect(q('.ml-advantage')).toBeNull();
+      expect(q('.ml-advantage')).not.toBeNull();
       expect(q('[data-guides-note-net]')).toBeNull();
       expect(q('[data-legend-band]')).toBeNull(); // the legend explains the evaluation marks only
-      await new Promise((r) => setTimeout(r, 100));
-      // the skill tracker may analyse the human's moves with its own budget (SKILL_NODES, 5-row games included); the guides must not
-      expect(spy.mock.calls.filter((c) => c[2] === GUIDE_NODES)).toEqual([]);
+      await until(() => q('.ml-advantage')?.getAttribute('data-state') === 'value', 'the value of the strip');
+      // one analysis per human turn feeds the strip (the skill tracker has its own budget, SKILL_NODES); nothing of it is drawn on the board
+      expect(spy.mock.calls.filter((c) => c[2] === GUIDE_NODES).length).toBeGreaterThan(0);
+      expect(all('[data-guide]')).toHaveLength(0);
     } finally {
       spy.mockRestore();
     }
@@ -209,7 +215,7 @@ describe('move guides in the app', () => {
     expect(all('.ml-target__ring')).toHaveLength(0);
     expect(all('.ml-target__dot')).toHaveLength(0);
     expect(all('[data-band]')).toHaveLength(0);
-    expect(q('.ml-advantage')).toBeNull();
+    expect(q('.ml-advantage')).not.toBeNull();
     // the targets are still legal to tap (and are named for a screen reader): level "none" hides marks, it does not change the rules
     const target = all('[data-cell][aria-label*="target"]')[0]!;
     await click(target);

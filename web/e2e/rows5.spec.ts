@@ -94,7 +94,7 @@ test('an old 4-row link without t= shows the 4-row board behind the dialog for a
   await page.goto(link);
   await page.reload();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.locator('[data-testid="link-rows"]')).toBeHidden();
+  await expect(page.locator('[data-testid="link-rows"]')).toContainText('4'); // a 4-row link names its size, because a new game preselects 5
   await expect.poll(() => pieceCount(page)).toBe(20); // not the 30 pieces of the 5-row default
   await page.locator('[data-choice="link-side-to-move"]').click();
   await waitForHumanTurn(page);

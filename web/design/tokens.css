@@ -114,6 +114,8 @@
   /* ---------- size ---------- */
   --ml-size-control: 2.75rem;        /* 44px: minimum height of buttons and inputs */
   --ml-size-header: 3.5rem;
+  --ml-size-adv: 2.5rem;             /* 40px: height of the advantage strip on a small screen */
+  --ml-size-adv-wide: 2.75rem;       /* 44px: minimum height of the advantage strip on a wide screen */
   --ml-width-panel: 24rem;           /* side panel on desktop */
   --ml-width-page: 76rem;
   --ml-breakpoint-wide: 60rem;       /* documentation only; media queries cannot read it */

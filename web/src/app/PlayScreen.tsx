@@ -10,6 +10,7 @@ import type { EngineId } from '../engines/engine';
 import type { Sims } from '../engines/warnings';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
+import type { AdvantageState } from '../ui/AdvantageBar';
 import { AdvantageBar3 } from '../ui/AdvantageBar3';
 import { GuideSettings } from '../ui/GuideSettings';
 import { TrailSetting } from '../ui/TrailSetting';
@@ -143,9 +144,11 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const rotated = !three && aSide === 0; // the person at the top corner sees the board turned; three players never turn it
   // the skill estimate is for two players only; the move guides and the advantage indicator work for both player counts
   const skillable = variant.players === 2;
-  const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
+  // `legal` is empty for a moment after the engine's reply, before the engine has listed the moves; a tap in that moment would be lost, so the board
+  // (aria-disabled, taps, the analysis of the strip) waits for the list.
+  const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.legal.length > 0 && state.seats[state.sideToMove] === 'human';
   const [guideLevel, setGuideLevel] = useState(loadGuideLevel);
-  const guidesOn = guideLevel === 'eval'; // analysis, bands and the advantage bar; the level "targets" and "none" run no analysis
+  const guidesOn = guideLevel === 'eval'; // the marks of the evaluation (bands, piece badges, legend); the levels "targets" and "none" draw none
   // the cache scope names the engine that computes the scores, which for a net engine is its classical analysis engine
   const guideScope = s.current ? (model.analysisId ?? s.current.info.id) + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
   // a net engine plays and a classical engine analyses: the guide card names it
@@ -153,10 +156,13 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     s.current && isNetEngine(s.current.info.id) && model.analysisId && model.analysisId !== s.current.info.id
       ? s.choices.find((c) => c.info.id === model.analysisId)?.info.labelKey
       : undefined;
+  // Two players: the advantage strip needs the analysis of the human's turn at every guide level, so it runs at every level (one analysis
+  // per human turn, docs/web-ui.md, "Advantage strip"). Three players: the strip takes a cheap static evaluation instead (below), and the
+  // analysis runs only for the marks.
   const guides = useGuides({
     analyse: model.analyse,
     scope: guideScope,
-    enabled: guidesOn && !demo,
+    enabled: !demo && (!three || guidesOn),
     humanTurn,
     history: state.history,
   });
@@ -164,10 +170,13 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const advantage3 = useAdvantage3({
     evaluate3: evaluate3 ?? (() => Promise.reject(new Error('no static evaluation'))),
     scope: guideScope,
-    enabled: guidesOn && !demo && three && evaluate3 !== undefined,
+    enabled: !demo && three && evaluate3 !== undefined,
     history: state.history,
   });
-  const boardGuides = useMemo(() => (guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guides.view]);
+  const boardGuides = useMemo(() => (guidesOn && guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guidesOn, guides.view]);
+  // the advantage strip: always on the play screen (docs/web-ui.md, "Advantage strip"); this is what it shows
+  const analysisGone = guides.status === 'unavailable' || guides.status === 'failed';
+  const advState: AdvantageState = demo ? 'unavailable' : three ? (evaluate3 === undefined || advantage3.failed ? 'unavailable' : 'value') : guides.advantage ? 'value' : analysisGone ? 'unavailable' : 'pending';
   const seatName = (side: number): string => {
     const v = views[side];
     return v ? t(seatNameKey(v), { n: v.number }) : '';
@@ -359,7 +368,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         three={three}
         level={guideLevel}
         {...(analysisLabelKey ? { analysisLabelKey } : {})}
-        status={guides.status}
+        status={guidesOn ? guides.status : 'off'}
         onChange={(level) => {
           setGuideLevel(level);
           saveGuideLevel(level);
@@ -430,16 +439,19 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           />
           {!wide && notice && <div className="ml-play__notice">{notice}</div>}
         </div>
-        {guidesOn && !demo && (
-          // the slot keeps its place on a small screen while the first analysis runs: the board does not jump
-          <div className="ml-play__adv">
-            {three
-              ? advantage3.shares && (
-                  <AdvantageBar3 shares={advantage3.shares} names={views.map((v) => seatName(v.seat))} styles={views.map((v) => v.style)} stale={advantage3.stale} />
-                )
-              : guides.advantage && <AdvantageBar info={guides.advantage} stale={guides.advantageStale} />}
-          </div>
-        )}
+        {/* the slot is always there and keeps its height in every state: nothing on the screen moves when the value arrives */}
+        <div className="ml-play__adv" data-adv-state={advState === 'value' && three && !advantage3.shares ? 'pending' : advState}>
+          {three && advState === 'value' ? (
+            <AdvantageBar3 shares={advantage3.shares} names={views.map((v) => seatName(v.seat))} styles={views.map((v) => v.style)} stale={advantage3.stale} />
+          ) : (
+            <AdvantageBar
+              state={advState}
+              info={guides.advantage}
+              stale={guides.advantageStale}
+              ends={demo || three ? null : { engine: styleOf(humanSide === 0 ? 1 : 0), you: styleOf(humanSide) }}
+            />
+          )}
+        </div>
         <p className="ml-visually-hidden" role="status" aria-live="polite">
           {last ? t('announce_move', { side: who(last.side), from: cellName(last.from), to: cellName(last.to) }) : ''}
         </p>

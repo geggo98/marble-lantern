@@ -2,9 +2,6 @@
    "Small" means narrower than 60rem, the same breakpoint as useWide() in useMedia.ts (max-width 59.99rem).
    Wide screens keep the layout of ui.css. */
 
-/* An empty slot for the advantage bar takes no room on a wide screen. */
-.ml-play__adv:empty { display: none; }
-
 /* ===== touch, all sizes ===== */
 /* No double-tap zoom anywhere (pinch zoom stays); the board turns every gesture off for itself, see below. */
 body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
@@ -79,12 +76,11 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-play .ml-status__ply { white-space: nowrap; }
   .ml-play__netnote { grid-area: net; }
   .ml-play__boardwrap { grid-area: board; position: relative; min-height: 8rem; min-width: 0; }
-  .ml-play__adv, .ml-play__adv:empty { grid-area: adv; display: block; height: 3.5rem; overflow: hidden; }
-  .ml-play__adv .ml-advantage__text {
-    line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
-  }
-  .ml-play__adv .ml-advantage { margin-block: 0; }
-  .ml-play__adv .ml-advantage__ends { display: none; } /* aria-hidden duplicates of the words in the text above */
+  /* The advantage strip is always there, with one height in every state: it sits directly above the action bar (the lowest element, where the
+     thumb reaches it), so it never enters the home-indicator zone that .ml-play pads below the bar. */
+  .ml-play__adv { grid-area: adv; display: block; height: var(--ml-size-adv); overflow: hidden; min-width: 0; }
+  .ml-play__adv .ml-advantage--three .ml-adv3 { align-self: center; block-size: 1.75rem; }
+  .ml-play__adv .ml-advantage--three { align-content: center; }
   .ml-play__bar { grid-area: bar; }
   .ml-play__boardwrap .ml-board { margin-inline: 0; width: 100%; height: 100%; max-width: none; min-width: 0; }
   .ml-play__boardwrap .ml-board__svg { width: 100%; height: 100%; }
@@ -115,15 +111,15 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-nav__link { flex: none; padding: 0 var(--ml-space-3); }
   .ml-play {
     grid-template-columns: minmax(0, 1fr) minmax(12rem, 17rem);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "board status" "board adv" "board ." "board bar";
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "board status" "board ." "board adv" "board bar";
     column-gap: var(--ml-space-3); max-width: none;
   }
   .ml-play--net {
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "board status" "board net" "board adv" "board ." "board bar";
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "board status" "board net" "board ." "board adv" "board bar";
   }
   .ml-actionbar { grid-template-columns: minmax(0, 1fr); }
   .ml-actionbar .ml-btn { flex-direction: row; gap: var(--ml-space-2); min-height: var(--ml-size-control); font-size: var(--ml-text-sm); }
-  .ml-play__adv, .ml-play__adv:empty { height: auto; min-height: 0; overflow: visible; }
+  .ml-play__adv { height: var(--ml-size-adv); }
 }

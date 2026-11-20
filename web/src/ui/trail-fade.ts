@@ -5,8 +5,9 @@ import type { KeyValueStore } from '../guides/preference';
 import { prefersReducedMotion } from './primitives';
 
 export const TRAIL_KEY = 'ml.trail-seconds';
-/** Seconds the trail stays fully visible; 0 means "always visible". */
+/** Seconds the trail stays fully visible; 0 means "always visible" (the choice "Always show"; the slider itself runs from TRAIL_MIN_SECONDS). */
 export const TRAIL_DEFAULT_SECONDS = 3;
+export const TRAIL_MIN_SECONDS = 1;
 export const TRAIL_MAX_SECONDS = 10;
 /** Length of the opacity transition in ui.css (.ml-trail), in ms. */
 export const TRAIL_FADE_MS = 600;

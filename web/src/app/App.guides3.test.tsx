@@ -140,14 +140,14 @@ describe('move guides for three players', () => {
     expect(all('[data-guide="piece"]')).toHaveLength(0);
   });
 
-  it('switched off: no request, no marks, no indicator', async () => {
+  it('switched off: no analysis request and no marks; the strip still shows the static evaluation', async () => {
     localStorage.setItem('ml.guides', 'off');
     await mount(humanVsTwoEngines(1, 2));
     await until(() => plies() === 1 && status() === 'Your move', 'the engine opened');
     await new Promise((r) => setTimeout(r, 100));
     expect(calls()).toHaveLength(0);
     expect(all('[data-guide]')).toHaveLength(0);
-    expect(q('[data-advantage3]')).toBeNull();
+    await until(() => indicator() !== null, 'the strip');
   });
 });
 
@@ -202,8 +202,9 @@ describe('advantage indicator for three players', () => {
     vi.spyOn(WorkerEngine.prototype, 'evaluate3').mockRejectedValue(Object.assign(new Error('no'), { code: 'unsupported' }));
     await mount(humanVsTwoEngines(1, 2));
     await until(() => all('[data-guide="piece"]').length > 0, 'badges');
-    await new Promise((r) => setTimeout(r, 50));
+    await until(() => q('.ml-advantage[data-state="unavailable"]') !== null, 'the strip says that no evaluation is possible');
     expect(q('[data-advantage3]')).toBeNull();
+    expect(q('.ml-advantage__text')?.textContent).toBe(en.advantage_unavailable);
   });
 
   it('keeps the two-player bar for two players (unchanged) and has no skill card for three', async () => {

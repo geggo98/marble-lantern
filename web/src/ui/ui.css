@@ -154,6 +154,18 @@ a { color: inherit; text-underline-offset: 0.2em; }
     padding: var(--ml-space-5) var(--ml-space-5) var(--ml-space-6);
   }
   .ml-play__side { gap: var(--ml-space-4); }
+  /* The stage is a column: status bar, the board in the space that is left, and the advantage strip as its last row. It sticks to the top of
+     the window and is as high as the window, so the strip stays in view at the bottom edge while the side column scrolls (above 36rem
+     of height; the board has a minimum width of 22rem and a shorter sticky stage would cut it off). */
+  .ml-play__stage { display: flex; flex-direction: column; }
+  .ml-play__boardwrap { flex: 1 1 auto; min-block-size: 0; display: flex; flex-direction: column; justify-content: center; }
+  .ml-play__adv { flex: none; }
+  @media (min-height: 36rem) {
+    .ml-play__stage {
+      position: sticky; top: var(--ml-space-4);
+      min-block-size: calc(100dvh - var(--ml-size-header) - var(--ml-space-5) - var(--ml-space-4));
+    }
+  }
 }
 
 /* ===== status bar ===== */
@@ -190,7 +202,7 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-board { margin-inline: calc(var(--ml-gutter) * -0.5); }
 .ml-board__svg { display: block; width: 100%; height: auto; touch-action: manipulation; }
 @container ml-app (min-width: 60rem) {
-  .ml-board { margin-inline: auto; width: 100%; max-width: calc((100dvh - 11rem) * 468 / 532); min-width: 22rem; }
+  .ml-board { margin-inline: auto; width: 100%; max-width: calc((100dvh - 14.75rem) * 468 / 532); min-width: 22rem; }
 }
 .ml-board__svg.is-inert { cursor: progress; }
 .ml-board__plate-edge { fill: var(--ml-board-star-edge); stroke: var(--ml-board-star-edge); stroke-width: 51; stroke-linejoin: round; }
@@ -237,10 +249,29 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-trail { opacity: 1; transition: opacity 0.6s ease; }
 .ml-trail--fading { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .ml-trail { transition: none; } }
+/* the trail card: a two-way choice, then the slider ("Fade out") or a note ("Always show") of the same height */
 .ml-trail-card { display: grid; gap: var(--ml-space-2); }
+.ml-trail-card__fieldset { margin: 0; padding: 0; border: 0; min-inline-size: 0; display: grid; gap: var(--ml-space-2); }
+.ml-trail-card__fieldset > legend { padding: 0; margin-block-end: var(--ml-space-2); }
+.ml-trail-card__modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-md); overflow: hidden; }
+.ml-trail-card__mode {
+  position: relative; display: flex; align-items: center; justify-content: center; min-block-size: var(--ml-size-control); padding: 0 var(--ml-space-2);
+  text-align: center; cursor: pointer; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium);
+}
+.ml-trail-card__mode + .ml-trail-card__mode { border-inline-start: var(--ml-border) solid var(--ml-color-line-strong); }
+.ml-trail-card__mode input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; inline-size: 100%; block-size: 100%; }
+.ml-trail-card__mode:has(input:checked) { background: var(--ml-color-primary); color: var(--ml-color-on-primary); font-weight: 700; }
+.ml-trail-card__mode:has(input:focus-visible) { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
+.ml-trail-card__time { display: grid; grid-template-columns: minmax(0, 1fr) 3.5rem; align-items: center; column-gap: var(--ml-space-3); }
+.ml-trail-card__time label { grid-column: 1 / -1; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 /* the touch target of the slider is at least 44 px high (e2e/mobile.spec.ts checks every control of the menu) */
-.ml-trail-card input[type="range"] { inline-size: 100%; min-block-size: 44px; accent-color: var(--ml-color-primary); }
-.ml-trail-card output { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-trail-card__time input[type="range"] { inline-size: 100%; min-block-size: 44px; margin: 0; accent-color: var(--ml-color-primary); }
+.ml-trail-card__time output { font: var(--ml-weight-medium) var(--ml-text-sm) var(--ml-font-data); text-align: end; color: var(--ml-color-ink); }
+.ml-trail-card__note { margin: 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); min-block-size: calc(44px + 1.3125rem); display: flex; align-items: center; }
+@media (forced-colors: active) {
+  .ml-trail-card__modes, .ml-trail-card__mode + .ml-trail-card__mode { border-color: CanvasText; }
+  .ml-trail-card__mode:has(input:checked) { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+}
 
 /* keyboard focus on a cell, illegal click, result halo */
 .ml-cellfocus { fill: none; stroke: var(--ml-color-focus); stroke-width: 3.5; }

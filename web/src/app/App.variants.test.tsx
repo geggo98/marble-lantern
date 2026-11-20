@@ -267,8 +267,20 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
     expect(nav.hash).toContain('&t=5');
   });
 
-  it('a stored choice without a size is the 4-row board, behind the dialog and in the game; no t= in the address', async () => {
+  it('a stored choice without a size preselects 5 rows, behind the dialog and in the new game; an explicit 4 stays 4', async () => {
     localStorage.setItem('ml.start-choice', '{"jump":"adjacent","mode":"two"}');
+    const nav = new FakeNavigation('');
+    await mount(nav);
+    expect(pieces()).toBe(30);
+    expect(q<HTMLInputElement>('[data-choice="rows-5"]')!.checked).toBe(true);
+    await click(q('[data-choice="begin-yes"]')!);
+    await until(() => dialog() === null && status() === 'Your move', 'the human may move');
+    expect(pieces()).toBe(30);
+    expect(nav.hash).toContain('&t=5');
+  });
+
+  it('a stored choice with an explicit 4 stays a 4-row new game, without t= in the address', async () => {
+    localStorage.setItem('ml.start-choice', '{"jump":"adjacent","mode":"two","rows":4}');
     const nav = new FakeNavigation('');
     await mount(nav);
     expect(pieces()).toBe(20);
@@ -302,12 +314,12 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
     expect(nav.hash).toContain('&t=5');
   });
 
-  it('a 4-row link shows no size line', async () => {
+  it('a 4-row link names its size too, because the dialog now preselects 5 rows for a new game', async () => {
     const moves = legalGame(3, { jump: 'adjacent', players: 2 });
     const nav = new FakeNavigation(`#g=v1.${encodeMoves(moves)}&h=0&l=2`);
     await mount(nav);
     await until(() => (dialog()?.textContent ?? '').includes('Continue this game'), 'the link dialog');
-    expect(q('[data-testid="link-rows"]')).toBeNull();
+    expect(q('[data-testid="link-rows"]')?.textContent).toBe('Board size: 4 rows');
     expect(dialog()!.textContent).toContain('of 200');
   });
 

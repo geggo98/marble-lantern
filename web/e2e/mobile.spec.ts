@@ -50,7 +50,7 @@ async function interactiveBoxes(page: Page, scope: string): Promise<{ what: stri
       const r = el.getBoundingClientRect();
       out.push({ what, box: { x: r.x, y: r.y, width: r.width, height: r.height } });
     };
-    root.querySelectorAll('button, a[href], summary, [role="radio"], input[type="range"]').forEach((el) =>
+    root.querySelectorAll('button, a[href], summary, [role="radio"], input[type="range"], .ml-trail-card__mode').forEach((el) =>
       take(el, `${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 24) || el.getAttribute('aria-label') || ''}"`),
     );
     root.querySelectorAll('input[type="checkbox"]').forEach((el) => take(el.closest('label') ?? el, 'checkbox label'));

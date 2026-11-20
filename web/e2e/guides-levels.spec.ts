@@ -11,11 +11,11 @@ test('the three levels: arrow keys move the choice, "targets" marks targets with
   const cellId = await humanTurnCell(page).getAttribute('data-cell'); // a piece that can move
   const own = page.locator(`[data-cell="${cellId}"]`);
 
-  // level "targets" (the default): the targets of a selected piece, no band, no bar
+  // level "targets" (the default): the targets of a selected piece, no band; the advantage strip is there at every level
   await own.click();
   await expect(page.locator('svg.ml-board__svg .ml-target__dot').first()).toBeAttached();
   await expect(page.locator('svg.ml-board__svg [data-band]')).toHaveCount(0);
-  await expect(page.locator('.ml-advantage')).toHaveCount(0);
+  await expect(page.locator('.ml-advantage')).toHaveCount(1);
 
   // keyboard: focus the checked radio button, ArrowLeft chooses "none"
   await page.locator('[data-guides-level="targets"]').focus();

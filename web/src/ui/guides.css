@@ -31,10 +31,16 @@
 .ml-guide-legend__piece { color: var(--ml-color-ink-muted); }
 .ml-guides-card__note { margin: var(--ml-space-2) 0 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 
-/* advantage bar */
-.ml-advantage { display: grid; gap: var(--ml-space-1); margin-block: var(--ml-space-2); }
-.ml-advantage__text { margin: 0; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
+/* advantage strip: always on the play screen, one height in every state (docs/web-ui.md, "Advantage strip") */
+.ml-advantage { display: grid; gap: 2px; align-content: center; block-size: 100%; margin: 0; min-inline-size: 0; }
+.ml-advantage__text {
+  margin: 0; font-size: var(--ml-text-sm); line-height: 1.25; font-weight: var(--ml-weight-medium);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-inline-size: 0;
+}
 .ml-advantage__text span { color: var(--ml-color-ink-muted); font-weight: var(--ml-weight-regular); }
+/* the marbles of the two sides stand at the ends of the track: engine left, person right */
+.ml-advantage__gauge { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--ml-space-2); }
+.ml-advantage__gauge .ml-swatch { inline-size: 0.875rem; block-size: 0.875rem; }
 .ml-advantage__track {
   position: relative; block-size: 0.75rem; border-radius: var(--ml-radius-pill);
   background: var(--ml-color-surface-sunken); border: var(--ml-border) solid var(--ml-color-line-strong); overflow: hidden;
@@ -43,8 +49,11 @@
 .ml-advantage__fill--you { background: var(--ml-guide-better); }
 .ml-advantage__fill--engine { background: var(--ml-guide-worse); }
 .ml-advantage__centre { position: absolute; inset-block: 0; inset-inline-start: 50%; inline-size: 2px; background: var(--ml-color-ink); transform: translateX(-1px); }
-.ml-advantage__ends { display: flex; justify-content: space-between; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
 .ml-advantage.is-stale .ml-advantage__fill { opacity: 0.55; }
+/* no value yet, or no value possible: an empty track; the dashed border tells "unavailable" apart without colour */
+.ml-advantage[data-state="pending"] .ml-advantage__text, .ml-advantage[data-state="unavailable"] .ml-advantage__text { color: var(--ml-color-ink-muted); font-weight: var(--ml-weight-regular); }
+.ml-advantage[data-state="unavailable"] .ml-advantage__track { border-style: dashed; background: transparent; }
+.ml-advantage[data-state="unavailable"] .ml-advantage__centre { display: none; }
 
 /* three-player indicator: one segment per seat; solid, stripes and dots tell the seats apart without colour; the label sits on a surface pill, so its contrast does not depend on the segment colour */
 .ml-adv3 { display: flex; gap: 2px; block-size: 1.75rem; border-radius: var(--ml-radius-pill); overflow: hidden; border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-line-strong); }
@@ -56,6 +65,21 @@
 .ml-adv3__label .ml-swatch { inline-size: 1rem; block-size: 1rem; flex: none; }
 .ml-adv3__value { overflow: hidden; text-overflow: ellipsis; }
 .ml-advantage--three.is-stale .ml-adv3__seg { opacity: 0.6; }
+.ml-advantage--three[data-state="pending"] .ml-adv3__seg { background: var(--ml-color-surface-sunken); }
+.ml-adv3 { min-inline-size: 0; }
+/* small screens: the bar alone, centred in the strip (its text is the accessible name) */
+@container ml-app (max-width: 59.99rem) {
+  .ml-advantage--three .ml-advantage__text { display: none; }
+}
+/* wide screens: one row in a card that mirrors the status bar */
+@container ml-app (min-width: 60rem) {
+  .ml-play__adv {
+    min-block-size: var(--ml-size-adv-wide); padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-md);
+    background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card);
+  }
+  .ml-advantage { grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); gap: var(--ml-space-4); align-items: center; }
+  .ml-advantage__text { max-inline-size: 22rem; }
+}
 
 @media (forced-colors: active) {
   .ml-guide__glyph { fill: CanvasText; stroke: Canvas; }
@@ -63,5 +87,6 @@
   .ml-guide__ring, .ml-guide__badge { stroke: CanvasText; }
   .ml-advantage__fill { background: Highlight; forced-color-adjust: none; }
   .ml-advantage__fill--engine { background: GrayText; }
+  .ml-advantage__centre { background: CanvasText; }
   .ml-adv3__seg { background: Canvas; border: 1px solid CanvasText; }
 }

@@ -128,8 +128,14 @@ describe('move guides with a net engine', () => {
     expect(q('[data-guides-status]')!.getAttribute('data-guides-status')).not.toBe('unavailable');
     expect(q('[data-guides-note-net]')?.textContent).toBe(en.guides_note_net.replace('{engine}', en['engine.cppWasm']));
     expect(seen.netAnalyse).toBe(0);
-    expect(seen.classicalMade, 'one engine played first, one analyses now').toBe(2);
     expect(seen.classicalAnalyse).toBeGreaterThan(0);
+    // The position was already analysed while the classical engine played (the strip runs at every level), and the cache is keyed by the
+    // analysis engine, so the net engine's first turn needed no second engine. The next position does.
+    await click(all('[data-cell][aria-label*="best move"]')[0]!);
+    await click(all('[data-cell][aria-label*="target"]')[0]!);
+    await until(() => seen.classicalMade === 2, 'one engine played first, a second one analyses for the net engine');
+    await until(() => status() === 'Your move' && all('[data-guide="piece"]').length > 0, 'badges for the next position');
+    expect(seen.netAnalyse).toBe(0);
 
     // back to a classical engine: the analysis engine is freed, the guides go on with the engine that plays
     const disposedBefore = seen.classicalDisposed;
