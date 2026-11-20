@@ -839,6 +839,31 @@ A greedy distance player picks the move that reduces its own distance sum most, 
 - **Analysis.** `ThreePlayerPlayer.analyseMove(position, move)` scores one legal move. It makes the move and searches the child position within the node budget, with the mover as root player (`ThreePlayerSearch.searchAfter`, which calls `searchAs`). The score is the mover's paranoid score, higher is better for the mover. The transposition table is cleared first, so the score depends only on the position, the move and the budget. Mate scores count from the position before the move: a move that wins at once scores `MATE - 1`. `ThreePlayerPlayer.evaluation(position)` returns the static leaf score of each player, indexed by absolute player number, without a search. `analyse(position)` is unchanged: it returns the result of the search for the best move. The browser uses both calls for move guides; see [Analysis API](web-ui.md#analysis-api) in the web UI document.
 - **Origin of the weights.** The weights were fitted on two-player games. Their use for three players is an assumption that the measurements above support but do not prove optimal.
 
+## Five-row boards
+
+**TL;DR:** On the 5-row board (15 pieces per player, [rules](rules.md#board-size-triangle-rows)) the classical players search with the 4-row weights and without race play. One correction to the feature `dsumPhase` keeps the evaluation scale; without it the players made no progress. Strength on 5 rows is not measured.
+
+**What changes in the search** (Java in `search/src/main/java/sternhalma/search/`, C++ in `cpp/src/search/`, measured 2026-11-20):
+
+- **Tables per house size.** `LinearEvaluator` and `ThreePlayerSearch` read their distance, goal and start tables from the layout of the position's house size. The `bestGain` feature and its piece buffer handle 15 pieces. The futility near-win count of `AlphaBeta` is the goal size minus the depth.
+- **Gates.** Race play, the race evaluators, S1 adjudication and `stage4` are off, and `IncrementalLinear.reset` declines the position, because the race tables and the jump graph exist for 10-cell corners only. `PlayerSpec` and `ThreePlayerSpec` take `rows=4|5`; a player refuses a position of the other house size.
+- **Players.** `Strategies.BROWSER_ROWS5_SPEC` (evaluator `linear-r3` with the search options and futility settings of `BROWSER_SPEC`, without race play, `rows=5`; the node budget comes from the level), `BROWSER_ROWS5_LONG_SPEC`, `BROWSER_3P_ROWS5_SPEC` and `BROWSER_3P_ROWS5_LONG_SPEC`. The C++ port has the same four specs. `Strategies.registeredRows5()` lists the strategies that the strategy contract tests also play on 5 rows.
+
+**The `dsumPhase` correction.** `dsumPhase` is the difference of the summed piece distances times the total remaining distance of both sides / 100 ([learned linear evaluation](#learned-linear-evaluation-evallinear-measured-2026-11-07)). Its weight is positive and the weight of the summed distance is negative. With 15 pieces the total is about 1.35 times larger than with 10, and a step towards the goal then lowered the score.
+
+- **Measured before the fix** (2026-11-20, `cpp/results/rows5-v1-2026-11-20.txt`): 139 of 141 three-player games on 5 rows (99 %) ended at the move limit, and in a JVM run with a limit of 1,500 plies 35 of 36 three-player games had no piece in any goal at the end. 39 of 151 two-player games (26 %) reached the limit. A static check after 9 plies: the best 4-step move scored +1 on 5 rows and +61 on 4 rows.
+- **Fix.** The total counts in units of 10 pieces: on 5 rows it is multiplied by 10/15 (`LinearEvaluator.phaseDistance` in Java, `LinearEvaluator::combine` in C++). With 10 pieces the formula is unchanged, so every 4-row score, golden file and benchmark fingerprint stays bit-identical.
+- **Measured after the fix:** every game of the measurement ended with a win, 0 of 345 in Node.js and 0 of 288 in the JVM run. `PhaseOnFiveRowsTest` (`search/src/test/java/sternhalma/search/`) pins the fix.
+- **Limit.** This is a scale correction, not a refit. The weights were fitted on 10 pieces, and no arena run on 5 rows was made.
+
+**Scores.** The largest score below the race band on 5 rows was 925 (three players, long hop, 20,000 nodes), below the aspiration cap of 2,000 and `RACE_BASE` 5,000. No 5-row move scored in the race band. A test in `TriangleRowsSearchTest` asserts scores under 2,000 on seeded 5-row playouts.
+
+**Speed.** At the same node budget a 5-row move costs 1.2 to 1.9 times a 4-row move, because the move lists are longer and the incremental evaluation is off. At 500,000 nodes a two-player move took about 0.54 s (adjacent) or 1.0 s (long hop) in the C++ WebAssembly engine, and 1.0 s or 1.7 s in the TeaVM Wasm GC engine (Node.js, Apple M3 Max).
+
+**Parity.** The Java and C++ searches agree on move, score, depth and node count: the golden file `search/src/test/resources/triangle-rows-search-golden.tsv` (static values of `linear-r1`, `linear-r3` and `linear-r2`, and 48 searches at 1,500 nodes; checked by `TriangleRowsSearchGoldenTest` and `cpp/tests/rows5_search_test.cpp`), and all 45,374 compared plies of the self-play measurement.
+
+**Open points.** The playing strength on 5 rows, the futility margins and the node budgets of the strength levels were not measured or tuned for 15 pieces. The strength levels keep their 4-row node budgets (owner decision, 2026-11-20).
+
 ## Warning: random playouts do not end
 
 Purely random MCTS playouts practically never end in Chinese Checkers (reported). Pieces can move backwards, so a random game has no bound on its length. A random playout gives no useful result.

@@ -58,6 +58,7 @@ Rules for authors:
 | **Nijssen2013** | J. Nijssen, "Monte-Carlo Tree Search for Multi-Player Games", PhD thesis, Maastricht University, 2013. | none given | *details not verified* (owner's survey only) |
 | **Liu2019** | Liu et al., "Towards Understanding Chinese Checkers with Heuristics, MCTS, and Deep RL", 2019. Covers AlphaZero-style approaches to Chinese Checkers. | none given | *details not verified* (full author list and venue missing) |
 | **MITSlides2010** | "Artificial Intelligence and Games", MIT SP.268 lecture slides, Spring 2010 (PDF of a PowerPoint deck). | <https://web.mit.edu/Sp.268/www/2010/Artificial%20Intelligence%20and%20Games.pdf> | title and term checked against the slide text. Use it only for background: board, basic moves, history of the name, and the evaluation-function discussion. It contains no rule variants and no test values. |
+| **WikipediaSternhalma** | "Sternhalma", German Wikipedia. | <https://de.wikipedia.org/wiki/Sternhalma> | page read on 2026-11-20; the quotes in [rules](rules.md#board-size-triangle-rows) were checked against it on that day. A wiki page changes; cite it only for the board, the piece counts per player count and the variant Connection. |
 | **RedBlobHex** | Red Blob Games, "Hexagonal Grids". | <https://www.redblobgames.com/grids/hexagons/> | |
 | **CPW** | Chessprogramming wiki. Used for alpha-beta, transposition tables and Zobrist hashing. | <https://www.chessprogramming.org/> | |
 | **AlbertaThesis** | A University of Alberta master's thesis (title not verified). It trained an AlphaZero agent on a 4x4 board with 3 pieces and on a 5x5 board with 6 pieces. | none given | *details not verified* (title, author and year unknown) |
@@ -86,6 +87,7 @@ This mapping lists the documents in which each key appears in square brackets, a
 | **Nijssen2013** | [Search and evaluation](search-and-evaluation.md) |
 | **Liu2019** | [Architecture](architecture.md), [Search and evaluation](search-and-evaluation.md) |
 | **MITSlides2010** | [Rules](rules.md), [Search and evaluation](search-and-evaluation.md) |
+| **WikipediaSternhalma** | [Rules](rules.md) |
 | **RedBlobHex** | [Rules](rules.md), [Architecture](architecture.md) |
 | **CPW** | [Architecture](architecture.md), [Search and evaluation](search-and-evaluation.md), [Endgame and opening](endgame-and-opening.md) |
 | **AlbertaThesis** | [Search and evaluation](search-and-evaluation.md) |

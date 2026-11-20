@@ -234,6 +234,94 @@ class TriangleRowsTest {
         assertTrue(two.allowed(0, cell(4, 0)));
     }
 
+    /**
+     * docs/rules.md, "Foreign corners", distance bound on 5 rows: a foreign cell gets the step count to the goal house
+     * over the whole board, and the largest such value (8) stays below the largest home distance (12).
+     */
+    @Test
+    void foreignCellsOnFiveRowsKeepTheWholeBoardDistanceBelowTheLargestHomeDistance() {
+        for (int players = 2; players <= 3; players++) {
+            Layout layout = Layout.of(players, TriangleRows.FIVE);
+            for (int p = 0; p < players; p++) {
+                int[] whole = new int[Geometry.CELLS];
+                Arrays.fill(whole, -1);
+                ArrayDeque<Integer> queue = new ArrayDeque<>();
+                for (int c : TriangleRowsOracle.house(TriangleRowsOracle.goal(players, p), 5)) {
+                    whole[c] = 0;
+                    queue.add(c);
+                }
+                while (!queue.isEmpty()) {
+                    int c = queue.poll();
+                    for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                        int n = Geometry.neighbor(c, d);
+                        if (n >= 0 && whole[n] < 0) {
+                            whole[n] = whole[c] + 1;
+                            queue.add(n);
+                        }
+                    }
+                }
+                int largestForeign = 0;
+                for (int c = 0; c < Geometry.CELLS; c++) {
+                    if (!layout.allowed(p, c)) {
+                        assertEquals(whole[c], layout.distance(p, c), "players " + players + " player " + p + " cell " + c);
+                        largestForeign = Math.max(largestForeign, layout.distance(p, c));
+                    }
+                }
+                assertEquals(8, largestForeign, "players " + players + " player " + p);
+                assertTrue(largestForeign < layout.maxDistance(p));
+            }
+        }
+    }
+
+    /**
+     * docs/rules.md, "Move counts on the full board", 5 rows: 18 first moves and 324 positions after two plies, for both
+     * jump rules. Hand count of the 18: the 5 pieces of the edge row r = -4 step to 2 cells each (10), the 4 pieces of
+     * row r = -5 jump over the edge row to 2 cells each (8). The engine and the coordinate oracle must both give them.
+     */
+    @Test
+    void firstMovesAndPositionsAfterTwoPliesOnFiveRows() {
+        for (RuleSet.JumpRule jump : RuleSet.JumpRule.values()) {
+            Position pos = Position.initial(FIVE2.withJumpRule(jump));
+            TreeSet<Long> engineAfterTwo = new TreeSet<>();
+            int[] first = pos.legalMoves();
+            for (int m1 : first) {
+                pos.make(m1);
+                for (int m2 : pos.legalMoves()) {
+                    pos.make(m2);
+                    engineAfterTwo.add(pos.hash());
+                    pos.unmake();
+                }
+                pos.unmake();
+            }
+            assertEquals(18, first.length, jump + ": engine first moves");
+            assertEquals(324, engineAfterTwo.size(), jump + ": engine positions after two plies");
+
+            boolean longHop = jump == RuleSet.JumpRule.LONG;
+            int[] owner = new int[Geometry.CELLS];
+            Arrays.fill(owner, -1);
+            for (int p = 0; p < 2; p++) {
+                for (int c : TriangleRowsOracle.house(TriangleRowsOracle.start(2, p), 5)) {
+                    owner[c] = p;
+                }
+            }
+            TreeSet<String> oracleAfterTwo = new TreeSet<>();
+            TreeSet<Integer> oracleFirst = TriangleRowsOracle.moves(owner, 2, 0, longHop, RuleSet.ForeignCamps.CLOSED, 5);
+            for (int m1 : oracleFirst) {
+                int[] one = owner.clone();
+                one[Move.to(m1)] = 0;
+                one[Move.from(m1)] = -1;
+                for (int m2 : TriangleRowsOracle.moves(one, 2, 1, longHop, RuleSet.ForeignCamps.CLOSED, 5)) {
+                    int[] two = one.clone();
+                    two[Move.to(m2)] = 1;
+                    two[Move.from(m2)] = -1;
+                    oracleAfterTwo.add(Arrays.toString(two));
+                }
+            }
+            assertEquals(18, oracleFirst.size(), jump + ": oracle first moves");
+            assertEquals(324, oracleAfterTwo.size(), jump + ": oracle positions after two plies");
+        }
+    }
+
     // ---- Position ----
 
     @Test

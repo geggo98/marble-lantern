@@ -1,6 +1,6 @@
 # Rules of the game
 
-**TL;DR:** This document fixes the rules that the engine implements. [Sturtevant2019, §3] defines a complete two-player rule set: a player wins when the goal is filled and holds at least one own piece (Definition 1), two kinds of states are illegal (Definitions 2 and 3), and the first repeated position draws the game (Definition 4). The paper does not forbid a piece to leave its goal. The project default (**project decision**) uses Definition 1, ends a game without a winner after 200 plies and scores that game by distance to the goal. Two defaults deviate from the paper on purpose (**project decision**): `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`. The project uses the paper only to verify its rules; it does not try to solve any variant. All variants are switches of one immutable `RuleSet` record. The jump rule is one of these switches: the default `ADJACENT` jumps over a neighbour, the optional `LONG` is the Halma long hop (see [Jump rule](#jump-rule)). The engine must pass the conformance tests at the end of this document before anyone writes search code.
+**TL;DR:** This document fixes the rules that the engine implements. [Sturtevant2019, §3] defines a complete two-player rule set: a player wins when the goal is filled and holds at least one own piece (Definition 1), two kinds of states are illegal (Definitions 2 and 3), and the first repeated position draws the game (Definition 4). The paper does not forbid a piece to leave its goal. The project default (**project decision**) uses Definition 1, ends a game without a winner after 200 plies and scores that game by distance to the goal. Two defaults deviate from the paper on purpose (**project decision**): `leaveGoal = FORBIDDEN` and `repetition = MOVE_LIMIT`. The project uses the paper only to verify its rules; it does not try to solve any variant. All variants are switches of one immutable `RuleSet` record. The jump rule is one of these switches: the default `ADJACENT` jumps over a neighbour, the optional `LONG` is the Halma long hop (see [Jump rule](#jump-rule)). The house size is another: the default `FOUR` gives each player 10 pieces in a corner triangle, the optional `FIVE` gives 15 pieces in a larger triangle on the same 121-cell board (see [Board size (triangle rows)](#board-size-triangle-rows)). The engine must pass the conformance tests at the end of this document before anyone writes search code.
 
 Chinese Checkers is called Stern-Halma in German. This document uses the name Chinese Checkers.
 
@@ -20,11 +20,13 @@ Two markers qualify a project decision. **Proposed** means that the owner has no
 
 This document covers:
 
-- the board, the coordinates and the start layouts for 2 and 3 players,
+- the board, the coordinates and the start layouts for 2 and 3 players, with 10 or 15 pieces per player,
 - legal moves, the goal and the win condition,
 - the rule switches and their default values,
 - draws, three-player specifics and symmetry,
 - the test values that the engine must reproduce, and the optional, later oracles from [Sturtevant2019].
+
+The variant Connection, in which the players build a line between two star tips, is described but not implemented (see [Connection](#connection-described-not-implemented)).
 
 This document does not cover search, evaluation, the endgame database or the opening book. See [search and evaluation](search-and-evaluation.md), [endgame and opening](endgame-and-opening.md) and [architecture](architecture.md).
 
@@ -60,6 +62,8 @@ In the standard game each player has 10 pieces. At the start, a player's pieces 
 | 3 | Every second corner around the star. | The opposite corner. That corner is empty at the start. |
 
 For 3 players, the occupied corners alternate with empty corners around the star. Each player's goal is the empty corner opposite to their start corner. This layout is from the owner's survey (**reported**).
+
+This section and the rest of this document describe the 4-row board (`triangleRows = FOUR`, the default). With `triangleRows = FIVE` each player has 15 pieces, and the start and goal areas grow by the hexagon row in front of each corner; see [Board size (triangle rows)](#board-size-triangle-rows).
 
 Around the star, the corners come in this order: q > 4, s < −4, r > 4, q < −4, s > 4, r < −4. The three corners r < −4, q < −4 and s < −4 are therefore every second corner. Their goals r > 4, q > 4 and s > 4 are the three empty corners. **Project decision (proposed):** the three-player game uses the start corners r < −4, q < −4 and s < −4. This keeps the two-player start corner r < −4 for player 0.
 
@@ -167,6 +171,7 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 | `drawHandling` | `DRAW`, `SCORE_BY_DISTANCE` | `SCORE_BY_DISTANCE` | The result when the game ends without a winner. | The paper scores such games as draws. |
 | `ranking` | `FIRST_WINNER_ONLY`, `FULL_RANKING` | `FIRST_WINNER_ONLY` | With `FIRST_WINNER_ONLY`, the game ends when the first player fills the goal. With `FULL_RANKING` and three players, that player is finished and the others play on (see [Playing on for second place](#playing-on-for-second-place)). With two players, both values behave the same. | The paper focuses on two players (§3) and gives no rule for ranking. |
 | `jumpRule` | `ADJACENT`, `LONG` | `ADJACENT` | With `LONG`, a piece hops over one piece at any distance along a line and lands at the same distance behind it (see [Jump rule](#jump-rule)). | The paper plays adjacent jumps only (§3.1). `LONG` is outside the paper, so its oracles do not apply. |
+| `triangleRows` | `FOUR`, `FIVE` | `FOUR` | The size of the start and goal areas (houses): a triangle with 4 cells per side (10 pieces) or 5 cells per side (15 pieces), on the same 121-cell board. `FIVE` sets the default `moveLimit` to 250 plies for 2 players and 375 for 3. See [Board size (triangle rows)](#board-size-triangle-rows). | The paper plays 10 pieces (§3). `FIVE` is outside the paper, so its oracles do not apply. |
 | `foreignCamps` | `CLOSED`, `PASS_THROUGH`, `OPEN` | `CLOSED` | Whether a piece may enter a corner that is neither its start nor its goal corner: never (`CLOSED`), only between two jumps of a chain (`PASS_THROUGH`), or also at the end of a move (`OPEN`). See [Foreign corners](#foreign-corners). | `CLOSED` is the paper's implementation (§3). `PASS_THROUGH` is the passage rule that the paper mentions but does not use; `OPEN` is outside the paper. |
 
 ### Project defaults and their evidence
@@ -175,6 +180,7 @@ The `RuleSet` record is immutable. Each switch has a fixed set of allowed values
 - **`blockadeRule = OPPONENT_FILLS`** — **project decision** (owner, 2026-11-07): an opponent piece in the goal counts as filling it if at least one own piece is in the goal. This is exactly Definition 1 [Sturtevant2019, §3.2]. A goal that holds only opponent pieces is not a win.
 - **`drawHandling = SCORE_BY_DISTANCE`** — **project decision** (owner, 2026-11-07). The value `DRAW` stays available, because comparisons with the solved tables of [Sturtevant2019] need real draws (see [Oracles from the paper](#oracles-from-the-paper)).
 - **`foreignCamps = CLOSED`** — **project decision** (owner, 2026-11-20). It is the rule the engine always played, so every golden file, hash, race table and trained net stays valid. `PASS_THROUGH` and `OPEN` were added on the same day at the owner's wish (see [Foreign corners](#foreign-corners)).
+- **`triangleRows = FOUR`** — **project decision** (owner, 2026-11-20). The engine default stays the 4-row board, so every golden file, hash, race table and trained net stays valid. The web start dialog offers 5 rows as its default; see [Board size (triangle rows)](#board-size-triangle-rows).
 - **`ranking = FIRST_WINNER_ONLY`** — **project decision** (owner, 2026-11-07). It stays the default. `FULL_RANKING` was added on 2026-11-19 at the owner's wish (see [Playing on for second place](#playing-on-for-second-place)).
 - **`suicideMoves = ILLEGAL`** — **project decision (proposed)**. It follows Definition 2. The paper focuses on the two-player game [Sturtevant2019, §3]; the three-player form of the rule is an open point.
 - **`blockingStates = NONE`** — **project decision (proposed)**. The project deviates from Definition 3 in the default, because the paper itself calls the conditions for 10 pieces "more complicated" [Sturtevant2019, §3.3] and does not give them. Before `ILLEGAL` can be implemented for 10 pieces, the project must define "unreachable" exactly.
@@ -242,7 +248,7 @@ The golden file `engine/src/test/resources/long-jump-golden.tsv` pins the rule f
 
 ### Definition
 
-The **home cells** of a player p are the cells of the central hexagon, of p's start corner and of p's goal corner (`Layout.allowed(p, cell)`). Every other corner cell is a **foreign cell** of p.
+The **home cells** of a player p are the cells of the central hexagon, of p's start corner and of p's goal corner (`Layout.allowed(p, cell)`). Every other corner cell is a **foreign cell** of p. The corners here are the 10-cell triangles also on the 5-row board; the larger houses of that board add only hexagon cells, which are home cells anyway ([Board size (triangle rows)](#board-size-triangle-rows)).
 
 - With two players both players have the same home cells: the hexagon and the corners r < −4 and r > 4. The four side corners q > 4, q < −4, s > 4 and s < −4 are foreign for both.
 - With three players every corner is the start or the goal of some player, but each player owns only two of the six. The foreign cells of player 0 (start r < −4, goal r > 4) are the corners of q and s; those of player 1 (start s < −4, goal s > 4) are the corners of q and r; those of player 2 (start q < −4, goal q > 4) are the corners of r and s.
@@ -259,7 +265,7 @@ Example, two players, `jumpRule = ADJACENT`: player 0 on (3, −1), player 1 on 
 
 **No legal move.** A player with no legal move under the rule in force is handled as under `CLOSED`: the game ends with the reason `NO_MOVES` and no winner, and `drawHandling` scores it; with `FULL_RANKING` and three players the players still in play are ranked by distance (see [Playing on for second place](#playing-on-for-second-place)). The rule cannot take away a move that `CLOSED` allows, because the move sets are nested: `CLOSED` ⊆ `PASS_THROUGH` ⊆ `OPEN` on every position.
 
-**Distance.** The distance table (`Layout.distance` in `engine/src/main/java/sternhalma/engine/Layout.java`, C++ `Layout::distance` in `cpp/src/engine/layout.hpp`) counts steps to the nearest goal cell over the home cells. A foreign cell gets the number of steps over all board cells; home cells keep their values. With two and with three players the largest distance of a foreign cell (9) stays below the largest home distance (13); measured on 2026-11-20 over all cells of both layouts, and `ForeignCampsTest` (`engine/src/test/java/sternhalma/engine/`) checks the bound. The distance matters only under `OPEN`, where a piece can rest on a foreign cell; it enters the score of a game without a winner and the evaluation.
+**Distance.** The distance table (`Layout.distance` in `engine/src/main/java/sternhalma/engine/Layout.java`, C++ `Layout::distance` in `cpp/src/engine/layout.hpp`) counts steps to the nearest goal cell over the home cells. A foreign cell gets the number of steps over all board cells; home cells keep their values. With two and with three players the largest distance of a foreign cell (9) stays below the largest home distance (13); measured on 2026-11-20 over all cells of both layouts, and `ForeignCampsTest` (`engine/src/test/java/sternhalma/engine/`) checks the bound. On the 5-row board the goal is the 15-cell house, and the bound is 8 below 12; `TriangleRowsTest` in the same directory checks it. The distance matters only under `OPEN`, where a piece can rest on a foreign cell; it enters the score of a game without a winner and the evaluation.
 
 ### Rationale and limits
 
@@ -270,6 +276,78 @@ Example, two players, `jumpRule = ADJACENT`: player 0 on (3, −1), player 1 on 
 - **Not measured.** The playing strength of any engine under `PASS_THROUGH` or `OPEN` is not measured.
 
 The golden file `engine/src/test/resources/foreign-camps-golden.tsv` pins the rule for the C++ port: 48 positions from seeded playouts (`PASS_THROUGH` and `OPEN`, two and three players, both jump rules), each with its move count and the SHA-256 of the sorted and of the generated move list. `ForeignCampsGoldenTest` checks the file against a fresh run and against an independent coordinate oracle (`ForeignCampsOracle`); both are in `engine/src/test/java/sternhalma/engine/`.
+
+## Board size (triangle rows)
+
+**Project decision** (owner, 2026-11-20): the switch `triangleRows` (Java enum `RuleSet.TriangleRows` in `engine/src/main/java/sternhalma/engine/RuleSet.java`, C++ `RuleSet::TriangleRows` in `cpp/src/engine/rules.hpp`) sets the size of the start and goal areas. `FOUR` (default) is the game of the rest of this document. `FIVE` plays with 15 pieces per player on the same 121-cell board. The owner asked for "5 rows per triangle" with 2 and 3 players.
+
+### Definition
+
+A **house** is the start area or the goal area of a player.
+
+- **`FOUR`:** a house is one corner triangle: 10 cells in rows of 1, 2, 3 and 4.
+- **`FIVE`:** a house is the corner triangle plus the 5 hexagon cells of the edge row in front of it. That is a triangle with 5 cells per side, in rows of 1 to 5, and 15 cells. For the top corner r < −4 the added row is r = −4 with q = 0 to 4. In general, the added row is the 5 cells of the central hexagon whose defining coordinate of that corner is ±4: r = −4, r = 4, q = 4, q = −4, s = 4 or s = −4.
+
+Each player starts with 15 pieces that fill the start house. A player wins when the goal house is full and holds at least one own piece (`blockadeRule = OPPONENT_FILLS`, as on the 4-row board). `leaveGoal = FORBIDDEN` keeps a piece inside the goal house, including its edge row.
+
+The German Wikipedia article on Sternhalma [WikipediaSternhalma] supports this reading of "5 rows". It describes one board ("Das Spielbrett für Sternhalma hat 121 in einem Dreieckgitter angeordnete Felder") and gives 15 pieces for 2 and for 3 players:
+
+- 2 players: "Bei zwei Mitspielern werden zwei gegenüberliegende Startfelder mit je 15 Spielfiguren aufgebaut." (Two players set up two opposite start areas with 15 pieces each.)
+- 3 players: "Bei drei Mitspielern bekommt jeder Mitspieler je ein Startfeld mit 15 Spielfiguren, die gegenüberliegenden Felder gleicher Farbe bleiben frei." (Each of three players gets a start area with 15 pieces; the opposite areas of the same colour stay empty.)
+- 4 or 6 players: 10 pieces each, "die innerste Reihe bleibt frei" (the innermost row stays empty). The engine plays 2 and 3 players only.
+
+A larger star with 5-row points (181 cells) was the other reading of the request. The owner chose the 121-cell board on 2026-11-20. Cell numbers, Zobrist keys, neighbour tables and the game URL payload are therefore the same for both house sizes.
+
+### Three players: shared cells
+
+With three players the houses overlap. Each start house shares the two end cells of its edge row, the vertex cells of the hexagon, with the goal houses of the two other players. Example: player 0 starts at r < −4. Its start house holds (4, −4), which is also in the goal house q > 4 of player 2, and (0, −4), which is also in the goal house s > 4 of player 1. Start houses never overlap each other, and goal houses never overlap each other. Each of the 6 vertex cells is in exactly one start house and one goal house.
+
+Consequence: at the start, every goal house already holds two pieces of other players, and a player may leave a piece there as long as the game runs.
+
+**Project decision** (owner, 2026-11-20): the overlap is accepted, and the win rule stays "goal full and at least one own piece". This rule resolves the overlap: a foreign piece on a shared cell counts as filling the goal, so it cannot block a win. Wikipedia's sentence "die gegenüberliegenden Felder gleicher Farbe bleiben frei" says the same for the setup: a player's goal area starts empty of that player's own colour, not empty of pieces. Limit: under `blockadeRule = NONE` a foreign piece on a shared cell blocks the goal for as long as it stays there. The alternative the owner rejected was 13 pieces with the two vertex cells empty, as in Connection (below).
+
+### Defaults
+
+- **Engine:** `RuleSet.defaults(players)` stays `FOUR`. `RuleSet.defaults(players, TriangleRows.FIVE)` returns the 5-row rules. The 4-row texts, hashes, golden files, shipped nets, race tables and the tablebase are byte-identical to the build before the switch. Rationale: the 4-row board is the game that every existing test, table and net was made for.
+- **Web:** the start dialog offers 4 and 5 rows. A first visit preselects 5 rows. A choice stored before the switch existed has no board size and reads as 4 rows, so a person who played 4 rows keeps that game. Origin: the owner's decisions of 2026-11-20. Details are in [web UI](web-ui.md#start-dialog).
+
+### Move limit
+
+**Project decision** (owner, 2026-11-20): `moveLimit` is 250 plies for 2 players and 375 for 3 on the 5-row board (200 and 300 on 4 rows). Origin: the summed start distance of one side grows from 110 to 140 steps (about 1.27 times), and 200 × 1.27 and 300 × 1.27 were rounded to 250 and 375.
+
+Evidence (measured on 2026-11-20, `cpp/results/rows5-v1-2026-11-20.txt`): the browser players played seeded games against themselves, both jump rules and all three foreign-corner rules, at 1,000 to 500,000 nodes per move. No 5-row game reached the limit: 0 of 345 games in the browser engines under Node.js, and 0 of 288 games in a JVM run with a limit of 1,500 plies ran longer than 250 or 375 plies. The longest games took 223 plies with 2 players (about 89 % of 250) and 302 plies with 3 players (about 81 % of 375). Limit: these are engine games. Human or random play can take longer, and such a game ends at the limit and is scored by distance.
+
+On the 5-row board the largest home distance of a piece is 12 steps (13 on 4 rows), because the goal house reaches one row further. `SCORE_BY_DISTANCE` divides by 15 pieces × 12 steps instead of 10 × 13.
+
+### What is off on the 5-row board
+
+Each item is a **project decision**. The common reason: these components were built, computed or trained for 10 pieces in 10-cell corners.
+
+- **Race play.** The race tables, the solitaire beam, the S1 adjudication and the race evaluators `racelin*` are off. A player spec with `rows=5` and `race=1`, `race=2` or `racelin*` is refused. The 5-row browser players are `BROWSER_ROWS5_SPEC` and its long-hop and three-player forms in `search/src/main/java/sternhalma/search/Strategies.java`.
+- **Incremental evaluation and stage 4.** `IncrementalLinear.reset` declines a 5-row position, and the full evaluation runs. The evaluator `stage4` refuses it.
+- **Networks.** Network encoding, self-play, training data and the replay buffer refuse a 5-row position with a message that names the board size. The input planes mark 10-cell corners, so a shipped net cannot read the larger houses. The tablebase is reached only through race play, which is off.
+- **Evaluation weights.** The linear evaluator reads its tables from the 5-row layout, but its weights were fitted on 10 pieces. One correction keeps the scale; [search and evaluation](search-and-evaluation.md#five-row-boards) describes it. The playing strength on 5 rows is not measured.
+
+### Rationale and limits
+
+- **Foreign corners.** The foreign cells stay the 10-cell corners outside the hexagon. The hexagon edge rows are hexagon cells, so they are home cells of every player under every `foreignCamps` value. **Project decision** (owner, 2026-11-20). Rationale: this keeps the move tables of [Foreign corners](#foreign-corners) unchanged and the hexagon open to everyone.
+- **Position identity.** A position includes its house size in equality. Its Zobrist hash does not, because the two boards have the same cells; two positions of different house sizes with the same pieces have the same hash. A game record is only the list of moves, so a replay needs the rule set with its `triangleRows` value.
+
+The golden file `engine/src/test/resources/triangle-rows-golden.tsv` pins the rule for the C++ port: 96 rows from seeded playouts on the 5-row board (2 and 3 players, both jump rules, all three foreign-corner rules, random and greedy playouts, 12 of them played to a win). `TriangleRowsGoldenTest` checks it against a fresh run and against an independent coordinate oracle (`TriangleRowsOracle`). Both are in `engine/src/test/java/sternhalma/engine/`.
+
+### Connection (described, not implemented)
+
+Connection is a variant on the same board, described in the German Wikipedia article on Sternhalma [WikipediaSternhalma]. The project does not implement it. This section records what the source says, so that a later decision starts from facts.
+
+- **Players:** "Bei Connection können zwei bis drei Mitspieler teilnehmen." (Two or three players.)
+- **Pieces and setup:** "Jeder Spieler bekommt jeweils 13 Spielfiguren und stellt diese in seinem Startfeld so auf, dass die beiden inneren Eckfelder frei bleiben." (Each player sets up 13 pieces in the start area so that the two inner corner cells stay empty.) In the terms of this document, these are the two hexagon vertex cells of the 15-cell house, the cells that [Three players: shared cells](#three-players-shared-cells) describes.
+- **Goal:** "Ziel jedes Spielers ist es, mit den eigenen Spielfiguren eine ununterbrochene Linie zu bilden, die eine beliebige Sternspitze mit einer anderen verbindet." (Each player tries to build an unbroken line of own pieces that connects any star tip with another.)
+- **Solo form:** "Auch die oben beschriebene Spielvariante Connection kann als Solospiel gespielt werden." (Connection can also be played alone.)
+- **Photo:** the article shows the file `160409_Sternhalma_Connection_01.jpg` with the caption "Connection als Sternhalma-Variante: Die blauen Spielfiguren stellen die Anfangsstellung, die grünen die Zielstellung dar." (Blue pieces show the start position, green pieces the goal position.) The owner described a photo of the one-player form: blue start pieces in one corner and green goal pieces along the line through the opposite corner.
+
+**Open points:** the exact start and goal cells of the solo form, and its piece count. The article gives them only in the photo, and the text gives 13 pieces for the multiplayer form only.
+
+Why it is not implemented: its goal is a connected line, not a full goal house. The engine knows only race goals: `Position`, `Outcome` and every evaluator measure the distance to a goal house. Connection would need a one-player game (`players = 1`), a configurable start set and a win test "connected line between two tips".
 
 ## Draw handling
 
@@ -354,6 +432,8 @@ The script gets the same numbers whether pieces may enter the four side corners 
 
 **Update (2026-11-07):** the engine's move generator and an independent reference generator in the test code (axial coordinate arithmetic, recursive jump search, no shared tables) both give 14 first moves, 7 classes, 196 positions after two plies and 98 classes. Three independent counts now agree, so tests 4 to 6 are no longer provisional. They stay values computed by the project, not oracles from the literature.
 
+**5-row board** (`triangleRows = FIVE`, two players, both jump rules): 18 legal first moves and 324 distinct positions after two plies. A hand count gives the 18: the 5 pieces of the edge row r = −4 step to 2 empty cells each (10 moves), and the 4 pieces of the row r = −5 jump over the edge row to 2 cells each (8 moves). The engine and the coordinate oracle `TriangleRowsOracle` both give 18 and 324, and `TriangleRowsTest` (`engine/src/test/java/sternhalma/engine/`) checks both counts (2026-11-20). The two sides cannot interact in the first two plies, so 324 = 18 × 18, as 196 = 14 × 14 on 4 rows.
+
 ## Oracles from the paper
 
 Table 1 of [Sturtevant2019, §5] gives exact counts for strongly solved small boards. The board is the central m × m diamond without corners, and each player has k pieces [Sturtevant2019, §3]. The table as printed in the paper:
@@ -436,5 +516,6 @@ The engine must pass all of these tests before anyone writes search code. **Proj
 17. Property test: for random legal positions, every generated move is legal, and applying then undoing a move restores the position and its hash. The engine tests use seeded random playouts for this; jqwik is not used yet.
 18. With `jumpRule = LONG`, on seeded random positions, the move set contains the `ADJACENT` move set, equals the move set of an independent oracle built from the definition in [Jump rule](#jump-rule), and has no duplicate (start, end) pair. The engine reproduces the move counts and hashes of the golden file `engine/src/test/resources/long-jump-golden.tsv`.
 19. With `foreignCamps`, on seeded random positions for two and three players and both jump rules, the move set equals the move set of an independent coordinate oracle built from the definition in [Foreign corners](#foreign-corners), and has no duplicate (start, end) pair. The move sets are nested: `CLOSED` ⊆ `PASS_THROUGH` ⊆ `OPEN`. In the constructed position of that section, `CLOSED` has no move through the corner, `PASS_THROUGH` has only the move (3, −1) → (3, 1), and `OPEN` also ends on (5, −1). A step into a foreign corner is a move only under `OPEN`, and a setup that puts a piece on a foreign cell is refused unless the rule is `OPEN`. A game under `PASS_THROUGH` never leaves a piece on a foreign cell. The engines reproduce the golden file `engine/src/test/resources/foreign-camps-golden.tsv`, and the Java and C++ engines built for the browser agree with the TypeScript move generator of the web tests (`tinyLegalMoves` in `web/src/engines/testing/tiny-moves.ts`) in `web/src/engines/camps.cross.test.ts`.
+20. With `triangleRows = FIVE`, for two and three players, each house has 15 cells (the corner and its hexagon edge row), each player starts with 15 pieces, and with three players each start house shares its two vertex cells with the goal houses of the two neighbours. On seeded playouts of both jump rules and all three foreign-corner rules, the move set and the winner equal those of an independent coordinate oracle built from [Board size (triangle rows)](#board-size-triangle-rows). The engines reproduce the golden file `engine/src/test/resources/triangle-rows-golden.tsv`; the Java test is `TriangleRowsGoldenTest`, the C++ test `cpp/tests/triangle_rows_test.cpp`. With the 4-row default every existing golden file and hash stays unchanged.
 
 **Proposed, not scheduled:** in the [small-board mode](#small-board-mode), the engine reproduces the "Positions" and "Illegal" columns of Table 1 for 7×7 with 1 and 2 pieces. The "Wins" and "Draws" columns are not a test target, because they need a solver.

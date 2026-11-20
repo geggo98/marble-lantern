@@ -717,7 +717,8 @@ there is not a move. `Open` lets every move end there. `Position::generate` (`sr
 `PassThrough` filters the end cells. The order of the generated moves is the order of the Java generator (`Position.generate` in
 `engine/src/main/java/sternhalma/engine/Position.java`, from the repository root). Unless the rule is `Closed`, race play, the
 race evaluation and race adjudication (section "Race play and the games row (WP6)" above) are off, and `IncrementalLinear::reset` (`src/search/incremental_linear.hpp`) declines the position, so the full evaluation runs. `Layout::distance` gives a foreign
-cell the step count over the whole board (at most 9; the home cells keep their values, at most 13).
+cell the step count over the whole board (at most 9; the home cells keep their values, at most 13). On the 5-row board the goal is the 15-cell house; the Java layout gives the bounds 8 and 12 there (`TriangleRowsTest`), and the C++ layout
+is built by the same rule but has no test of these two bounds.
 
 `tests/foreign_camps_test.cpp` reads the Java golden file `engine/src/test/resources/foreign-camps-golden.tsv` (from the repository root) in place (48 rows: both
 values other than `Closed`, two and three players, both jump rules) and compares `generate` with a coordinate oracle over seeded playouts
@@ -727,7 +728,7 @@ of all three values. The wasm API has `shw_game_new4(jump, players, ranking, cam
 
 ### Search and the wasm API on 5-row boards
 
-`RuleSet::TriangleRows::Five` (15-cell houses, 15 pieces; `docs/rules.md`, section "Board size") reaches the search as follows.
+`RuleSet::TriangleRows::Five` (15-cell houses, 15 pieces; `docs/rules.md`, section "Board size (triangle rows)") reaches the search as follows.
 The linear evaluator and the three-player search read their tables from the layout of the position's house size
 (`linear_tables(rows)` in `src/search/linear_eval.hpp`, `tables3(position)` in `src/search/three_player_search.cpp`); the weights are those of the
 4-row board and are not calibrated for 5 rows. One correction keeps their scale: the feature `dsumPhase` (the difference of the summed piece
