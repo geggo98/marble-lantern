@@ -497,6 +497,10 @@ public final class ReplayBuffer implements BatchSource {
         }
         try {
             RuleSet rules = GameShard.rules(meta);
+            if (rules.triangleRows() != RuleSet.TriangleRows.FOUR) {
+                // the encoder and the sample expander are for the 4-row board (10 pieces, 10-cell corners)
+                throw new IllegalArgumentException("triangleRows=" + rules.triangleRows() + " is not trainable");
+            }
             if (rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED) {
                 // the sample expander rebuilds positions under closed foreign corners (SampleExpander)
                 throw new IllegalArgumentException("foreignCamps=" + rules.foreignCamps() + " is not trainable");

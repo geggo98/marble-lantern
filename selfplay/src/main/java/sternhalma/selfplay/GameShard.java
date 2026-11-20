@@ -66,6 +66,10 @@ public final class GameShard {
 
     /** The tensors of games under {@code rules}; the value tensors have one column per player. */
     static Map<String, Tensor> tensors(RuleSet rules, List<GameRecord> games) {
+        if (rules.triangleRows() != RuleSet.TriangleRows.FOUR) {
+            throw new IllegalArgumentException("triangleRows=" + rules.triangleRows()
+                    + " is not supported: the sample format and the network are for the 4-row board");
+        }
         int pl = rules.players();
         int g = games.size();
         int totalMoves = 0;
@@ -220,7 +224,8 @@ public final class GameShard {
      * RuleSet.toString()}, e.g. {@code RuleSet[players=3, moveLimit=300, ..., jumpRule=LONG]}). A shard without the
      * key (or a key without {@code jumpRule}, written before the jump rule existed) means the defaults of
      * {@code players} (2 if that is missing as well) with the adjacent jump; a key without {@code foreignCamps}
-     * (written before that switch existed) means {@code CLOSED}. Every sample of the shard has these
+     * (written before that switch existed) means {@code CLOSED}, a key without {@code triangleRows} means {@code FOUR}.
+     * Every sample of the shard has these
      * rules; the move limit of a sample is also in the tensor {@code move_limit}.
      */
     public static RuleSet rules(Map<String, String> metadata) {
@@ -246,7 +251,8 @@ public final class GameShard {
                 RuleSet.DrawHandling.valueOf(kv.getOrDefault("drawHandling", d.drawHandling().name())),
                 RuleSet.Ranking.valueOf(kv.getOrDefault("ranking", d.ranking().name())),
                 RuleSet.JumpRule.valueOf(kv.getOrDefault("jumpRule", RuleSet.JumpRule.ADJACENT.name())),
-                RuleSet.ForeignCamps.valueOf(kv.getOrDefault("foreignCamps", RuleSet.ForeignCamps.CLOSED.name())));
+                RuleSet.ForeignCamps.valueOf(kv.getOrDefault("foreignCamps", RuleSet.ForeignCamps.CLOSED.name())),
+                RuleSet.TriangleRows.valueOf(kv.getOrDefault("triangleRows", RuleSet.TriangleRows.FOUR.name())));
         if (declared != null && r.players() != players) {
             throw new IllegalArgumentException("metadata players " + declared + " but rules " + text);
         }

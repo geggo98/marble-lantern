@@ -84,8 +84,22 @@ public final class Orientation {
         return table[mover];
     }
 
-    /** The orientation for the side to move of a position. */
+    /**
+     * The planes, the orientations and the policy head are for the 4-row board (10 pieces, 10-cell houses). A position of
+     * a 5-row game would be encoded without an error and mark only the 10 corner cells as goal and start.
+     *
+     * @throws IllegalArgumentException if the position is not on the 4-row board
+     */
+    public static void requireFourRows(Position position) {
+        if (position.rules().triangleRows() != sternhalma.engine.RuleSet.TriangleRows.FOUR) {
+            throw new IllegalArgumentException("the network encoding is for the 4-row board, got triangleRows="
+                    + position.rules().triangleRows());
+        }
+    }
+
+    /** The orientation for the side to move of a position (4-row board only, see {@link #requireFourRows}). */
     public static Orientation of(Position position) {
+        requireFourRows(position);
         return of(position.rules().players(), position.sideToMove());
     }
 

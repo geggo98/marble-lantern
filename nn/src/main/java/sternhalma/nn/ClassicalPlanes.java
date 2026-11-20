@@ -103,6 +103,7 @@ public final class ClassicalPlanes {
      */
     static void fill(Position position, Orientation orientation, boolean mirror, boolean variants, float[] out,
             int offset, int stride) {
+        Orientation.requireFourRows(position);
         int players = orientation.players();
         int mover = orientation.mover();
         int next = (mover + 1) % players;
