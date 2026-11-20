@@ -133,7 +133,8 @@ public final class RaceAdjudication {
 
     /** The rule preconditions of the soundness statement. */
     public static boolean applicable(RuleSet rules) {
-        return rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
+        return rules.triangleRows() == RuleSet.TriangleRows.FOUR && rules.players() == 2
+                && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
                 && rules.foreignCamps() == RuleSet.ForeignCamps.CLOSED
                 && rules.blockingStates() == BlockingStates.NONE
                 && rules.repetition() == Repetition.MOVE_LIMIT;
@@ -144,7 +145,8 @@ public final class RaceAdjudication {
      * player 1 (both with all their pieces on the board). Two-player positions only.
      */
     public static boolean passed(Position pos) {
-        if (pos.rules().players() != 2 || pos.rules().jumpRule() != RuleSet.JumpRule.ADJACENT
+        if (pos.rules().triangleRows() != RuleSet.TriangleRows.FOUR || pos.rules().players() != 2
+                || pos.rules().jumpRule() != RuleSet.JumpRule.ADJACENT
                 || pos.rules().foreignCamps() != RuleSet.ForeignCamps.CLOSED) {
             return false;
         }

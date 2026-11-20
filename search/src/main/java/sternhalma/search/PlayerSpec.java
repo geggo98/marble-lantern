@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.tablebase.RaceTable;
 
 /**
@@ -36,17 +37,25 @@ import sternhalma.tablebase.RaceTable;
  * evaluators stay usable but weaker: their jump features count single jumps, the distance table counts steps
  * (docs/rules.md, "Jump rule").
  *
+ * <p>Board size: {@code rows=4} (default) or {@code rows=5} names the house size of the games the player plays
+ * ({@link TriangleRows}; the position carries the real size, and the player refuses a position of another size). The
+ * race table, race arithmetic and solitaire beam know only the 10-cell houses, and the {@code stage4} evaluator only
+ * that board, so {@code rows=5} is rejected together with {@code race=1}, {@code race=2}, a race evaluator and
+ * {@code eval=stage4}. The linear evaluators work on 5 rows with the weights of the 4-row board (uncalibrated).
+ *
  * @param race      0 off, 1 or 2 the race mode
  * @param raceTable whether race play may use a race table
  * @param raceRows  the region of the race table: 2 (default, committed) or 1 (extended, optional)
+ * @param rows      the house size of the games the player plays
  */
 public record PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
         SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable, int raceRows,
-        JumpRule jumpRule) {
+        JumpRule jumpRule, TriangleRows rows) {
 
     public PlayerSpec {
         weights = Map.copyOf(weights);
         java.util.Objects.requireNonNull(jumpRule, "jumpRule");
+        java.util.Objects.requireNonNull(rows, "rows");
         if (race < 0 || race > 2) {
             throw new IllegalArgumentException("race must be 0, 1 or 2, got " + race);
         }
@@ -63,6 +72,27 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                         + ": it reads the race table, which is computed for single jumps (use its base evaluator)");
             }
         }
+        if (rows == TriangleRows.FIVE) {
+            if (race != 0) {
+                throw new IllegalArgumentException("rows=5 cannot be combined with race=" + race
+                        + ": the race table and the solitaire beam are computed for the 10-cell houses");
+            }
+            if (Evaluators.usesRaceTable(evaluator)) {
+                throw new IllegalArgumentException("rows=5 cannot be combined with eval=" + evaluator
+                        + ": it reads the race table, which is computed for the 10-cell houses (use its base evaluator)");
+            }
+            if (evaluator.equals("stage4")) {
+                throw new IllegalArgumentException("rows=5 cannot be combined with eval=stage4: it knows only the"
+                        + " 10-cell houses");
+            }
+        }
+    }
+
+    public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
+            SearchOptions options, Map<String, Integer> weights, int race, boolean raceTable, int raceRows,
+            JumpRule jumpRule) {
+        this(text, evaluator, nodes, depth, millis, tableBits, options, weights, race, raceTable, raceRows, jumpRule,
+                TriangleRows.FOUR);
     }
 
     public PlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
@@ -126,6 +156,7 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
         String raceTable = options.remove("racetable");
         boolean useTable = raceTable == null || flag(raceTable, "racetable");
         String jump = options.remove("jump");
+        String rowsText = options.remove("rows");
         String raceRows = options.remove("racerows");
         if (raceRows != null && (race == 0 || !useTable)) {
             throw new IllegalArgumentException("racerows needs race=1 or race=2 with the table enabled");
@@ -154,7 +185,19 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 race,
                 useTable,
                 raceRows == null ? RaceTable.MIN_ROW : Integer.parseInt(raceRows),
-                parseJump(jump));
+                parseJump(jump),
+                parseRows(rowsText));
+    }
+
+    /** {@code rows=4} (or absent) or {@code rows=5}. */
+    static TriangleRows parseRows(String value) {
+        if (value == null || value.equals("4")) {
+            return TriangleRows.FOUR;
+        }
+        if (value.equals("5")) {
+            return TriangleRows.FIVE;
+        }
+        throw new IllegalArgumentException("rows must be 4 or 5, got '" + value + "'");
     }
 
     private static JumpRule parseJump(String value) {
@@ -200,6 +243,6 @@ public record PlayerSpec(String text, String evaluator, long nodes, int depth, l
                 : new RaceMove(raceTableOfSource == null ? null : raceTableOfSource.counts(), race,
                         raceTableOfSource == null ? -1 : raceTableOfSource.minRow());
         return new AlphaBetaPlayer(Evaluators.byName(evaluator, weights, source), depth, millis, nodes, tableBits, label,
-                options, raceMove, jumpRule);
+                options, raceMove, jumpRule, rows);
     }
 }

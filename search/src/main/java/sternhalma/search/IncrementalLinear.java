@@ -78,6 +78,9 @@ final class IncrementalLinear implements EvalState {
 
     @Override
     public boolean reset(Position root) {
+        if (root.rules().triangleRows() != sternhalma.engine.RuleSet.TriangleRows.FOUR) {
+            return false; // the tables are those of the 10-cell houses; the full evaluation takes over
+        }
         if (root.rules().players() != 2 || root.pieceCount(0) > Position.PIECES || root.pieceCount(1) > Position.PIECES) {
             return false;
         }

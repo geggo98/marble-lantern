@@ -71,6 +71,8 @@ final class ThreePlayerSearch {
     private Position pos;
     private int root;
     private int[][] dist;
+    /** Table index of the position's layout, see {@link LinearEvaluator#layoutIndex}. */
+    private int layoutIndex;
     private boolean playOn;
     private long nodes;
     private long nodeLimit;
@@ -100,7 +102,7 @@ final class ThreePlayerSearch {
         pos = position;
         root = position.sideToMove();
         playOn = position.rules().playsOnAfterWin();
-        dist = LinearEvaluator.DIST[1];
+        dist = LinearEvaluator.DIST[layoutIndex = LinearEvaluator.layoutIndex(position.rules())];
         nodes = 0;
         nodeLimit = maxNodes;
         aborted = false;
@@ -183,7 +185,7 @@ final class ThreePlayerSearch {
         pos = position;
         root = rootPlayer;
         playOn = position.rules().playsOnAfterWin();
-        dist = LinearEvaluator.DIST[1];
+        dist = LinearEvaluator.DIST[layoutIndex = LinearEvaluator.layoutIndex(position.rules())];
         nodes = 0;
         nodeLimit = maxNodes;
         aborted = false;
@@ -234,7 +236,7 @@ final class ThreePlayerSearch {
     int[] evaluateAll(Position position) {
         pos = position;
         playOn = position.rules().playsOnAfterWin();
-        dist = LinearEvaluator.DIST[1];
+        dist = LinearEvaluator.DIST[layoutIndex = LinearEvaluator.layoutIndex(position.rules())];
         int[] all = new int[3];
         boolean over = playOn && Integer.bitCount(position.finishedMask()) >= 2;
         for (int p = 0; p < 3; p++) {
@@ -412,7 +414,7 @@ final class ThreePlayerSearch {
     void setPositionForEvaluation(Position position) {
         pos = position;
         playOn = position.rules().playsOnAfterWin();
-        dist = LinearEvaluator.DIST[1];
+        dist = LinearEvaluator.DIST[layoutIndex = LinearEvaluator.layoutIndex(position.rules())];
     }
 
     /**
@@ -424,7 +426,7 @@ final class ThreePlayerSearch {
             if (pos.isFinished(p)) {
                 continue;
             }
-            LinearEvaluator.side(pos, 1, p, sums[p]);
+            LinearEvaluator.side(pos, layoutIndex, p, sums[p]);
             int lateral = 0;
             for (int i = 0, n = pos.pieceCount(p); i < n; i++) {
                 lateral += LATERAL[p][pos.pieceCell(p, i)];

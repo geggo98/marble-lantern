@@ -67,6 +67,23 @@ public final class LinearEvaluator implements Evaluator {
         MOVER
     }
 
+    /** Layouts: two and three players, each on 4-row and 5-row houses. */
+    static final int LAYOUTS = 4;
+    /** Per layout: the most pieces per side that {@link #side} counts. */
+    static final int[] PIECE_CAP = {Position.PIECES, Position.PIECES, Position.MAX_PIECES, Position.MAX_PIECES};
+
+    /**
+     * The table index of a rule set: {@code players - 2} for 4-row houses (so 0 and 1 are the tables of the 4-row
+     * board), plus 2 for 5-row houses.
+     */
+    static int layoutIndex(sternhalma.engine.RuleSet rules) {
+        return layoutIndex(rules.players(), rules.triangleRows());
+    }
+
+    static int layoutIndex(int players, sternhalma.engine.RuleSet.TriangleRows rows) {
+        return players - 2 + (rows == sternhalma.engine.RuleSet.TriangleRows.FIVE ? 2 : 0);
+    }
+
     /** Flat neighbour and jump-landing tables, index {@code cell * DIRECTIONS + direction}. */
     static final int[] STEP = new int[Geometry.CELLS * Geometry.DIRECTIONS];
     static final int[] LAND = new int[Geometry.CELLS * Geometry.DIRECTIONS];
@@ -75,16 +92,16 @@ public final class LinearEvaluator implements Evaluator {
     static final int STEP_CLOSER = 1;
     /** Bit in {@link #GOOD}: the jump landing is an allowed cell closer to the goal than the piece. */
     static final int JUMP_CLOSER = 2;
-    /** Per layout (index players - 2) and player: {@code STEP_CLOSER | JUMP_CLOSER} per (cell, direction). */
-    static final byte[][][] GOOD = new byte[2][][];
+    /** Per layout (see {@link #layoutIndex}) and player: {@code STEP_CLOSER | JUMP_CLOSER} per (cell, direction). */
+    static final byte[][][] GOOD = new byte[LAYOUTS][][];
     /** Per layout and player: the single-agent distance per cell. */
-    static final int[][][] DIST = new int[2][][];
+    static final int[][][] DIST = new int[LAYOUTS][][];
     /** Per layout and player: 1 for a goal cell, 2 for a start cell, 0 otherwise. */
-    static final byte[][][] KIND = new byte[2][][];
+    static final byte[][][] KIND = new byte[LAYOUTS][][];
     /** Per layout and player: the step target per (cell, direction) if it is an allowed cell, else -1. */
-    private static final int[][][] STEP_ALLOWED = new int[2][][];
+    private static final int[][][] STEP_ALLOWED = new int[LAYOUTS][][];
     /** Per layout and player: the jump landing per (cell, direction) if it is an allowed cell, else -1. */
-    private static final int[][][] LAND_ALLOWED = new int[2][][];
+    private static final int[][][] LAND_ALLOWED = new int[LAYOUTS][][];
     static final int IN_GOAL = 1;
     static final int IN_START = 2;
 
@@ -96,8 +113,9 @@ public final class LinearEvaluator implements Evaluator {
             }
             LATERAL[c] = Math.abs(Geometry.q(c) - Geometry.s(c));
         }
-        for (int players = 2; players <= 3; players++) {
-            Layout layout = Layout.of(players);
+        for (int li = 0; li < LAYOUTS; li++) {
+            int players = li % 2 + 2;
+            Layout layout = Layout.of(players, li >= 2 ? sternhalma.engine.RuleSet.TriangleRows.FIVE : sternhalma.engine.RuleSet.TriangleRows.FOUR);
             byte[][] good = new byte[players][Geometry.CELLS * Geometry.DIRECTIONS];
             int[][] dist = new int[players][Geometry.CELLS];
             byte[][] kind = new byte[players][Geometry.CELLS];
@@ -110,9 +128,7 @@ public final class LinearEvaluator implements Evaluator {
                 }
                 for (int c = 0; c < Geometry.CELLS; c++) {
                     dist[p][c] = layout.distance(p, c);
-                    int corner = Geometry.cornerOf(c);
-                    kind[p][c] = (byte) (corner == layout.goalCorner(p) ? IN_GOAL
-                            : corner == layout.startCorner(p) ? IN_START : 0);
+                    kind[p][c] = (byte) (layout.inGoal(p, c) ? IN_GOAL : layout.inStart(p, c) ? IN_START : 0);
                     if (!layout.allowed(p, c)) {
                         continue; // a piece of p never stands here
                     }
@@ -130,11 +146,11 @@ public final class LinearEvaluator implements Evaluator {
                     }
                 }
             }
-            GOOD[players - 2] = good;
-            DIST[players - 2] = dist;
-            KIND[players - 2] = kind;
-            STEP_ALLOWED[players - 2] = stepAllowed;
-            LAND_ALLOWED[players - 2] = landAllowed;
+            GOOD[li] = good;
+            DIST[li] = dist;
+            KIND[li] = kind;
+            STEP_ALLOWED[li] = stepAllowed;
+            LAND_ALLOWED[li] = landAllowed;
         }
     }
 
@@ -254,32 +270,33 @@ public final class LinearEvaluator implements Evaluator {
     }
 
     /** Per layout: whether all players may stand on the same cells (two players: centre and both main corners). */
-    private static final boolean[] SHARED_CELLS = new boolean[2];
+    private static final boolean[] SHARED_CELLS = new boolean[LAYOUTS];
     /**
      * Per layout and player, the jumps from each allowed cell as a compressed list: the jumps of cell c are
      * {@code EDGES[e]} for {@code EDGE_START[c] <= e < EDGE_START[c + 1]}, each {@code hurdle << 8 | landing}, with
      * the landing an allowed cell. Cells are below 128, so 8 bits each suffice.
      */
-    private static final int[][][] EDGE_START = new int[2][][];
-    private static final int[][][] EDGES = new int[2][][];
+    private static final int[][][] EDGE_START = new int[LAYOUTS][][];
+    private static final int[][][] EDGES = new int[LAYOUTS][][];
 
     static {
-        for (int players = 2; players <= 3; players++) {
-            Layout layout = Layout.of(players);
+        for (int li = 0; li < LAYOUTS; li++) {
+            int players = li % 2 + 2;
+            Layout layout = Layout.of(players, li >= 2 ? sternhalma.engine.RuleSet.TriangleRows.FIVE : sternhalma.engine.RuleSet.TriangleRows.FOUR);
             boolean shared = true;
             for (int p = 1; p < players; p++) {
                 for (int c = 0; c < Geometry.CELLS; c++) {
                     shared &= layout.allowed(p, c) == layout.allowed(0, c);
                 }
             }
-            SHARED_CELLS[players - 2] = shared && players == 2; // the shared graph keeps minima for two players
+            SHARED_CELLS[li] = shared && players == 2; // the shared graph keeps minima for two players
             if (players == 2 && !shared) {
                 throw new AssertionError("two-player layout: players may stand on different cells");
             }
-            EDGE_START[players - 2] = new int[players][Geometry.CELLS + 1];
-            EDGES[players - 2] = new int[players][];
+            EDGE_START[li] = new int[players][Geometry.CELLS + 1];
+            EDGES[li] = new int[players][];
             for (int p = 0; p < players; p++) {
-                int[] start = EDGE_START[players - 2][p];
+                int[] start = EDGE_START[li][p];
                 int[] list = new int[Geometry.CELLS * Geometry.DIRECTIONS];
                 int count = 0;
                 for (int c = 0; c < Geometry.CELLS; c++) {
@@ -288,14 +305,14 @@ public final class LinearEvaluator implements Evaluator {
                         continue;
                     }
                     for (int d = 0; d < Geometry.DIRECTIONS; d++) {
-                        int land = LAND_ALLOWED[players - 2][p][c * Geometry.DIRECTIONS + d];
+                        int land = LAND_ALLOWED[li][p][c * Geometry.DIRECTIONS + d];
                         if (land >= 0) {
                             list[count++] = STEP[c * Geometry.DIRECTIONS + d] << 8 | land;
                         }
                     }
                 }
                 start[Geometry.CELLS] = count;
-                EDGES[players - 2][p] = java.util.Arrays.copyOf(list, count);
+                EDGES[li][p] = java.util.Arrays.copyOf(list, count);
             }
         }
     }
@@ -332,7 +349,7 @@ public final class LinearEvaluator implements Evaluator {
         private final int[] minB = new int[MAX_COMPONENTS];
         private final int[] components = new int[MAX_PLAYERS];
         private final int[] stack = new int[Geometry.CELLS];
-        private final int[] order = new int[Position.PIECES];
+        private final int[] order = new int[Position.MAX_PIECES];
 
         /** Starts a new position: no component labelled, the occupancy from the piece lists. */
         void begin(Position position) {
@@ -364,7 +381,7 @@ public final class LinearEvaluator implements Evaluator {
         }
 
         int bestGain(Position position, int p) {
-            int layout = position.rules().players() - 2;
+            int layout = layoutIndex(position.rules());
             boolean shared = SHARED_CELLS[layout];
             int g = shared ? 0 : p;
             int[] dist = DIST[layout][p];
@@ -377,7 +394,7 @@ public final class LinearEvaluator implements Evaluator {
             long hi = occHi;
             // pieces outside the goal by falling distance (packed distance << 8 | cell), so that the gain found
             // early lets the bound "no gain above the piece's distance" skip the rest
-            int n = Math.min(position.pieceCount(p), Position.PIECES);
+            int n = Math.min(position.pieceCount(p), PIECE_CAP[layout]);
             int m = 0;
             for (int i = 0; i < n; i++) {
                 int c = position.pieceCell(p, i);
@@ -490,7 +507,7 @@ public final class LinearEvaluator implements Evaluator {
      */
     private static void features(Position position, double[] out, int[] sums, int[] otherSums) {
         int me = position.sideToMove();
-        int layout = position.rules().players() - 2;
+        int layout = layoutIndex(position.rules());
         side(position, layout, me, sums);
         side(position, layout, 1 - me, otherSums);
         combine(sums, otherSums, out);
@@ -528,7 +545,7 @@ public final class LinearEvaluator implements Evaluator {
         byte[] good = GOOD[layout][p];
         int[] dist = DIST[layout][p];
         byte[] kind = KIND[layout][p];
-        int n = Math.min(position.pieceCount(p), Position.PIECES);
+        int n = Math.min(position.pieceCount(p), PIECE_CAP[layout]);
         int dsum = 0;
         int dmax = 0;
         int dmin = Integer.MAX_VALUE;

@@ -2,6 +2,7 @@ package sternhalma.search;
 
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 
 /**
  * The alpha-beta baseline as a player, searching to a fixed depth, for a time or for a number of nodes.
@@ -16,6 +17,7 @@ public final class AlphaBetaPlayer implements Player {
     private final RaceMove race;
     private final String name;
     private final JumpRule jumpRule;
+    private final TriangleRows rows;
     private final int maxDepth;
     private final long timeLimitMillis;
     private final long maxNodes;
@@ -55,6 +57,20 @@ public final class AlphaBetaPlayer implements Player {
      */
     public AlphaBetaPlayer(Evaluator evaluator, int maxDepth, long timeLimitMillis, long maxNodes, int tableBits,
             String evaluatorName, SearchOptions options, RaceMove race, JumpRule jumpRule) {
+        this(evaluator, maxDepth, timeLimitMillis, maxNodes, tableBits, evaluatorName, options, race, jumpRule,
+                TriangleRows.FOUR);
+    }
+
+    /**
+     * @param rows the house size of the games this player plays; {@link #choose} refuses a position of another size;
+     *             must be {@link TriangleRows#FOUR} with race play (the race code knows the 10-cell houses only)
+     */
+    public AlphaBetaPlayer(Evaluator evaluator, int maxDepth, long timeLimitMillis, long maxNodes, int tableBits,
+            String evaluatorName, SearchOptions options, RaceMove race, JumpRule jumpRule, TriangleRows rows) {
+        if (rows == TriangleRows.FIVE && race != null) {
+            throw new IllegalArgumentException("race play is computed for the 10-cell houses and cannot play rows=5");
+        }
+        this.rows = rows;
         if (jumpRule == JumpRule.LONG && race != null) {
             throw new IllegalArgumentException("race play is computed for single jumps and cannot play jump=long");
         }
@@ -69,6 +85,7 @@ public final class AlphaBetaPlayer implements Player {
                 + (maxNodes == Long.MAX_VALUE ? "" : ", " + maxNodes + " nodes")
                 + (options.isDefault() ? "" : ", " + options.describe())
                 + (jumpRule == JumpRule.LONG ? ", jump=long" : "")
+                + (rows == TriangleRows.FIVE ? ", rows=5" : "")
                 + (race == null ? "" : ", race=" + race.mode() + (race.usesTable() ? "" : ", racetable=0")
                         + (race != null && race.tableMinRow() == 1 ? ", racerows=1" : "")) + "]";
     }
@@ -83,6 +100,10 @@ public final class AlphaBetaPlayer implements Player {
         if (position.rules().jumpRule() != jumpRule) {
             throw new IllegalArgumentException("player " + name + " plays jump=" + jumpRule.name().toLowerCase(java.util.Locale.ROOT)
                     + " but the position has jump=" + position.rules().jumpRule().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        if (position.rules().triangleRows() != rows) {
+            throw new IllegalArgumentException("player " + name + " plays rows=" + (rows == TriangleRows.FIVE ? 5 : 4)
+                    + " but the position has rows=" + (position.rules().triangleRows() == TriangleRows.FIVE ? 5 : 4));
         }
         long t0 = System.nanoTime();
         if (race != null && position.rules().players() == 2) {

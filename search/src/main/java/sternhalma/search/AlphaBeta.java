@@ -470,7 +470,7 @@ public final class AlphaBeta {
      * "static value + futilityGain x distance gain + margin" can fail because a child within {@code depth}
      * plies is not scored by the evaluation:
      * <ul>
-     *   <li>near a win: a goal holds {@code CORNER_SIZE - depth} or more pieces, for either player, so a gain-1
+     *   <li>near a win: a goal holds {@code goalSize - depth} (10 or 15) or more pieces, for either player, so a gain-1
      *       goal entry that wins, or the only move that stops the opponent's win, is never cut (a move adds at
      *       most one piece to a goal, so below this count no game can end by a win within {@code depth} plies);</li>
      *   <li>near the move limit: the game would end within {@code depth} plies with a distance score at
@@ -490,7 +490,7 @@ public final class AlphaBeta {
         if (Scores.kind(alpha) != Scores.Kind.ORDINARY) {
             return false;
         }
-        int nearWin = Geometry.CORNER_SIZE - depth;
+        int nearWin = pos.layout().goalSize() - depth;
         int me = pos.sideToMove();
         if (pos.goalOccupied(me) >= nearWin || pos.goalOccupied(1 - me) >= nearWin) {
             return false;

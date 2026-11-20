@@ -4,6 +4,7 @@ import java.util.Locale;
 
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 
 /**
  * The classical three-player player: {@link ThreePlayerSearch} (paranoid alpha-beta) on a node, depth or time
@@ -16,6 +17,7 @@ public final class ThreePlayerPlayer implements Player {
     private final ThreePlayerSearch search;
     private final String name;
     private final JumpRule jumpRule;
+    private final TriangleRows rows;
     private final int maxDepth;
     private final long timeLimitMillis;
     private final long maxNodes;
@@ -26,6 +28,12 @@ public final class ThreePlayerPlayer implements Player {
 
     ThreePlayerPlayer(double[] weights, String evaluatorName, int maxDepth, long timeLimitMillis, long maxNodes,
             int tableBits, JumpRule jumpRule) {
+        this(weights, evaluatorName, maxDepth, timeLimitMillis, maxNodes, tableBits, jumpRule, TriangleRows.FOUR);
+    }
+
+    ThreePlayerPlayer(double[] weights, String evaluatorName, int maxDepth, long timeLimitMillis, long maxNodes,
+            int tableBits, JumpRule jumpRule, TriangleRows rows) {
+        this.rows = rows;
         this.search = new ThreePlayerSearch(weights, tableBits);
         this.jumpRule = jumpRule;
         this.maxDepth = maxDepth;
@@ -34,7 +42,8 @@ public final class ThreePlayerPlayer implements Player {
         this.name = "ab3[eval=" + evaluatorName + ", depth<=" + maxDepth
                 + (timeLimitMillis == Long.MAX_VALUE ? "" : ", " + timeLimitMillis + " ms")
                 + (maxNodes == Long.MAX_VALUE ? "" : ", " + maxNodes + " nodes")
-                + (jumpRule == JumpRule.LONG ? ", jump=long" : "") + "]";
+                + (jumpRule == JumpRule.LONG ? ", jump=long" : "")
+                + (rows == TriangleRows.FIVE ? ", rows=5" : "") + "]";
     }
 
     @Override
@@ -49,6 +58,10 @@ public final class ThreePlayerPlayer implements Player {
     public SearchResult analyse(Position position) {
         if (position.rules().players() != 3) {
             throw new IllegalArgumentException("player " + name + " plays three players");
+        }
+        if (position.rules().triangleRows() != rows) {
+            throw new IllegalArgumentException("player " + name + " plays rows=" + (rows == TriangleRows.FIVE ? 5 : 4)
+                    + " but the position has rows=" + (position.rules().triangleRows() == TriangleRows.FIVE ? 5 : 4));
         }
         if (position.rules().jumpRule() != jumpRule) {
             throw new IllegalArgumentException("player " + name + " plays jump=" + jumpRule.name().toLowerCase(Locale.ROOT)
@@ -92,6 +105,10 @@ public final class ThreePlayerPlayer implements Player {
     private void checkPlays(Position position) {
         if (position.rules().players() != 3) {
             throw new IllegalArgumentException("player " + name + " plays three players");
+        }
+        if (position.rules().triangleRows() != rows) {
+            throw new IllegalArgumentException("player " + name + " plays rows=" + (rows == TriangleRows.FIVE ? 5 : 4)
+                    + " but the position has rows=" + (position.rules().triangleRows() == TriangleRows.FIVE ? 5 : 4));
         }
         if (position.rules().jumpRule() != jumpRule) {
             throw new IllegalArgumentException("player " + name + " plays jump=" + jumpRule.name().toLowerCase(Locale.ROOT)

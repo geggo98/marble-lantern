@@ -106,6 +106,9 @@ public final class Stage4Evaluator implements Evaluator {
 
     @Override
     public int evaluate(Position position) {
+        if (position.rules().triangleRows() != sternhalma.engine.RuleSet.TriangleRows.FOUR) {
+            throw new UnsupportedOperationException("stage4 supports the 4-row board only");
+        }
         if (position.rules().players() != 2) {
             throw new UnsupportedOperationException("stage4 supports two players only");
         }

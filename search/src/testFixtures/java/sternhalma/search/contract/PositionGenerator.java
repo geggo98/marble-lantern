@@ -20,9 +20,17 @@ public final class PositionGenerator {
     private PositionGenerator() {
     }
 
-    /** A rule set for a player count and a variant index in 0 .. {@link #VARIANTS} - 1. */
+    /** A rule set for a player count and a variant index in 0 .. {@link #VARIANTS} - 1, on the 4-row board. */
     public static RuleSet rules(int players, int variant) {
-        RuleSet base = RuleSet.defaults(players);
+        return rules(players, variant, RuleSet.TriangleRows.FOUR);
+    }
+
+    /**
+     * {@link #rules(int, int)} on a board with the given house size. The sweep over the 5-row board is a separate
+     * list of tests: {@link #VARIANTS} and the seeds that feed the 4-row tests stay as they are.
+     */
+    public static RuleSet rules(int players, int variant, RuleSet.TriangleRows rows) {
+        RuleSet base = RuleSet.defaults(players, rows);
         return switch (variant) {
             case 0 -> base;
             case 1 -> base.withLeaveGoal(RuleSet.LeaveGoal.ALLOWED);

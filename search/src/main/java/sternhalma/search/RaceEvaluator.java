@@ -119,7 +119,7 @@ public final class RaceEvaluator implements Evaluator {
      * and the solitaire plans know only the default move set).
      */
     static boolean rulesApply(RuleSet rules) {
-        return rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
+        return rules.triangleRows() == RuleSet.TriangleRows.FOUR && rules.players() == 2 && rules.jumpRule() == RuleSet.JumpRule.ADJACENT
                 && rules.foreignCamps() == RuleSet.ForeignCamps.CLOSED
                 && rules.blockingStates() == RuleSet.BlockingStates.NONE;
     }

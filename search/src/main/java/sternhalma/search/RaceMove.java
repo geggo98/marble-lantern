@@ -102,7 +102,7 @@ public final class RaceMove {
     /** A legal race move for the side to move, or -1 to let the search decide. */
     public int choose(Position pos) {
         RuleSet rules = pos.rules();
-        if (rules.players() != 2 || rules.jumpRule() != RuleSet.JumpRule.ADJACENT
+        if (rules.triangleRows() != RuleSet.TriangleRows.FOUR || rules.players() != 2 || rules.jumpRule() != RuleSet.JumpRule.ADJACENT
                 || rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED
                 || rules.blockingStates() != RuleSet.BlockingStates.NONE
                 || !RaceAdjudication.passed(pos)) {

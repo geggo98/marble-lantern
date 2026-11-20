@@ -106,6 +106,24 @@ public final class Strategies {
     /** {@link #BROWSER_3P_SPEC} for the Halma long hop ({@code jump=long}). */
     public static final String BROWSER_3P_LONG_SPEC = BROWSER_3P_SPEC + ",jump=long";
 
+    /**
+     * The browser player for the 5-row board ({@code rows=5}: 15-cell houses, 15 pieces per player): {@link
+     * #BROWSER_SPEC} without race play and with {@code eval=linear-r3}, the base evaluator of the browser's
+     * {@code racelin-r3}. The race table, the race arithmetic and the solitaire beam know the 10-cell houses only,
+     * so none of them may play on 5 rows. The weights are those of the 4-row board and uncalibrated for 5 rows; the
+     * node budget is the same as on 4 rows. Not in {@link #registered()}: see {@link #registeredRows5()}.
+     */
+    public static final String BROWSER_ROWS5_SPEC = "ab:eval=linear-r3," + OPTIONS + ",fut=1,futk=20,fut2=1,rows=5";
+
+    /** {@link #BROWSER_ROWS5_SPEC} for the Halma long hop ({@code jump=long}). */
+    public static final String BROWSER_ROWS5_LONG_SPEC = BROWSER_ROWS5_SPEC + ",jump=long";
+
+    /** {@link #BROWSER_3P_SPEC} on the 5-row board. */
+    public static final String BROWSER_3P_ROWS5_SPEC = BROWSER_3P_SPEC + ",rows=5";
+
+    /** {@link #BROWSER_3P_ROWS5_SPEC} for the Halma long hop. */
+    public static final String BROWSER_3P_ROWS5_LONG_SPEC = BROWSER_3P_ROWS5_SPEC + ",jump=long";
+
     private Strategies() {
     }
 
@@ -123,6 +141,29 @@ public final class Strategies {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
             list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));
         }
+        return List.copyOf(list);
+    }
+
+    /**
+     * The strategies that can play the 5-row board, for the contract's sweep over it, which plays the default jump rule: the
+     * random player (2 and 3 players), the linear and distance evaluators at the contract's node budget, the browser
+     * spec for 5 rows and the three-player player. Race play and the race evaluators are not among them (they refuse {@code rows=5}).
+     */
+    public static List<Strategy> registeredRows5() {
+        List<Strategy> list = new ArrayList<>();
+        list.add(new Strategy("random", Set.of(2, 3), false, RandomPlayer::new));
+        for (String spec : List.of("ab:eval=distance,rows=5", "ab:eval=rows,rows=5", "ab:eval=linear-r3,rows=5",
+                BROWSER_ROWS5_SPEC)) {
+            String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
+            // The linear evaluators carry the 4-row weights; at the contract's 1000 nodes they do not beat a random
+            // player on 5 rows (measured 2026-11-20: eval=linear 0 of 30 won, linear-r3 13 of 30, longest run without
+            // progress 102 against the limit of 20), and the distance evaluator's runs reach 32. So only the row
+            // evaluator (longest run 3, 30 of 30 won) must beat random here; the others still must play clean games.
+            boolean mustBeatRandom = spec.startsWith("ab:eval=rows");
+            list.add(new Strategy(limited, Set.of(2), mustBeatRandom, seed -> PlayerSpec.parse(limited).create()));
+        }
+        String threePlayers = BROWSER_3P_ROWS5_SPEC.replace("nodes=20000", "nodes=" + CONTRACT_NODES);
+        list.add(new Strategy(threePlayers, Set.of(3), false, seed -> ThreePlayerSpec.parse(threePlayers).create()));
         return List.copyOf(list);
     }
 }

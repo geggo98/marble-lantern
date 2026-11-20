@@ -41,10 +41,20 @@ public abstract class StrategyContract {
         return 100;
     }
 
+    /** The house size of the start positions; a subclass overrides it for the sweep over the 5-row board. */
+    protected RuleSet.TriangleRows rows() {
+        return RuleSet.TriangleRows.FOUR;
+    }
+
     /** A start position description that can be printed and rebuilt. */
-    public record Start(int players, int variant, long seed, int plies, double greed, boolean justBeforeEnd) {
+    public record Start(int players, int variant, long seed, int plies, double greed, boolean justBeforeEnd,
+            RuleSet.TriangleRows rows) {
+        public Start(int players, int variant, long seed, int plies, double greed, boolean justBeforeEnd) {
+            this(players, variant, seed, plies, greed, justBeforeEnd, RuleSet.TriangleRows.FOUR);
+        }
+
         public Position position() {
-            RuleSet rules = PositionGenerator.rules(players, variant);
+            RuleSet rules = PositionGenerator.rules(players, variant, rows);
             return justBeforeEnd ? PositionGenerator.justBeforeTheEnd(rules, seed)
                     : PositionGenerator.played(rules, seed, plies, greed);
         }
@@ -64,7 +74,7 @@ public abstract class StrategyContract {
         Arbitrary<Boolean> end = Arbitraries.frequencyOf(
                 Tuple.of(1, Arbitraries.just(true)), Tuple.of(5, Arbitraries.just(false)));
         return Combinators.combine(variant, seed, plies, greed, end)
-                .as((v, s, p, g, e) -> new Start(players, v, s, p, g, e));
+                .as((v, s, p, g, e) -> new Start(players, v, s, p, g, e, rows()));
     }
 
     /** A strategy together with a start position for a player count that it supports. */
@@ -89,7 +99,7 @@ public abstract class StrategyContract {
         Assume.that(!strong.isEmpty());
         Arbitrary<Start> opening = Combinators.combine(
                         Arbitraries.longs(), Arbitraries.integers().between(0, 4))
-                .as((seed, plies) -> new Start(2, 0, seed, plies, 0.0, false));
+                .as((seed, plies) -> new Start(2, 0, seed, plies, 0.0, false, rows()));
         return Arbitraries.of(strong).flatMap(strategy -> opening.map(start -> Tuple.of(strategy, start)));
     }
 

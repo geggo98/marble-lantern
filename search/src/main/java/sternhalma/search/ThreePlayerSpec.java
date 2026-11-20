@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.TreeSet;
 
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 
 /**
  * A three-player player described by text, e.g. {@code ab3:nodes=20000,tt=16,jump=long}.
@@ -14,12 +15,18 @@ import sternhalma.engine.RuleSet.JumpRule;
  * weights; the race evaluators and {@code bestGain} are two-player only), {@code nodes} (per move, default 20000),
  * {@code depth} (default 30), {@code ms} (time per move, default none; makes the result machine dependent),
  * {@code tt} (log2 table entries, default 16) and {@code jump=adjacent|long} (default adjacent; the rule of the games
- * the player plays). No race table and no race play: the player works for both jump rules.
+ * the player plays) and {@code rows=4|5} (default 4; the house size of the games the player plays). No race table and no race play: the player works for both jump rules.
  */
 public record ThreePlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
-        JumpRule jumpRule) {
+        JumpRule jumpRule, TriangleRows rows) {
+
+    public ThreePlayerSpec(String text, String evaluator, long nodes, int depth, long millis, int tableBits,
+            JumpRule jumpRule) {
+        this(text, evaluator, nodes, depth, millis, tableBits, jumpRule, TriangleRows.FOUR);
+    }
 
     public ThreePlayerSpec {
+        Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(jumpRule, "jumpRule");
         weightsOf(evaluator);
     }
@@ -55,6 +62,7 @@ public record ThreePlayerSpec(String text, String evaluator, long nodes, int dep
         String ms = options.remove("ms");
         String tt = options.remove("tt");
         String jump = options.remove("jump");
+        String rows = options.remove("rows");
         if (!options.isEmpty()) {
             throw new IllegalArgumentException("unknown options " + new TreeSet<>(options.keySet()));
         }
@@ -68,11 +76,12 @@ public record ThreePlayerSpec(String text, String evaluator, long nodes, int dep
         }
         return new ThreePlayerSpec(text, evaluator == null ? "linear-r2" : evaluator,
                 nodes == null ? 20_000 : Long.parseLong(nodes), depth == null ? 30 : Integer.parseInt(depth),
-                ms == null ? Long.MAX_VALUE : Long.parseLong(ms), tt == null ? 16 : Integer.parseInt(tt), rule);
+                ms == null ? Long.MAX_VALUE : Long.parseLong(ms), tt == null ? 16 : Integer.parseInt(tt), rule,
+                PlayerSpec.parseRows(rows));
     }
 
     /** A new player; call once per game, because a player keeps its transposition table. */
     public ThreePlayerPlayer create() {
-        return new ThreePlayerPlayer(weightsOf(evaluator), evaluator, depth, millis, nodes, tableBits, jumpRule);
+        return new ThreePlayerPlayer(weightsOf(evaluator), evaluator, depth, millis, nodes, tableBits, jumpRule, rows);
     }
 }

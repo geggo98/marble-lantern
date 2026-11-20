@@ -49,8 +49,10 @@ public final class StrategyChecks {
 
     /** The fewest plies after which a game under these rules may be won. */
     public static int minPliesOfAWonGame(sternhalma.engine.RuleSet rules) {
+        // the proof above counts the pieces of a house: 10 on the 4-row board, 15 on the 5-row board
+        int pieces = sternhalma.engine.Layout.of(rules.players(), rules.triangleRows()).pieces();
         return rules.blockadeRule() == sternhalma.engine.RuleSet.BlockadeRule.NONE
-                ? PROVEN_MIN_PLIES_WITHOUT_BLOCKADE_RULE
+                ? 2 * pieces - 1
                 : SANITY_MIN_PLIES_WITH_BLOCKADE_RULE;
     }
 
