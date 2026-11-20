@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerEngine } from '../engines/client';
+import { GUIDE_NODES } from '../engines/analysis';
 import { clearEngines, registerEngine } from '../engines/registry';
 import type { EnginesManifest } from '../engines/registry';
 import { FakeEngineCore, FakeWorker } from '../engines/testing/fake-engine';
@@ -191,7 +192,8 @@ describe('move guides in the app', () => {
       expect(q('[data-guides-note-net]')).toBeNull();
       expect(q('[data-legend-band]')).toBeNull(); // the legend explains the evaluation marks only
       await new Promise((r) => setTimeout(r, 100));
-      expect(spy).not.toHaveBeenCalled();
+      // the skill tracker may analyse the human's moves with its own budget (SKILL_NODES, 5-row games included); the guides must not
+      expect(spy.mock.calls.filter((c) => c[2] === GUIDE_NODES)).toEqual([]);
     } finally {
       spy.mockRestore();
     }
