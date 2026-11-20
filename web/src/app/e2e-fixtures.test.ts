@@ -1,15 +1,29 @@
 // The fixed games of the browser tests (web/e2e/fixtures.ts) are what their generators give today, and they are legal for the rules
 // the fake move generator knows. A change of the generator or of the board makes this test fail, not the slow browser test.
 import { describe, expect, it } from 'vitest';
-import { LONG_HOP, PLAY_ON_WIN, THREE_PLAYER_LIMIT } from '../../e2e/fixtures';
+import { LONG_HOP, PLAY_ON_WIN, THREE_PLAYER_LIMIT, TWO_PLAYER_WIN } from '../../e2e/fixtures';
 import { findLongHop } from '../../e2e/long-hop-fixture';
 import { moveFrom, moveTo } from '../engines/engine';
 import { tinyLegalMoves } from '../engines/testing/tiny-moves';
+import { wonGame2 } from '../engines/testing/won-game';
 import { applyMove, initialOwners, outcomeOf, playState } from '../game/board-state';
 import type { Variant } from '../game/variant';
 import { decodeMoves, encodeMoves } from './game-url';
 
 describe('e2e fixtures', () => {
+  it('the two-player win is what the generator gives, is legal, and ends with a win of side 0 at ply 119', () => {
+    const game = wonGame2();
+    expect({ moves: encodeMoves(game.history), plies: game.history.length, winner: game.winner }).toEqual(TWO_PLAYER_WIN);
+    const owner = initialOwners();
+    const replayed: number[] = [];
+    decodeMoves(TWO_PLAYER_WIN.moves, TWO_PLAYER_WIN.plies).forEach((m, i) => {
+      expect(tinyLegalMoves(owner, i % 2, { jump: 'adjacent', players: 2 })).toContain(m);
+      applyMove(owner, m);
+      replayed.push(m);
+    });
+    expect(outcomeOf(owner, replayed)).toEqual({ kind: 'win', winner: TWO_PLAYER_WIN.winner });
+  });
+
   it('the long-hop start is what the generator finds, and its hop is legal for long hops only', () => {
     const found = findLongHop();
     expect({ moves: encodeMoves(found.moves), plies: found.moves.length, side: found.side, from: found.from, to: found.to }).toEqual(LONG_HOP);

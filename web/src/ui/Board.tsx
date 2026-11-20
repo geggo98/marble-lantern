@@ -30,6 +30,8 @@ export interface BoardGuides {
 export interface BoardProps {
   /** Optional move guides; shown only while `interactive`. */
   guides?: BoardGuides | null;
+  /** Draw the legal targets of the selected piece (default true). False: no target marks; the selected piece keeps its highlight, and taps, keys and the cell labels work as before. */
+  targetMarks?: boolean;
   owner: Int8Array;
   legal: readonly number[];
   /** True while the human may move. Otherwise the board is inert. */
@@ -447,7 +449,7 @@ export function Board(props: BoardProps): React.JSX.Element {
           </g>
         )}
         <g className="ml-targets">
-          {targets.map((c) => {
+          {(props.targetMarks ?? true) && targets.map((c) => {
             const band = targetBand(c);
             return (
               <g key={c}>

@@ -2,6 +2,7 @@
 // Framework-free; useGuides.ts subscribes to it. It never throws: every failure becomes a state.
 import { GUIDE_NODES } from '../engines/analysis';
 import type { AnalysisResult } from '../engines/engine';
+import type { Variant } from '../game/variant';
 import { buildView } from './model';
 import type { GuideView } from './model';
 
@@ -10,6 +11,7 @@ export type AnalyseFn = (
   moves: readonly number[] | null,
   nodes: number,
   signal?: AbortSignal,
+  variant?: Variant,
 ) => Promise<AnalysisResult>;
 
 export type GuideStatus = 'idle' | 'analysing' | 'ready' | 'unavailable' | 'failed';

@@ -395,7 +395,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     game,
     session,
     netSelection: netStore,
-    analyse: (history, moves, nodes, signal) => engine.analyse(history, moves, nodes, signal, variantOf(setupRef.current)),
+    analyse: (history, moves, nodes, signal, variant) => engine.analyse(history, moves, nodes, signal, variant ?? variantOf(setupRef.current)),
     evaluate3: (history) => engine.evaluate3(history, variantOf(setupRef.current)),
     analysisId: engine.analysisId,
     humanSide,

@@ -15,8 +15,11 @@ import { GuideSettings } from '../ui/GuideSettings';
 import { useGuides } from '../guides/useGuides';
 import { useAdvantage3 } from '../guides/useAdvantage3';
 import type { Evaluate3Fn } from '../guides/useAdvantage3';
-import { loadGuidesPreference, saveGuidesPreference } from '../guides/preference';
+import { loadGuideLevel, saveGuideLevel } from '../guides/preference';
 import type { AnalyseFn } from '../guides/analyser';
+import { estimateDistance } from '../result/distance';
+import type { DistanceEstimate } from '../result/distance';
+import { useDistanceEstimate } from '../result/useDistance';
 import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
 import { LanguageToggle } from '../ui/LanguageToggle';
 import { ActionBar } from '../ui/ActionBar';
@@ -115,7 +118,7 @@ function describeError(
 }
 
 export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
-  const { t } = useT();
+  const { t, n } = useT();
   const { game, session, humanSide, demo } = model;
   const state = useSyncExternalStore(game.subscribe.bind(game), () => game.state);
   const s = useSyncExternalStore(session.subscribe, session.getState);
@@ -138,7 +141,8 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // the skill estimate is for two players only; the move guides and the advantage indicator work for both player counts
   const skillable = variant.players === 2;
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.seats[state.sideToMove] === 'human';
-  const [guidesOn, setGuidesOn] = useState(loadGuidesPreference);
+  const [guideLevel, setGuideLevel] = useState(loadGuideLevel);
+  const guidesOn = guideLevel === 'eval'; // analysis, bands and the advantage bar; the level "targets" and "none" run no analysis
   // the cache scope names the engine that computes the scores, which for a net engine is its classical analysis engine
   const guideScope = s.current ? (model.analysisId ?? s.current.info.id) + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
   // a net engine plays and a classical engine analyses: the guide card names it
@@ -214,6 +218,20 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const gameError = state.error ? { code: (state.error as { code?: string }).code ?? 'internal', message: state.error.message } : null;
   const error = sessionError ?? gameError;
   const resultKey = state.outcome ? `${state.outcome.kind}@${state.history.length}` : null;
+  // the distance of a win (docs/web-ui.md, "Distance of the result"): estimated while the result card is shown, aborted when it goes
+  const distanceKey = state.outcome?.kind === 'win' && !error && closedResult !== resultKey ? resultKey : null;
+  const distance = useDistanceEstimate(distanceKey, (signal) =>
+    state.outcome?.kind === 'win'
+      ? estimateDistance({ history: state.history, variant, winner: state.outcome.winner, analyse: model.analyse, signal })
+      : Promise.resolve(null),
+  );
+  const distanceLine = (): { state: 'estimating' } | { state: 'done'; text: string } | undefined => {
+    if (distance.status === 'estimating') return { state: 'estimating' };
+    if (distance.status !== 'done') return undefined;
+    const e: DistanceEstimate = distance.estimate;
+    const count = t(e.capped ? 'result_distance_more' : 'result_distance_about', { n: n(e.plies) });
+    return { state: 'done', text: t(e.kind === 'solo' ? 'result_distance_solo' : 'result_distance_second', { count }) };
+  };
   let notice: React.JSX.Element | null = null;
   if (error) {
     const d = describeError(error, model, t);
@@ -236,6 +254,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           winner={styleOf(o.winner)}
           headline={headline}
           plies={state.history.length}
+          distance={distanceLine()}
           onClose={onClose}
           onPlayOn={three && state.canPlayOn && model.onPlayOn ? playOn : undefined}
         />
@@ -335,12 +354,12 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
       {three && <SeatsCard seats={views.map((v) => ({ style: v.style, name: seatName(v.seat), onMove: !state.outcome && state.sideToMove === v.seat, ...(rankOfSeat.has(v.seat) ? { rank: rankOfSeat.get(v.seat)! } : {}) }))} hotSeat={state.seats.filter((k) => k === 'human').length === 2} />}
       <GuideSettings
         three={three}
-        enabled={guidesOn}
+        level={guideLevel}
         {...(analysisLabelKey ? { analysisLabelKey } : {})}
         status={guides.status}
-        onChange={(on) => {
-          setGuidesOn(on);
-          saveGuidesPreference(on);
+        onChange={(level) => {
+          setGuideLevel(level);
+          saveGuideLevel(level);
         }}
       />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
@@ -384,6 +403,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             interactive={humanTurn}
             inert={!humanTurn}
             guides={boardGuides}
+            targetMarks={guideLevel !== 'none'}
             aSide={aSide as Side}
             rotated={rotated}
             plies={state.history.length}

@@ -120,11 +120,11 @@ describe('three players through the start hook', () => {
     expect(nav.entries.length).toBeGreaterThan(1); // the human's move is an entry of its own
   });
 
-  it('the skill card is not offered for three players; the guide switch is', async () => {
+  it('the skill card is not offered for three players; the guide levels are', async () => {
     const nav = new FakeNavigation('');
     await mount(nav, humanVsTwoEngines(1, 2));
     await until(() => plies() === 1, 'the game runs');
-    expect(q('[data-guides-toggle]')).not.toBeNull();
+    expect(q('[data-guides-levels]')).not.toBeNull();
     expect(q('[data-testid="skill-pause"]')).toBeNull();
     expect(q('[data-testid="skill-estimate"]')).toBeNull();
   });
@@ -240,7 +240,7 @@ describe('game links with variants', () => {
     await until(() => plies() === 1 && status() === 'Your move', 'a long-hop game');
     expect(nav.hash).toContain('&j=long');
     expect(q('[data-testid="skill-pause"]')).not.toBeNull();
-    expect(q('[data-guides-toggle]')).not.toBeNull();
+    expect(q('[data-guides-levels]')).not.toBeNull();
   });
 
   it('the standard game is unchanged: no variant fields in the address', async () => {

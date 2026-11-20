@@ -23,14 +23,15 @@ The static site can be installed as an app and plays offline after one visit ([i
 7. [The worker protocol](#the-worker-protocol)
 8. [Analysis API](#analysis-api)
 9. [Move guides](#move-guides)
-10. [Skill estimate](#skill-estimate)
-11. [Net engines](#net-engines)
-12. [Small screens and touch](#small-screens-and-touch)
-13. [Installable app and offline cache](#installable-app-and-offline-cache)
-14. [Loading and checking the race table](#loading-and-checking-the-race-table)
-15. [Build, run and test](#build-run-and-test)
-16. [Continuous integration](#continuous-integration)
-17. [Known limits](#known-limits)
+10. [Distance of the result](#distance-of-the-result)
+11. [Skill estimate](#skill-estimate)
+12. [Net engines](#net-engines)
+13. [Small screens and touch](#small-screens-and-touch)
+14. [Installable app and offline cache](#installable-app-and-offline-cache)
+15. [Loading and checking the race table](#loading-and-checking-the-race-table)
+16. [Build, run and test](#build-run-and-test)
+17. [Continuous integration](#continuous-integration)
+18. [Known limits](#known-limits)
 
 The shipped network files have their own document: [models](models.md).
 
@@ -287,7 +288,7 @@ Rationale: the one person always finds their own pieces in amber, as in the two-
 
 **Result card.** A win names the seat: "Player 3 (engine) wins", "You win" for the one person, and the colour in a demo ("Pearl wins"). At the move limit (200 plies for two players, 300 for three) the card names no winner and lists the seats by an approximate distance to the goal, closest first. The distance of a seat is the sum of the hex distances of its pieces to the tip of its goal corner (`approximateDistance` in `web/src/ui/board-model.ts`). The marker "closest" goes to the single leader; on a tie no seat gets it. For two players the card lists amber first and puts the marker "ahead" on the side with the smaller distance. Rationale for the approximation: the engine measures the distance with its own code, which the `Engine` interface does not expose, so this figure only orders the seats; it is not the figure the engine scores with. The engines name no winner at the move limit either ([three players (TeaVM engines)](#three-players-teavm-engines)).
 
-**Controls.** The swap button appears only when `canSwap` is true, so not in hot-seat. In a three-player game the move guide switch and the advantage indicator are available ([move guides](#move-guides)), and the switch card adds a note on how to read the scores ("With three players, each mark compares a move of the player to move with the best move. …", key `guides_note_three`). The skill card is hidden, because the skill estimate is for two players only. With the long hop (two players) the skill card stays and shows the note that the estimate is not calibrated ([skill estimate](#skill-estimate)).
+**Controls.** The swap button appears only when `canSwap` is true, so not in hot-seat. In a three-player game the move guide levels and the advantage indicator are available ([move guides](#move-guides)), and the card adds, at the level "With evaluation", a note on how to read the scores ("With three players, each mark compares a move of the player to move with the best move. …", key `guides_note_three`). The skill card is hidden, because the skill estimate is for two players only. With the long hop (two players) the skill card stays and shows the note that the estimate is not calibrated ([skill estimate](#skill-estimate)).
 
 Tests, with paths relative to `web/src/`: `game.variants.test.ts`, `setup.variants.test.ts`, `variant.test.ts` (in `game/`: controller, setup, board state), `app/game-url.variants.test.ts`, `app/App.variants.test.tsx`, `engines/variants.test.ts` and `engines/variants.cross.test.ts` (whole games on all three browser engines). The tests of the start dialog and the three-seat screen are listed under [tests](#tests). The browser tests are `web/e2e/variants.spec.ts` and `web/e2e/start-dialog.spec.ts`.
 
@@ -455,7 +456,7 @@ Before 2026-11-20 these features stayed off while a net engine played: the guide
 
 - **Which engine.** `analysisChoice` in `web/src/app/session.ts`: the first available classical engine in the order of the default engine (`java-wasmgc`, then `cpp-wasm`, then `java-js`). Server engines and net engines never analyse for a net engine. If no classical engine is available in this browser, the net engine answers the calls itself, and the guides show the text of the server engines (see [move guides](#move-guides), "Server engines").
 - **Routing.** `SwitchableEngine` (`web/src/app/switchable-engine.ts`) sends `analyse` and `evaluate3` to the engine in use when that is a classical engine, and to the analysis engine when it is a net engine. `EngineSession` supplies the analysis engine through `setAnalysisSource`. The tracker, the guides and the indicator all call the `SwitchableEngine`, so none of them knows about the second engine.
-- **Lifetime.** The analysis engine is created and initialised on the first `analyse` or `evaluate3` call while a net engine plays, that is when the guides are switched on, or when the skill tracker measures its first move. It stays while net engines play (also from `net-wasm` to `net-webgpu`). When a classical engine plays again, or the page closes, its worker is terminated and its table freed. A failed start (for example a damaged table) is not repeated for every position: the calls fail with the same error until the next engine is in use.
+- **Lifetime.** The analysis engine is created and initialised on the first `analyse` or `evaluate3` call while a net engine plays, that is when the guide level is "With evaluation", or when the skill tracker measures its first move. It stays while net engines play (also from `net-wasm` to `net-webgpu`). When a classical engine plays again, or the page closes, its worker is terminated and its table freed. A failed start (for example a damaged table) is not repeated for every position: the calls fail with the same error until the next engine is in use.
 - **Abort.** An abort while the analysis engine starts rejects the call at once with an `AbortError`; the start goes on and serves the next call. An abort during an analysis terminates and restarts the worker of the analysis engine, as for any abort ([the engine interface](#the-engine-interface)). The net engine's worker is not touched.
 - **Caches.** The guide cache and the three-player indicator key on the engine that computes the scores (`SwitchableEngine.analysisId`), not on the engine that plays. A switch from `net-wasm` to `java-wasmgc` therefore keeps the cached guides, because both scopes name `java-wasmgc`.
 - **What the user sees.** While the guides are on and a net engine plays, the guide card adds the note "A neural network plays. The marks and the advantage come from the classical engine {engine}, which runs alongside it in this browser." (key `guides_note_net`, attribute `data-guides-note-net`).
@@ -468,15 +469,30 @@ Before 2026-11-20 these features stayed off while a net engine played: the guide
 
 ## Move guides
 
-Move guides are optional marks on the board that show how good each move is. The switch "Show move guides" turns them on; they are off by default. The app stores the choice in `localStorage` under the key `ml.guides` and works without storage too; the choice then lasts for the page only.
+Move guides are optional marks on the board. Three levels set how much the board shows; the person picks one in the card "Move guides".
 
-**What is shown.**
+### Guide levels
+
+| Level | Text | Stored value | Board | Engine work |
+|---|---|---|---|---|
+| none | "Off" | `none` | No mark of any kind. The selected piece keeps its highlight. | None |
+| legal targets | "Targets" (default) | `targets` | A ring and a dot on each legal target of the selected piece. No rating. | None |
+| evaluation | "With evaluation" | `eval` | Everything under "What is shown at the level With evaluation" below: piece badges, rated targets, advantage bar, legend. | One analysis per human turn |
+
+- **Control.** A group of three native radio buttons named "Move guides", drawn as one segmented control. The browser gives it one tab stop, the arrow keys move and choose, and a screen reader announces the position ("2 of 3"). The hint of the chosen level describes the group (keys `guides_hint_none`, `guides_hint_targets`, `guides_hint_eval`). The notes `guides_note_net` and `guides_note_three`, the analysis status line and the legend belong to the level "With evaluation" and show only there.
+- **Level "none".** The board takes the prop `targetMarks={false}` (`web/src/ui/Board.tsx`). It hides the rings and dots of the targets and nothing else: tapping a piece still selects it, tapping or dragging to a legal target still plays the move, and the keys work as before. The accessible name of a target cell still says "target": the name is no mark, and a screen reader user has no other way to find the targets. The line that previews a drag path stays, because the person asks for it by dragging.
+- **Level "targets".** This is what the board showed with the old switch off. The analysis does not run, so the engine does no extra work and the card shows no status.
+- **Default.** `targets` for a person without a stored choice. Reason: the old default was the switch off, and that showed the legal targets.
+- **Storage.** `localStorage`, key `ml.guides` (`web/src/guides/preference.ts`). Every access is guarded: without storage, or with blocked storage, the level lasts for the page only. An unknown stored text gives the default.
+- **Migration.** Before 2026-11-20 the key held `on` or `off`. `on` reads as `eval` and `off` as `targets`; the first read writes the new text back. Reason: with the old switch off, the board still showed the legal targets, so `targets` keeps what the person saw, and `eval` keeps what the person had switched on. If the write is blocked, the mapping applies again at the next read, so nothing is lost. Origin: the request of 2026-11-20 for three levels.
+
+**What is shown at the level "With evaluation".**
 
 - **Piece badges.** Each piece that can move gets a badge with a ring. It rates the best move of that piece against the best move of the whole position.
 - **Target marks.** After the human selects a piece, each of its targets gets a ring and a mark. The mark rates that move on the same scale as the piece badges: the loss against the best move of the position.
 - **Advantage bar.** A gauge near the board shows who is ahead, with a text such as "You: slightly ahead".
 - **Advantage indicator for three players.** In a three-player game a row of three segments replaces the two-sided bar: one segment per seat, in seat order, each as wide as the share of that seat (described under "The advantage indicator for three players" below).
-- **Legend.** "What the marks mean" under the switch lists the five bands and their marks.
+- **Legend.** "What the marks mean" under the level choice lists the five bands and their marks. It is shown at the level "With evaluation" only.
 
 The marks appear only while the board accepts input, that is on the human's turn.
 
@@ -516,12 +532,12 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width o
 - **Who is guided.** Every human seat on its turn. In hot-seat the guides refer to the seat to move and change with the turn. While an engine seat is to move, the board shows no marks and the app sends no analysis request (`humanTurn` in `web/src/app/PlayScreen.tsx`); a running analysis is aborted when the turn ends.
 - **Same scale.** For three players `Engine.analyse` returns paranoid scores from the mover's point of view (the mover maximises, both others minimise), in the same units and with the same mate bounds as for two players. `buildView` and `rankBand` therefore apply unchanged: the band is the loss against the best move of the position, with the limits of [the five bands](#move-guides). The scores are not calibrated as a chance to win for three players: no fit was made, and a random winner wins 1 time in 3. Read the bands as a ranking of the moves. The guide card says so in a note (key `guides_note_three`).
 - **Budget.** `GUIDE_NODES` stays at 4,000 per move for three players. Measured on 2026-11-20 on a developer machine in Node, all legal moves of positions from a self-play game with three seats: `cpp-wasm` 7 to 16 ms at ply 0 (14 moves) and 67 to 106 ms from ply 15 to 105 (47 to 66 moves); `java-wasmgc` 55 ms at ply 0 and 157 to 276 ms at plies 20 to 60 (44 to 66 moves); `java-js` 71 ms at ply 0 and 199 to 337 ms at plies 20 to 60. All stay under the limit of 0.5 s, so the budget was not lowered.
-- **Setting.** The same switch as for two players, stored under the same key `ml.guides`.
+- **Setting.** The same levels as for two players, stored under the same key `ml.guides`. The three-player note and the advantage indicator belong to the level "With evaluation".
 - **Skill.** The skill tracker measures nothing in a three-player game.
 
 **The advantage indicator for three players.**
 
-- **Source.** `Engine.evaluate3(history, variant)` gives one static evaluation per absolute seat, without a search, in a few milliseconds. `useAdvantage3` (`web/src/guides/useAdvantage3.ts`) asks for it after every move of any seat, also during engine turns. An answer for an older position is dropped once a newer position exists. While the shown value is older than the position, it is dimmed and marked "updating". Results are cached by analysis engine, variant and history. While a net engine plays, the values come from its classical analysis engine ([analysis for the net engines](#analysis-for-the-net-engines)). An engine without `evaluate3` (server) shows no indicator. The indicator is shown only while the guide switch is on, and not in a demo.
+- **Source.** `Engine.evaluate3(history, variant)` gives one static evaluation per absolute seat, without a search, in a few milliseconds. `useAdvantage3` (`web/src/guides/useAdvantage3.ts`) asks for it after every move of any seat, also during engine turns. An answer for an older position is dropped once a newer position exists. While the shown value is older than the position, it is dimmed and marked "updating". Results are cached by analysis engine, variant and history. While a net engine plays, the values come from its classical analysis engine ([analysis for the net engines](#analysis-for-the-net-engines)). An engine without `evaluate3` (server) shows no indicator. The indicator is shown only at the guide level "With evaluation", and not in a demo.
 - **Maths** (`seatShares` in `web/src/guides/advantage3.ts`). The share of seat i is softmax(e_i / T) over the seats still playing, with T = 1.5 × `scoreScale` = 120 points. The reason for T: `evaluate3` gives each seat its own linear score minus the mean of both opponents, so the difference between the values of two seats is 1.5 times the difference of their own scores. A two-player score is one such difference with the scale 80 (advantage = tanh(score / 160)). With T = 120, the odds of seat i against seat j, exp((e_i − e_j) / 120), equal the odds exp(d / 80) that the two-player bar shows for the same difference d of own scores, so both indicators move equally fast per step of progress. Equal values give 33, 33 and 34 %. The percentages are rounded by the largest-remainder method, so they add up to exactly 100. The unit test checks the odds identity. Limit: like the scores, the shares are not calibrated for three players.
 - **Finished seats.** Under full ranking (after "Play on for 2nd place", see [Board and play screen for three seats](#board-and-play-screen-for-three-seats)), `evaluate3` gives a finished seat a rank constant: 1,000,000 for first, 500,000 for second, -1,000,000 for last. Such a seat shows its place ("1st", keys `advantage3_place_1` to `advantage3_place_3`) instead of a share, and the shares are computed over the seats still playing. When at most one seat is left, all seats show places.
 - **Look.** A row of fixed height (a 28 px bar; on a small screen the 3.5 rem slot of the two-player bar, so the layout does not shift) with three segments in seat order. Each segment shows the marble of its seat (amber plain, blue with a ring, pearl with a diamond), the seat number and the percentage on a label in the surface colour, so the contrast does not depend on the segment colour. Each seat also has its own background pattern (solid, stripes, dots), so colour is not the only carrier. In forced-colours mode the segments use system colours. A segment is at least 4.5 rem wide, so three segments fit in 288 px.
@@ -532,7 +548,46 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width o
 
 **Server engines.** The server engines reject `analyse` with the code `unsupported`. The guides then show "Move guides need an engine that runs in this browser." and draw no marks; choosing a browser engine brings them back. Any other error shows "Move guides are not available right now." for that position. A failure never stops the game.
 
-**Tests.** `web/src/guides/*.test.ts` (bands, model with three-seat results, advantage text, three-player shares, marks, preference, analyser, contrast), `web/src/app/App.guides3.test.tsx` (three-player guides and indicator in the app: hot-seat turn changes the guided seat, no request on engine turns, abort when the turn ends), `web/e2e/guides3.spec.ts` (real engine, hot-seat link, desktop and 390 and 320 px), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the switch and the marks in a browser).
+**Tests.** `web/src/guides/*.test.ts` (bands, model with three-seat results, advantage text, three-player shares, marks, preference, analyser, contrast), `web/src/app/App.guides3.test.tsx` (three-player guides and indicator in the app: hot-seat turn changes the guided seat, no request on engine turns, abort when the turn ends), `web/e2e/guides3.spec.ts` (real engine, hot-seat link, desktop and 390 and 320 px), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the level choice and the marks in a browser) and `web/e2e/guides-levels.spec.ts` (keyboard, the three levels, persistence, migration).
+
+## Distance of the result
+
+When a game ends with a win, the result card adds one line that says how far the other side still was. The number is an estimate, and the card labels it as one. The line reads "Estimating the distance …" until the number is ready.
+
+**Terms.**
+
+- **Final position:** the position after the winning move, the one on the board when the game ended.
+- **Ply:** one move of one side.
+- **Loser:** in a two-player game, the side that did not win.
+
+**Where it shows.** On the result card after a win (`outcome.kind === 'win'`), in a game with a person and in the engine demo, for two and three players. It does not show when the game ended without a winner (move limit, no legal move, a complete full ranking). The cards of those endings already show the distance to the goal by the score of the pieces, and no race is left to play.
+
+**Two players: a solo race** (`soloRace` in `web/src/result/solo.ts`). The winner has filled its goal and makes no more moves. The loser races alone from the final position. The distance is the number of the loser's moves until its goal is full (`hasWon`: every goal cell occupied, at least one by the loser). It is not the number of plies of both sides, because the winner would make none. The line reads "more than 100" when the race is not finished after 100 moves (`SOLO_CAP`).
+
+- **Why not an engine.** A finished two-player game is over for the engines: `analyse` rejects the history with `illegal-history`, and full ranking plays the same game as first-winner rules for two players (`docs/rules.md`). No engine can be asked for a move in the final position. The engines stay unchanged, and the race has no opponent to search against.
+- **How the moves are chosen.** A beam search (width 60) keeps, at each ply, the 60 best positions by the sum of the distances of the loser's pieces to the tip of its goal. A piece inside the goal counts a tenth of its distance, so that real progress ranks above shuffling in the goal. The moves are steps and jump chains under the jump rule of the game. A piece stands only in the centre, its start corner and its goal corner, and a piece in its goal does not end a move outside it (`leaveGoal = FORBIDDEN`). `web/src/result/solo.test.ts` compares the move generator with the test generator of the fake engine on random positions.
+- **What the number is.** An upper bound on the shortest race: the shortest race that this search found. A wider beam finds shorter races. Measured on 2026-11-20 with the ten pieces of one side in the ten centre cells nearest to its start corner (adjacent jumps, a position far behind): width 6 gave 35 and 41 moves for the two sides, width 20 gave 40 and 34, and width 60 gave 31 and 31. The two sides are mirror images, so equal values are right, and the differences at the smaller widths show the search error. With the long hop the same position gave 20 and 20 at width 60. Nobody has compared the result with a proven shortest race.
+- **Cost.** About 0.13 s for a race from a far position (four races took 0.52 s in Node, measured on 2026-11-20). The search hands control back to the page after every ply.
+
+**Three players: an engine playout** (`estimateDistance` in `web/src/result/distance.ts`). The game goes on under full ranking: the winner is out and its pieces stay on the board, as after "Play on for 2nd place". The engine chooses the moves of both other seats, one ply at a time, until the second seat has filled its goal. The number is the count of plies of the playout, both seats together, so it is the distance of second place. It is not a value for each seat.
+
+- **The engine.** `PlayModel.analyse`: the engine in use, or, while a net engine plays, its classical analysis engine ([analysis for the net engines](#analysis-for-the-net-engines)). That is the engine of the guides. The app does not search for the strongest engine of the browser; it takes the one the person chose. A server engine rejects `analyse`, and the line then does not show.
+- **How a move is chosen.** `Engine.analyse(history, null, 500, signal, variant)` scores every legal move with 500 nodes (`PLAYOUT_NODES`). The move with the best score is played; of equal scores, the first in the engine's order. The same position therefore always gives the same playout.
+- **Cap.** 60 plies (`PLAYOUT_CAP`), and never beyond the move limit of the game. The line then reads "more than 60".
+- **Cost.** Not measured. A ply scores 14 to 66 moves with 500 nodes each, and a playout takes up to 60 plies. The playout runs in the engine's worker, one request at a time.
+
+**What the card shows.** The line carries `data-result-distance="estimating"` or `"done"`. The texts are the keys `result_distance_estimating`, `result_distance_solo`, `result_distance_second`, `result_distance_about` ("about 12") and `result_distance_more` ("more than 100"). The card is a live region, so the finished line is announced.
+
+**When it stops.** `useDistanceEstimate` (`web/src/result/useDistance.ts`) aborts the run when the result goes away: a new game, Undo, "Play on for 2nd place", closing the card on a small screen, or leaving the page. The abort reaches `analyse` as an `AbortSignal`, and the adapter restarts its worker, as for any abort. When the run fails, is aborted or has no answer, the card shows no line and no error. A failure never touches the game.
+
+**Limits.**
+
+- The number is an estimate. Two players: an upper bound from a search with a fixed width. Three players: the choice of one engine at 500 nodes per move, which plays weaker than the strongest levels of that engine.
+- The two modes use different methods and count different plies (the moves of one side against the plies of two seats), so their numbers do not compare.
+- A game cut by the move limit gets no line.
+- Origin: the request of 2026-11-20, which named the engine playout for every case. The two-player case could not follow it, for the reason above.
+
+**Tests.** `web/src/result/solo.test.ts` (races of 0, 1 and 2 moves checked by hand, the cap, abort, the move generator against the test generator), `web/src/result/distance.test.ts` (both modes, the cap, the engine call, abort, failure), `web/src/result/useDistance.test.tsx` (start, abort, stale answer, failure), `web/src/app/App.distance.test.tsx` (the whole app with the fake engine) and `web/e2e/distance.spec.ts` (real engine and solo race in Chromium). The fixed games are `TWO_PLAYER_WIN` and `PLAY_ON_WIN` in `web/e2e/fixtures.ts` and the generators in `web/src/engines/testing/won-game.ts`.
 
 ## Skill estimate
 
@@ -730,7 +785,7 @@ The WebGPU backend uses F32 kernels only and does not request the optional featu
 
 The play screen has two presentations of one set of content. The breakpoint is 60 rem (960 px at the default font size). `useWide()` in `web/src/ui/useMedia.ts` reads it for React, and `web/src/ui/mobile.css` repeats it as `max-width: 59.99rem` for the layout.
 
-**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the game buttons (Undo, New game, Swap sides, Engine vs. engine; Swap sides only when the game allows it), the seats card (three players only), the move guide switch, copy link, the install entry (only when the browser offers an install), the engine card, the skill card, the figures of the last engine move and the move list.
+**Wide screens (60 rem and up).** Board on the left, side column on the right. The side column holds the notice (the card for loading, result or error), the game buttons (Undo, New game, Swap sides, Engine vs. engine; Swap sides only when the game allows it), the seats card (three players only), the move guide levels, copy link, the install entry (only when the browser offers an install), the engine card, the skill card, the figures of the last engine move and the move list.
 
 **Small screens.** The status bar stays on top, the board fills the space below it, and a bar at the bottom holds Undo, New game and Menu. Everything else sits in the menu, a sheet that opens from the Menu button: Swap sides, Engine vs. engine, move guides, copy link, the install entry, engine card with the engine sheet, skill card, figures, move list, the theme switch, and the footer note. The advantage bar stays outside the menu, under the board. `PlayScreen.tsx` builds that content once (`cards`) and places it in the side column or in the menu.
 

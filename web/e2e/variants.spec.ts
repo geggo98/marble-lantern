@@ -35,7 +35,7 @@ test('three players: the human on seat 0, two engines answer in turn, the addres
   const hash = new URL(page.url()).hash;
   expect(hash).toMatch(/^#g=v1\.[A-Za-z0-9_-]+&l=0&p=3&s=hee$/);
   // move guides for three players (e2e/guides3.spec.ts), but no skill estimate
-  await expect(page.locator('[data-guides-toggle]')).toHaveCount(1);
+  await expect(page.locator('[data-guides-levels]')).toHaveCount(1);
   await expect(page.locator('[data-testid="skill-pause"]')).toHaveCount(0);
   errors.expectNone();
 });
@@ -69,7 +69,7 @@ test('long hop, two players: the link continues through the dialog, the engine a
   await waitForHumanTurn(page);
   expect(new URL(page.url()).hash).toMatch(/^#g=v1\.[A-Za-z0-9_-]+&h=0&l=0&j=long$/);
   // the long hop has analysis, so move guides and the skill card stay
-  await expect(page.locator('[data-guides-toggle]')).toHaveCount(1);
+  await expect(page.locator('[data-guides-levels]')).toHaveCount(1);
   await expect(page.locator('[data-testid="skill-pause"]')).toHaveCount(1);
   errors.expectNone();
 });
