@@ -40,16 +40,14 @@ struct Tables3 {
 
 constexpr int abs_int(int v) { return v < 0 ? -v : v; }
 
-constexpr Tables3 build_tables3() {
+constexpr Tables3 build_tables3(const Layout& layout) {
     Tables3 t;
-    const Layout& layout = detail::kThreePlayerLayout;
     for (int p = 0; p < 3; ++p) {
         const auto ps = u(p);
         for (int c = 0; c < kCells; ++c) {
             const auto cs = u(c);
             t.dist[ps][cs] = layout.distance(p, c);
-            const int corner = geometry::corner_of(c);
-            t.kind[ps][cs] = corner == layout.goal_corner(p) ? linear_detail::kInGoal : corner == layout.start_corner(p) ? linear_detail::kInStart : 0;
+            t.kind[ps][cs] = layout.in_goal(p, c) ? linear_detail::kInGoal : layout.in_start(p, c) ? linear_detail::kInStart : 0;
             const int q = geometry::q(c);
             const int r = geometry::r(c);
             const int s = geometry::s(c);
@@ -70,17 +68,24 @@ constexpr Tables3 build_tables3() {
     return t;
 }
 
-constexpr Tables3 kTables3 = build_tables3();
+constexpr Tables3 kTables3 = build_tables3(detail::kThreePlayerLayout);
+constexpr Tables3 kTables3Five = build_tables3(detail::kThreePlayerLayoutFive);
+
+// The tables of the house size of a position.
+const Tables3& tables3(const Position& position) {
+    return position.rules().triangle_rows() == RuleSet::TriangleRows::Five ? kTables3Five : kTables3;
+}
 
 // The integer sums of player p (Java: LinearEvaluator.side with the three-player layout, plus the per-player lateral sum that
 // ThreePlayerSearch.evaluate writes into the LAT slot).
 void side3(const Position& position, int p, linear_detail::SideSums& s) {
     using namespace linear_detail;
     const auto ps = u(p);
-    const auto& good = kTables3.good[ps];
-    const auto& dist = kTables3.dist[ps];
-    const auto& kind = kTables3.kind[ps];
-    const auto& lat = kTables3.lateral[ps];
+    const Tables3& tables = tables3(position);
+    const auto& good = tables.good[ps];
+    const auto& dist = tables.dist[ps];
+    const auto& kind = tables.kind[ps];
+    const auto& lat = tables.lateral[ps];
     int dsum = 0;
     int dmax = 0;
     int dmin = std::numeric_limits<int>::max();
@@ -420,7 +425,8 @@ int ThreePlayerSearch::ab(int depth, int alpha_in, int beta_in, int height) {
 
 // The distance the mover gains with the move; jump chains gain several steps at once.
 int ThreePlayerSearch::gain(int player, int move) const {
-    return kTables3.dist[u(player)][u(Move::from(move))] - kTables3.dist[u(player)][u(Move::to(move))];
+    const Tables3& tables = tables3(*pos_);
+    return tables.dist[u(player)][u(Move::from(move))] - tables.dist[u(player)][u(Move::to(move))];
 }
 
 int ThreePlayerSearch::evaluate(const Position& position, int r) {

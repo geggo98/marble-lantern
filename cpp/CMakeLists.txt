@@ -106,13 +106,13 @@ if(EMSCRIPTEN)
   sh_target(engine-cpp)
   target_link_libraries(engine-cpp PRIVATE sh_search)
   set(sh_wasm_exports
-    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_player_new3 _shw_game_new _shw_game_new2 _shw_game_new3 _shw_game_new4 _shw_foreign_camps _shw_ranking_rule _shw_rank _shw_finished_mask _shw_players _shw_jump_rule _shw_side_to_move _shw_ply
+    _shw_error _shw_alloc _shw_free _shw_load_rows2 _shw_player_new _shw_player_clear _shw_player_new3 _shw_game_new _shw_game_new2 _shw_game_new3 _shw_game_new4 _shw_game_new5 _shw_player_new_rows _shw_player_new3_rows _shw_triangle_rows _shw_move_limit _shw_foreign_camps _shw_ranking_rule _shw_rank _shw_finished_mask _shw_players _shw_jump_rule _shw_side_to_move _shw_ply
     _shw_owner _shw_cell_count _shw_cell_q _shw_cell_r _shw_legal_moves _shw_play _shw_unmake _shw_outcome _shw_choose
     _shw_last_score _shw_last_depth _shw_last_nodes _shw_has_result _shw_total_nodes _shw_race_moves _shw_rows1_requests)
   list(JOIN sh_wasm_exports "," sh_wasm_exports_csv)
   # No threads and no SharedArrayBuffer (GitHub Pages cannot send COOP/COEP); no file system (the table comes as bytes).
   target_link_options(engine-cpp PRIVATE
-    --no-entry -sMODULARIZE=1 -sEXPORT_NAME=createEngineCpp -sENVIRONMENT=web,worker,node
+    --no-entry -sSTACK_SIZE=1048576 -sMODULARIZE=1 -sEXPORT_NAME=createEngineCpp -sENVIRONMENT=web,worker,node
     -sALLOW_MEMORY_GROWTH=1 -sFILESYSTEM=0 -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP32,UTF8ToString
     "-sEXPORTED_FUNCTIONS=_malloc,_free,${sh_wasm_exports_csv}")
   if(SH_WASM_ES6)
@@ -205,6 +205,9 @@ target_compile_definitions(foreign_camps_test PRIVATE SH_FOREIGN_CAMPS_GOLDEN="$
 sh_test(triangle_rows_test sh_engine)
 # The Java golden file of the house-size switch is read in place, like the foreign-corner file.
 target_compile_definitions(triangle_rows_test PRIVATE SH_TRIANGLE_ROWS_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/triangle-rows-golden.tsv")
+sh_test(rows5_search_test sh_search)
+# The Java golden file of the search on 5-row boards is read in place, like the other golden files.
+target_compile_definitions(rows5_search_test PRIVATE SH_ROWS5_SEARCH_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../search/src/test/resources/triangle-rows-search-golden.tsv")
 sh_test(three_player_test sh_engine)
 target_compile_definitions(three_player_test PRIVATE SH_THREE_PLAYER_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/three-player-golden.tsv")
 sh_test(three_player_ranking_test sh_engine)

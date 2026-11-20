@@ -10,7 +10,7 @@ const { engine } = parseArgs(process.argv);
 const m = await createModule(engine);
 
 const fail = (text) => { console.error(`ranking: ${text}`); process.exit(1); };
-const CAP = 1210;
+const CAP = 1815;
 const buf = m._malloc(4 * CAP);
 const errorText = () => m.UTF8ToString(m._shw_error());
 

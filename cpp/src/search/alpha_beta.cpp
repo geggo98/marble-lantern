@@ -308,7 +308,7 @@ int AlphaBeta::negamax(int depth, int alpha_in, int beta_in, int height) {
 // repetition draws, where the evaluator says so (a race value can appear) and when alpha is not an ordinary score.
 bool AlphaBeta::futility_allowed(const Position& position, int depth, int alpha, Evaluator& evaluator) {
     if (scores::kind(alpha) != scores::Kind::Ordinary) return false;
-    const int near_win = kCornerSize - depth;
+    const int near_win = position.layout().goal_size() - depth;
     const int me = position.side_to_move();
     if (position.goal_occupied(me) >= near_win || position.goal_occupied(1 - me) >= near_win) return false;
     const RuleSet& rules = position.rules();

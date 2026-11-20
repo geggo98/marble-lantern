@@ -10,7 +10,7 @@ const { engine } = parseArgs(process.argv);
 const m = await createModule(engine);
 
 const fail = (text) => { console.error(`threeplayer: ${text}`); process.exit(1); };
-const CAP = 1210;
+const CAP = 1815;
 const buf = m._malloc(4 * CAP * 3);
 const [inP, movesP, scoresP] = [buf, buf + 4 * CAP, buf + 8 * CAP];
 const ints = (p, n) => Array.from(m.HEAP32.subarray(p >> 2, (p >> 2) + n));

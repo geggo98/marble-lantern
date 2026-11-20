@@ -47,7 +47,7 @@ Solitaire& RaceMove::solitaire(int player, const RuleSet& rules) {
 
 int RaceMove::choose(const Position& position) {
     const RuleSet& rules = position.rules();
-    if (rules.players() != 2 || rules.foreign_camps() != RuleSet::ForeignCamps::Closed || rules.blocking_states() != RuleSet::BlockingStates::None || !RaceAdjudication::passed(position)) return -1;
+    if (rules.triangle_rows() != RuleSet::TriangleRows::Four || rules.players() != 2 || rules.foreign_camps() != RuleSet::ForeignCamps::Closed || rules.blocking_states() != RuleSet::BlockingStates::None || !RaceAdjudication::passed(position)) return -1;
     const int me = position.side_to_move();
     const int opp = 1 - me;
     const std::span<const int> mine_view = position.pieces(me);

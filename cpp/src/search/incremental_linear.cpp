@@ -42,6 +42,8 @@ void replace_key(std::span<int> a, int old_key, int new_key) {
 }  // namespace
 
 bool IncrementalLinear::reset(const Position& root) {
+    // the tables and the jump graph are those of the 4-row houses; the full evaluation takes over on 5 rows
+    if (root.rules().triangle_rows() != RuleSet::TriangleRows::Four) return false;
     if (root.rules().players() != 2 || root.piece_count(0) > kPieces || root.piece_count(1) > kPieces) return false;
     // the jump graph knows only landings on home cells; the full evaluation takes over
     if (root.rules().foreign_camps() != RuleSet::ForeignCamps::Closed) return false;

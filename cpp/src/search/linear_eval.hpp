@@ -53,7 +53,7 @@ inline constexpr int kSideSums = 11;
 
 using SideSums = std::array<int, kSideSums>;
 
-// The tables of the two-player layout, built at compile time (Java: the static initialisers of LinearEvaluator).
+// The tables of a two-player layout (one per house size), built at compile time (Java: the static initialisers of LinearEvaluator).
 struct LinearTables {
     std::array<int, kCells> lateral{};  // |q - s|
     // per player: kStepCloser | kJumpCloser per (cell, direction); 0 for cells the player may not enter
@@ -68,9 +68,8 @@ struct LinearTables {
     bool shared_cells = true;
 };
 
-constexpr LinearTables build_linear_tables() {
+constexpr LinearTables build_linear_tables(const Layout& layout) {
     LinearTables t;
-    const Layout& layout = detail::kTwoPlayerLayout;
     for (int c = 0; c < kCells; ++c) {
         const int lat = geometry::q(c) - geometry::s(c);
         t.lateral[static_cast<std::size_t>(c)] = lat < 0 ? -lat : lat;
@@ -84,8 +83,7 @@ constexpr LinearTables build_linear_tables() {
         for (int c = 0; c < kCells; ++c) {
             const auto cs = static_cast<std::size_t>(c);
             t.dist[ps][cs] = layout.distance(p, c);
-            const int corner = geometry::corner_of(c);
-            t.kind[ps][cs] = corner == layout.goal_corner(p) ? kInGoal : corner == layout.start_corner(p) ? kInStart : 0;
+            t.kind[ps][cs] = layout.in_goal(p, c) ? kInGoal : layout.in_start(p, c) ? kInStart : 0;
             t.edge_start[ps][cs] = count;
             if (!layout.allowed(p, c)) continue;  // a piece of p never stands here
             const int here = layout.distance(p, c);
@@ -106,8 +104,15 @@ constexpr LinearTables build_linear_tables() {
     return t;
 }
 
-inline constexpr LinearTables kLinearTables = build_linear_tables();
-static_assert(kLinearTables.shared_cells, "two-player layout: players must be allowed on the same cells");
+// kLinearTables: 4-row houses (the default board); kLinearTablesFive: 5-row houses. The same allowed cells serve both players on both.
+inline constexpr LinearTables kLinearTables = build_linear_tables(detail::kTwoPlayerLayout);
+inline constexpr LinearTables kLinearTablesFive = build_linear_tables(detail::kTwoPlayerLayoutFive);
+static_assert(kLinearTables.shared_cells && kLinearTablesFive.shared_cells, "two-player layout: players must be allowed on the same cells");
+
+// The tables of the house size of a rule set.
+inline const LinearTables& linear_tables(RuleSet::TriangleRows rows) {
+    return rows == RuleSet::TriangleRows::Five ? kLinearTablesFive : kLinearTables;
+}
 
 // The bestGain search, by jump components instead of one jump search per piece. A jump chain moves over the free allowed
 // cells along the edges "X to Y = X + 2e over an occupied hurdle X + e"; these edges are symmetric, so the cells reachable by
@@ -117,7 +122,7 @@ static_assert(kLinearTables.shared_cells, "two-player layout: players must be al
 // position, with its smallest distance for both players, and shared by all pieces and both sides.
 class GainSearch {
 public:
-    // Starts a new position: no component labelled, the occupancy from the piece lists.
+    // Starts a new position: no component labelled, the occupancy from the piece lists; the tables are those of the position's house size.
     void begin(const Position& position);
     // The largest one-move distance gain of player p over its pieces outside its goal (steps and jump chains to allowed free
     // cells), floored at 0 and capped at kGainCap. begin() must have been called for this position.
@@ -137,7 +142,9 @@ private:
     std::array<int, kMaxComponents> min_b_{};  // smallest distance of player 1 per component
     int components_ = 0;
     std::array<int, kCells> stack_{};
-    std::array<int, kPieces> order_{};
+    std::array<int, kMaxPieces> order_{};
+    const LinearTables* tables_ = &kLinearTables;
+    const Layout* layout_ = &detail::kTwoPlayerLayout;
 };
 
 }  // namespace linear_detail

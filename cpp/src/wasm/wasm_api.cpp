@@ -41,16 +41,24 @@ constexpr const char* kAnalysisSpecPrefix =
 // the analysis spec of the same search with tt=16. The race table and the racelin-r3 evaluator count single jumps only.
 constexpr const char* kAnalysisLongSpecPrefix =
     "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,tt=16,jump=long,nodes=";
+// The 5-row analysis players (rows=5: no race arithmetic and no race table, which know the 10-cell houses only; eval linear-r3, the base of
+// racelin-r3, with the weights of the 4-row board): the analysis spec of the 4-row board's long form with rows=5, and its adjacent form.
+constexpr const char* kAnalysisRows5Prefix =
+    "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,tt=16,rows=5,nodes=";
+constexpr const char* kAnalysisRows5LongPrefix =
+    "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,tt=16,jump=long,rows=5,nodes=";
 std::string g_error;
 std::unique_ptr<sh::AlphaBetaPlayer> g_analysis;
 int g_analysis_nodes = 0;
 bool g_analysis_long = false;
+bool g_analysis_five = false;  // the cached analysis player plays 5-row houses
 std::int64_t g_analysis_visited = 0;
 // The three-player analysis player (BROWSER_3P_SPEC with the budget of the call, its own table cleared before every scored move), separate
 // from the game players and from the two-player analysis player.
 std::unique_ptr<sh::ThreePlayerPlayer> g_analysis3;
 int g_analysis3_nodes = 0;
 bool g_analysis3_long = false;
+bool g_analysis3_five = false;
 std::optional<sh::Position> g_pos;
 // A player of the table: a two-player player (two) or a three-player player (three); exactly one is set.
 struct PlayerSlot {
@@ -64,6 +72,12 @@ const std::optional<sh::SearchResult>& result_of(int id) {
     return s.two ? s.two->last_result() : s.three->last_result();
 }
 std::array<int, sh::kMaxMoves> g_moves{};
+// The move lists of shw_analyse: kMaxMoves ints each (7.3 KB with 15 pieces), too much for the stack of a browser module, so they are static
+// (the module is single-threaded and shw_analyse does not nest).
+std::array<int, sh::kMaxMoves> g_analyse_legal{};
+std::array<int, sh::kMaxMoves> g_analyse_chosen{};
+constexpr bool is_rows(int rows) { return rows == 4 || rows == 5; }
+constexpr sh::RuleSet::TriangleRows triangle_rows_of(int rows) { return rows == 5 ? sh::RuleSet::TriangleRows::Five : sh::RuleSet::TriangleRows::Four; }
 }  // namespace
 
 SHW_API const char* shw_error() { return g_error.c_str(); }
@@ -88,10 +102,18 @@ SHW_API int shw_load_rows2(const std::uint8_t* bytes, std::size_t len, int verif
 // play with the rows >= 2 table); jump = 1: the Halma long hop (BROWSER_LONG_SPEC, no race play, no table needed); any other jump: -1.
 // A player plays games of its own rule only (shw_choose returns -2 for a game of the other rule). A call without the second argument
 // from JavaScript passes jump = 0.
-SHW_API int shw_player_new(int nodes, int jump) {
+SHW_API int shw_player_new_rows(int nodes, int jump, int rows);
+SHW_API int shw_player_new(int nodes, int jump) { return shw_player_new_rows(nodes, jump, 4); }
+// shw_player_new for a house size: rows = 4 is shw_player_new, rows = 5 the browser player of the 5-row board (BROWSER_ROWS5_SPEC or its long
+// form: eval linear-r3, no race play, no table needed). A player plays games of its own house size only (shw_choose returns -2 otherwise).
+// Another rows value gives -1.
+SHW_API int shw_player_new_rows(int nodes, int jump, int rows) {
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
-    const auto spec = sh::PlayerSpec::parse(jump == 1 ? std::string(sh::kBrowserLongSpec) + ",nodes=" + std::to_string(nodes)
-                                                      : kBrowserSpecPrefix + std::to_string(nodes));
+    if (!is_rows(rows)) { g_error = "rows must be 4 or 5, got " + std::to_string(rows); return -1; }
+    const std::string text = rows == 5 ? std::string(jump == 1 ? sh::kBrowserRows5LongSpec : sh::kBrowserRows5Spec) + ",nodes=" + std::to_string(nodes)
+                             : jump == 1 ? std::string(sh::kBrowserLongSpec) + ",nodes=" + std::to_string(nodes)
+                                         : kBrowserSpecPrefix + std::to_string(nodes);
+    const auto spec = sh::PlayerSpec::parse(text);
     if (!spec) { g_error = spec.error(); return -1; }
     auto player = spec->create();
     if (!player) { g_error = player.error(); return -1; }
@@ -103,10 +125,15 @@ SHW_API int shw_player_new(int nodes, int jump) {
 // A three-player player (ThreePlayerSpec, BROWSER_3P_SPEC: paranoid alpha-beta, eval linear-r2, no race table) with a node budget per move; returns
 // its id (>= 0) or -1 (jump other than 0 or 1; nodes < 1). jump = 0 plays the adjacent rule, jump = 1 the Halma long hop. A three-player player
 // plays the side to move of a three-player game of its rule; shw_choose returns -2 for any other game.
-SHW_API int shw_player_new3(int nodes, int jump) {
+SHW_API int shw_player_new3_rows(int nodes, int jump, int rows);
+SHW_API int shw_player_new3(int nodes, int jump) { return shw_player_new3_rows(nodes, jump, 4); }
+// shw_player_new3 for a house size (rows = 4 or 5; another value gives -1).
+SHW_API int shw_player_new3_rows(int nodes, int jump, int rows) {
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
+    if (!is_rows(rows)) { g_error = "rows must be 4 or 5, got " + std::to_string(rows); return -1; }
     if (nodes < 1) { g_error = "nodes must be at least 1, got " + std::to_string(nodes); return -1; }
-    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (jump == 1 ? ",jump=long" : ""));
+    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (jump == 1 ? ",jump=long" : "") +
+                                                 (rows == 5 ? ",rows=5" : ""));
     if (!spec) { g_error = spec.error(); return -1; }
     auto player = spec->create();
     if (!player) { g_error = player.error(); return -1; }
@@ -127,16 +154,22 @@ SHW_API void shw_player_clear(int id) {
 // play order top, lower right, lower left; 300 plies). Returns 0, or -1 for another value of jump or players (the game is then unchanged;
 // shw_error() tells which).
 SHW_API int shw_game_new4(int jump, int players, int ranking, int camps);
+SHW_API int shw_game_new5(int jump, int players, int ranking, int camps, int rows);
 SHW_API int shw_game_new3(int jump, int players, int ranking) { return shw_game_new4(jump, players, ranking, 0); }
 // shw_game_new3 with the foreign-corner rule (docs/rules.md, "Foreign corners"): camps = 0 closed (RuleSet ForeignCamps CLOSED, the default),
 // 1 pass-through (a jump chain may land in a foreign corner but must not end there), 2 open (a move may end there). Another value gives -1.
-SHW_API int shw_game_new4(int jump, int players, int ranking, int camps) {
+SHW_API int shw_game_new4(int jump, int players, int ranking, int camps) { return shw_game_new5(jump, players, ranking, camps, 4); }
+// shw_game_new4 with the house size: rows = 4 (the 10-cell corner houses, 10 pieces, the default) or 5 (15-cell houses: the corner plus the
+// hexagon edge row in front of it, 15 pieces; RuleSet TriangleRows FIVE, with the move limit 250 plies for two players and 375 for three).
+// Another value of rows gives -1.
+SHW_API int shw_game_new5(int jump, int players, int ranking, int camps, int rows) {
+    if (!is_rows(rows)) { g_error = "rows must be 4 or 5, got " + std::to_string(rows); return -1; }
     if (jump != 0 && jump != 1) { g_error = "jump must be 0 (adjacent) or 1 (long), got " + std::to_string(jump); return -1; }
     if (players != 2 && players != 3) { g_error = "players must be 2 or 3, got " + std::to_string(players); return -1; }
     if (ranking != 0 && ranking != 1) { g_error = "ranking must be 0 (first winner only) or 1 (full ranking), got " + std::to_string(ranking); return -1; }
     if (camps < 0 || camps > 2) { g_error = "camps must be 0 (closed), 1 (pass-through) or 2 (open), got " + std::to_string(camps); return -1; }
     const auto foreign = camps == 2 ? sh::RuleSet::ForeignCamps::Open : camps == 1 ? sh::RuleSet::ForeignCamps::PassThrough : sh::RuleSet::ForeignCamps::Closed;
-    const auto rules = sh::RuleSet::defaults(players)
+    const auto rules = sh::RuleSet::defaults(players, triangle_rows_of(rows))
                            .with_jump_rule(jump == 1 ? sh::RuleSet::JumpRule::Long : sh::RuleSet::JumpRule::Adjacent)
                            .and_then([ranking](const sh::RuleSet& r) { return r.with_ranking(ranking == 1 ? sh::RuleSet::Ranking::FullRanking : sh::RuleSet::Ranking::FirstWinnerOnly); })
                            .and_then([foreign](const sh::RuleSet& r) { return r.with_foreign_camps(foreign); });
@@ -157,6 +190,10 @@ SHW_API int shw_foreign_camps() {
     const auto c = g_pos->rules().foreign_camps();
     return c == sh::RuleSet::ForeignCamps::Open ? 2 : c == sh::RuleSet::ForeignCamps::PassThrough ? 1 : 0;
 }
+// The house size of the current game: 4 or 5.
+SHW_API int shw_triangle_rows() { return g_pos->rules().triangle_rows() == sh::RuleSet::TriangleRows::Five ? 5 : 4; }
+// The move limit of the current game in plies (a game that reaches it is a draw), so that the page need not keep a copy of the table.
+SHW_API int shw_move_limit() { return g_pos->rules().move_limit(); }
 SHW_API int shw_jump_rule() { return g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long ? 1 : 0; }
 SHW_API int shw_side_to_move() { return g_pos->side_to_move(); }
 SHW_API int shw_ply() { return g_pos->ply(); }
@@ -204,7 +241,7 @@ SHW_API int shw_choose(int player_id) {
     const std::string& name = s.two ? s.two->name() : s.three->name();
     const bool right_players = g_pos->rules().players() == (s.two ? 2 : 3);
     if (!right_players) { g_error = "player " + name + " cannot play a game with " + std::to_string(g_pos->rules().players()) + " players"; return -2; }
-    if (!(s.two ? s.two->plays(*g_pos) : s.three->plays(*g_pos))) { g_error = "player " + name + " cannot play a game of the other jump rule"; return -2; }
+    if (!(s.two ? s.two->plays(*g_pos) : s.three->plays(*g_pos))) { g_error = "player " + name + " cannot play a game of the other jump rule or house size"; return -2; }
     return s.two ? s.two->choose(*g_pos) : s.three->choose(*g_pos);
 }
 SHW_API int shw_last_score(int id) { const auto& r = result_of(id); return r ? r->score : 0; }
@@ -221,15 +258,16 @@ namespace {
 // The scoring of a three-player position: the moves `chosen` (legal, checked by the caller), each searched by the analysis player of the
 // three-player browser spec with `nodes` nodes (ThreePlayerPlayer::analyse_move: the move is made, the child is searched for the mover, the
 // table is cleared first). Writes the moves and scores; returns the number of moves, or -4 (player could not be created).
-int analyse3(sh::Position& pos, int nodes, bool long_hop, std::span<const int> chosen, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
-    if (!g_analysis3 || g_analysis3_nodes != nodes || g_analysis3_long != long_hop) {
-        const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (long_hop ? ",jump=long" : ""));
+int analyse3(sh::Position& pos, int nodes, bool long_hop, bool five, std::span<const int> chosen, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
+    if (!g_analysis3 || g_analysis3_nodes != nodes || g_analysis3_long != long_hop || g_analysis3_five != five) {
+        const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=16,nodes=") + std::to_string(nodes) + (long_hop ? ",jump=long" : "") + (five ? ",rows=5" : ""));
         if (!spec) { g_error = spec.error(); return -4; }
         auto player = spec->create();
         if (!player) { g_error = player.error(); return -4; }
         g_analysis3 = std::move(*player);
         g_analysis3_nodes = nodes;
         g_analysis3_long = long_hop;
+        g_analysis3_five = five;
     }
     const std::span<std::int32_t> out_moves(moves_out, static_cast<std::size_t>(cap));
     const std::span<std::int32_t> out_scores(scores_out, static_cast<std::size_t>(cap));
@@ -257,10 +295,10 @@ int analyse3(sh::Position& pos, int nodes, bool long_hop, std::span<const int> c
 SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap) {
     if (nodes < 1) return -5;
     sh::Position& pos = *g_pos;
-    std::array<int, sh::kMaxMoves> legal{};
+    std::array<int, sh::kMaxMoves>& legal = g_analyse_legal;
     const int count = pos.generate(legal);
     if (pos.outcome().has_value() || count == 0) return -2;
-    std::array<int, sh::kMaxMoves> chosen{};
+    std::array<int, sh::kMaxMoves>& chosen = g_analyse_chosen;
     int n = 0;
     if (moves_in == nullptr) {
         for (; n < count; ++n) chosen[static_cast<std::size_t>(n)] = legal[static_cast<std::size_t>(n)];
@@ -276,17 +314,20 @@ SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::
     }
     if (n > cap) return -3;
     const bool long_hop = pos.rules().jump_rule() == sh::RuleSet::JumpRule::Long;
+    const bool five = pos.rules().triangle_rows() == sh::RuleSet::TriangleRows::Five;
     if (pos.rules().players() == 3) {
-        return analyse3(pos, nodes, long_hop, std::span<const int>(chosen).first(static_cast<std::size_t>(n)), moves_out, scores_out, cap);
+        return analyse3(pos, nodes, long_hop, five, std::span<const int>(chosen).first(static_cast<std::size_t>(n)), moves_out, scores_out, cap);
     }
-    if (!g_analysis || g_analysis_nodes != nodes || g_analysis_long != long_hop) {
-        const auto spec = sh::PlayerSpec::parse((long_hop ? kAnalysisLongSpecPrefix : kAnalysisSpecPrefix) + std::to_string(nodes));
+    if (!g_analysis || g_analysis_nodes != nodes || g_analysis_long != long_hop || g_analysis_five != five) {
+        const char* prefix = five ? (long_hop ? kAnalysisRows5LongPrefix : kAnalysisRows5Prefix) : long_hop ? kAnalysisLongSpecPrefix : kAnalysisSpecPrefix;
+        const auto spec = sh::PlayerSpec::parse(prefix + std::to_string(nodes));
         if (!spec) { g_error = spec.error(); return -4; }
         auto player = spec->create();
         if (!player) { g_error = player.error(); return -4; }
         g_analysis = std::move(*player);
         g_analysis_nodes = nodes;
         g_analysis_long = long_hop;
+        g_analysis_five = five;
     }
     const std::span<std::int32_t> out_moves(moves_out, static_cast<std::size_t>(cap));
     const std::span<std::int32_t> out_scores(scores_out, static_cast<std::size_t>(cap));
@@ -313,7 +354,8 @@ SHW_API int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::
 SHW_API int shw_evaluate3(std::int32_t* out3) {
     if (g_pos->rules().players() != 3) { g_error = "the static three-player evaluation needs a three-player game"; return -1; }
     const bool long_hop = g_pos->rules().jump_rule() == sh::RuleSet::JumpRule::Long;
-    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=1,nodes=1") + (long_hop ? ",jump=long" : ""));
+    const bool five = g_pos->rules().triangle_rows() == sh::RuleSet::TriangleRows::Five;
+    const auto spec = sh::ThreePlayerSpec::parse(std::string("ab3:eval=linear-r2,tt=1,nodes=1") + (long_hop ? ",jump=long" : "") + (five ? ",rows=5" : ""));
     if (!spec) { g_error = spec.error(); return -2; }
     auto player = spec->create();
     if (!player) { g_error = player.error(); return -2; }

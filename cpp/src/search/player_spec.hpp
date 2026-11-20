@@ -4,7 +4,8 @@
 // default 18), the search options pvs, killers, history, ttrep, mate, partial (0 or 1), lmr (0..3), asp (1 for the default window or a
 // half-width), fut, futk, fut2, the race keys race (0, 1 or 2) and racerows (1 or 2, needs race), and jump (adjacent or long; long is
 // refused together with race=1, race=2 and the evaluators racelin1-r3 and racelin-r3, whose race table and arithmetic count single
-// jumps only). An unknown key is an error, as in Java; so are the evaluators "distance" and "linear-r2" ("not ported"). The Java keys ms, racetable and the evaluator weights
+// jumps only), and rows (4 or 5, default 4: the house size of the games the player plays; 5 is refused together with race=1, race=2 and the
+// racelin evaluators, whose table is computed for the 10-cell houses). An unknown key is an error, as in Java; so are the evaluators "distance" and "linear-r2" ("not ported"). The Java keys ms, racetable and the evaluator weights
 // (w...) are not accepted: no measured spec uses them. A node budget, not a time budget, is the default, so that results do not
 // depend on machine load.
 #pragma once
@@ -34,6 +35,7 @@ struct PlayerSpec {
     SearchOptions options;
     int race = 0;       // 0 off, 1 or 2 the race mode
     int race_rows = 2;  // the region of the race table: 2 (default) or 1
+    RuleSet::TriangleRows rows = RuleSet::TriangleRows::Four;  // key rows: 4 (default) or 5; the house size of the games the player plays
     RuleSet::JumpRule jump_rule = RuleSet::JumpRule::Adjacent;  // key jump: adjacent (default) or long; the rule of the games the player plays
 
     static std::expected<PlayerSpec, std::string> parse(std::string_view text);
@@ -49,6 +51,13 @@ struct PlayerSpec {
 
 // The browser player for the Halma long hop (Java: Strategies.BROWSER_LONG_SPEC): the browser spec without race play, with the base
 // evaluator linear-r3 and jump=long. A weaker player: the evaluator's jump features still count single jumps.
+// The browser player for the 5-row board (Java: Strategies.BROWSER_ROWS5_SPEC): no race play, eval linear-r3 (the base of racelin-r3), the
+// weights of the 4-row board (uncalibrated for 5 rows), and its long-hop form.
+inline constexpr const char* kBrowserRows5Spec =
+    "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5";
+inline constexpr const char* kBrowserRows5LongSpec =
+    "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,jump=long";
+
 inline constexpr const char* kBrowserLongSpec =
     "ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,jump=long";
 

@@ -8,7 +8,7 @@
 namespace sh {
 
 bool RaceAdjudication::passed(const Position& position) {
-    if (position.rules().players() != 2 || position.rules().foreign_camps() != RuleSet::ForeignCamps::Closed) return false;
+    if (position.rules().triangle_rows() != RuleSet::TriangleRows::Four || position.rules().players() != 2 || position.rules().foreign_camps() != RuleSet::ForeignCamps::Closed) return false;
     int min0 = std::numeric_limits<int>::max();
     int max1 = std::numeric_limits<int>::min();
     int n0 = 0;

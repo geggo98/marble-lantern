@@ -10,7 +10,7 @@ const { rc, error } = loadRows2(m, readTable(tables), false);
 if (rc !== 0) throw new Error(`load failed, rc=${rc}: ${error}`);
 
 const fail = (text) => { console.error(`camps: ${text}`); process.exit(1); };
-const CAP = 1210;
+const CAP = 1815;
 const buf = m._malloc(4 * CAP);
 const legal = () => Array.from(m.HEAP32.subarray(buf >> 2, (buf >> 2) + m._shw_legal_moves(buf, CAP)));
 

@@ -725,6 +725,28 @@ of all three values. The wasm API has `shw_game_new4(jump, players, ranking, cam
 `shw_game_new4` returns -1 for any other value and leaves the game unchanged) and `shw_foreign_camps()` (0, 1 or 2);
 `wasm/test/camps.mjs` checks them under node.
 
+### Search and the wasm API on 5-row boards
+
+`RuleSet::TriangleRows::Five` (15-cell houses, 15 pieces; `docs/rules.md`, section "Board size") reaches the search as follows.
+The linear evaluator and the three-player search read their tables from the layout of the position's house size
+(`linear_tables(rows)` in `src/search/linear_eval.hpp`, `tables3(position)` in `src/search/three_player_search.cpp`); the weights are those of the
+4-row board and are not calibrated for 5 rows. The futility near-win count is `goal_size() - depth`. The race code (`RaceEvaluator::rules_apply`,
+`RaceAdjudication`, `RaceMove`) and `IncrementalLinear::reset` accept 4-row houses only, because the race table and the jump graph are computed for the
+10-cell corners. `PlayerSpec` and `ThreePlayerSpec` take `rows=4|5`; `rows=5` is refused together with `race=1`, `race=2` and the racelin evaluators.
+A player plays games of its own house size only (`plays()` checks it, `choose()` throws otherwise). `kBrowserRows5Spec`, `kBrowserRows5LongSpec`,
+`kBrowser3pRows5Spec` and `kBrowser3pRows5LongSpec` are the browser players of 5 rows.
+
+The wasm API adds `shw_game_new5(jump, players, ranking, camps, rows)` (rows 4 or 5, else -1 and the game is unchanged), `shw_triangle_rows()`,
+`shw_move_limit()` (250 plies for two players and 375 for three on 5 rows), `shw_player_new_rows(nodes, jump, rows)` and
+`shw_player_new3_rows(nodes, jump, rows)`. The cached analysis players are keyed on the house size. A move list now holds up to 1815 moves (7.3 KB), so
+the two lists of `shw_analyse` are static storage and the module links with `-sSTACK_SIZE=1048576`. Every caller must size its move buffer for 1815 moves.
+
+Tests: `tests/rows5_search_test.cpp` reproduces the Java golden file `search/src/test/resources/triangle-rows-search-golden.tsv` bit for bit (static
+values of linear-r1, linear-r3 and linear-r2, and the move, score, depth and node count of 48 searches; written by
+`TriangleRowsSearchGolden` in the search module), checks the sums and `bestGain` against references written from the layout, and checks the gates.
+`tests/wasm_api_test.cpp` and `wasm/test/rows5.mjs` cover the new calls. A one-off link with `-sSTACK_OVERFLOW_CHECK=2` (2026-11-20) passed
+`rows5.mjs`, `threeplayer.mjs`, `analyse.mjs`, `longhop.mjs`, `camps.mjs` and `ranking.mjs`.
+
 ## Three players
 
 The engine also plays the three-player game, as the Java engine does (rules in `docs/rules.md`, section "Three-player specifics"; the search in

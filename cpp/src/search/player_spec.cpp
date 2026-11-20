@@ -153,6 +153,13 @@ std::expected<PlayerSpec, std::string> PlayerSpec::parse(std::string_view text) 
             return std::unexpected("jump must be adjacent or long, got '" + *jump + "'");
         }
     }
+    if (const auto rows = in.take("rows")) {
+        if (*rows == "5") {
+            spec.rows = RuleSet::TriangleRows::Five;
+        } else if (*rows != "4") {
+            return std::unexpected("rows must be 4 or 5, got '" + *rows + "'");
+        }
+    }
     if (!in.rest().empty()) {
         std::string names;
         for (const auto& [key, value] : in.rest()) names += (names.empty() ? "" : ", ") + key;
@@ -169,6 +176,16 @@ std::expected<PlayerSpec, std::string> PlayerSpec::parse(std::string_view text) 
     if (spec.evaluator != "linear-r1" && spec.evaluator != "linear-r3" && spec.evaluator != "racelin1-r3" &&
         spec.evaluator != "racelin-r3") {
         return std::unexpected("unknown evaluator '" + spec.evaluator + "', known: linear-r1, linear-r3, racelin1-r3, racelin-r3");
+    }
+    if (spec.rows == RuleSet::TriangleRows::Five) {
+        if (spec.race != 0) {
+            return std::unexpected("rows=5 cannot be combined with race=" + std::to_string(spec.race) +
+                                   ": the race table and the solitaire beam are computed for the 10-cell houses");
+        }
+        if (spec.evaluator == "racelin1-r3" || spec.evaluator == "racelin-r3") {
+            return std::unexpected("rows=5 cannot be combined with eval=" + spec.evaluator +
+                                   ": it reads the race table, which is computed for the 10-cell houses (use its base evaluator)");
+        }
     }
     if (spec.jump_rule == RuleSet::JumpRule::Long) {
         if (spec.race != 0) {
@@ -215,7 +232,7 @@ std::expected<std::unique_ptr<AlphaBetaPlayer>, std::string> PlayerSpec::create(
     auto eval = make_evaluator();
     if (!eval) return std::unexpected(eval.error());
     return std::make_unique<AlphaBetaPlayer>(std::move(*eval), depth, AlphaBeta::kNoLimit, nodes, table_bits, evaluator, options,
-                                             std::move(race_move), jump_rule);
+                                             std::move(race_move), jump_rule, rows);
 }
 
 }  // namespace sh

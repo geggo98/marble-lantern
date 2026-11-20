@@ -46,6 +46,8 @@ void GainSearch::begin(const Position& position) {
     }
     occ_lo_ = lo;
     occ_hi_ = hi;
+    tables_ = &linear_tables(position.rules().triangle_rows());
+    layout_ = &Layout::of(2, position.rules().triangle_rows());
     components_ = 0;
     done_lo_ = 0;
     done_hi_ = 0;
@@ -53,12 +55,12 @@ void GainSearch::begin(const Position& position) {
 
 int GainSearch::best_gain(const Position& position, int p) {
     const auto ps = u(p);
-    const LinearTables& t = kLinearTables;
+    const LinearTables& t = *tables_;
     const std::array<int, kCells>& dist = t.dist[ps];
     const std::array<std::uint8_t, kCells>& kind = t.kind[ps];
     const std::array<int, kCells + 1>& edge_start = t.edge_start[ps];
     const std::array<int, kTableSize>& edges = t.edges[ps];
-    const std::span<const int, kTableSize> steps = detail::kTwoPlayerLayout.step_table(p);
+    const std::span<const int, kTableSize> steps = layout_->step_table(p);
     const std::array<int, kMaxComponents>& mins = p == 1 ? min_b_ : min_a_;
     const std::uint64_t lo = occ_lo_;
     const std::uint64_t hi = occ_hi_;
@@ -112,7 +114,7 @@ int GainSearch::component_of(std::span<const int> edge_start, std::span<const in
     std::uint64_t b_lo = lo;
     std::uint64_t b_hi = hi;
     set_bit(b_lo, b_hi, start);
-    const LinearTables& t = kLinearTables;
+    const LinearTables& t = *tables_;
     int low_a = std::numeric_limits<int>::max();
     int low_b = std::numeric_limits<int>::max();
     int top = 0;
@@ -220,7 +222,7 @@ void LinearEvaluator::combine(const SideSums& me, const SideSums& opponent, std:
 }
 
 void LinearEvaluator::side(const Position& position, int p, SideSums& s) {
-    const LinearTables& t = kLinearTables;
+    const LinearTables& t = linear_tables(position.rules().triangle_rows());
     const auto ps = u(p);
     const std::array<std::uint8_t, kTableSize>& good = t.good[ps];
     const std::array<int, kCells>& dist = t.dist[ps];

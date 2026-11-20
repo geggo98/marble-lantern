@@ -3,7 +3,7 @@
 // A spec is "ab3:" followed by key=value pairs: eval (linear-r2, the default, linear-r1 or linear: the 12-feature linear weights; the
 // race evaluators are two-player only), nodes (per move, default 20000), depth (default 30), ms (time per move, default none; makes the
 // result machine dependent), tt (log2 table entries, default 16) and jump (adjacent or long, default adjacent: the rule of the games
-// the player plays). An unknown key is an error, as in Java.
+// the player plays) and rows (4 or 5, default 4: the house size of the games the player plays). An unknown key is an error, as in Java.
 #pragma once
 
 #include <chrono>
@@ -25,10 +25,11 @@ namespace sh {
 class ThreePlayerPlayer {
 public:
     ThreePlayerPlayer(std::span<const double> weights, const std::string& evaluator_name, int max_depth, std::int64_t time_limit_millis,
-                      std::int64_t max_nodes, int table_bits, RuleSet::JumpRule jump_rule);
+                      std::int64_t max_nodes, int table_bits, RuleSet::JumpRule jump_rule,
+                      RuleSet::TriangleRows rows = RuleSet::TriangleRows::Four);
 
     // Chooses a move for the side to move of `position` (-1 if there is none). Throws std::invalid_argument if the position does not
-    // have three players or has another jump rule than the player; callers that cannot throw check plays() first.
+    // have three players or has another jump rule or house size than the player; callers that cannot throw check plays() first.
     int choose(const Position& position);
 
     // The search result of the last choose() call, or empty (before the first call or after clear_search()).
@@ -49,7 +50,11 @@ public:
 
     const std::string& name() const { return name_; }
     RuleSet::JumpRule jump_rule() const { return jump_rule_; }
-    bool plays(const Position& position) const { return position.rules().players() == 3 && position.rules().jump_rule() == jump_rule_; }
+    // The house size of the games this player plays.
+    RuleSet::TriangleRows rows() const { return rows_; }
+    bool plays(const Position& position) const {
+        return position.rules().players() == 3 && position.rules().jump_rule() == jump_rule_ && position.rules().triangle_rows() == rows_;
+    }
     std::int64_t total_nodes() const { return total_nodes_; }
     std::chrono::nanoseconds total_time() const { return total_time_; }
     std::int64_t moves() const { return moves_; }
@@ -62,6 +67,7 @@ private:
     ThreePlayerSearch search_;
     std::string name_;
     RuleSet::JumpRule jump_rule_;
+    RuleSet::TriangleRows rows_;
     int max_depth_;
     std::int64_t time_limit_millis_;
     std::int64_t max_nodes_;
@@ -83,6 +89,7 @@ struct ThreePlayerSpec {
     std::int64_t millis = ThreePlayerSearch::kNoLimit;
     int table_bits = kDefaultTableBits;
     RuleSet::JumpRule jump_rule = RuleSet::JumpRule::Adjacent;
+    RuleSet::TriangleRows rows = RuleSet::TriangleRows::Four;  // key rows: 4 (default) or 5; the house size of the games the player plays
 
     static std::expected<ThreePlayerSpec, std::string> parse(std::string_view text);
     // A new player; call once per game, because a player keeps its transposition table.
@@ -92,5 +99,8 @@ struct ThreePlayerSpec {
 // The browser player for three players (Java: Strategies.BROWSER_3P_SPEC) and the same for the Halma long hop (BROWSER_3P_LONG_SPEC).
 inline constexpr const char* kBrowser3pSpec = "ab3:eval=linear-r2,nodes=20000,tt=16";
 inline constexpr const char* kBrowser3pLongSpec = "ab3:eval=linear-r2,nodes=20000,tt=16,jump=long";
+// The same on the 5-row board (Java: Strategies.BROWSER_3P_ROWS5_SPEC, BROWSER_3P_ROWS5_LONG_SPEC); the weights are those of the 4-row board.
+inline constexpr const char* kBrowser3pRows5Spec = "ab3:eval=linear-r2,nodes=20000,tt=16,rows=5";
+inline constexpr const char* kBrowser3pRows5LongSpec = "ab3:eval=linear-r2,nodes=20000,tt=16,jump=long,rows=5";
 
 }  // namespace sh

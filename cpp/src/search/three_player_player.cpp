@@ -51,21 +51,28 @@ std::optional<std::span<const double>> weights_of(const std::string& evaluator) 
 }  // namespace
 
 ThreePlayerPlayer::ThreePlayerPlayer(std::span<const double> weights, const std::string& evaluator_name, int max_depth,
-                                     std::int64_t time_limit_millis, std::int64_t max_nodes, int table_bits, RuleSet::JumpRule jump_rule)
+                                     std::int64_t time_limit_millis, std::int64_t max_nodes, int table_bits, RuleSet::JumpRule jump_rule,
+                                     RuleSet::TriangleRows rows)
     : weights_(weights.begin(), weights.end()),
       table_bits_(table_bits),
       search_(weights, table_bits),
       name_("ab3[eval=" + evaluator_name + ", depth<=" + std::to_string(max_depth) +
             (time_limit_millis == ThreePlayerSearch::kNoLimit ? "" : ", " + std::to_string(time_limit_millis) + " ms") +
             (max_nodes == ThreePlayerSearch::kNoLimit ? "" : ", " + std::to_string(max_nodes) + " nodes") +
-            (jump_rule == RuleSet::JumpRule::Long ? ", jump=long" : "") + "]"),
+            (jump_rule == RuleSet::JumpRule::Long ? ", jump=long" : "") +
+            (rows == RuleSet::TriangleRows::Five ? ", rows=5" : "") + "]"),
       jump_rule_(jump_rule),
+      rows_(rows),
       max_depth_(max_depth),
       time_limit_millis_(time_limit_millis),
       max_nodes_(max_nodes) {}
 
 void ThreePlayerPlayer::check_plays(const Position& position) const {
     if (position.rules().players() != 3) throw std::invalid_argument("player " + name_ + " plays three players");
+    if (position.rules().triangle_rows() != rows_) {
+        throw std::invalid_argument("player " + name_ + " plays rows=" + (rows_ == RuleSet::TriangleRows::Five ? "5" : "4") +
+                                    " but the position has rows=" + (position.rules().triangle_rows() == RuleSet::TriangleRows::Five ? "5" : "4"));
+    }
     if (!plays(position)) {
         throw std::invalid_argument("player " + name_ + " plays jump=" + (jump_rule_ == RuleSet::JumpRule::Long ? "long" : "adjacent") +
                                     " but the position has jump=" + (position.rules().jump_rule() == RuleSet::JumpRule::Long ? "long" : "adjacent"));
@@ -152,6 +159,13 @@ std::expected<ThreePlayerSpec, std::string> ThreePlayerSpec::parse(std::string_v
             return std::unexpected("jump must be adjacent or long, got '" + *jump + "'");
         }
     }
+    if (const auto rows = take("rows")) {
+        if (*rows == "5") {
+            spec.rows = RuleSet::TriangleRows::Five;
+        } else if (*rows != "4") {
+            return std::unexpected("rows must be 4 or 5, got '" + *rows + "'");
+        }
+    }
     if (!options.empty()) {
         std::string names;
         for (const auto& [key, value] : options) names += (names.empty() ? "" : ", ") + key;
@@ -168,7 +182,7 @@ std::expected<ThreePlayerSpec, std::string> ThreePlayerSpec::parse(std::string_v
 std::expected<std::unique_ptr<ThreePlayerPlayer>, std::string> ThreePlayerSpec::create() const {
     const auto weights = weights_of(evaluator);
     if (!weights) return std::unexpected("three-player evaluator must be linear-r2, linear-r1 or linear, got '" + evaluator + "'");
-    return std::make_unique<ThreePlayerPlayer>(*weights, evaluator, depth, millis, nodes, table_bits, jump_rule);
+    return std::make_unique<ThreePlayerPlayer>(*weights, evaluator, depth, millis, nodes, table_bits, jump_rule, rows);
 }
 
 }  // namespace sh

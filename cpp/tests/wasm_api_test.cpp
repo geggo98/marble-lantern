@@ -10,6 +10,8 @@
 
 #include "check.hpp"
 #include "geometry.hpp"
+#include "layout.hpp"
+#include "rules.hpp"
 
 extern "C" {
 const char* shw_error();
@@ -28,6 +30,11 @@ double shw_total_nodes(int id);
 void shw_player_clear(int id);
 int shw_jump_rule();
 int shw_game_new4(int jump, int players, int ranking, int camps);
+int shw_game_new5(int jump, int players, int ranking, int camps, int rows);
+int shw_triangle_rows();
+int shw_move_limit();
+int shw_player_new_rows(int nodes, int jump, int rows);
+int shw_player_new3_rows(int nodes, int jump, int rows);
 int shw_foreign_camps();
 int shw_side_to_move();
 int shw_owner(int cell);
@@ -44,7 +51,7 @@ int shw_evaluate3(std::int32_t* out3);
 
 namespace {
 
-constexpr int kCap = 1210;
+constexpr int kCap = 1815;
 
 std::set<std::pair<int, int>> legal_pairs() {
     std::array<std::int32_t, kCap> buf{};
@@ -327,6 +334,108 @@ SH_TEST(evaluate3_gives_one_integer_per_absolute_player) {
         CHECK_EQ(shw_evaluate3(e.data()), 0);
         CHECK(e[0] != e[1] || e[1] != e[2]);
     }
+}
+
+// ---- the 5-row board (house size): shw_game_new5, shw_triangle_rows, shw_move_limit, the players of a house size ----
+
+SH_TEST(game_new5_starts_a_five_row_game) {
+    for (const int players : {2, 3}) {
+        CHECK_EQ(shw_game_new5(0, players, 0, 0, 5), 0);
+        CHECK_EQ(shw_triangle_rows(), 5);
+        CHECK_EQ(shw_move_limit(), players == 2 ? 250 : 375);
+        const sh::Layout& layout = sh::Layout::of(players, sh::RuleSet::TriangleRows::Five);
+        std::array<int, 3> counts{};
+        for (int c = 0; c < sh::kCells; ++c) {
+            const int o = shw_owner(c);
+            if (o < 0) continue;
+            ++counts.at(static_cast<std::size_t>(o));
+            CHECK(layout.in_start(o, c));  // every piece stands in the start house of its owner
+        }
+        for (int p = 0; p < players; ++p) CHECK_EQ(counts.at(static_cast<std::size_t>(p)), 15);
+        CHECK(!legal_pairs().empty());
+        // the 4-row board is unchanged: 10 pieces, the old move limits
+        CHECK_EQ(shw_game_new5(0, players, 0, 0, 4), 0);
+        CHECK_EQ(shw_triangle_rows(), 4);
+        CHECK_EQ(shw_move_limit(), players == 2 ? 200 : 300);
+        int four_pieces = 0;
+        for (int c = 0; c < sh::kCells; ++c) four_pieces += shw_owner(c) >= 0 ? 1 : 0;
+        CHECK_EQ(four_pieces, 10 * players);
+    }
+    // shw_game_new4 and the shorter forms are the 4-row board
+    CHECK_EQ(shw_game_new4(0, 2, 0, 0), 0);
+    CHECK_EQ(shw_triangle_rows(), 4);
+    CHECK_EQ(shw_game_new(0), 0);
+    CHECK_EQ(shw_triangle_rows(), 4);
+}
+
+SH_TEST(game_new5_refuses_another_house_size_and_keeps_the_game) {
+    CHECK_EQ(shw_game_new5(0, 2, 0, 0, 5), 0);
+    CHECK_EQ(shw_ply(), 0);
+    for (const int rows : {0, 3, 6, -1}) {
+        CHECK_EQ(shw_game_new5(1, 3, 0, 0, rows), -1);
+        CHECK(std::string(shw_error()).find("rows must be 4 or 5") != std::string::npos);
+        CHECK_EQ(shw_triangle_rows(), 5);  // the refused call changed nothing
+        CHECK_EQ(shw_players(), 2);
+    }
+    CHECK_EQ(shw_player_new_rows(100, 1, 7), -1);
+    CHECK(std::string(shw_error()).find("rows must be 4 or 5") != std::string::npos);
+    CHECK_EQ(shw_player_new3_rows(100, 0, 2), -1);
+}
+
+SH_TEST(players_of_a_house_size_play_games_of_that_size_only) {
+    for (const int jump : {0, 1}) {
+        const int two5 = shw_player_new_rows(300, jump, 5);
+        const int three5 = shw_player_new3_rows(300, jump, 5);
+        const int three4 = shw_player_new3_rows(300, jump, 4);
+        CHECK(two5 >= 0 && three5 >= 0 && three4 >= 0);
+        CHECK_EQ(shw_game_new5(jump, 2, 0, 0, 4), 0);
+        CHECK_EQ(shw_choose(two5), -2);
+        CHECK(std::string(shw_error()).find("house size") != std::string::npos);
+        CHECK_EQ(shw_game_new5(jump, 3, 0, 0, 5), 0);
+        CHECK_EQ(shw_choose(three4), -2);
+        CHECK_EQ(shw_game_new5(jump, 2, 0, 0, 5), 0);
+        // 40 plies of the 5-row player against itself: every engine move is legal, and no race move is made
+        for (int ply = 0; ply < 40 && shw_outcome() == -1; ++ply) {
+            const int move = shw_choose(two5);
+            CHECK(move >= 0);
+            CHECK(legal_pairs().count({move & 0xff, move >> 8}) == 1);
+            CHECK_EQ(shw_play(move), 0);
+        }
+        CHECK_EQ(shw_race_moves(two5), 0.0);
+        CHECK_EQ(shw_game_new5(jump, 3, 0, 0, 5), 0);
+        for (int ply = 0; ply < 30 && shw_outcome() == -1; ++ply) {
+            const int move = shw_choose(three5);
+            CHECK(move >= 0);
+            CHECK(legal_pairs().count({move & 0xff, move >> 8}) == 1);
+            CHECK_EQ(shw_play(move), 0);
+        }
+    }
+}
+
+// shw_analyse and shw_evaluate3 follow the house size of the game: the cached analysis players are keyed on it, so that a 5-row game after a
+// 4-row game with the same budget gets a 5-row analysis player (the 4-row one would refuse the position and end the module).
+SH_TEST(analysis_follows_the_house_size) {
+    std::array<std::int32_t, kCap> moves_out{};
+    std::array<std::int32_t, kCap> scores_out{};
+    for (const int players : {2, 3}) {
+        CHECK_EQ(shw_game_new5(1, players, 0, 0, 4), 0);  // long hop: no race table needed on 4 rows
+        CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), kCap) > 0);
+        CHECK_EQ(shw_game_new5(1, players, 0, 0, 5), 0);
+        const std::size_t legal = legal_pairs().size();
+        CHECK(legal > 10);
+        CHECK_EQ(static_cast<std::size_t>(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), kCap)), legal);
+        CHECK(shw_analysis_nodes() > 0.0);
+        CHECK_EQ(shw_game_new5(1, players, 0, 0, 4), 0);  // and back
+        CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), kCap) > 0);
+    }
+    std::array<std::int32_t, 3> e{};
+    CHECK_EQ(shw_game_new5(0, 3, 0, 0, 5), 0);
+    CHECK_EQ(shw_evaluate3(e.data()), 0);
+    CHECK_EQ(e[0], e[1]);  // the 5-row start position is symmetric as well
+    CHECK_EQ(e[1], e[2]);
+    // the move list of a 5-row start position does not fit a buffer of the old 1210 moves only when it is that long; kCap holds any list
+    CHECK_EQ(shw_game_new5(1, 2, 0, 0, 5), 0);
+    CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), 3) == -3);  // cap too small is still reported
 }
 
 int main() { return sh::test::run_all(); }

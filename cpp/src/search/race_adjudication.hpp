@@ -9,10 +9,10 @@ namespace sh {
 
 class RaceAdjudication {
 public:
-    // The rule preconditions of the soundness statement: two players, closed foreign corners, no blocking-state rule, repetition decided
+    // The rule preconditions of the soundness statement: 4-row houses, two players, closed foreign corners, no blocking-state rule, repetition decided
     // by the move limit.
     static bool applicable(const RuleSet& rules) {
-        return rules.players() == 2 && rules.foreign_camps() == RuleSet::ForeignCamps::Closed && rules.blocking_states() == RuleSet::BlockingStates::None &&
+        return rules.triangle_rows() == RuleSet::TriangleRows::Four && rules.players() == 2 && rules.foreign_camps() == RuleSet::ForeignCamps::Closed && rules.blocking_states() == RuleSet::BlockingStates::None &&
                rules.repetition() == RuleSet::Repetition::MoveLimit;
     }
 
