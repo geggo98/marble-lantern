@@ -13,8 +13,9 @@ namespace sh {
 inline constexpr int kCells = 121;
 inline constexpr int kDirections = 6;
 inline constexpr int kCornerSize = 10;  // cells per corner triangle
-inline constexpr int kPieces = 10;      // pieces per player
-inline constexpr int kMaxMoves = kPieces * kCells;
+inline constexpr int kPieces = 10;      // pieces per player on the 4-row board (RuleSet::TriangleRows::Four); see Layout::pieces()
+inline constexpr int kMaxPieces = 15;   // pieces per player on the 5-row board (TriangleRows::Five), the larger house
+inline constexpr int kMaxMoves = kMaxPieces * kCells;
 inline constexpr std::size_t kTableSize = std::size_t{kCells} * kDirections;  // entries of the flat step and jump tables
 
 // Index of cell c and direction d in the flat tables.
@@ -170,6 +171,23 @@ constexpr std::span<const int, kTableSize> step_table() { return detail::kGeomet
 constexpr std::span<const int, kTableSize> land_table() { return detail::kGeometry.land; }
 // Clockwise index of the corner that contains the cell, or -1 for the central hexagon.
 constexpr int corner_of(int cell) { return detail::kGeometry.corner[static_cast<std::size_t>(cell)]; }
+// Whether the cell is in the house of a corner with the given number of rows (4 or 5; Java: Geometry.inHouse). A 4-row house is the 10-cell
+// corner triangle. A 5-row house adds the edge row of the central hexagon in front of the corner (the hexagon cells whose defining
+// coordinate is +-4); a cell at a vertex of the hexagon lies in the 5-row houses of two adjacent corners.
+constexpr bool in_house(int corner_index, int cell, int rows) {
+    const int k = corner_of(cell);
+    if (k >= 0) return k == corner_index;  // a cell of a corner triangle is in the house of that triangle only
+    if (rows == 4) return false;
+    switch (corner_index) {
+        case corner::kQPos: return q(cell) >= 4;
+        case corner::kSNeg: return s(cell) <= -4;
+        case corner::kRPos: return r(cell) >= 4;
+        case corner::kQNeg: return q(cell) <= -4;
+        case corner::kSPos: return s(cell) >= 4;
+        default: return r(cell) <= -4;
+    }
+}
+
 // The 10 cells of a corner, ascending.
 constexpr std::span<const int, kCornerSize> corner_cells(int corner_index) {
     return detail::kGeometry.corner_cells[static_cast<std::size_t>(corner_index)];

@@ -202,6 +202,9 @@ target_compile_definitions(long_jump_test PRIVATE SH_LONG_JUMP_GOLDEN="${CMAKE_C
 sh_test(foreign_camps_test sh_search)
 # The Java golden file of the foreign-corner switch is read in place, like the long-hop file.
 target_compile_definitions(foreign_camps_test PRIVATE SH_FOREIGN_CAMPS_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/foreign-camps-golden.tsv")
+sh_test(triangle_rows_test sh_engine)
+# The Java golden file of the house-size switch is read in place, like the foreign-corner file.
+target_compile_definitions(triangle_rows_test PRIVATE SH_TRIANGLE_ROWS_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/triangle-rows-golden.tsv")
 sh_test(three_player_test sh_engine)
 target_compile_definitions(three_player_test PRIVATE SH_THREE_PLAYER_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/../engine/src/test/resources/three-player-golden.tsv")
 sh_test(three_player_ranking_test sh_engine)

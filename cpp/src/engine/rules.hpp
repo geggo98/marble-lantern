@@ -26,6 +26,9 @@ public:
     // corners"): Closed = never, not even between two jumps (default); PassThrough = a jump chain may land there between two jumps,
     // but the move must not end there; Open = a move may also end there.
     enum class ForeignCamps : std::uint8_t { Closed, PassThrough, Open };
+    // The size of a house (start and goal), Java: RuleSet.TriangleRows. Four = the 10-cell corner triangle, 10 pieces (default); Five = the
+    // 4-row corner plus the edge row of the central hexagon in front of it, 15 cells and 15 pieces, on the same 121-cell board.
+    enum class TriangleRows : std::uint8_t { Four, Five };
 
     // The fields of a rule set before validation; the defaults are the project defaults of docs/rules.md (200 plies for two players).
     struct Spec {
@@ -40,6 +43,7 @@ public:
         Ranking ranking = Ranking::FirstWinnerOnly;
         JumpRule jump_rule = JumpRule::Adjacent;
         ForeignCamps foreign_camps = ForeignCamps::Closed;
+        TriangleRows triangle_rows = TriangleRows::Four;
         friend bool operator==(const Spec&, const Spec&) = default;
     };
 
@@ -48,6 +52,8 @@ public:
     static RuleSet defaults();
     // The project defaults for 2 or 3 players: 200 plies for two players, 300 for three (docs/rules.md).
     static RuleSet defaults(int players);
+    // As defaults(players) for a house size: with Five, 250 plies for two players and 375 for three (15 instead of 10 pieces to bring home).
+    static RuleSet defaults(int players, TriangleRows rows);
 
     int players() const { return spec_.players; }
     int move_limit() const { return spec_.move_limit; }
@@ -60,6 +66,9 @@ public:
     Ranking ranking() const { return spec_.ranking; }
     JumpRule jump_rule() const { return spec_.jump_rule; }
     ForeignCamps foreign_camps() const { return spec_.foreign_camps; }
+    TriangleRows triangle_rows() const { return spec_.triangle_rows; }
+    // Pieces per player and cells per house: 10 with Four, 15 with Five.
+    int pieces() const { return spec_.triangle_rows == TriangleRows::Five ? 15 : 10; }
     const Spec& spec() const { return spec_; }
 
     // Copies with one switch changed; the result is validated again (move limit must stay positive).
@@ -71,6 +80,7 @@ public:
     std::expected<RuleSet, std::string> with_jump_rule(JumpRule value) const;
     std::expected<RuleSet, std::string> with_ranking(Ranking value) const;
     std::expected<RuleSet, std::string> with_foreign_camps(ForeignCamps value) const;
+    std::expected<RuleSet, std::string> with_triangle_rows(TriangleRows value) const;
 
     // Whether a player who fills the goal leaves the game while the others play on for the lower ranks (FullRanking with three
     // players; with two players the switch has no effect). Java: RuleSet.playsOnAfterWin.

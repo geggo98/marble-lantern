@@ -23,10 +23,17 @@ RuleSet RuleSet::defaults() {
     return RuleSet(Spec{});
 }
 
-RuleSet RuleSet::defaults(int players) {
+RuleSet RuleSet::defaults(int players) { return defaults(players, TriangleRows::Four); }
+
+RuleSet RuleSet::defaults(int players, TriangleRows rows) {
     Spec spec;
     spec.players = players;
-    spec.move_limit = players == 2 ? 200 : 300;
+    spec.triangle_rows = rows;
+    if (rows == TriangleRows::Five) {
+        spec.move_limit = players == 2 ? 250 : 375;
+    } else {
+        spec.move_limit = players == 2 ? 200 : 300;
+    }
     return RuleSet(spec);
 }
 
@@ -75,6 +82,16 @@ std::expected<RuleSet, std::string> RuleSet::with_jump_rule(JumpRule value) cons
 std::expected<RuleSet, std::string> RuleSet::with_foreign_camps(ForeignCamps value) const {
     Spec s = spec_;
     s.foreign_camps = value;
+    return create(s);
+}
+
+}  // namespace sh
+
+namespace sh {
+
+std::expected<RuleSet, std::string> RuleSet::with_triangle_rows(TriangleRows value) const {
+    Spec s = spec_;
+    s.triangle_rows = value;
     return create(s);
 }
 

@@ -13,9 +13,6 @@ namespace {
 
 constexpr std::size_t sz(int i) { return static_cast<std::size_t>(i); }
 
-// A corner index that no cell has (corner indices are -1 to 5).
-constexpr int kNoCorner = -2;
-
 struct Keys {
     std::array<std::array<std::uint64_t, kCells>, 3> piece{};
     std::array<std::uint64_t, 3> side{};
@@ -42,7 +39,7 @@ std::uint64_t Position::piece_key(int player, int cell) { return kKeys.piece[sz(
 std::uint64_t Position::finished_key(int player) { return kKeys.finished[sz(player)]; }
 
 Position::Position(const RuleSet& rules)
-    : rules_(rules), layout_(&Layout::of(rules.players())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), pass_foreign_(rules.foreign_camps() != RuleSet::ForeignCamps::Closed), end_foreign_(rules.foreign_camps() == RuleSet::ForeignCamps::Open), play_on_(rules.plays_on_after_win()), hash_(kKeys.side[0]), moves_(65), hashes_(65), movers_(65), masks_before_(65) {
+    : rules_(rules), layout_(&Layout::of(rules.players(), rules.triangle_rows())), long_jump_(rules.jump_rule() == RuleSet::JumpRule::Long), pass_foreign_(rules.foreign_camps() != RuleSet::ForeignCamps::Closed), end_foreign_(rules.foreign_camps() == RuleSet::ForeignCamps::Open), play_on_(rules.plays_on_after_win()), hash_(kKeys.side[0]), moves_(65), hashes_(65), movers_(65), masks_before_(65) {
     owner_.fill(-1);
 }
 
@@ -51,7 +48,7 @@ Position Position::empty(const RuleSet& rules) { return Position(rules); }
 Position Position::initial(const RuleSet& rules) {
     Position position(rules);
     for (int p = 0; p < rules.players(); ++p) {
-        for (const int cell : geometry::corner_cells(position.layout().start_corner(p))) {
+        for (const int cell : position.layout().start_cells(p)) {
             if (!position.put(p, cell).has_value()) std::terminate();  // the start corner is allowed, empty and has room: cannot fail
         }
     }
@@ -89,8 +86,8 @@ std::expected<void, std::string> Position::put(int player, int cell) {
         return std::unexpected("player " + std::to_string(player) + " may not enter cell " + std::to_string(cell));
     }
     if (owner_[sz(cell)] >= 0) return std::unexpected("cell " + std::to_string(cell) + " is occupied");
-    if (piece_count_[sz(player)] >= kPieces) {
-        return std::unexpected("player " + std::to_string(player) + " already has " + std::to_string(kPieces) + " pieces");
+    if (piece_count_[sz(player)] >= layout().pieces()) {
+        return std::unexpected("player " + std::to_string(player) + " already has " + std::to_string(layout().pieces()) + " pieces");
     }
     owner_[sz(cell)] = static_cast<std::int8_t>(player);
     hash_ ^= kKeys.piece[sz(player)][sz(cell)];
@@ -266,27 +263,25 @@ int Position::generate(std::span<int, kMaxMoves> out) {
     const Layout::Table steps = end_foreign_ ? geometry::step_table() : layout().step_table(p);
     const Layout::Table jumps = pass_foreign_ ? geometry::land_table() : layout().jump_table(p);
     const bool home_end = pass_foreign_ && !end_foreign_;  // PassThrough: a landing is a move only on a home cell
-    const int goal = layout().goal_corner(p);
     const bool leave_forbidden = rules_.leave_goal() == RuleSet::LeaveGoal::Forbidden;
-    // A move can only be forbidden when an opponent's goal already holds 9 of its 10 cells: a move adds at most one piece to another goal.
+    // A move can only be forbidden when an opponent's goal already holds all but one of its cells: a move adds at most one piece to another goal.
     const bool suicide_check = rules_.suicide_moves() == RuleSet::SuicideMoves::Illegal && opponent_goal_nearly_full(p);
     const int pieces_n = piece_count_[sz(p)];
     int count = 0;
     for (int i = 0; i < pieces_n; ++i) {
         const int from = piece_cells_[sz(p)][sz(i)];
-        const bool stay_in_goal = leave_forbidden && geometry::corner_of(from) == goal;
+        const bool stay_in_goal = leave_forbidden && layout().in_goal(p, from);
         owner_[sz(from)] = -1;  // the moving piece leaves its cell, so the cell counts as empty during jumps
         const int base = from * kDirections;
         for (int d = 0; d < kDirections; ++d) {
             const int n = steps[sz(base + d)];
-            if (n >= 0 && owner_[sz(n)] < 0 && (!stay_in_goal || geometry::corner_of(n) == goal) &&
+            if (n >= 0 && owner_[sz(n)] < 0 && (!stay_in_goal || layout().in_goal(p, n)) &&
                 (!suicide_check || !hands_opponent_the_win(p, from, n))) {
                 out[sz(count++)] = Move::of(from, n);
             }
         }
-        const int required_corner = stay_in_goal ? goal : kNoCorner;
-        count = long_jump_ ? add_long_jumps(p, from, out, count, required_corner, suicide_check, home_end)
-                           : add_jumps(p, from, out, count, jumps, required_corner, suicide_check, home_end);
+        count = long_jump_ ? add_long_jumps(p, from, out, count, stay_in_goal, suicide_check, home_end)
+                           : add_jumps(p, from, out, count, jumps, stay_in_goal, suicide_check, home_end);
         owner_[sz(from)] = static_cast<std::int8_t>(p);
     }
     return count;
@@ -294,16 +289,16 @@ int Position::generate(std::span<int, kMaxMoves> out) {
 
 bool Position::opponent_goal_nearly_full(int p) const {
     for (int q = 0; q < rules_.players(); ++q) {
-        if (q != p && !is_finished(q) && goal_occupied_[sz(q)] >= kCornerSize - 1) return true;
+        if (q != p && !is_finished(q) && goal_occupied_[sz(q)] >= layout().goal_size() - 1) return true;
     }
     return false;
 }
 
 // Depth-first search over jump landings; the visited set deduplicates (start, end) pairs. It is a 128-bit set in two words
-// (cells 0 to 120); a shift by `cell` uses `cell mod 64`, as in Java. required_corner is the goal corner if the piece may not
-// leave it, else kNoCorner. home_end: a landing is a move only on a home cell of p; the search still goes on from every landing
+// (cells 0 to 120); a shift by `cell` uses `cell mod 64`, as in Java. stay_in_goal: the piece may not
+// leave its goal house, so a landing counts only inside it. home_end: a landing is a move only on a home cell of p; the search still goes on from every landing
 // (ForeignCamps::PassThrough).
-int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, Layout::Table jumps, int required_corner,
+int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, Layout::Table jumps, bool stay_in_goal,
                         bool suicide_check, bool home_end) {
     int count = count_in;
     std::uint64_t low = 0;
@@ -331,7 +326,7 @@ int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int coun
                 high |= bit;
             }
             stack_[sz(top++)] = land;
-            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) && (!home_end || layout().allowed(p, land)) &&
+            if ((!stay_in_goal || layout().in_goal(p, land)) && (!home_end || layout().allowed(p, land)) &&
                 (!suicide_check || !hands_opponent_the_win(p, from, land))) {
                 out[sz(count++)] = Move::of(from, land);
             }
@@ -342,7 +337,7 @@ int Position::add_jumps(int p, int from, std::span<int, kMaxMoves> out, int coun
 
 // The long-hop variant of add_jumps (JumpRule::Long): the same depth-first search, visited set and order, another landing rule (see
 // long_landing). There is at most one landing per direction; for k = 1 it is the single jump of add_jumps.
-int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, int required_corner, bool suicide_check,
+int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count_in, bool stay_in_goal, bool suicide_check,
                              bool home_end) {
     int count = count_in;
     std::uint64_t low = 0;
@@ -368,7 +363,7 @@ int Position::add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int
                 high |= bit;
             }
             stack_[sz(top++)] = land;
-            if ((required_corner == kNoCorner || geometry::corner_of(land) == required_corner) && (!home_end || layout().allowed(p, land)) &&
+            if ((!stay_in_goal || layout().in_goal(p, land)) && (!home_end || layout().allowed(p, land)) &&
                 (!suicide_check || !hands_opponent_the_win(p, from, land))) {
                 out[sz(count++)] = Move::of(from, land);
             }
@@ -414,8 +409,9 @@ bool Position::hands_opponent_the_win(int p, int from, int to) const {
 
 // Definition 1 (or the plain rule with BlockadeRule::None): goal full, with an own piece.
 bool Position::is_win(int occupied, int own) const {
-    if (occupied != kCornerSize) return false;
-    return rules_.blockade_rule() == RuleSet::BlockadeRule::OpponentFills ? own >= 1 : own == kCornerSize;
+    const int size = layout().goal_size();
+    if (occupied != size) return false;
+    return rules_.blockade_rule() == RuleSet::BlockadeRule::OpponentFills ? own >= 1 : own == size;
 }
 
 std::optional<Outcome> Position::outcome() const {
@@ -505,7 +501,7 @@ Outcome Position::unfinished_outcome(Outcome::Reason reason) const {
     for (int i = 0; i < open; ++i) mean += sums[sz(rest[sz(i)])];
     for (int q = 0; q < players; ++q) max_distance = std::max(max_distance, layout().max_distance(q));
     mean /= open;
-    const double scale = static_cast<double>(kPieces) * max_distance;
+    const double scale = static_cast<double>(layout().pieces()) * max_distance;
     for (int i = 0; i < open; ++i) {
         const int q = rest[sz(i)];
         values[sz(q)] = rules_.draw_handling() == RuleSet::DrawHandling::Draw ? share : share + (mean - sums[sz(q)]) / scale;
@@ -534,7 +530,7 @@ std::array<double, 3> Position::draw_values() const {
         max_distance = std::max(max_distance, layout().max_distance(p));
     }
     mean /= players;
-    const double scale = static_cast<double>(kPieces) * max_distance;  // no player can be farther than this from the goal
+    const double scale = static_cast<double>(layout().pieces()) * max_distance;  // no player can be farther than this from the goal
     for (int p = 0; p < players; ++p) values[sz(p)] = (mean - sums[sz(p)]) / scale;
     return values;
 }

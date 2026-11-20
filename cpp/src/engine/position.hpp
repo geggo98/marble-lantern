@@ -22,7 +22,7 @@ class Position {
 public:
     // An empty board with player 0 to move. Use put() to set up a position.
     static Position empty(const RuleSet& rules);
-    // The start position: every player fills the own start corner, player 0 moves first.
+    // The start position: every player fills the own start house (10 or 15 cells, rules.triangle_rows()), player 0 moves first.
     static Position initial(const RuleSet& rules);
 
     Position(const Position&) = delete;
@@ -35,7 +35,7 @@ public:
 
     // ---- setup (before the first move only) ----
 
-    // Places a piece; the error says why not (player or cell does not exist, cell not allowed or occupied, 10 pieces already, or a move was played).
+    // Places a piece; the error says why not (player or cell does not exist, cell not allowed or occupied, a full house of pieces already, or a move was played).
     std::expected<void, std::string> put(int player, int cell);
     std::expected<void, std::string> put(int player, int q, int r);
     std::expected<void, std::string> set_side_to_move(int player);
@@ -68,7 +68,7 @@ public:
     int piece_cell(int player, int index) const {
         return piece_cells_[static_cast<std::size_t>(player)][static_cast<std::size_t>(index)];
     }
-    // Number of cells of the player's goal corner that hold a piece of any player.
+    // Number of cells of the player's goal house that hold a piece of any player.
     int goal_occupied(int player) const { return goal_occupied_[static_cast<std::size_t>(player)]; }
     // Sum of the single-agent distances of all pieces of a player.
     int distance_sum(int player) const;
@@ -107,9 +107,9 @@ private:
     void move_piece(int player, int from, int to);
     void update_goal_counts(int player, int cell, int delta);
     bool opponent_goal_nearly_full(int p) const;
-    int add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, Layout::Table jumps, int required_corner, bool suicide_check,
+    int add_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, Layout::Table jumps, bool stay_in_goal, bool suicide_check,
                   bool home_end);
-    int add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, int required_corner, bool suicide_check, bool home_end);
+    int add_long_jumps(int p, int from, std::span<int, kMaxMoves> out, int count, bool stay_in_goal, bool suicide_check, bool home_end);
     int long_landing(int p, int c, int d) const;
     bool hands_opponent_the_win(int p, int from, int to) const;
     bool is_win(int occupied, int own) const;
@@ -130,7 +130,7 @@ private:
     std::array<std::int8_t, kCells> owner_{};
     std::array<int, Layout::kMaxPlayers> goal_occupied_{};  // cells of goal(p) that hold any piece
     std::array<int, Layout::kMaxPlayers> goal_own_{};       // cells of goal(p) that hold a piece of p
-    std::array<std::array<int, kPieces>, Layout::kMaxPlayers> piece_cells_{};  // cells of each player's pieces, ascending
+    std::array<std::array<int, kMaxPieces>, Layout::kMaxPlayers> piece_cells_{};  // cells of each player's pieces, ascending
     std::array<int, Layout::kMaxPlayers> piece_count_{};
     std::array<int, kCells> slot_{};  // for an occupied cell, its index in its owner's row of piece_cells_
     int side_ = 0;

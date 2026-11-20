@@ -17,4 +17,9 @@ static_assert(detail::kThreePlayerLayout.goal_corner(2) == corner::kQPos);
 static_assert(detail::kThreePlayerLayout.goal_player(corner::kRPos) == 0);
 static_assert(detail::kThreePlayerLayout.goal_player(corner::kRNeg) == -1);
 
+static_assert(detail::kTwoPlayerLayoutFive.valid());
+static_assert(detail::kThreePlayerLayoutFive.valid());
+static_assert(detail::kTwoPlayerLayoutFive.pieces() == 15);
+static_assert(detail::kTwoPlayerLayout.pieces() == 10);
+
 }  // namespace sh
