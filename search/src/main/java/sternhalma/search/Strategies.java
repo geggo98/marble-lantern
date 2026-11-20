@@ -139,7 +139,11 @@ public final class Strategies {
         for (String spec : List.of(BEST_SPEC, BROWSER_SPEC, BEST_R1_SPEC, W1_SPEC, FUTILITY_SPEC, GAIN_SPEC, RACELIN_SPEC,
                 "ab:eval=stage4,ws=15,wq=6,wj=3", BEST_R1_SPEC + ",race=1", BEST_R1_SPEC + ",race=2")) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
-            list.add(new Strategy(limited, Set.of(2), true, seed -> PlayerSpec.parse(limited).create()));
+            // The distance evaluator does not make progress fast enough at 1000 nodes: it stalls for 27 own moves in a row against
+            // the limit of 20 (measured 2026-11-20, after 341ee63, seed -2), so it only has to play clean games. The linear
+            // evaluators and the browser spec do beat a random player here.
+            boolean mustBeatRandom = !spec.startsWith("ab:eval=distance");
+            list.add(new Strategy(limited, Set.of(2), mustBeatRandom, seed -> PlayerSpec.parse(limited).create()));
         }
         return List.copyOf(list);
     }
@@ -147,7 +151,9 @@ public final class Strategies {
     /**
      * The strategies that can play the 5-row board, for the contract's sweep over it, which plays the default jump rule: the
      * random player (2 and 3 players), the linear and distance evaluators at the contract's node budget, the browser
-     * spec for 5 rows and the three-player player. Race play and the race evaluators are not among them (they refuse {@code rows=5}).
+     * spec for 5 rows and the three-player player. The row, linear and browser players must beat a random player at the contract's
+     * budget (the linear evaluators once did not, before the phase measure counted 10-piece units: commit 341ee63). Race play and the race
+     * evaluators are not among them (they refuse {@code rows=5}).
      */
     public static List<Strategy> registeredRows5() {
         List<Strategy> list = new ArrayList<>();
@@ -155,11 +161,10 @@ public final class Strategies {
         for (String spec : List.of("ab:eval=distance,rows=5", "ab:eval=rows,rows=5", "ab:eval=linear-r3,rows=5",
                 BROWSER_ROWS5_SPEC)) {
             String limited = spec + ",nodes=" + CONTRACT_NODES + ",tt=14";
-            // The linear evaluators carry the 4-row weights; at the contract's 1000 nodes they do not beat a random
-            // player on 5 rows (measured 2026-11-20: eval=linear 0 of 30 won, linear-r3 13 of 30, longest run without
-            // progress 102 against the limit of 20), and the distance evaluator's runs reach 32. So only the row
-            // evaluator (longest run 3, 30 of 30 won) must beat random here; the others still must play clean games.
-            boolean mustBeatRandom = spec.startsWith("ab:eval=rows");
+            // The distance evaluator does not make progress fast enough at 1000 nodes: it stalls for 27 own moves in a row against
+            // the limit of 20 (measured 2026-11-20, after 341ee63, seed -2), so it only has to play clean games. The linear
+            // evaluators and the browser spec do beat a random player here.
+            boolean mustBeatRandom = !spec.startsWith("ab:eval=distance");
             list.add(new Strategy(limited, Set.of(2), mustBeatRandom, seed -> PlayerSpec.parse(limited).create()));
         }
         String threePlayers = BROWSER_3P_ROWS5_SPEC.replace("nodes=20000", "nodes=" + CONTRACT_NODES);

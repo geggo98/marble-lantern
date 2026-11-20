@@ -78,3 +78,27 @@ test('a 5-row link keeps its size through "Continue" and a reload', async ({ pag
   expect(new URL(page.url()).hash).toContain('&t=5');
   errors.expectNone();
 });
+
+test('an old 4-row link without t= shows the 4-row board behind the dialog for a fresh visitor (default 5 rows) and continues as the 4-row game', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '', 'ask', 'fresh'); // no init script that stores a size: the visitor stays fresh across the reload
+  await page.locator('[data-choice="rows-4"]').check();
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  await playHumanMove(page);
+  await expect.poll(() => plyOf(page)).toBe(2);
+  await waitForHumanTurn(page);
+  const link = new URL(page.url()).hash;
+  expect(link).not.toContain('t='); // what the app wrote before the 5-row board existed
+  await page.evaluate((key) => localStorage.removeItem(key), CHOICE_KEY); // a fresh visitor: the default choice is 5 rows
+  await page.goto(link);
+  await page.reload();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('[data-testid="link-rows"]')).toBeHidden();
+  await expect.poll(() => pieceCount(page)).toBe(20); // not the 30 pieces of the 5-row default
+  await page.locator('[data-choice="link-side-to-move"]').click();
+  await waitForHumanTurn(page);
+  expect(await pieceCount(page)).toBe(20);
+  expect(new URL(page.url()).hash).not.toContain('t=');
+  errors.expectNone();
+});

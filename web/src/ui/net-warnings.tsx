@@ -1,9 +1,9 @@
 // Warnings of the net engines as messages with an action (interface contract IC4, engines/warnings.ts): one text per code, never
 // colour alone (icon + text). The same list serves the engine sheet (live, from evaluateSelection), the start dialog and the engine
 // card (from the session). The wording lives in the i18n catalogs (keys net.warn.*).
-import { listModels } from '../engines/net/model-manifest';
+import { listModels, modelsFor } from '../engines/net/model-manifest';
 import type { EngineWarning, ReasonCode } from '../engines/warnings';
-import { campsOf } from '../game/variant';
+import { campsOf, rowsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { Icon } from './primitives';
 import { useT } from './texts';
@@ -21,13 +21,17 @@ export interface DescribedWarning {
   detail?: string;
 }
 
-/** The jump rule and the number of players of a variant as short data text, and the foreign-corner rule when it is not `closed`. */
+/**
+ * The jump rule and the number of players of a variant as short data text, the foreign-corner rule when it is not `closed`, and the
+ * house size when it is 5 rows. 4 rows is the unmarked default, like `closed`: a notice about a model names 5 rows, so that it never
+ * reads as a statement about the 4-row game.
+ */
 export function variantText(variant: Variant | undefined, t: Translate): string {
   if (!variant) return '';
   const base = `${t(variant.jump === 'long' ? 'start_jump_long' : 'start_jump_adjacent')} · ${t('net.variant.players', { players: String(variant.players) })}`;
   const camps = campsOf(variant);
-  if (camps === 'closed') return base;
-  return `${base} · ${t('link_camps', { rule: t(camps === 'open' ? 'start_camps_open' : 'start_camps_pass') })}`;
+  const withCamps = camps === 'closed' ? base : `${base} · ${t('link_camps', { rule: t(camps === 'open' ? 'start_camps_open' : 'start_camps_pass') })}`;
+  return rowsOf(variant) === 5 ? `${withCamps} · ${t('net.variant.rows5')}` : withCamps;
 }
 
 /** The localized text of a reason code (catalog keys net.reason.<code>); empty for no code. */
@@ -72,6 +76,8 @@ export function describeWarnings(warnings: readonly EngineWarning[], t: Translat
 function describeOne(w: EngineWarning, values: { model: string; variant: string; reason: string }, t: Translate): Pick<DescribedWarning, 'code' | 'text' | 'action'> {
   switch (w.code) {
     case 'no-model':
+      // No net exists for 5 rows: the list behind "Choose a model" would be empty, so the text says why and offers no button.
+      if (w.variant && rowsOf(w.variant) === 5 && modelsFor(w.variant).length === 0) return { code: w.code, text: t('net.warn.no-model-rows', values) };
       return { code: w.code, text: t('net.warn.no-model', values), action: 'choose-model' };
     case 'model-variant-mismatch':
       return { code: w.code, text: t('net.warn.model-variant-mismatch', values), action: 'choose-other' };

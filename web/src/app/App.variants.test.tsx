@@ -310,4 +310,16 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
     expect(q('[data-testid="link-rows"]')).toBeNull();
     expect(dialog()!.textContent).toContain('of 200');
   });
+
+  it('an old 4-row link without t= shows the 4-row board behind the dialog for a fresh visitor (default 5 rows), and continues as the 4-row game', async () => {
+    const moves = legalGame(3, { jump: 'adjacent', players: 2 });
+    const nav = new FakeNavigation(`#g=v1.${encodeMoves(moves)}&h=0&l=2`);
+    await mount(nav); // no stored choice: the default choice is 5 rows
+    await until(() => (dialog()?.textContent ?? '').includes('Continue this game'), 'the link dialog');
+    expect(pieces()).toBe(20); // 4 rows: 10 pieces each, not the 30 of the 5-row default
+    await click(q('[data-choice="link-side-to-move"]')!);
+    await until(() => dialog() === null && plies() >= 3, 'the linked game runs');
+    expect(pieces()).toBe(20);
+    expect(nav.hash).not.toContain('t=');
+  });
 });

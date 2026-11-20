@@ -120,8 +120,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   const [setup, setSetupState] = useState<GameSetup>(() => {
     const parsed = parseHash(nav.hash);
     if (parsed.kind === 'game' && isVariantLink(parsed.link)) return setupFromLink(parsed.link, { humanSide: 1, level: DEFAULT_LEVEL });
-    // The board behind the start dialog is the one the dialog preselects: the stored choice, or the default.
-    return initialSetup ?? withBoardRows(humanVsEngine(1, DEFAULT_LEVEL), loadChoice().rows);
+    // The board behind the dialog: for a link that carries a game, the one it was played on (a link without t= is a 4-row game: only
+    // 5-row links carry t=5), otherwise the one the start dialog preselects (the stored choice, or the default).
+    const rows = parsed.kind === 'game' ? 4 : loadChoice().rows;
+    return initialSetup ?? withBoardRows(humanVsEngine(1, DEFAULT_LEVEL), rows);
   });
   const flowRef = useRef(flow);
   const setupRef = useRef(setup);
@@ -151,7 +153,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     const engine = new SwitchableEngine();
     const nodes = NODE_LEVELS[DEFAULT_LEVEL];
     engine.setNodes(nodes);
-    // The board behind the start dialog has the size the dialog preselects (the stored or default choice, or the size of the link).
+    // The board behind the start dialog has the size the dialog preselects (the stored or default choice; for a link that carries a game, the size of that game: 4 rows without t=).
     const rows = rowsOf(variantOf(setupRef.current));
     const game = new GameController({ engine, mode: 'human-vs-engine', humanSide: 1, nodes: [nodes, nodes], ...(rows === 4 ? {} : { variant: withRows(DEFAULT_VARIANT, rows) }) });
     const baseUrl = import.meta.env.BASE_URL;
