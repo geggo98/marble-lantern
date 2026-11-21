@@ -81,6 +81,6 @@
   "kit.chip.exampleOnly": "Example position (precomputed)",
   "kit.code.copy": "Copy code",
   "kit.code.copied": "Copied",
-  "kit.code.copyfailed": "Could not copy. The code is selected: copy it by hand.",
+  "kit.code.copyfailed": "Copying failed. Select the code and copy it by hand.",
   "kit.code.lines": "lines {from} to {to}"
 }

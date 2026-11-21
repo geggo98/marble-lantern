@@ -11,7 +11,14 @@ import { ABOUT_TOPICS } from '../routes';
 const here = (file: string): string => fileURLToPath(new URL(file, import.meta.url));
 const repoRoot = here('../../../../'); // web/src/about/i18n -> repository root
 const LANGS = ['en', 'de'] as const;
-const TOPICS = ABOUT_TOPICS.filter((t): t is Exclude<typeof t, 'glossary'> => t !== 'glossary');
+// The topic 'java' (owner items 7 and 8) has its catalogs before its page: until routes.ts and outline.ts list it, the slugs of the
+// key contract between page and texts stand in, so that its catalogs are checked from the first commit on. Limit: once OUTLINE has
+// 'java', the contract list here is ignored.
+const JAVA_CONTRACT = ['overview', 'plain-java', 'vector-api', 'auto-vectorization', 'tornadovm', 'outlook', 'more', 'hilla'] as const;
+const PAGE_TOPICS = ABOUT_TOPICS.filter((t) => t !== 'glossary') as string[];
+const TOPICS: readonly string[] = PAGE_TOPICS.includes('java') ? PAGE_TOPICS : [...PAGE_TOPICS, 'java'];
+const OUTLINES: Record<string, readonly string[]> = { java: JAVA_CONTRACT, ...(OUTLINE as Record<string, readonly string[]>) };
+const CARD_TOPICS: readonly string[] = (ABOUT_TOPICS as readonly string[]).includes('java') ? ABOUT_TOPICS : [...ABOUT_TOPICS, 'java'];
 
 type Catalog = Record<string, string>;
 const load = (lang: string, name: string): Catalog => JSON.parse(readFileSync(here(`./${lang}/${name}.json`), 'utf8')) as Catalog;
@@ -24,7 +31,7 @@ function references(text: string): string[] {
 /** The {name} placeholders of a string (not the {term:} {src:} {sec:} {n:} markup, which has a colon), sorted. */
 const placeholders = (text: string): string[] => [...text.matchAll(/\{(?<name>\w+)\}/g)].map((m) => m.groups!['name']!).sort();
 
-const FIGURE_PREFIXES: Record<(typeof TOPICS)[number], readonly string[]> = {
+const FIGURE_PREFIXES: Record<string, readonly string[]> = {
   architecture: ['fig.offline', 'fig.online', 'fig.pipeline', 'fig.tree'],
   classical: ['fig.ab', 'fig.eval', 'fig.budget', 'fig.race', 'fig.roots'],
   inference: ['fig.net', 'fig.forward', 'fig.mcts'],
@@ -57,7 +64,7 @@ describe.each(TOPICS)('topic catalog %s', (topic) => {
   });
 
   it('keeps the figure keys under the figure prefixes of this topic', () => {
-    const allowed = FIGURE_PREFIXES[topic];
+    const allowed = FIGURE_PREFIXES[topic] ?? [];
     const strays = Object.keys(en).filter((k) => k.startsWith('fig.')).filter((k) => !allowed.some((p) => k.startsWith(`${p}.`)));
     expect(strays).toEqual([]);
     expect(Object.keys(en).filter((k) => k.startsWith('fig.')).length).toBeGreaterThan(0);
@@ -66,13 +73,13 @@ describe.each(TOPICS)('topic catalog %s', (topic) => {
   it('has a title, a lead, and per section of the outline a toc entry, a heading and a first paragraph', () => {
     expect(en['title']).toBeTruthy();
     expect(en['lead']).toBeTruthy();
-    for (const slug of OUTLINE[topic]) {
+    for (const slug of OUTLINES[topic]!) {
       for (const key of [`toc.${slug}`, `sec.${slug}.title`, `sec.${slug}.p1`]) expect(en[key], key).toBeTruthy();
     }
   });
 
   it('has no section text for a slug that is not in the outline', () => {
-    const slugs = new Set(OUTLINE[topic]);
+    const slugs = new Set(OUTLINES[topic]);
     const strays = Object.keys(en).filter((k) => /^(toc|sec)\./.test(k)).filter((k) => !slugs.has(k.split('.')[1]!));
     expect(strays).toEqual([]);
   });
@@ -98,11 +105,68 @@ describe.each(TOPICS)('topic catalog %s', (topic) => {
         .filter(({ target }) => {
           const [t, s] = target.split('/');
           if (t === 'glossary') return !GLOSSARY_IDS.includes(s!); // {sec:glossary/<term id>} points at a glossary entry
-          return !(TOPICS as readonly string[]).includes(t!) || !OUTLINE[t as (typeof TOPICS)[number]].includes(s!);
+          return !TOPICS.includes(t!) || !OUTLINES[t!]!.includes(s!);
         });
       expect(missing).toEqual([]);
     });
   }
+});
+
+// Length budgets of the texts (plan section 4; owner request of the text pass): a lead up to 60 words, a paragraph up to 90
+// (110 in the data-science topics inference and training), a reading note up to 20, German up to 25 % more; at most three
+// paragraphs per section. Words are counted as the reader sees them: a term or link counts its visible text, a source chip one word.
+const BUDGET = { lead: 60, p: 90, pDs: 110, read: 20 } as const;
+const DS_TOPICS = ['inference', 'training'];
+const visibleWords = (text: string): number =>
+  text
+    .replace(/\{(?<kind>[a-z]+):(?<target>[^{}|]*)(?:\|(?<label>[^{}]*))?\}/g, (_m, kind: string, target: string, label?: string) => label ?? (kind === 'src' ? 'x' : target))
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+describe.each(TOPICS)('text budgets of topic %s', (topic) => {
+  for (const lang of LANGS) {
+    it(`${lang}: lead, paragraphs and reading notes stay within their word budgets`, () => {
+      const catalog = load(lang, topic);
+      const factor = lang === 'de' ? 1.25 : 1;
+      const limit = (key: string): number | undefined => {
+        if (key === 'lead') return BUDGET.lead;
+        if (/^sec\.[^.]+\.p\d+$/.test(key)) return DS_TOPICS.includes(topic) ? BUDGET.pDs : BUDGET.p;
+        if (/^read\.[^.]+\.note$/.test(key)) return BUDGET.read;
+        return undefined;
+      };
+      const over = Object.entries(catalog)
+        .map(([key, text]) => ({ key, words: visibleWords(text), max: limit(key) }))
+        .filter((r): r is { key: string; words: number; max: number } => r.max !== undefined && r.words > Math.floor(r.max * factor))
+        .map(({ key, words, max }) => `${key}: ${words} words, budget ${Math.floor(max * factor)}`);
+      expect(over).toEqual([]);
+      const paragraphs = Object.keys(catalog).filter((k) => /^sec\.[^.]+\.p\d+$/.test(k));
+      expect(paragraphs.length, 'paragraphs seen').toBeGreaterThan(0);
+      expect(paragraphs.filter((k) => Number(k.split('.p')[1]) > 3)).toEqual([]);
+    });
+  }
+});
+
+// The key contract between the page of the topic java and its texts (fact sheet java-facts.md, section "Proposed page structure"):
+// the page looks these keys up by name, so a missing or renamed key would show the key itself on the page.
+describe('the key contract of the topic java', () => {
+  const en = load('en', 'java');
+  const SNIPPETS = ['a1', 'a2', 'a3', 'b1', 'b2', 'd1', 'd2', 'e1', 'e2', 'e3', 'h1', 'h3', 'illus'];
+  const ROWS = ['java-scalar-b1', 'java-vec-1t', 'tornado-metal-b256', 'java-vec-avx512', 'tornado-cuda-t4', 'cpp-cuda-t4', 'teavm-scalar-b1', 'cpp-wasm-simd'];
+  const FIG = ['title', 'desc', 'caption', 'axis', 'switch.label', 'switch.java', 'switch.all', 'group.mac', 'group.other', 'value', ...ROWS.map((r) => `row.${r}`)];
+
+  it('has a caption for each snippet and no other snippet key', () => {
+    expect(Object.keys(en).filter((k) => k.startsWith('snip.')).sort()).toEqual(SNIPPETS.map((s) => `snip.${s}.caption`).sort());
+  });
+
+  it('has every key of figure J1 and no other figure key, with {value} in the value text', () => {
+    expect(Object.keys(en).filter((k) => k.startsWith('fig.')).sort()).toEqual(FIG.map((f) => `fig.javaspeed.${f}`).sort());
+    expect(placeholders(en['fig.javaspeed.value']!)).toEqual(['value']);
+  });
+
+  it('has a reading note for each of the 13 links 32 to 44', () => {
+    const notes = Object.keys(en).filter((k) => k.startsWith('read.')).map((k) => Number(k.split('.')[1])).sort((a, b) => a - b);
+    expect(notes).toEqual([32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
+  });
 });
 
 describe('glossary catalog', () => {
@@ -168,6 +232,13 @@ describe('the reading list', () => {
     expect(READING['19']?.url).toBe('https://en.wikipedia.org/wiki/Elo_rating_system');
     expect(READING['27']?.id).toBe('27');
     expect(READING['31']?.id).toBe('31');
+    expect(READING['44']?.url).toBe('https://teavm.org/docs/intro/overview.html');
+  });
+
+  it('lists the 13 links of the topic java (ids 32 to 44), each verified on 2026-11-21', () => {
+    const java = Object.values(READING).filter((e) => Number(e.id) >= 32);
+    expect(java.map((e) => e.id)).toEqual(['32', '33', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44']);
+    for (const e of java) expect(e.verifiedOn, e.id).toBe('2026-11-21');
   });
 
   it('lists the four chapters of Russell and Norvig (Global Edition numbering) as paywalled book entries', () => {
@@ -192,7 +263,7 @@ describe('the main catalogs hold a card for every topic', () => {
   for (const lang of LANGS) {
     const main = JSON.parse(readFileSync(here(`../../i18n/${lang}.json`), 'utf8')) as Catalog;
     it(`${lang}: kicker, title, teaser and time of every topic, and the not-found notice`, () => {
-      const missing = ABOUT_TOPICS.flatMap((t) => ['kicker', 'title', 'teaser', 'time'].map((p) => `about_learn_${t}_${p}`)).filter((k) => !main[k]);
+      const missing = CARD_TOPICS.flatMap((t) => ['kicker', 'title', 'teaser', 'time'].map((p) => `about_learn_${t}_${p}`)).filter((k) => !main[k]);
       expect(missing).toEqual([]);
       expect(main['about_notfound']).toBeTruthy();
       for (const k of ['about_learn_kicker', 'about_learn_minutes', 'about_learn_terms']) expect(main[k], k).toBeTruthy();

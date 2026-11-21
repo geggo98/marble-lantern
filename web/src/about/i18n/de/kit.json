@@ -81,6 +81,6 @@
   "kit.chip.exampleOnly": "Beispielstellung (vorberechnet)",
   "kit.code.copy": "Code kopieren",
   "kit.code.copied": "Kopiert",
-  "kit.code.copyfailed": "Kopieren nicht möglich. Der Code ist markiert: kopiere ihn von Hand.",
+  "kit.code.copyfailed": "Kopieren fehlgeschlagen. Markiere den Code und kopiere ihn von Hand.",
   "kit.code.lines": "Zeilen {from} bis {to}"
 }

@@ -200,7 +200,7 @@
   "about_learn_tuning_time": "10 to 15 min read",
   "about_learn_java_kicker": "Topic 6",
   "about_learn_java_title": "Java in practice",
-  "about_learn_java_teaser": "Plain Java, the Vector API, TornadoVM and Hilla: which technique gave how much speed in this project, with the code and the measurements.",
+  "about_learn_java_teaser": "Fast plain Java, the Vector API, GPU kernels with TornadoVM, and Java with React without REST, each with code and measured speed.",
   "about_learn_java_time": "10 to 15 min read",
   "about_learn_glossary_kicker": "Reference",
   "about_learn_glossary_title": "Glossary",
