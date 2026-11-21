@@ -14,7 +14,7 @@
 // Warnings are recomputed on every newGame, so they clear when the cause is gone.
 import { DEFAULT_VARIANT, campsOf, variantKey } from '../../game/variant';
 import type { Variant } from '../../game/variant';
-import type { AnalysisResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
+import type { AnalysisResult, ChooseResult, EngineOutcome, GameSetup, NetForwardReport } from '../engine';
 import { EngineFailure } from '../protocol';
 import { rowsArg, variantOf } from '../variant-args';
 import { defaultBatch, DEFAULT_SIMS } from '../warnings';
@@ -25,6 +25,9 @@ import { modelFits } from './models';
 import type { ModelInfo } from './models';
 import type { WebNetModule } from './webnet.d';
 import type { Player } from '../../game/variant';
+import { referenceForward, toAbsolute } from './reference-forward';
+import { CELL_COUNT } from '../../board/cells';
+import { moveFrom, moveTo } from '../engine';
 
 export type BackendKind = 'wasm' | 'webgpu';
 
@@ -138,10 +141,20 @@ interface Held {
   modelId: string | null;
 }
 
+/** The root of the search: the legal moves, their visits and the mean value of each (for the side that plays it), in one order. */
+export interface NetRoot {
+  moves: number[];
+  visits: number[];
+  /** Undefined when the engine file is older than the ninth field of best(). */
+  values?: number[];
+}
+
 export interface NetMoveStats {
   backend: BackendKind | 'random';
   sims: number;
   batches: number;
+  /** Absent for the random fallback and for a move without a search (one legal move). */
+  root?: NetRoot;
 }
 
 export class NetCore {
@@ -223,7 +236,7 @@ export class NetCore {
         move = r.move;
         score = r.score;
         nodes = r.nodes;
-        stats = { backend: plan.kind as BackendKind, sims: r.sims, batches: r.batches };
+        stats = { backend: plan.kind as BackendKind, sims: r.sims, batches: r.batches, ...(r.root ? { root: r.root } : {}) };
       } catch (e) {
         if (isAbort(e) && signal?.aborted) throw e;
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
@@ -249,6 +262,71 @@ export class NetCore {
       rows1Requests: 0,
       net: stats,
       warnings: this.warnings,
+    };
+  }
+
+  /**
+   * The reference forward pass of the loaded expert model on the root position after `history`: the encoded planes, the norm of
+   * every trunk layer, the logits and priors with and without the classical prior, the values. Two-player classic1 models only.
+   * Rejects with unsupported when the position has one legal move or is over, or the model is not a two-player classic1 net; a model
+   * that cannot be used (none selected, load failed) is an internal failure, never a random-move report.
+   */
+  async netForward(history: readonly number[], signal?: AbortSignal): Promise<NetForwardReport> {
+    if (!this.setup) throw new EngineFailure('internal', 'newGame was not called');
+    if (signal?.aborted) throw abortError();
+    const v = this.setup.variant;
+    const plan = await this.ensurePlan(v);
+    const info = plan.model;
+    if (plan.mode !== 'net' || !info) {
+      throw new EngineFailure('internal', `failed: model: no usable model (${plan.warnings.map((w) => w.code).join(', ') || 'none selected'})`);
+    }
+    if (v.players !== 2 || info.players !== 2 || info.planeSet !== 'classic1') {
+      throw new EngineFailure('unsupported', `the forward report covers two-player classic1 models, not ${info.id}`);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.modelBytes(info);
+    } catch (e) {
+      throw new EngineFailure('internal', `failed: model: ${text(e)}`);
+    }
+    let n: number;
+    let input: Float32Array;
+    try {
+      n = Number(fields(this.d.webnet.begin(history.join(',')))[0]);
+      if (n === 0) throw new EngineFailure('unsupported', 'the position has one legal move or is over: no search, no forward pass');
+      // The first pending position of a search is the root (Mcts.java). The facade keeps the rest of its batch; the next begin drops it.
+      input = this.d.webnet.inputs().slice();
+    } catch (e) {
+      throw asFailure(e);
+    }
+    const planes = input.length / (CELL_COUNT + 1);
+    const out = referenceForward(bytes, input.subarray(0, (CELL_COUNT + 1) * planes));
+    const mover: 0 | 1 = history.length % 2 === 1 ? 1 : 0;
+    const absolute = (canonical: ArrayLike<number>, stride = 1, offset = 0): number[] => {
+      const a = new Array<number>(CELL_COUNT);
+      for (let c = 0; c < CELL_COUNT; c++) a[toAbsolute(c, mover)] = canonical[c * stride + offset] as number;
+      return a;
+    };
+    const legal = this.legal(history, v);
+    const priors = (logits: Float32Array): number[] => {
+      const raw = legal.map((m) => (logits[toAbsolute(moveFrom(m), mover) * 2] as number) + (logits[toAbsolute(moveTo(m), mover) * 2 + 1] as number));
+      const max = Math.max(...raw);
+      const e = raw.map((x) => Math.exp(x - max));
+      const sum = e.reduce((a, b) => a + b, 0);
+      return e.map((x) => x / sum);
+    };
+    const withPrior = priors(out.policy);
+    const netOnly = priors(out.policyNetOnly);
+    const absValues = (rel: Float32Array): number[] => [0, 1].map((a) => rel[(a - mover + 2) % 2] as number);
+    return {
+      modelId: info.id,
+      planes: Array.from({ length: planes }, (_, pl) => absolute(input, planes, pl)),
+      layers: out.norms.map((norm, i) => ({ id: i === 0 ? 'conv_in' : `block${i - 1}`, norm: absolute(norm) })),
+      logitsNetOnly: { from: absolute(out.policyNetOnly, 2, 0), to: absolute(out.policyNetOnly, 2, 1) },
+      policy: legal.map((move, i) => ({ move, prior: withPrior[i] as number, priorNetOnly: netOnly[i] as number })),
+      values: absValues(out.values),
+      valuesNetOnly: absValues(out.valuesNetOnly),
+      canonicalRotated: mover === 1,
     };
   }
 
@@ -419,7 +497,7 @@ export class NetCore {
     v: Variant,
     signal: AbortSignal | undefined,
     now: () => number,
-  ): Promise<{ move: number; score: number; nodes: number; sims: number; batches: number }> {
+  ): Promise<{ move: number; score: number; nodes: number; sims: number; batches: number; root?: NetRoot }> {
     const held = this.held;
     if (!held) throw new EngineFailure('internal', 'no backend is loaded');
     const web = this.d.webnet;
@@ -450,7 +528,12 @@ export class NetCore {
     if (signal?.aborted) throw abortError();
     const b = fields(web.best());
     void v;
-    return { move: Number(b[0]), score: Number(b[1]), sims: Number(b[2]), nodes: Number(b[3]), batches };
+    // b: move rootValue sims nodes exactLeaves raceMove moves visits [values]. The lists are empty (and so absent from the split
+    // when they are the last field) for a move without a search.
+    const moves = numbers(b[6]);
+    const root: NetRoot | undefined =
+      moves.length > 0 ? { moves, visits: numbers(b[7]), ...(b[8] ? { values: numbers(b[8]) } : {}) } : undefined;
+    return { move: Number(b[0]), score: Number(b[1]), sims: Number(b[2]), nodes: Number(b[3]), batches, ...(root ? { root } : {}) };
   }
 }
 

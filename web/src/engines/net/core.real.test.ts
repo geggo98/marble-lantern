@@ -1,7 +1,8 @@
 // Integration test of the net engine core with the REAL parts: the TeaVM facade (teavm-net), the C++ WebAssembly backend and the
 // shipped models. Needs web/public/engines/net/ (scripts/web/build-teavm-net.zsh and build-wasm.zsh); without it the tests skip
 // and say so in their names. Per-move times are printed with SH_NET_TIMES=1.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_VARIANT } from '../../game/variant';
@@ -10,6 +11,7 @@ import { NetCore } from './core';
 import { loadWebNetInNode, mulberry32, nodeDeps } from './node';
 import type { FacadeTarget } from './node';
 import type { WebNetModule } from './webnet.d';
+import { createWasmBackend, importFlavour } from './wasm-backend';
 
 const repo = resolve(import.meta.dirname, '../../../..');
 const publicDir = process.env['STERNHALMA_PUBLIC_DIR'] ?? join(repo, 'web/public');
@@ -17,6 +19,7 @@ const modelsDir = join(repo, 'web/models');
 const net = join(publicDir, 'engines/net');
 const built = ['engine-net.js', 'engine-net.wasm', 'engine-net.wasm-runtime.js', 'engine-net-nn-simd.wasm'].every((f) => existsSync(join(net, f)));
 const suite = built ? describe : describe.skip;
+const NET_REQUIRED = process.env['REQUIRE_ENGINE_ASSETS'] === '1';
 const NAME = built ? 'net core with the real facade, backend and models' : 'net core with the real facade, backend and models (SKIPPED: web/public/engines/net is not built)';
 
 const EXPERT = 'small-2p-adjacent-expert';
@@ -148,4 +151,86 @@ suite(NAME, () => {
     if (process.env['SH_NET_TIMES']) process.stderr.write(`net-core times (wasm backend, node, expert model)\n${rows.join('\n')}\n`);
     expect(rows.length).toBe(3);
   }, 120_000);
+  it('has the engine assets when REQUIRE_ENGINE_ASSETS=1 (so the tests of this file did not skip silently)', () => {
+    if (NET_REQUIRED) expect(built).toBe(true);
+  });
+
+  describe('the explain API (scalar C++ flavour)', () => {
+    interface Mcts { meta: { sims: number; batch: number; choice: number[] }; final: { move: number[]; N: number; Q: number | null }[] }
+    const mcts = JSON.parse(readFileSync(join(repo, 'web/src/about/data/mcts-mid.json'), 'utf8')) as Mcts;
+    const history = (JSON.parse(readFileSync(join(repo, 'web/src/about/data/eval-mid.json'), 'utf8')) as { history: { from: number; to: number }[] }).history.map((m) => m.from | (m.to << 8));
+
+    async function scalarEngine(): Promise<NetCore> {
+      const web = await loadWebNetInNode(publicDir, 'js');
+      const deps = nodeDeps(web, {
+        publicDir,
+        modelsDir,
+        createBackend: async (_kind, maxBatch) =>
+          createWasmBackend({ maxBatch, flavours: ['scalar'], factory: (f) => importFlavour(pathToFileURL(join(net, `engine-net-nn-${f}.js`)).href) }),
+      });
+      return new NetCore('wasm', deps);
+    }
+
+    it('root.visits equal final[].N exactly and root.values equal final[].Q within 1e-4 for mcts-mid.json at 50 simulations', async () => {
+      const core = await scalarEngine();
+      expect(await core.newGame({ nodes: [1, 1], model: EXPERT, netOptions: { sims: mcts.meta.sims, batch: mcts.meta.batch } })).toEqual([]);
+      const r = await core.choose(history);
+      const root = r.net.root!;
+      expect(root, 'a search ran, so the root is reported').toBeDefined();
+      expect(root.moves.length).toBe(mcts.final.length);
+      expect(root.visits.reduce((a, b) => a + b, 0)).toBe(mcts.meta.sims);
+      expect(root.values).toHaveLength(root.moves.length);
+      for (const f of mcts.final) {
+        const i = root.moves.indexOf(f.move[0]! | (f.move[1]! << 8));
+        expect(i, `move ${f.move.join('->')} is a root move`).toBeGreaterThanOrEqual(0);
+        expect(root.visits[i], `visits of ${f.move.join('->')}`).toBe(f.N);
+        if (f.Q !== null) expect(Math.abs(root.values![i]! - f.Q), `Q of ${f.move.join('->')}`).toBeLessThan(1e-4);
+      }
+      expect(r.move).toBe(mcts.meta.choice[0]! | (mcts.meta.choice[1]! << 8));
+      core.dispose();
+    });
+
+    it('netForward reproduces forward-mid.json (planes exactly after rounding, priors and values within 2e-3) and a move afterwards still plays', async () => {
+      const g = JSON.parse(readFileSync(join(repo, 'web/src/about/data/forward-mid.json'), 'utf8')) as {
+        planes: number[][]; layers: { id: string; norm: number[] }[]; values: number[]; valuesNetOnly: number[]; policy: { from: number; to: number; prior: number; priorNetOnly: number }[];
+      };
+      const core = await scalarEngine();
+      await core.newGame({ nodes: [1, 1], model: EXPERT, netOptions: { sims: 20, batch: 1 } });
+      const f = await core.netForward(history);
+      expect(f.modelId).toBe(EXPERT);
+      expect(f.canonicalRotated).toBe(false);
+      expect(f.planes.map((p) => p.map((v) => Math.round(v * 1e4) / 1e4))).toEqual(g.planes);
+      expect(f.layers.map((l) => l.id)).toEqual(g.layers.map((l) => l.id));
+      for (const [i, l] of f.layers.entries()) l.norm.forEach((v, c) => expect(Math.abs(v - g.layers[i]!.norm[c]!)).toBeLessThan(2e-3));
+      expect(f.policy).toHaveLength(g.policy.length);
+      for (const p of g.policy) {
+        const m = f.policy.find((q) => q.move === (p.from | (p.to << 8)))!;
+        expect(m, `legal move ${p.from}->${p.to}`).toBeDefined();
+        expect(Math.abs(m.prior - p.prior)).toBeLessThan(2e-3);
+        expect(Math.abs(m.priorNetOnly - p.priorNetOnly)).toBeLessThan(2e-3);
+      }
+      f.values.forEach((v, i) => expect(Math.abs(v - g.values[i]!)).toBeLessThan(2e-3));
+      f.valuesNetOnly.forEach((v, i) => expect(Math.abs(v - g.valuesNetOnly[i]!)).toBeLessThan(2e-3));
+      expect(f.logitsNetOnly.from).toHaveLength(121);
+      // The facade is ready for the next move: a search after the forward pass gives the same answer as one without it.
+      const after = await core.choose(history);
+      const fresh = await scalarEngine();
+      await fresh.newGame({ nodes: [1, 1], model: EXPERT, netOptions: { sims: 20, batch: 1 } });
+      expect((await fresh.choose(history)).move).toBe(after.move);
+      core.dispose();
+      fresh.dispose();
+    });
+
+    it('netForward of a mover-1 position reports the rotation, and an aborted call rejects', async () => {
+      const core = await scalarEngine();
+      await core.newGame({ nodes: [1, 1], model: EXPERT, netOptions: { sims: 20, batch: 1 } });
+      const f = await core.netForward(history.slice(0, 29));
+      expect(f.canonicalRotated).toBe(true);
+      expect(f.policy.reduce((a, p) => a + p.prior, 0)).toBeCloseTo(1, 6);
+      const ac = new AbortController();
+      ac.abort();
+      await expect(core.netForward(history, ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
+      core.dispose();
+    });
+  });
 });

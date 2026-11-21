@@ -113,7 +113,7 @@ export class NetRequestHandler {
       case 'features':
         throw new EngineFailure('unsupported', 'the net engines have no feature report');
       case 'netForward':
-        throw new EngineFailure('unsupported', 'the forward report is not implemented yet'); // WP4 replaces the stub
+        return this.ready().netForward(request.history);
       case 'outcome':
         return this.ready().outcome(request.history, request.variant);
       case 'bench':

@@ -95,6 +95,9 @@ describe('handler stubs', () => {
   it('every real handler answers unsupported until the export exists, and never touches an engine core', async () => {
     for (const handler of [new CppRequestHandler(), new JavaRequestHandler(), new NetRequestHandler()]) {
       await expect(handler.handle(features)).rejects.toMatchObject({ code: 'unsupported' });
+    }
+    // The net handler implements netForward (WP4); the classical ones still answer unsupported.
+    for (const handler of [new CppRequestHandler(), new JavaRequestHandler()]) {
       await expect(handler.handle(forward)).rejects.toMatchObject({ code: 'unsupported' });
     }
   });
