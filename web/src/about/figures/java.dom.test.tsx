@@ -131,13 +131,13 @@ describe('JavaSpeedFigure', () => {
   it('names the figure, the plot, the switch and every value', async () => {
     await render(<JavaSpeedFigure catalog={catalog} number={[6, 1]} />);
     expect(q('figure').getAttribute('aria-labelledby')).toBe('fig-javaspeed-title');
-    expect(text(q('#fig-javaspeed-title'))).toBe('Evaluations per second by technique');
+    expect(text(q('#fig-javaspeed-title'))).toBe('Speed of the forward pass: Java, GPU and C++');
     expect(text(q('.ml-fig__label'))).toBe('Fig. 6.1');
     const svg = q('svg.ml-fig-plot');
     expect(svg.getAttribute('role')).toBe('img');
     const labelled = svg.getAttribute('aria-labelledby')!.split(' ');
-    expect(labelled.map((id) => text(host.querySelector(`[id="${id}"]`)))[0]).toBe('Evaluations per second by technique');
-    expect(text(host.querySelector(`[id="${labelled[1]}"]`))).toMatch(/^A dot chart with a logarithmic axis/);
+    expect(labelled.map((id) => text(host.querySelector(`[id="${id}"]`)))[0]).toBe('Speed of the forward pass: Java, GPU and C++');
+    expect(text(host.querySelector(`[id="${labelled[1]}"]`))).toMatch(/^A dot chart on a logarithmic axis/);
     const group = q('[role="radiogroup"]');
     expect(text(host.querySelector(`[id="${group.getAttribute('aria-labelledby')}"]`))).toBe('Show');
     expect(q('[data-row="tornado-metal-b256"] .ml-speed__value').getAttribute('aria-label')).toBe('110,000 evaluations per second');
@@ -161,10 +161,10 @@ describe('JavaSpeedFigure', () => {
   it('switches every text to German, including the row labels and the switch', async () => {
     await render(<JavaSpeedFigure catalog={catalog} number={[6, 1]} />);
     await act(async () => i18n.setLanguage('de'));
-    expect(text(q('#fig-javaspeed-title'))).toBe('Auswertungen pro Sekunde je Technik');
+    expect(text(q('#fig-javaspeed-title'))).toBe('Tempo des Forward Pass: Java, GPU und C++');
     expect(all('input[type="radio"]').map((r) => text(r.closest('label')))).toEqual(['Nur Java', 'Java und C++']);
-    expect(text(q('[data-row="java-scalar-b1"] .ml-speed__label'))).toBe('Java skalar, Batch 1');
-    expect(q('[data-row="java-vec-1t"] .ml-speed__value').getAttribute('aria-label')).toBe('3.000 Auswertungen pro Sekunde');
+    expect(text(q('[data-row="java-scalar-b1"] .ml-speed__label'))).toBe('Java, skalar, Batch 1');
+    expect(q('[data-row="java-vec-1t"] .ml-speed__value').getAttribute('aria-label')).toBe('3.000 Bewertungen pro Sekunde');
   });
 });
 
@@ -201,8 +201,8 @@ describe('the topic page java', () => {
   it('gives each snippet its caption from the catalog, except the generated client', async () => {
     await show();
     const caption = (id: string): string => text(host.querySelector(`figure[data-snippet="${id}"] figcaption`));
-    expect(caption('a1')).toMatch(/^A move is one int/);
-    expect(caption('illus')).toMatch(/^Illustration, not in the repository/);
+    expect(caption('a1')).toMatch(/^A move is an int/);
+    expect(caption('illus')).toMatch(/^Illustration, not compiled and not measured/);
     expect(host.querySelector('figure[data-snippet="hgen"] figcaption')).toBeNull();
   });
 
