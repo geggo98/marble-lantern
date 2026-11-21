@@ -1,0 +1,16 @@
+/* The glossary page: filter row, term highlight for a deep link. Tokens only. */
+.ml-glossary__filter { display: grid; gap: var(--ml-space-3); }
+.ml-glossary__search { display: grid; gap: var(--ml-space-1); }
+.ml-glossary__input {
+  min-height: 2.75rem; width: 100%; padding: var(--ml-space-2) var(--ml-space-3); font: inherit; color: var(--ml-color-ink);
+  background: var(--ml-color-surface); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-sm);
+}
+.ml-glossary__input:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; }
+.ml-glossary__kinds { display: flex; flex-wrap: wrap; gap: var(--ml-space-2); }
+.ml-glossary__kinds .ml-btn { min-height: 2.75rem; }
+.ml-glossary__long { display: block; margin-top: var(--ml-space-2); }
+.ml-glossary__kind { display: inline-block; margin-top: var(--ml-space-2); }
+.ml-about__term { padding: var(--ml-space-2) var(--ml-space-3); border-inline-start: 3px solid transparent; border-radius: var(--ml-radius-sm); }
+.ml-about__term--target { border-inline-start-color: var(--ml-fig-accent, var(--ml-color-ink)); background: var(--ml-color-info-bg); }
+.ml-about__term--target dd { color: var(--ml-color-ink); }
+.ml-about__term dd { overflow-wrap: anywhere; }

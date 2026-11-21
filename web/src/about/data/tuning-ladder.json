@@ -1,0 +1,319 @@
+{
+  "schema": 1,
+  "note": "The levels of the tuning ladder with the measured effect that the docs report for each, and the arena grid of the futility margins. Transcribed from docs/. For a level that the docs give as a score only, the Elo is the one the docs state; its interval is computed from the score and its standard error.",
+  "levels": [
+    {
+      "id": "decisions",
+      "measured": false
+    },
+    {
+      "id": "hand-tuning",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 52
+        },
+        "value": "+306",
+        "ci95": "41"
+      }
+    },
+    {
+      "id": "regression",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 157
+        },
+        "value": "+552",
+        "ci95": "89"
+      }
+    },
+    {
+      "id": "grids",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 465
+        },
+        "value": "+139",
+        "ci95": "27"
+      }
+    },
+    {
+      "id": "sweeps",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/training.md",
+          "line": 1037
+        },
+        "value": "+338",
+        "ci95": "70"
+      }
+    },
+    {
+      "id": "recipe-sweep",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/training.md",
+          "line": 1441
+        },
+        "value": "+62"
+      },
+      "score": {
+        "source": {
+          "doc": "docs/training.md",
+          "line": 1441
+        },
+        "value": "0.5887",
+        "se": "0.0136"
+      }
+    },
+    {
+      "id": "pre-registered",
+      "measured": true,
+      "elo": {
+        "source": {
+          "doc": "docs/training.md",
+          "line": 2169
+        },
+        "value": "+138"
+      },
+      "score": {
+        "source": {
+          "doc": "docs/training.md",
+          "line": 2169
+        },
+        "value": "0.688",
+        "se": "0.021"
+      }
+    }
+  ],
+  "saturation": {
+    "note": "Loop run 4 against the classical ladder: about 0.91 at 102,400 nodes and about 0.82 at 409,600 nodes.",
+    "scores": {
+      "source": {
+        "doc": "docs/training.md",
+        "line": 2387
+      },
+      "values": [
+        "0.82",
+        "0.91"
+      ]
+    }
+  },
+  "futility": {
+    "nodes": {
+      "source": {
+        "doc": "docs/search-and-evaluation.md",
+        "line": 442
+      },
+      "value": "20000"
+    },
+    "chosen": {
+      "fut": "1",
+      "futk": "30",
+      "fut2": "1"
+    },
+    "rows": [
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 442
+        },
+        "fut": "1",
+        "futk": "20",
+        "seed31": {
+          "elo": "+105",
+          "ci95": "32"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 443
+        },
+        "fut": "20",
+        "futk": "20",
+        "seed31": {
+          "elo": "+93",
+          "ci95": "32"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 444
+        },
+        "fut": "1",
+        "futk": "30",
+        "seed31": {
+          "elo": "+127",
+          "ci95": "34"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 445
+        },
+        "fut": "20",
+        "futk": "30",
+        "seed31": {
+          "elo": "+79",
+          "ci95": "31"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 446
+        },
+        "fut": "1",
+        "futk": "20",
+        "fut2": "20",
+        "seed31": {
+          "elo": "+160",
+          "ci95": "38"
+        },
+        "seed32": {
+          "elo": "+230",
+          "ci95": "40"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 447
+        },
+        "fut": "1",
+        "futk": "20",
+        "fut2": "40",
+        "seed31": {
+          "elo": "+151",
+          "ci95": "34"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 448
+        },
+        "fut": "20",
+        "futk": "20",
+        "fut2": "20",
+        "seed31": {
+          "elo": "+129",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 449
+        },
+        "fut": "20",
+        "futk": "30",
+        "fut2": "20",
+        "seed31": {
+          "elo": "+137",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 450
+        },
+        "fut": "20",
+        "futk": "30",
+        "fut2": "40",
+        "seed31": {
+          "elo": "+144",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 451
+        },
+        "fut": "1",
+        "futk": "30",
+        "fut2": "1",
+        "seed31": {
+          "elo": "+177",
+          "ci95": "36"
+        },
+        "seed32": {
+          "elo": "+189",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 452
+        },
+        "fut": "1",
+        "futk": "30",
+        "fut2": "20",
+        "seed31": {
+          "elo": "+194",
+          "ci95": "36"
+        },
+        "seed32": {
+          "elo": "+166",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 453
+        },
+        "fut": "1",
+        "futk": "30",
+        "fut2": "40",
+        "seed31": {
+          "elo": "+172",
+          "ci95": "36"
+        },
+        "seed32": {
+          "elo": "+153",
+          "ci95": "33"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 454
+        },
+        "fut": "1",
+        "futk": "40",
+        "fut2": "20",
+        "seed32": {
+          "elo": "+168",
+          "ci95": "35"
+        }
+      },
+      {
+        "source": {
+          "doc": "docs/search-and-evaluation.md",
+          "line": 455
+        },
+        "fut": "1",
+        "futk": "40",
+        "fut2": "1",
+        "seed32": {
+          "elo": "+151",
+          "ci95": "34"
+        }
+      }
+    ]
+  }
+}
