@@ -183,14 +183,14 @@ describe('root-scores board (Fig. 2.1b)', () => {
   });
 
   it('My game computes the scores of the snapshot with one analyse call; before that the board shows no pieces and no table', async () => {
-    delay = 20;
+    delay = 300; // long enough that a loaded machine still sees the waiting state after the short settle
     await render(<RootScoresFigure catalog={catalog} number={[2, 1]} />, snapshot([]));
     await press('mine');
     await settle(5);
     expect(q('[data-roots]').getAttribute('data-roots')).toBe('waiting');
     expect(all('tbody tr')).toHaveLength(0);
     expect(all('[data-level]')).toHaveLength(0);
-    await settle(100);
+    await settle(600);
     expect(q('[data-roots]').getAttribute('data-roots')).toBe('ready');
     expect(core.analyseCalls).toBe(1);
     // the start position has 14 legal moves

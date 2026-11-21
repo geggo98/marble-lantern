@@ -622,7 +622,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       const ghosts = [...host.querySelectorAll('.ml-fig__status-line--ghost')].map((g) => g.textContent ?? '');
       expect(ghosts.length).toBeGreaterThanOrEqual(5); // idle, first, best, cut, result at the least
       expect(ghosts.some((g) => g.includes('231 of the 3,180'))).toBe(true); // the result
-      expect(ghosts.some((g) => g.includes('are skipped'))).toBe(true); // a cut-off
+      expect(ghosts.some((g) => g.includes('The search skips'))).toBe(true); // a cut-off
     });
 
     it('stepping by hand or switching the example stops it', async () => {
