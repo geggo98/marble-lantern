@@ -42,6 +42,8 @@ describe('englishToShow', () => {
       return english === undefined ? [] : [{ id: e.id, name: e.name.toLowerCase(), english: english.toLowerCase() }];
     });
     expect(shown.filter((s) => s.name === s.english || s.name.includes(s.english) || s.english.includes(s.name))).toEqual([]);
-    expect(shown.some((s) => s.id === 'f32-f16' || s.id === 'convolution' || s.id === 'flop')).toBe(false);
+    expect(shown.some((s) => s.id === 'f32-f16')).toBe(false); // the owner's example: no English term repeating the name
+    expect(shown.find((s) => s.id === 'convolution')?.english).toBe('convolution'); // 'Faltung (convolution)', not 'Faltung (Convolution) (convolution)'
+    expect(shown.find((s) => s.id === 'flop')?.english).toBe('floating-point operation'); // not 'FLOP (FLOP (floating-point operation))'
   });
 });

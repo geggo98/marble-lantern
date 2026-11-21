@@ -86,12 +86,12 @@ describe('the English term in the German glossary', () => {
     await show();
     const head = (id: string): string => host.querySelector(`dt[id$="${id}"]`)?.textContent ?? 'missing';
     expect(head('f32-f16')).toBe('F32 und F16');
-    expect(head('convolution')).toBe('Faltung (Convolution)');
-    expect(head('flop')).toBe('FLOP');
+    expect(head('convolution')).toBe('Faltung (convolution)');
+    expect(head('flop')).toBe('FLOP (floating-point operation)');
     await act(async () => root.render(<TermPopover id="flop" />));
     await act(async () => host.querySelector<HTMLButtonElement>('.ml-term__btn')!.click());
-    expect(host.querySelector('.ml-term__pop strong')?.parentElement?.textContent).not.toContain('floating-point');
-    expect(host.querySelector('.ml-term__pop .ml-term__en')).toBeNull();
+    expect(host.querySelector('.ml-term__pop .ml-term__en')?.textContent).toContain('floating-point operation'); // once, not 'FLOP (FLOP (...))'
+    expect((host.querySelector('.ml-term__pop')?.textContent ?? '').match(/FLOP/g)?.length).toBeLessThanOrEqual(2);
   });
 
   it('never shows an English term in the English glossary', async () => {
