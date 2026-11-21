@@ -13,7 +13,7 @@ import evalJson from '../data/eval-mid.json';
 import budgetJson from '../data/ab-budget-mid.json';
 import { OFFLINE_CANCEL_STEPS, STEPS, arrange, edgeKey, groupOf, resolveStep, semaphoreState } from './arch-model';
 import type { ArchKind, RawArch } from './arch-model';
-import { GRAPH, WHERE, graphLayout, matchesFilter, moduleDeps, ranks, visibleEntries } from './tree-model';
+import { GRAPH, WHERE, gitState, graphLayout, keyAction, kindOf, matchCount, matchesFilter, moduleDeps, nearestVisible, pointerAction, ranks, visibleEntries } from './tree-model';
 import type { TreeData } from './tree-model';
 import { bound, columnOf, columnsAt, counter, cutStep, moveText, stepOfRootMove, stepView } from './ab-model';
 import type { AbData } from './ab-model';
@@ -165,6 +165,81 @@ describe('tree-model and source-tree.json (V4)', () => {
     }
     // an edge runs downward: from the bottom of the dependent module to the top of its dependency
     for (const e of layout.edges) expect(e.y2).toBeGreaterThan(e.y1);
+  });
+
+  describe('row model: every row can be selected, a folder can also be opened', () => {
+    const byId = (id: string) => tree.entries.find((e) => e.id === id)!;
+    const none = new Set<string>();
+
+    it('derives the kind of a row: a top-level entry with a module is a module, a child of a module is a plain directory', () => {
+      expect(kindOf(byId('engine'))).toBe('module');
+      expect(kindOf(byId('app'))).toBe('module'); // a module and a folder
+      expect(kindOf(byId('appJava'))).toBe('dir'); // marks the module of its parent in the graph, carries no tag of its own
+      expect(kindOf(byId('webApp'))).toBe('dir'); // no children in the data and no module
+      expect(kindOf(byId('settings'))).toBe('file');
+      // every one of the ten modules has exactly one module row, so no module is unreachable from the tree
+      expect(tree.entries.filter((e) => kindOf(e) === 'module').map((e) => e.module).sort()).toEqual([...tree.modules].sort());
+      // a child with a module names the module of its parent
+      for (const e of tree.entries.filter((c) => c.parent !== null && c.module !== undefined)) expect(e.module, e.id).toBe(byId(e.parent!).module);
+    });
+
+    it('derives the Git state: ignored wins, then LFS, else tracked', () => {
+      expect(gitState(byId('data'))).toBe('ignored');
+      expect(gitState(byId('tables'))).toBe('lfs');
+      expect(gitState(byId('engine'))).toBe('tracked');
+      expect(gitState({ ...byId('data'), tags: ['lfs', 'ignored'] })).toBe('ignored');
+      expect(tree.entries.filter((e) => gitState(e) === 'ignored').map((e) => e.id)).toEqual(['data', 'cloudResults', 'tornadoSdk']);
+    });
+
+    it('counts the matches of a filter (hand count from the data file: 19 of 34 run in the browser, 10 in training)', () => {
+      expect(matchCount(tree.entries, 'all')).toBe(34);
+      expect(matchCount(tree.entries, 'browser')).toBe(19);
+      expect(matchCount(tree.entries, 'training')).toBe(10);
+    });
+
+    it('a click selects every kind of row and opens a closed folder but never closes one', () => {
+      for (const e of tree.entries) expect(pointerAction(tree.entries, none, e.id, false).select, e.id).toBe(e.id);
+      expect(pointerAction(tree.entries, none, 'tablebase', false)).toEqual({ focus: 'tablebase', select: 'tablebase', toggle: { id: 'tablebase', open: true } });
+      expect(pointerAction(tree.entries, new Set(['tablebase']), 'tablebase', false)).toEqual({ focus: 'tablebase', select: 'tablebase' });
+      expect(pointerAction(tree.entries, none, 'webApp', false)).toEqual({ focus: 'webApp', select: 'webApp' });
+    });
+
+    it('the chevron only toggles a folder and does not select it', () => {
+      expect(pointerAction(tree.entries, none, 'tablebase', true)).toEqual({ focus: 'tablebase', toggle: { id: 'tablebase', open: true } });
+      expect(pointerAction(tree.entries, new Set(['tablebase']), 'tablebase', true)).toEqual({ focus: 'tablebase', toggle: { id: 'tablebase', open: false } });
+    });
+
+    it('keys: Down, Up, Home, End move and stop at the ends', () => {
+      expect(keyAction(tree.entries, none, 'settings', 'ArrowDown')).toEqual({ focus: 'engine' });
+      expect(keyAction(tree.entries, none, 'settings', 'ArrowUp')).toEqual({}); // no wrap
+      expect(keyAction(tree.entries, none, 'tornadoSdk', 'ArrowDown')).toEqual({}); // no wrap
+      expect(keyAction(tree.entries, none, 'search', 'Home')).toEqual({ focus: 'settings' });
+      expect(keyAction(tree.entries, none, 'search', 'End')).toEqual({ focus: 'tornadoSdk' });
+    });
+
+    it('keys: Right opens a closed folder, enters an open one and does nothing on a row without children; Left closes or goes to the parent', () => {
+      expect(keyAction(tree.entries, none, 'tablebase', 'ArrowRight')).toEqual({ toggle: { id: 'tablebase', open: true } });
+      expect(keyAction(tree.entries, new Set(['tablebase']), 'tablebase', 'ArrowRight')).toEqual({ focus: 'tables' });
+      expect(keyAction(tree.entries, none, 'webApp', 'ArrowRight')).toEqual({});
+      expect(keyAction(tree.entries, new Set(['tablebase']), 'tablebase', 'ArrowLeft')).toEqual({ toggle: { id: 'tablebase', open: false } });
+      expect(keyAction(tree.entries, new Set(['tablebase']), 'tables', 'ArrowLeft')).toEqual({ focus: 'tablebase' });
+      expect(keyAction(tree.entries, none, 'tablebase', 'ArrowLeft')).toEqual({}); // closed top-level folder
+      expect(keyAction(tree.entries, none, 'webApp', 'ArrowLeft')).toEqual({});
+    });
+
+    it('keys: Enter and Space select only; Escape clears; any other key is not handled', () => {
+      expect(keyAction(tree.entries, none, 'tablebase', 'Enter')).toEqual({ select: 'tablebase' });
+      expect(keyAction(tree.entries, new Set(['tablebase']), 'tablebase', ' ')).toEqual({ select: 'tablebase' });
+      expect(keyAction(tree.entries, none, 'tablebase', 'Escape')).toEqual({ clear: true });
+      expect(keyAction(tree.entries, none, 'tablebase', 'Tab')).toBeNull();
+      expect(keyAction(tree.entries, none, 'tables', 'ArrowDown')).toBeNull(); // a row that is not on screen has no key action
+    });
+
+    it('finds the row that shows a selected entry: itself, or the nearest folder that is open', () => {
+      expect(nearestVisible(tree.entries, new Set(['webEngines']), 'webEnginesNet')).toBe('webEnginesNet');
+      expect(nearestVisible(tree.entries, none, 'webEnginesNet')).toBe('webEngines');
+      expect(nearestVisible(tree.entries, none, 'webApp')).toBe('webApp');
+    });
   });
 });
 

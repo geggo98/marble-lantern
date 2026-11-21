@@ -30,25 +30,76 @@
 
 /* ===== V4: source tree and module graph ===== */
 .ml-fig-tree { display: grid; gap: var(--ml-space-3); min-width: 0; }
-.ml-fig-tree__list { display: grid; margin: 0; padding: 0; list-style: none; border: var(--ml-border) solid var(--ml-color-line); border-radius: var(--ml-radius-sm); }
-.ml-fig-tree__row { display: flex; align-items: flex-start; gap: var(--ml-space-2); min-height: var(--ml-size-control); padding-block: var(--ml-space-2); padding-inline-end: var(--ml-space-2); border-top: var(--ml-border) solid var(--ml-color-line); cursor: pointer; }
+.ml-fig-tree .ml-icon { flex: none; width: 1.125rem; height: 1.125rem; }
+.ml-fig-tree__count { margin: 0; min-height: 1.5em; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-fig-tree__count b { font: var(--ml-weight-bold) var(--ml-text-sm)/1.5 var(--ml-font-data); color: var(--ml-color-ink); }
+.ml-fig-tree__list { display: grid; margin: 0; padding: 0; list-style: none; overflow: clip; border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-sm); }
+/* A row is one target, at least 44 px high: chevron zone, kind icon, text, mark of the selection (the column is always there, so the text does not shift). */
+.ml-fig-tree__row {
+  position: relative; display: grid; grid-template-columns: 44px 20px minmax(0, 1fr) 20px; align-items: start; column-gap: 6px; min-height: var(--ml-size-control);
+  padding: 0 var(--ml-space-2) 0 calc(var(--lvl, 0) * 20px); border-top: var(--ml-border) solid var(--ml-color-line); cursor: pointer;
+}
 .ml-fig-tree__row:first-child { border-top: 0; }
-.ml-fig-tree__row:hover { background: var(--ml-fig-panel-bg); }
-.ml-fig-tree__row:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
-.ml-fig-tree__row[data-selected="true"] { background: var(--ml-fig-accent-bg); box-shadow: inset 3px 0 0 var(--ml-fig-accent); }
-.ml-fig-tree__row[data-dim="true"] { color: var(--ml-color-ink-muted); }
-.ml-fig-tree__row[data-dim="true"] .ml-fig-tree__path code { text-decoration: line-through; text-decoration-thickness: 1px; }
-.ml-fig-tree__chev { flex: none; width: 1.25rem; height: 1.5rem; display: grid; place-items: center; }
-.ml-fig-tree__chev .ml-icon { width: 1rem; height: 1rem; transition: transform var(--ml-dur-quick, 0s); }
-.ml-fig-tree__chev[data-open="true"] .ml-icon { transform: rotate(90deg); }
-.ml-fig-tree__text { display: grid; gap: 2px; min-width: 0; }
-.ml-fig-tree__path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-1) var(--ml-space-2); }
-.ml-fig-tree__path code { font-family: var(--ml-font-data); font-size: var(--ml-text-xs); overflow-wrap: normal; }
+/* the guide line of a nested level is a second cue for the depth besides the indent */
+.ml-fig-tree__row[data-lvl="1"]::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 21px; border-inline-start: var(--ml-border) solid var(--ml-color-ink-muted); }
+.ml-fig-tree__chev { grid-column: 1; display: grid; place-items: center; width: 44px; height: var(--ml-size-control); color: var(--ml-color-ink); }
+.ml-fig-tree__chev .ml-icon { stroke-width: 2.2; transition: transform var(--ml-dur-fast, 0s); }
+.ml-fig-tree__row[aria-expanded="true"] > .ml-fig-tree__chev .ml-icon { transform: rotate(90deg); }
+.ml-fig-tree__chev[data-toggle]:hover { background: var(--ml-color-line); border-radius: var(--ml-radius-sm); }
+.ml-fig-tree__kind { grid-column: 2; display: grid; place-items: center; height: var(--ml-size-control); color: var(--ml-color-ink); }
+.ml-fig-tree__text { grid-column: 3; display: grid; gap: 2px; min-width: 0; padding-block: 11px; }
+.ml-fig-tree__path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-1) var(--ml-space-2); min-height: 22px; }
+.ml-fig-tree__path code { font: var(--ml-weight-medium) 13px/1.6 var(--ml-font-data); overflow-wrap: normal; }
 .ml-fig-tree__note { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
-.ml-fig-deps-wrap { position: sticky; top: var(--ml-space-4); display: grid; gap: var(--ml-space-2); min-width: 0; align-content: start; }
-.ml-fig-deps { display: grid; gap: var(--ml-space-1); margin: 0; font-size: var(--ml-text-sm); }
-.ml-fig-deps p { margin: 0; }
-.ml-fig-deps code { font-family: var(--ml-font-data); font-size: var(--ml-text-xs); overflow-wrap: anywhere; }
+.ml-fig-tree__mark { grid-column: 4; display: grid; place-items: center; height: var(--ml-size-control); color: var(--ml-fig-accent); visibility: hidden; }
+.ml-fig-tree__mark .ml-icon { stroke-width: 2.6; }
+/* interaction: hover, pressed, focus, selected; the states combine without a special case */
+.ml-fig-tree__row:hover { background: var(--ml-fig-panel-bg); }
+.ml-fig-tree__row:hover code { text-decoration: underline; text-underline-offset: 3px; }
+.ml-fig-tree__row:active { background: var(--ml-fig-panel-bg); box-shadow: inset 0 0 0 2px var(--ml-color-ink); }
+.ml-fig-tree__row:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
+.ml-fig-tree__row[aria-selected="true"] { background: var(--ml-fig-accent-bg); box-shadow: inset 4px 0 0 var(--ml-fig-accent); }
+.ml-fig-tree__row[aria-selected="true"] code { font-weight: var(--ml-weight-bold); }
+.ml-fig-tree__row[aria-selected="true"] .ml-fig-tree__mark { visibility: visible; }
+.ml-fig-tree__row[aria-selected="true"]:active { box-shadow: inset 4px 0 0 var(--ml-fig-accent), inset 0 0 0 2px var(--ml-color-ink); }
+/* filter: a row that matches is bold with its note; a row that does not is one muted line. Nothing is struck through. */
+.ml-fig-tree:not([data-filter="all"]) .ml-fig-tree__row[data-match="true"] code { font-weight: var(--ml-weight-bold); }
+.ml-fig-tree__row[data-match="false"] { color: var(--ml-color-ink-muted); }
+.ml-fig-tree__row[data-match="false"] .ml-fig-tree__kind, .ml-fig-tree__row[data-match="false"] .ml-fig-tree__chev { color: var(--ml-color-ink-muted); }
+.ml-fig-tree__row[data-match="false"] code { font-weight: var(--ml-weight-regular); }
+.ml-fig-tree__row[data-match="false"] .ml-fig-tree__note { display: none; }
+/* not in Git: italic path in full ink, dashed tag with an icon and the word. Never a line through the text, never a muted colour. */
+.ml-fig-tree__row[data-git="ignored"] code { font-style: italic; }
+.ml-fig-tree__tag { display: inline-flex; align-items: center; gap: var(--ml-space-1); padding: 0 6px; border: var(--ml-border) solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); background: var(--ml-fig-bg); color: var(--ml-color-ink); font: var(--ml-weight-medium) var(--ml-text-xs)/1.6 var(--ml-font-ui); white-space: nowrap; }
+.ml-fig-tree__tag .ml-icon { width: 0.75rem; height: 0.75rem; stroke-width: 2.2; }
+.ml-fig-tree__tag--ignored { border-style: dashed; }
+.ml-fig-tree__tag--module { border-color: var(--ml-fig-accent); border-width: 1.5px; }
+/* the detail panel is the kit part .ml-fig__detail; here it sits in the side column */
+.ml-fig-tree .ml-fig__detail { margin: 0; min-width: 0; }
+.ml-fig-tree .ml-fig__detail-title { font: var(--ml-weight-bold) var(--ml-text-sm)/1.4 var(--ml-font-data); overflow-wrap: anywhere; }
+.ml-fig-tree .ml-kicker { margin: 0; padding-inline-end: var(--ml-size-control); }
+.ml-fig-tree__dtext { margin: 0; }
+.ml-fig-tree__facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--ml-space-1) var(--ml-space-3); margin: var(--ml-space-2) 0; font-size: var(--ml-text-sm); }
+.ml-fig-tree__facts dt { color: var(--ml-color-ink-muted); }
+.ml-fig-tree__facts dd { display: flex; flex-wrap: wrap; align-content: start; gap: var(--ml-space-1) 6px; margin: 0; font: 13px/1.6 var(--ml-font-data); overflow-wrap: anywhere; }
+.ml-fig-tree__gh { display: inline-flex; align-items: center; gap: var(--ml-space-2); min-height: var(--ml-size-control); padding: 0 var(--ml-space-3); border: var(--ml-border) solid var(--ml-color-ink); border-radius: var(--ml-radius-md); color: var(--ml-color-ink); font: var(--ml-weight-medium) var(--ml-text-sm)/1.2 var(--ml-font-ui); }
+.ml-fig-tree__gh span { text-decoration: underline; text-underline-offset: 3px; }
+.ml-fig-tree__gh:hover { background: var(--ml-fig-panel-bg); }
+.ml-fig-tree__local { margin: 0; font-size: var(--ml-text-sm); font-style: italic; }
+.ml-fig-tree__empty { margin: 0; padding: var(--ml-space-3); border: var(--ml-border) dashed var(--ml-fig-dim); border-radius: var(--ml-radius-sm); color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
+.ml-fig-tree__legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-1) var(--ml-space-4); color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
+.ml-fig-tree__legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ml-fig-tree__legend > span > .ml-icon { width: 1rem; height: 1rem; color: var(--ml-color-ink); }
+/* Compact: the side column dissolves into the grid; an open panel sticks to the lower edge of the viewport while the tree is on screen. */
+.ml-fig-tree[data-layout="compact"] .ml-fig-tree__side { display: contents; }
+.ml-fig-tree[data-layout="compact"] .ml-fig__detail { position: sticky; bottom: var(--ml-space-2); z-index: 2; max-height: 60vh; overflow: auto; background: var(--ml-fig-bg); }
+/* Wide: tree and side column (19rem) side by side; count line, legend and graph across the full width. */
+.ml-fig-tree[data-layout="wide"] { grid-template-columns: minmax(0, 1fr) 19rem; align-items: start; }
+.ml-fig-tree[data-layout="wide"] > .ml-fig-tree__count, .ml-fig-tree[data-layout="wide"] > .ml-fig-tree__legend, .ml-fig-tree[data-layout="wide"] > .ml-fig-tree__graph { grid-column: 1 / -1; }
+.ml-fig-tree[data-layout="wide"] .ml-fig-tree__side { position: sticky; top: var(--ml-space-4); min-width: 0; }
+/* The graph is drawn in 440 units with 12-unit labels: at most 440 px wide keeps the labels at 12 px or more (notes, section 4). */
+.ml-fig-tree__graph { min-width: 0; }
+.ml-fig-tree__graph svg { max-width: 440px; }
 .ml-fig-dep__box { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
 .ml-fig-dep__box[data-state="active"] { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 3; }
 .ml-fig-dep__box[data-state="dim"] { stroke: var(--ml-fig-dim); }
@@ -301,5 +352,3 @@
 .ml-fig-pooled__own { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
 #fig-mcts .ml-fig-seg__opt { flex-basis: 7.5rem; }
 
-/* V4, design review M7: a wider tree column so paths do not break inside words; the graph stays in view while the tree scrolls */
-@container ml-fig (min-width: 40rem) { #fig-tree .ml-fig__stage--split { grid-template-columns: minmax(24rem, 3fr) minmax(0, 2fr); } }

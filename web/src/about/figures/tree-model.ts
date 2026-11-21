@@ -100,3 +100,77 @@ export function graphLayout(data: Pick<TreeData, 'modules' | 'deps'>): GraphLayo
   });
   return { width: GRAPH.width, height, boxes, edges };
 }
+
+// ===== V4 row model (design spec v4-affordance-spec.md): every row can be selected, a folder can also be opened =====
+
+export type RowKind = 'module' | 'dir' | 'file';
+export type GitState = 'tracked' | 'ignored' | 'lfs';
+
+/** A top-level entry with a `module` is a module row; a child with the module of its parent (`appJava`) is a plain directory row. */
+export const kindOf = (entry: TreeEntry): RowKind => (entry.module !== undefined && entry.parent === null ? 'module' : entry.kind);
+
+export const gitState = (entry: TreeEntry): GitState => (entry.tags.includes('ignored') ? 'ignored' : entry.tags.includes('lfs') ? 'lfs' : 'tracked');
+
+/** How many entries stay at full strength under the filter (the count line "19 / 34"). */
+export const matchCount = (entries: readonly TreeEntry[], filter: Where | 'all'): number => entries.filter((e) => matchesFilter(e, filter)).length;
+
+/** The entry itself when it is on screen, else its nearest ancestor that is (a selected row can be hidden by closing its folder). */
+export function nearestVisible(entries: readonly TreeEntry[], expanded: ReadonlySet<string>, id: string): string {
+  const visible = new Set(visibleEntries(entries, expanded).map((e) => e.id));
+  let at: string | null = id;
+  while (at !== null && !visible.has(at)) at = entries.find((e) => e.id === at)?.parent ?? null;
+  return at ?? entries[0]!.id;
+}
+
+/** What an event does. All fields are optional; an empty action is a key that is handled and does nothing. */
+export interface TreeAction {
+  /** Row that takes the focus (and the tab stop). */
+  focus?: string;
+  /** Open or close a folder. */
+  toggle?: { id: string; open: boolean };
+  /** Row to select. */
+  select?: string;
+  /** Clear the selection. */
+  clear?: true;
+}
+
+/** Click or tap. The chevron zone only opens or closes; the rest of a row selects it and opens a closed folder, never closes one. */
+export function pointerAction(entries: readonly TreeEntry[], expanded: ReadonlySet<string>, id: string, onChevron: boolean): TreeAction {
+  const folder = hasChildren(entries, id);
+  if (onChevron && folder) return { focus: id, toggle: { id, open: !expanded.has(id) } };
+  if (onChevron) return { focus: id, select: id };
+  return { focus: id, select: id, ...(folder && !expanded.has(id) ? { toggle: { id, open: true } } : {}) };
+}
+
+/** The keys of the tree (spec section 8). Returns null for a key the tree does not handle, so that the caller leaves its default alone. */
+export function keyAction(entries: readonly TreeEntry[], expanded: ReadonlySet<string>, focusId: string, key: string): TreeAction | null {
+  const rows = visibleEntries(entries, expanded);
+  const index = rows.findIndex((r) => r.id === focusId);
+  const row = rows[index];
+  if (!row) return null;
+  const folder = hasChildren(entries, row.id);
+  const open = expanded.has(row.id);
+  switch (key) {
+    case 'ArrowDown':
+      return rows[index + 1] ? { focus: rows[index + 1]!.id } : {};
+    case 'ArrowUp':
+      return rows[index - 1] ? { focus: rows[index - 1]!.id } : {};
+    case 'Home':
+      return { focus: rows[0]!.id };
+    case 'End':
+      return { focus: rows[rows.length - 1]!.id };
+    case 'ArrowRight':
+      if (!folder) return {};
+      return open ? { focus: rows[index + 1]!.id } : { toggle: { id: row.id, open: true } };
+    case 'ArrowLeft':
+      if (folder && open) return { toggle: { id: row.id, open: false } };
+      return row.parent !== null ? { focus: row.parent } : {};
+    case 'Enter':
+    case ' ':
+      return { select: row.id };
+    case 'Escape':
+      return { clear: true };
+    default:
+      return null;
+  }
+}
