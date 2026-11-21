@@ -164,6 +164,29 @@ public final class Web {
         }
     }
 
+    /**
+     * {@code ok <f0,...,f12> <score> <sideToMove> <d0_0,...,d0_120> <d1_0,...,d1_120>}: the 13 features of
+     * {@code linear-r3} (order of {@code LinearEvaluator.GAIN_NAMES}, side to move minus opponent), its score for the side
+     * to move, the side to move, and the single-agent distance of every cell for player 0 and for player 1, see
+     * {@link WebCore#features}. The features are printed by {@link Double#toString}, which parses back to the same
+     * double. A non-classic game gives {@code error unsupported ...}.
+     */
+    @JSExport
+    public static String features(String history, String jump, String players, String ranking, String camps, String rows) {
+        try {
+            WebCore.Features f = CORE.features(parse(history), WebCore.parseJump(jump), WebCore.parsePlayers(players),
+                    WebCore.parseRanking(ranking), WebCore.parseCamps(camps), WebCore.parseRows(rows));
+            StringBuilder values = new StringBuilder();
+            for (int i = 0; i < f.values().length; i++) {
+                values.append(i == 0 ? "" : ",").append(Double.toString(f.values()[i]));
+            }
+            return "ok " + values + " " + f.score() + " " + f.sideToMove() + " " + join(f.distance()[0]) + " "
+                    + join(f.distance()[1]);
+        } catch (RuntimeException e) {
+            return error(e);
+        }
+    }
+
     /** {@code ok <moves> <nodes per ply> <ms per ply> <rows1Requests>}, the three lists comma separated. */
     @JSExport
     public static String bench(int plies, int nodes, String jump, String players, String ranking, String camps, String rows) {
