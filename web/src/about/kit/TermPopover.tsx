@@ -7,6 +7,8 @@ import { useT } from '../../ui/texts';
 import { hrefForAbout } from '../../ui/Chrome';
 import { useChrome } from '../i18n/chrome';
 import { InternalTag } from './InternalTag';
+// A cycle with markup.tsx (it renders TermPopover); both modules use the other only while rendering, so the import order does not matter.
+import { Markup } from './markup';
 
 export function TermPopover({ id, text }: { id: string; text?: string }): React.JSX.Element {
   const { language } = useT();
@@ -57,7 +59,9 @@ export function TermPopover({ id, text }: { id: string; text?: string }): React.
           <strong>{entry.name}</strong>
           {english !== undefined && <span className="ml-term__en" lang="en"> ({english})</span>}
           {entry.internal === true && <InternalTag label={glossaryWord(lang, 'internal')} />}
-          <span className="ml-term__short">{entry.short}</span>
+          <span className="ml-term__short">
+            <Markup text={entry.short} />
+          </span>
           {entry.internal === true && <span className="ml-term__hint">{glossaryWord(lang, 'internal.hint')}</span>}
           <a className="ml-about-link" href={hrefForAbout('glossary', id)}>
             {c('glossary_more')}

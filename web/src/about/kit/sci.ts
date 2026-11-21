@@ -35,8 +35,8 @@ export function sciSpoken(s: Sci, language: string): string {
 
 const SUPER: Record<string, string> = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
 
-/** Plain text with Unicode superscripts: 3 · 10⁻⁴ (for an SVG label or an attribute). */
+/** Plain text with Unicode superscripts: 3 · 10⁻⁴ (for an SVG label or an attribute), with no-break spaces so that it never breaks across lines. */
 export function sciPlain(s: Sci, language: string): string {
   const power = `10${[...String(s.exponent)].map((c) => SUPER[c] ?? c).join('')}`;
-  return showsMantissa(s) ? `${formatMantissa(s.mantissa, language)} · ${power}` : power;
+  return showsMantissa(s) ? `${formatMantissa(s.mantissa, language)}\u00a0·\u00a0${power}` : power;
 }

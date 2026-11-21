@@ -151,6 +151,19 @@ describe('Markup', () => {
     expect(math?.getAttribute('aria-label')).toBe('1,5 mal 10 hoch minus 4');
   });
 
+  it('renders the markup of the short definition in a term popover: MathML, numbers and code, no raw token', async () => {
+    await render('{term:learning-rate} and {term:capacity}');
+    const [lr, capacity] = [...host.querySelectorAll<HTMLButtonElement>('button.ml-term__btn')];
+    await act(async () => lr!.click());
+    const short = host.querySelector('.ml-term__short')!;
+    expect(short.querySelector('math.ml-sci')?.getAttribute('aria-label')).toBe('3 times 10 to the power of minus 4');
+    expect(short.textContent).not.toMatch(/\{sci:|3e-4/);
+    await act(async () => capacity!.click());
+    const shorts = [...host.querySelectorAll('.ml-term__short')].map((s) => s.textContent);
+    expect(shorts.at(-1)).toContain('62,000');
+    expect(shorts.join(' ')).not.toMatch(/\{(n|sci):/);
+  });
+
   it('links a directory path to the tree view', async () => {
     await render('{src:web/src/about/}');
     expect(host.querySelector('a.ml-src')?.getAttribute('href')).toBe('https://github.com/geggo98/marble-lantern/tree/main/web/src/about');

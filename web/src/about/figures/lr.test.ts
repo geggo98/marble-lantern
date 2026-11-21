@@ -2,7 +2,7 @@
 // The expected values were computed outside the code under test: the formula of LearningRateSchedule.rate() (nn/src/main/java/sternhalma/nn/
 // LearningRateSchedule.java, line 100 for generation 0, line 115 for the self-play cosine) evaluated in Python for the sample steps below.
 import { describe, expect, it } from 'vitest';
-import { curve, presetSchedules, rateAt, rateText, sameSchedule, scientific } from './lr';
+import { axisExponent, curve, presetSchedules, rateAt, rateDisplay, sameSchedule, scientific } from './lr';
 import type { Schedule } from './lr';
 
 const near = (a: number, b: number): void => {
@@ -67,10 +67,18 @@ describe('presets come from lr-presets.json', () => {
 });
 
 describe('number text', () => {
-  it('writes rates like the docs', () => {
-    expect(rateText(3e-4)).toBe('3e-4');
-    expect(rateText(1.5e-5)).toBe('1.5e-5');
-    expect(rateText(0)).toBe('0');
+  it('writes rates as the prose sets them: mantissa · 10 with a superscript exponent, a mantissa of 1 left out', () => {
+    expect(rateDisplay(3e-4, 'en')).toBe('3\u00a0·\u00a010⁻⁴');
+    expect(rateDisplay(1.5e-5, 'en')).toBe('1.5\u00a0·\u00a010⁻⁵');
+    expect(rateDisplay(1.5e-5, 'de')).toBe('1,5\u00a0·\u00a010⁻⁵');
+    expect(rateDisplay(1e-5, 'en')).toBe('10⁻⁵');
+    expect(rateDisplay(0, 'en')).toBe('0');
     expect(scientific(3e-4)).toEqual({ mantissa: '3', exponent: -4 });
+  });
+  it('finds the power of ten that the ticks of a linear axis share', () => {
+    expect(axisExponent(5e-4)).toBe(-4);
+    expect(axisExponent(1e-3)).toBe(-3);
+    expect(axisExponent(2e-3)).toBe(-3);
+    expect(axisExponent(9.99e-4)).toBe(-4);
   });
 });

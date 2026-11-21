@@ -7,13 +7,14 @@ import { kitCatalog } from '../i18n/kit';
 import type { AboutCatalog } from '../i18n/catalog';
 import { Chip, PLOT_BREAKPOINT_PX, useMeasuredWidth } from '../kit';
 import { parseMarkup } from '../kit/markup';
+import { sciPlain } from '../kit/sci';
 import { sourceUrl } from '../kit/SourceChip';
 import './figures.css';
 
 type Values = Record<string, string | number>;
 
 /** A catalog string without its markup tokens, for the title, desc and aria-label of an SVG (`{n:1.0}` becomes the number). */
-export function flattenMarkup(text: string, n: (v: number) => string): string {
+export function flattenMarkup(text: string, n: (v: number) => string, language = 'en'): string {
   return parseMarkup(text, () => undefined)
     .map((node) => {
       switch (node.type) {
@@ -22,6 +23,8 @@ export function flattenMarkup(text: string, n: (v: number) => string): string {
           return node.text;
         case 'n':
           return n(node.value);
+        case 'sci':
+          return sciPlain(node, language);
         case 'src':
           return node.path;
         case 'sec':
@@ -74,7 +77,7 @@ export function useFigText<K extends string>(typed: AboutCatalog<K>): FigText {
   const has = (key: string): boolean => key in catalog.catalogs.en;
   return {
     t: (key, values) => text(key, values),
-    plain: (key, values) => flattenMarkup(text(key, values), fmt.n),
+    plain: (key, values) => flattenMarkup(text(key, values), fmt.n, language),
     kit: (key, values) => (kitText as (k: string, v?: Values) => string)(key, values),
     pick: (key, compact, values) => text(compact && has(`${key}.short`) ? `${key}.short` : key, values),
     fmt,
