@@ -2,7 +2,7 @@
 // targets, boxes stay inside their regions and never overlap, and no edge runs through a box that is not one of its ends.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { headPath, layoutBoxes, midOfLongest, pathOf, simplify } from './box-layout';
+import { headPath, layoutBoxes, midOfLongest, pathOf, simplify, wrapLabel } from './box-layout';
 import type { ArchData, BoxLayout, Pt, Rect } from './box-layout';
 
 const load = (name: string): ArchData => JSON.parse(readFileSync(new URL(`../data/${name}`, import.meta.url), 'utf8')) as ArchData;
@@ -159,5 +159,89 @@ describe('path helpers', () => {
     expect(pathOf(pts)).toBe('M0 0L20 0');
     expect(headPath(pts, 'data', 10)).toBe('M20 0L10 5L10 -5Z');
     expect(headPath(pts, 'control', 10)).toBe('M10 5L20 0L10 -5');
+  });
+});
+
+// ---- the wide layout of the design review (B2) and the compact fixes (M1) ----------------------------------------------------------
+
+import { WIDE_BANDS, arrange } from '../figures/arch-model';
+import type { ArchKind, RawArch } from '../figures/arch-model';
+
+const KINDS: readonly (readonly [ArchKind, string])[] = [['offline', 'arch-offline.json'], ['online', 'arch-online.json'], ['pipeline', 'arch-training.json']];
+const arranged = (kind: ArchKind, file: string): ArchData => arrange(kind, JSON.parse(readFileSync(new URL(`../data/${file}`, import.meta.url), 'utf8')) as RawArch).data;
+const gapBetween = (a: Rect, b: Rect): number => Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w), b.y - (a.y + a.h), a.y - (b.y + b.h));
+
+describe.each(KINDS)('figure %s in the layout of the figure', (kind, file) => {
+  const data = arranged(kind, file);
+
+  it('wide: the regions of a band stand side by side at one height, the bands one below the other', () => {
+    const laid = layoutBoxes(data, 'wide', { bands: WIDE_BANDS[kind] as string[][] });
+    const rect = new Map(laid.groups.map((g) => [g.id, g]));
+    for (const band of WIDE_BANDS[kind]) {
+      const regions = band.map((id) => rect.get(id) as Rect);
+      for (const r of regions) expect(r.y).toBe((regions[0] as Rect).y);
+      for (let i = 1; i < regions.length; i++) expect((regions[i] as Rect).x).toBeGreaterThan(((regions[i - 1] as Rect).x + (regions[i - 1] as Rect).w));
+    }
+    expect(laid.width).toBe(720);
+    // far shorter than the stacked layout of the first version (V1 was 2,000 to 2,400 px tall at 820 px)
+    expect(laid.height).toBeLessThan(800);
+  });
+
+  it('wide: every label sits clear of all boxes, of the region labels and of the other labels', () => {
+    const laid = layoutBoxes(data, 'wide', { bands: WIDE_BANDS[kind] as string[][] });
+    const labels = laid.edges.flatMap((e) => (e.label ? [{ index: e.index, r: { x: e.label.x - e.label.w / 2, y: e.label.y - e.label.h / 2, w: e.label.w, h: e.label.h } }] : []));
+    expect(labels.length).toBeGreaterThan(data.edges.length / 2);
+    for (const { index, r } of labels) {
+      for (const n of laid.nodes) expect(overlap(r, n), `label of edge ${index} over ${n.id}`).toBe(false);
+      for (const [g, rect] of Object.entries(laid.groupLabels)) expect(overlap(r, rect), `label of edge ${index} over the label of ${g}`).toBe(false);
+      expect(r.x >= 0 && r.y >= 0 && r.x + r.w <= laid.width && r.y + r.h <= laid.height, `label of edge ${index} in the view box`).toBe(true);
+      for (const other of labels) if (other.index < index) expect(overlap(r, other.r), `labels of edges ${other.index} and ${index}`).toBe(false);
+    }
+    // an edge without a label has a marker, and the markers keep apart
+    const numbered = laid.edges.filter((e) => e.numbered);
+    for (const e of laid.edges) expect(Boolean(e.label) !== e.numbered, `edge ${e.index} has a label or a marker, not both`).toBe(true);
+    for (let i = 0; i < numbered.length; i++) for (let k = i + 1; k < numbered.length; k++) expect(Math.hypot((numbered[i] as { mid: Pt }).mid.x - (numbered[k] as { mid: Pt }).mid.x, (numbered[i] as { mid: Pt }).mid.y - (numbered[k] as { mid: Pt }).mid.y)).toBeGreaterThanOrEqual(20);
+  });
+
+  it('wide: no edge runs sideways through the narrow strip between two neighbours in a row, and none crosses a region label', () => {
+    const laid = layoutBoxes(data, 'wide', { bands: WIDE_BANDS[kind] as string[][] });
+    for (const e of laid.edges) {
+      for (const [p, q] of e.points.slice(1).map((pt, i) => [e.points[i] as Pt, pt] as const)) {
+        for (const [g, rect] of Object.entries(laid.groupLabels)) expect(cuts(p, q, rect), `edge ${e.index} crosses the label of ${g}`).toBe(false);
+        if (p.y !== q.y) continue; // sideways
+        for (const a of laid.nodes) {
+          for (const b of laid.nodes) {
+            if (a.row !== b.row || b.x < a.x + a.w || gapBetween(a, b) >= 56) continue;
+            const strip = { x: a.x + a.w, y: a.y + 1, w: b.x - (a.x + a.w), h: a.h - 2 };
+            expect(cuts(p, q, strip), `edge ${e.index} runs sideways between ${a.id} and ${b.id}`).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it('compact: no edge crosses a region label, and the numbered markers are at least 20 units apart, clear of the boxes', () => {
+    const laid = layoutBoxes(data, 'compact');
+    for (const e of laid.edges) {
+      for (const [p, q] of e.points.slice(1).map((pt, i) => [e.points[i] as Pt, pt] as const)) {
+        for (const [g, rect] of Object.entries(laid.groupLabels)) expect(cuts(p, q, rect), `edge ${e.index} crosses the label of ${g}`).toBe(false);
+      }
+    }
+    for (let i = 0; i < laid.edges.length; i++) {
+      const a = (laid.edges[i] as { mid: Pt }).mid;
+      expect(laid.nodes.every((n) => !(a.x > n.x && a.x < n.x + n.w && a.y > n.y && a.y < n.y + n.h)), `marker ${i + 1} is over a box`).toBe(true);
+      for (let k = i + 1; k < laid.edges.length; k++) {
+        const b = (laid.edges[k] as { mid: Pt }).mid;
+        expect(Math.hypot(a.x - b.x, a.y - b.y), `markers ${i + 1} and ${k + 1}`).toBeGreaterThanOrEqual(20);
+      }
+    }
+  });
+});
+
+describe('wrapLabel', () => {
+  it('breaks at spaces into at most the asked number of lines and keeps every word', () => {
+    expect(wrapLabel('gzip, length and SHA-256 checked', 2)).toEqual(['gzip, length and', 'SHA-256 checked']);
+    expect(wrapLabel('postMessage', 3)).toEqual(['postMessage']);
+    for (const n of [1, 2, 3]) expect(wrapLabel('table bytes in init', n).join(' ')).toBe('table bytes in init');
   });
 });

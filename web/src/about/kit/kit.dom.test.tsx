@@ -384,12 +384,33 @@ describe('BoxDiagram', () => {
     expect(markers).toEqual(kinds);
   });
 
-  it('wide: edge labels in the diagram and the same list for screen readers only', async () => {
+  it('wide: an edge has its label on the edge or, when no free place was found, a numbered marker and a visible list row; the full list stays for screen readers', async () => {
     await render(<BoxDiagram {...base} layout="wide" />);
-    expect(host.querySelectorAll('.ml-fig-box__num')).toHaveLength(0);
-    expect(host.querySelectorAll('.ml-fig-box__edgelabel')).toHaveLength(arch.edges.length);
-    expect(q('ol.ml-fig-box__key').className).toContain('ml-fig-box__key--hidden');
+    const labelled = host.querySelectorAll('.ml-fig-box__edgelabel').length;
+    const numbered = host.querySelectorAll('.ml-fig-box__num').length;
+    expect(labelled + numbered).toBe(arch.edges.length);
+    expect(labelled).toBeGreaterThan(0);
     expect(host.querySelectorAll('ol.ml-fig-box__key li')).toHaveLength(arch.edges.length);
+    expect(host.querySelectorAll('ol.ml-fig-box__key li:not(.ml-fig-box__keyrow--hidden)')).toHaveLength(numbered);
+    expect(q('ol.ml-fig-box__key').className).toContain(numbered === 0 ? 'ml-fig-box__key--hidden' : 'ml-fig-box__key');
+  });
+
+  it('the detail panel stands directly under the diagram, before the list of edges, and scrolls into view when a box opens', async () => {
+    const scroll = vi.fn();
+    (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView = scroll;
+    try {
+      await render(<BoxDiagram {...base} layout="compact" openId={null} onOpen={() => undefined} detail={<p className="probe">detail</p>} />);
+      expect(scroll).not.toHaveBeenCalled();
+      await render(<BoxDiagram {...base} layout="compact" openId="page" onOpen={() => undefined} detail={<p className="probe">detail</p>} />);
+      expect(scroll).toHaveBeenCalledTimes(1);
+      expect(scroll.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
+      const wrap = q('.ml-fig-boxwrap');
+      const order = [...wrap.children].map((c) => c.className.split(' ')[0]);
+      expect(order).toEqual(['ml-fig-box', 'ml-fig-box__detail', 'ml-fig-box__key']);
+      expect(q('.ml-fig-box__detail').querySelector('.probe')).not.toBeNull();
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   it('draws a data edge solid with a filled head and a control edge dashed with an open head', async () => {

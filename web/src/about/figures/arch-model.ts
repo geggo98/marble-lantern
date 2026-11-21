@@ -53,6 +53,13 @@ export function groupOf(kind: ArchKind, box: RawBox): string | null {
   return ONLINE_GROUP[runsIn] ?? 'server';
 }
 
+/** The regions of each band of the wide layout: regions of one band stand side by side (BoxDiagram `bands`). */
+export const WIDE_BANDS: Record<ArchKind, readonly (readonly string[])[]> = {
+  offline: [['main'], ['workers'], ['sw', 'host']],
+  online: [['browser', 'server']],
+  pipeline: [['jobs'], ['run', 'ship']],
+};
+
 export const KINDS: Record<ArchKind, Readonly<Record<string, BoxKind>>> = {
   offline: { models: 'store', raceTable: 'store', serviceWorker: 'external' },
   online: { raceTables: 'store', jarBuild: 'external' },

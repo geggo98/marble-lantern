@@ -5,7 +5,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { topic as architecture } from '../topics/architecture';
 import { topic as classical } from '../topics/classical';
 import type { AboutCatalog } from '../i18n/catalog';
@@ -114,6 +114,40 @@ describe('V1, V2, V3 (box diagrams)', () => {
     expect(Array.from(host.querySelectorAll('.ml-fig__detail-chips a')).map((a) => a.lastElementChild!.lastElementChild!.textContent)).toContain('web/src/engines/client.ts');
     key(q('.ml-fig__detail'), 'Escape');
     expect(host.querySelector('.ml-fig__detail')).toBeNull();
+  });
+
+  it('V1 to V3 use the wide layout from the figure breakpoint (640 px) and the compact one below it, with the short box labels only in the compact one', async () => {
+    let width = 700;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width, height: 100, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 100, toJSON: () => ({}) }));
+    try {
+      for (const kind of ['offline', 'online', 'pipeline'] as const) {
+        width = 700;
+        await act(async () => root.unmount());
+        root = createRoot(host);
+        await render(<ArchFigure catalog={arch} kind={kind} number={[1, 2]} />);
+        expect(q('.ml-fig-boxwrap').getAttribute('data-layout'), kind).toBe('wide');
+        if (kind === 'offline') expect(q('[data-box="page"]').textContent).toBe('Browser page (React)');
+        width = 600;
+        await act(async () => root.unmount());
+        root = createRoot(host);
+        await render(<ArchFigure catalog={arch} kind={kind} number={[1, 2]} />);
+        expect(q('.ml-fig-boxwrap').getAttribute('data-layout'), kind).toBe('compact');
+        if (kind === 'offline') expect(q('[data-box="page"]').textContent).toBe('Browser page');
+      }
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('V1: the detail panel of a box opens directly under the diagram, before the legend and the list of edges', async () => {
+    await render(<ArchFigure catalog={arch} kind="offline" number={[1, 2]} />);
+    click(q('[data-box="workerClient"]'));
+    const wrap = q('.ml-fig-boxwrap');
+    const detail = q('.ml-fig__detail');
+    expect(wrap.contains(detail)).toBe(true);
+    expect(wrap.firstElementChild?.nextElementSibling?.contains(detail)).toBe(true);
+    // the legend follows the diagram wrapper
+    expect(wrap.parentElement?.nextElementSibling?.classList.contains('ml-fig-legend')).toBe(true);
   });
 
   it('V1: shows no source chip for a generated file and names the data file in a data chip', async () => {

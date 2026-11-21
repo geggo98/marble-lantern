@@ -145,7 +145,7 @@ export function TreeFigure({ catalog, number }: TreeFigureProps): React.JSX.Elem
                 </span>
                 <span className="ml-fig-tree__text">
                   <span className="ml-fig-tree__path">
-                    <code>{e.path}</code>
+                    <code>{e.path.split('/').map((part, i, all) => (i < all.length - 1 ? <span key={i}>{part}/<wbr /></span> : part))}</code>
                     {e.tags.map((tag) => (
                       <span key={tag} className="ml-fig-tag">
                         {t(TAG_KEY[tag])}

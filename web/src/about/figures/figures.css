@@ -43,19 +43,21 @@
 .ml-fig-tree__chev[data-open="true"] .ml-icon { transform: rotate(90deg); }
 .ml-fig-tree__text { display: grid; gap: 2px; min-width: 0; }
 .ml-fig-tree__path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-1) var(--ml-space-2); }
-.ml-fig-tree__path code { font-family: var(--ml-font-data); font-size: var(--ml-text-xs); overflow-wrap: anywhere; }
+.ml-fig-tree__path code { font-family: var(--ml-font-data); font-size: var(--ml-text-xs); overflow-wrap: normal; }
 .ml-fig-tree__note { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
-.ml-fig-deps-wrap { display: grid; gap: var(--ml-space-2); min-width: 0; align-content: start; }
+.ml-fig-deps-wrap { position: sticky; top: var(--ml-space-4); display: grid; gap: var(--ml-space-2); min-width: 0; align-content: start; }
 .ml-fig-deps { display: grid; gap: var(--ml-space-1); margin: 0; font-size: var(--ml-text-sm); }
 .ml-fig-deps p { margin: 0; }
 .ml-fig-deps code { font-family: var(--ml-font-data); font-size: var(--ml-text-xs); overflow-wrap: anywhere; }
 .ml-fig-dep__box { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
 .ml-fig-dep__box[data-state="active"] { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 3; }
 .ml-fig-dep__box[data-state="dim"] { stroke: var(--ml-fig-dim); }
-.ml-fig-dep__label { font: 11px var(--ml-font-data); text-anchor: middle; dominant-baseline: central; fill: var(--ml-color-ink); }
+.ml-fig-dep__label { font: 12px var(--ml-font-data); text-anchor: middle; dominant-baseline: central; fill: var(--ml-color-ink); }
 .ml-fig-dep__label[data-state="active"] { font-weight: 700; }
 .ml-fig-dep__label[data-state="dim"] { fill: var(--ml-color-ink-muted); }
 .ml-fig-dep__edge { stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-dep__edge:not([data-state]) { stroke: var(--ml-fig-dim); stroke-width: 1; }
+.ml-fig-dep__head:not([data-state]) { fill: var(--ml-fig-dim); }
 .ml-fig-dep__head { fill: var(--ml-fig-mark); }
 .ml-fig-dep__edge[data-state="active"] { stroke: var(--ml-fig-accent); stroke-width: 3; }
 .ml-fig-dep__head[data-state="active"] { fill: var(--ml-fig-accent); }
@@ -241,3 +243,6 @@
 .ml-fig-pooled__token[data-state="dim"] text { opacity: 0.7; }
 .ml-fig-pooled__own { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
 #fig-mcts .ml-fig-seg__opt { flex-basis: 7.5rem; }
+
+/* V4, design review M7: a wider tree column so paths do not break inside words; the graph stays in view while the tree scrolls */
+@container ml-fig (min-width: 40rem) { #fig-tree .ml-fig__stage--split { grid-template-columns: minmax(24rem, 3fr) minmax(0, 2fr); } }

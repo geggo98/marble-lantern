@@ -30,7 +30,7 @@ import limits from '../data/online-limits.json';
 import trainingTime from '../data/training-time.json';
 import { FigFoot, figLabel, useFigText } from './common';
 import type { Catalog } from './common';
-import { KINDS, OFFLINE_CANCEL_STEPS, PREFIX, STEPS, arrange, resolveStep, semaphoreState } from './arch-model';
+import { KINDS, OFFLINE_CANCEL_STEPS, PREFIX, STEPS, WIDE_BANDS, arrange, resolveStep, semaphoreState } from './arch-model';
 import type { ArchKind, Device, RawArch } from './arch-model';
 
 const RAW: Record<ArchKind, RawArch> = { offline: offline as RawArch, online: online as RawArch, pipeline: pipeline as RawArch };
@@ -95,15 +95,13 @@ export function ArchFigure({ catalog, kind, number }: ArchFigureProps): React.JS
   const stepDef = step > 0 ? steps[step - 1] : undefined;
   const current = stepDef ? resolveStep(stepDef, arranged.data) : null;
 
-  // The wide layout of the kit puts long arrow labels over neighbouring boxes (screenshot review), so the figure always uses the compact
-  // layout: numbered arrows and the list under the diagram, in a column of at most 32rem.
-  const compact = true;
-
   const boxLabels: Record<string, string> = {};
+  const shortBoxLabels: Record<string, string> = {};
   for (const b of arranged.data.boxes) {
     const long = `${prefix}.node.${b.id}.label`;
     const short = `${long}.short`;
-    boxLabels[b.id] = compact && hasKey(catalog, short) ? t(short) : t(long);
+    boxLabels[b.id] = t(long);
+    if (hasKey(catalog, short)) shortBoxLabels[b.id] = t(short);
   }
   const edgeLabels: Record<number, string> = {};
   arranged.data.edges.forEach((e, i) => {
@@ -179,15 +177,8 @@ export function ArchFigure({ catalog, kind, number }: ArchFigureProps): React.JS
 
   const time = device === 'cpu' ? `${n(trainingTime.cpuMinutes)} min` : `${n(trainingTime.gpuSeconds)} s`;
 
-  return (
-    <Figure
-      id={`fig-${PREFIX[kind]}`}
-      labelWord={figLabel(kit, number[0], number[1])}
-      title={t(`${prefix}.title`)}
-      panel={panel}
-      status={status}
-      detail={
-        open ? (
+  const detailNode =
+    open ? (
           <FigureDetail
             id={detailId}
             kicker={kit(`kit.node.kind.${kindOf(openId!)}`)}
@@ -211,18 +202,27 @@ export function ArchFigure({ catalog, kind, number }: ArchFigureProps): React.JS
               </ul>
             )}
           </FigureDetail>
-        ) : null
-      }
+        ) : null;
+
+  return (
+    <Figure
+      id={`fig-${PREFIX[kind]}`}
+      labelWord={figLabel(kit, number[0], number[1])}
+      title={t(`${prefix}.title`)}
+      panel={panel}
+      status={status}
       caption={<Markup text={t(`${prefix}.caption`)} />}
       foot={<FigFoot kit={kit} paths={SOURCES[kind]} data={DATA_FILE[kind]} />}
     >
-      <div style={{ maxWidth: '32rem', marginInline: 'auto', width: '100%' }}>
+      <div className="ml-fig-arch">
         <BoxDiagram
           data={arranged.data}
           labels={boxDiagramLabels(f.kitT, f.plain(`${prefix}.title`), t(`${prefix}.keylist`))}
           groupLabels={groupLabels}
-          layout="compact"
           boxLabels={boxLabels}
+          shortBoxLabels={shortBoxLabels}
+          bands={WIDE_BANDS[kind]}
+          detail={detailNode}
           edgeLabels={edgeLabels}
           kinds={Object.fromEntries(arranged.data.boxes.map((b) => [b.id, kindOf(b.id)]))}
           flow={flow}
