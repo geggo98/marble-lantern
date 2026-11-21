@@ -50,6 +50,24 @@ describe('parseMarkup', () => {
     expect(nodes).toEqual([{ type: 'text', text: '{term:a|' }, { type: 'n', value: 1 }, { type: 'text', text: '}' }]);
   });
 
+  it('reads a scientific number, with or without a fractional mantissa', () => {
+    expect(parseMarkup('lr {sci:3e-4} and {sci:1.5e-4}', quiet)).toEqual([
+      { type: 'text', text: 'lr ' },
+      { type: 'sci', mantissa: 3, exponent: -4 },
+      { type: 'text', text: ' and ' },
+      { type: 'sci', mantissa: 1.5, exponent: -4 },
+    ]);
+  });
+
+  it('keeps a malformed scientific number visible as text and warns', () => {
+    const warn = vi.fn();
+    const source = '{sci:3e} {sci:abc} {sci:3e-4|x} {sci:}';
+    expect(parseMarkup(source, warn)).toEqual([{ type: 'text', text: source }]);
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(warn.mock.calls[0]![0]).toContain('malformed token');
+    expect(parseMarkup('{foo:3e-4}', quiet)).toEqual([{ type: 'text', text: '{foo:3e-4}' }]);
+  });
+
   it('keeps tokens inside code as text', () => {
     expect(parseMarkup('`{n:5}`', quiet)).toEqual([{ type: 'code', text: '{n:5}' }]);
   });
@@ -109,6 +127,28 @@ describe('Markup', () => {
     i18n.setLanguage('de');
     await render('{n:20000}');
     expect(host.querySelector('.ml-about-num')?.textContent).toBe('20.000');
+  });
+
+  it('typesets a scientific number as MathML with a spoken alternative', async () => {
+    await render('rate {sci:3e-4} here');
+    const math = host.querySelector('math.ml-sci');
+    expect(math?.getAttribute('aria-label')).toBe('3 times 10 to the power of minus 4');
+    expect([...math!.querySelectorAll('mn, mo')].map((e) => e.tagName.toLowerCase() + e.textContent)).toEqual(['mn3', 'mo·', 'mn10', 'mo−', 'mn4']);
+    expect(math?.querySelector('msup')?.children).toHaveLength(2);
+    expect(host.textContent).not.toContain('{sci:');
+  });
+
+  it('leaves out a mantissa of 1 and sets a positive exponent without a sign', async () => {
+    await render('{sci:1e-5} {sci:2e3}');
+    expect([...host.querySelectorAll('math')].map((m) => m.textContent)).toEqual(['10−5', '2·103']);
+  });
+
+  it('uses the decimal comma of the German page in the mantissa and in the spoken text', async () => {
+    i18n.setLanguage('de');
+    await render('{sci:1.5e-4}');
+    const math = host.querySelector('math');
+    expect(math?.querySelector('mn')?.textContent).toBe('1,5');
+    expect(math?.getAttribute('aria-label')).toBe('1,5 mal 10 hoch minus 4');
   });
 
   it('links a directory path to the tree view', async () => {

@@ -47,7 +47,7 @@ function useFig(): {
   const text = tuningCatalog.useAboutT();
   const kit = kitCatalog.useAboutT();
   const { n, language } = useT();
-  const plain = (key: TuningKey, values?: Record<string, string | number>): string => plainText(text(key, values), n);
+  const plain = (key: TuningKey, values?: Record<string, string | number>): string => plainText(text(key, values), n, language);
   const md = (key: TuningKey, values?: Record<string, string | number>): ReactNode => <Markup text={text(key, values)} />;
   const fmt = (value: number, digits = 3): string =>
     new Intl.NumberFormat(language, { minimumFractionDigits: 0, maximumFractionDigits: digits }).format(value);

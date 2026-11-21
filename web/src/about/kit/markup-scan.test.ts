@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { parseMarkup } from './markup';
 
 const dir = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url));
-const LEFTOVER = /\{(sec|term|src|n):/;
+const LEFTOVER = /\{(sec|term|src|n|sci):/;
 
 /** The raw leftover tokens of one string, as the renderer would show them. */
 function leftovers(value: string): string[] {

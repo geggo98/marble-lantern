@@ -3,7 +3,8 @@ import type { TermEntry } from '../i18n/glossary';
 
 /** `ds`: a data-science term (it has the long definition); `eng`: a search or engineering term (short definition only). */
 export type TermKind = 'ds' | 'eng';
-export type KindFilter = 'all' | TermKind;
+/** `internal`: a name we coined ourselves; it cuts across the two kinds. */
+export type KindFilter = 'all' | TermKind | 'internal';
 
 export const termKind = (entry: TermEntry): TermKind => (entry.long === undefined ? 'eng' : 'ds');
 
@@ -14,7 +15,7 @@ const fold = (text: string): string => text.normalize('NFD').replace(/\p{M}+/gu,
 export function filterTerms(terms: readonly TermEntry[], kind: KindFilter, query: string): TermEntry[] {
   const words = fold(query).split(/\s+/).filter(Boolean);
   return terms.filter((e) => {
-    if (kind !== 'all' && termKind(e) !== kind) return false;
+    if (kind === 'internal' ? e.internal !== true : kind !== 'all' && termKind(e) !== kind) return false;
     const haystack = fold(`${e.name} ${e.english ?? ''} ${e.short}`);
     return words.every((w) => haystack.includes(w));
   });

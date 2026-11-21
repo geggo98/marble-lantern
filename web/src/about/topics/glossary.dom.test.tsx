@@ -59,8 +59,8 @@ describe('the glossary page', () => {
     const de = names();
     expect(de).toEqual([...de].sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' })));
     expect(de).not.toEqual(allTerms('en').map((e) => e.name));
-    const dt = host.querySelector('#about-glossary-tablebase');
-    expect(dt?.textContent).toContain('(tablebase (endgame database))');
+    const dt = host.querySelector('#about-glossary-branching-factor');
+    expect(dt?.textContent).toContain('(branching factor)');
     expect(dt?.querySelector('[lang="en"]')).not.toBeNull();
   });
 

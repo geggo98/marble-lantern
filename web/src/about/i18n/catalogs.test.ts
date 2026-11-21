@@ -18,7 +18,7 @@ const load = (lang: string, name: string): Catalog => JSON.parse(readFileSync(he
 
 /** The references of a string, as sorted "kind:target" entries ({n:} values included, they are data). */
 function references(text: string): string[] {
-  return [...text.matchAll(/\{(?<kind>term|src|sec|n):(?<body>[^{}|`]*)/g)].map((m) => `${m.groups!['kind']}:${m.groups!['body']}`).sort();
+  return [...text.matchAll(/\{(?<kind>term|src|sec|n|sci):(?<body>[^{}|`]*)/g)].map((m) => `${m.groups!['kind']}:${m.groups!['body']}`).sort();
 }
 
 /** The {name} placeholders of a string (not the {term:} {src:} {sec:} {n:} markup, which has a colon), sorted. */
@@ -152,7 +152,7 @@ describe('glossary page keys', () => {
     const en = load('en', 'glossary');
     const de = load('de', 'glossary');
     const page = Object.keys(en).filter((k) => k.startsWith('glossary.'));
-    expect(page.length).toBe(12);
+    expect(page.length).toBe(15);
     expect(Object.keys(de).filter((k) => k.startsWith('glossary.')).sort()).toEqual([...page].sort());
     for (const k of page) expect(placeholders(de[k]!), k).toEqual(placeholders(en[k]!));
   });

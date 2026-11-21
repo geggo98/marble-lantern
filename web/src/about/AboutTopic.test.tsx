@@ -222,7 +222,7 @@ describe('AboutTopic: the page', () => {
     expect(names()).toContain('Tablebase');
     await act(async () => i18n.setLanguage('de'));
     expect(names()).toContain('Endspieltabelle');
-    expect(host.querySelector('#about-glossary-tablebase')?.textContent).toContain('(tablebase (endgame database))');
+    expect(host.querySelector('#about-glossary-branching-factor')?.textContent).toContain('(branching factor)');
   });
 });
 
