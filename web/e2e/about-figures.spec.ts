@@ -105,8 +105,10 @@ test('Fig. 3.3 at 320: the root block and the "other moves" block are both insid
   await open(page, 'inference', 'fig-mcts', PHONE);
   const fits = await page.evaluate(() => {
     const svg = document.querySelector<SVGSVGElement>('#fig-mcts svg.ml-fig-ice')!;
-    const box = svg.getBoundingClientRect();
-    return [...svg.querySelectorAll('rect')].every((r) => r.getBoundingClientRect().right <= box.right + 0.5);
+    // geometry (getBBox, the fill box) in view box units: Firefox adds half the stroke to getBoundingClientRect of a shape (0.75 px of the
+    // paper-coloured 1.5 px separator of the root block, which the svg does not clip: overflow is visible), Chromium does not
+    const total = svg.viewBox.baseVal.width;
+    return [...svg.querySelectorAll('rect')].every((r) => { const b = r.getBBox(); return b.x + b.width <= total + 0.01; });
   });
   expect(fits).toBe(true);
   const heights = await page.locator('#fig-mcts .ml-fig-mcts__table tbody tr').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
