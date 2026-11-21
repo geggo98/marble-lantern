@@ -24,7 +24,7 @@ import { useMediaQuery } from '../../ui/useMedia';
 import midRaw from '../data/ab-tree-mid.json';
 import startRaw from '../data/ab-tree-start.json';
 import { FigFoot, figLabel, useFigText } from './common';
-import type { Catalog } from './common';
+import type { Catalog, Lookup } from './common';
 import {
   NEG_INF,
   alphaAt,
@@ -38,6 +38,7 @@ import {
   narration,
   neighbourNotable,
   overviewLayout,
+  pluralForm,
   replyChain,
   replyStrip,
   rootName,
@@ -91,7 +92,7 @@ function useAbStepper(data: AbData) {
 
 export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): React.JSX.Element {
   const f = useFigText(catalog);
-  const { t, kit, n } = f;
+  const { t, kit, n, language } = f;
   const [example, setExample] = useState<AbExample>('mid');
   const data = EXAMPLES[example].data;
   const { state, dispatch, ticked } = useAbStepper(data);
@@ -274,8 +275,8 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
             <LegendItem mark={<path className="ml-ab2-alpha" d="M2 12H14V5H30" />}>{t('fig.ab.legend.alpha')}</LegendItem>
             <LegendItem mark={<circle className="ml-ab2-exact" cx={16} cy={8} r={4} />}>{t('fig.ab.legend.exact')}</LegendItem>
             <LegendItem mark={<path className="ml-ab2-bound" d="M10 5h12M16 5v8" />}>{t('fig.ab.legend.bound')}</LegendItem>
-            <LegendItem mark={<rect className="ml-ab2-done" x={8} y={3} width={16} height={10} />}>{kit('kit.legend.visited')}</LegendItem>
-            <LegendItem mark={<rect className="ml-ab2-skip" style={{ fill: `url(#${hatch})` }} x={8} y={3} width={16} height={10} />}>{kit('kit.legend.skipped')}</LegendItem>
+            <LegendItem mark={<rect className="ml-ab2-done" x={8} y={3} width={16} height={10} />}>{t('fig.ab.legend.searched')}</LegendItem>
+            <LegendItem mark={<rect className="ml-ab2-skip" style={{ fill: `url(#${hatch})` }} x={8} y={3} width={16} height={10} />}>{t('fig.ab.legend.skipped')}</LegendItem>
             <LegendItem mark={<rect className="ml-ab2-done is-cur" x={8} y={3} width={16} height={10} />}>{t('fig.ab.legend.current')}</LegendItem>
           </Legend>
         </div>
@@ -312,10 +313,10 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
             </div>
             <p className="ml-fig-ab2__tally">
               <span>
-                <b data-tally="searched">{move ? move.searched.length : '–'}</b> {t('fig.ab.tally.searched')}
+                <b data-tally="searched">{move ? move.searched.length : '–'}</b> <PluralLabel t={t} base="fig.ab.tally.searched" form={pluralForm(language, move ? move.searched.length : 2)} />
               </span>
               <span>
-                <b data-tally="skipped">{move ? move.skipped : '–'}</b> {t('fig.ab.tally.skipped')}
+                <b data-tally="skipped">{move ? move.skipped : '–'}</b> <PluralLabel t={t} base="fig.ab.tally.skipped" form={pluralForm(language, move ? move.skipped : 2)} />
               </span>
             </p>
           </section>
@@ -333,6 +334,22 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
         </div>
       </div>
     </Figure>
+  );
+}
+
+/**
+ * A label with a singular and a plural form ("reply searched", "replies searched"). Both forms stand in one grid cell and the inactive one
+ * is hidden, so the label keeps the width of the longer form and the tally does not wrap differently from step to step (spec, section 10).
+ */
+function PluralLabel({ t, base, form }: { t: Lookup; base: string; form: 'one' | 'other' }): React.JSX.Element {
+  return (
+    <span className="ml-fig-ab2__stack ml-fig-ab2__plural">
+      {(['one', 'other'] as const).map((f) => (
+        <span key={f} {...(f === form ? {} : { 'data-off': '', 'aria-hidden': true })}>
+          {t(`${base}.${f}`)}
+        </span>
+      ))}
+    </span>
   );
 }
 

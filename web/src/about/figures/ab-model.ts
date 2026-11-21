@@ -81,6 +81,12 @@ export function scoreText(value: Alpha | '+infinity'): string {
 /** A move in the notation of the app: `H5»L6` for a jump, `H5›I5` for a step. */
 export const moveName = (from: number, to: number, jump: boolean): string => `${cellName(from)}${jump ? '»' : '›'}${cellName(to)}`;
 
+/**
+ * The plural form of a count in a language, for catalog keys that end in `.one` and `.other`. English and German know only these two
+ * forms for cardinal numbers; any other category of `Intl.PluralRules` falls back to "other".
+ */
+export const pluralForm = (language: string, count: number): 'one' | 'other' => (new Intl.PluralRules(language).select(count) === 'one' ? 'one' : 'other');
+
 export const rootName = (m: RootMove): string => moveName(m.from, m.to, m.kind === 'jump');
 export const replyName = (r: Reply): string => moveName(r[0], r[1], r[2] === 1);
 
@@ -188,7 +194,12 @@ export function narration(data: AbData, step: number, fmt: (value: number) => st
   const move = rootName(m);
   if (key === 'first') return { key, values: { move, replies: fmt(m.replies), value: scoreText(m.value) } };
   if (key === 'cut') {
-    return { key, values: { move, reply: replyName(decidingReply(m)), bound: scoreText(m.value), alpha: scoreText(m.alphaBefore), skipped: fmt(m.skipped) } };
+    // "skips {skipped} of its {replies} replies" needs no singular form as long as a cut-off root move has 2 or more replies; the test
+    // asserts this for both data files (the fewest are 14)
+    return {
+      key,
+      values: { move, reply: replyName(decidingReply(m)), bound: scoreText(m.value), alpha: scoreText(m.alphaBefore), skipped: fmt(m.skipped), replies: fmt(m.replies) },
+    };
   }
   return { key, values: { move, replies: fmt(m.replies), value: scoreText(m.value), alphaOld: scoreText(m.alphaBefore), alphaNew: scoreText(m.alphaAfter) } };
 }
