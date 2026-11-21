@@ -3,7 +3,8 @@
 //   {src:search/src/main/java/sternhalma/search/AlphaBeta.java} a source chip
 //   {sec:classical/alpha-beta|text}                             a link to a section of a topic (the text may hold `code`)
 //   {n:20000}                                                   a number in the active language
-//   `code`                                                      inline code
+//   {sci:3e-4}                                                  scientific notation, typeset as MathML (3 · 10⁻⁴); {sci:1.5e-4} keeps its mantissa
+//   `code`                                                    inline code
 // Nesting is refused: a token body holds no `{`, `}` or backtick, so `{term:a|{n:1}}` is not a term. A malformed or unknown token
 // stays visible as text, and a development build warns, so that a typo in a catalog shows up in the first test run.
 import { Fragment } from 'react';
@@ -12,6 +13,7 @@ import { useT } from '../../ui/texts';
 import { hrefForAbout } from '../../ui/Chrome';
 import { isAboutTopic, isSlug } from '../routes';
 import type { AboutTopic } from '../routes';
+import { formatMantissa, parseSci, sciSpoken, showsMantissa } from './sci';
 import { SourceChip } from './SourceChip';
 import { TermPopover } from './TermPopover';
 
@@ -21,7 +23,8 @@ export type MarkupNode =
   | { type: 'term'; id: string; text?: string }
   | { type: 'src'; path: string }
   | { type: 'sec'; topic: AboutTopic; section: string; text?: string }
-  | { type: 'n'; value: number };
+  | { type: 'n'; value: number }
+  | { type: 'sci'; mantissa: number; exponent: number };
 
 // A section link may hold `code` in its text ("{sec:inference/mcts|how MCTS uses `c`}"); every other token body holds no backtick.
 const TOKEN = /`(?<code>[^`]+)`|\{(?<kind>sec):(?<secBody>[^{}]*)\}|\{(?<other>[A-Za-z]+):(?<body>[^{}`]*)\}/g;
@@ -71,8 +74,10 @@ export function parseMarkup(source: string, warn: (message: string) => void = wa
       }
     } else if (kind === 'n' && label === undefined && /^-?\d+(\.\d+)?$/.test(head)) {
       nodes.push({ type: 'n', value: Number(head) });
+    } else if (kind === 'sci' && label === undefined && parseSci(head) !== undefined) {
+      nodes.push({ type: 'sci', ...parseSci(head)! });
     } else {
-      warn(kind !== undefined && ['term', 'src', 'sec', 'n'].includes(kind) ? `malformed token "${m[0]}"` : `unknown token "${m[0]}"`);
+      warn(kind !== undefined && ['term', 'src', 'sec', 'n', 'sci'].includes(kind) ? `malformed token "${m[0]}"` : `unknown token "${m[0]}"`);
       text(m[0]);
     }
   }
@@ -102,6 +107,24 @@ export function Markup({ text }: { text: string }): React.JSX.Element {
             return <code key={i}>{node.text}</code>;
           case 'n':
             return <span key={i} className="ml-about-num">{n(node.value)}</span>;
+          case 'sci':
+            return (
+              <math key={i} className="ml-sci" aria-label={sciSpoken(node, language)}>
+                {showsMantissa(node) && (
+                  <>
+                    <mn>{formatMantissa(node.mantissa, language)}</mn>
+                    <mo>·</mo>
+                  </>
+                )}
+                <msup>
+                  <mn>10</mn>
+                  <mrow>
+                    {node.exponent < 0 && <mo>−</mo>}
+                    <mn>{Math.abs(node.exponent)}</mn>
+                  </mrow>
+                </msup>
+              </math>
+            );
           case 'src':
             return <SourceChip key={i} path={node.path} />;
           case 'sec':

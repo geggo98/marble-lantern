@@ -2,10 +2,11 @@
 // to the glossary. One code path for every browser (the disclosure of plan section 1.3, without the native `popover` attribute, so
 // that jsdom tests see the same behaviour): Escape closes it and returns the focus to the term; a press outside closes it.
 import { useEffect, useId, useRef, useState } from 'react';
-import { termEntry } from '../i18n/glossary';
+import { englishToShow, glossaryWord, termEntry } from '../i18n/glossary';
 import { useT } from '../../ui/texts';
 import { hrefForAbout } from '../../ui/Chrome';
 import { useChrome } from '../i18n/chrome';
+import { InternalTag } from './InternalTag';
 
 export function TermPopover({ id, text }: { id: string; text?: string }): React.JSX.Element {
   const { language } = useT();
@@ -14,7 +15,9 @@ export function TermPopover({ id, text }: { id: string; text?: string }): React.
   const button = useRef<HTMLButtonElement>(null);
   const wrap = useRef<HTMLSpanElement>(null);
   const panelId = useId();
-  const entry = termEntry(id, language === 'de' ? 'de' : 'en');
+  const lang = language === 'de' ? 'de' : 'en';
+  const entry = termEntry(id, lang);
+  const english = entry === undefined ? undefined : englishToShow(lang, entry.name, entry.english);
 
   useEffect(() => {
     if (!open) return;
@@ -52,8 +55,10 @@ export function TermPopover({ id, text }: { id: string; text?: string }): React.
       {open && (
         <span id={panelId} className="ml-term__pop" role="group" aria-label={entry.name}>
           <strong>{entry.name}</strong>
-          {entry.english !== undefined && entry.english !== entry.name && <span className="ml-term__en"> ({entry.english})</span>}
+          {english !== undefined && <span className="ml-term__en" lang="en"> ({english})</span>}
+          {entry.internal === true && <InternalTag label={glossaryWord(lang, 'internal')} />}
           <span className="ml-term__short">{entry.short}</span>
+          {entry.internal === true && <span className="ml-term__hint">{glossaryWord(lang, 'internal.hint')}</span>}
           <a className="ml-about-link" href={hrefForAbout('glossary', id)}>
             {c('glossary_more')}
           </a>

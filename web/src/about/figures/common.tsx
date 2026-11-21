@@ -8,12 +8,13 @@ import { kitCatalog } from '../i18n/kit';
 import type { AboutCatalog, AboutT } from '../i18n/catalog';
 import { useT } from '../../ui/texts';
 import type { KitT } from '../kit';
+import { sciPlain } from '../kit/sci';
 
 export type Catalog = AboutCatalog<string>;
 export type Lookup = AboutT<string>;
 
 /** Catalog markup as plain text, for the places that take no React nodes: an SVG title, a status line, an aria label. */
-export function plainText(text: string, n: (value: number) => string): string {
+export function plainText(text: string, n: (value: number) => string, language = 'en'): string {
   return parseMarkup(text, () => undefined)
     .map((node) => {
       switch (node.type) {
@@ -22,6 +23,8 @@ export function plainText(text: string, n: (value: number) => string): string {
           return node.text;
         case 'n':
           return n(node.value);
+        case 'sci':
+          return sciPlain(node, language);
         case 'term':
           return node.text ?? node.id;
         case 'src':
@@ -58,7 +61,7 @@ export function useFigText(catalog: Catalog): FigText {
     kitT: (key, values) => kit(key, values),
     n,
     ui: (key) => ui(key as never),
-    plain: (key, values) => plainText(t(key, values), n),
+    plain: (key, values) => plainText(t(key, values), n, language),
     language,
   };
 }

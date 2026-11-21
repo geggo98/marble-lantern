@@ -37,6 +37,9 @@
 .ml-about__term dt { font-weight: var(--ml-weight-medium); scroll-margin-top: var(--ml-space-4); }
 .ml-about__term dd { margin: 0; color: var(--ml-color-ink-muted); }
 .ml-about-num { font-variant-numeric: tabular-nums; }
+/* {sci:} MathML: inline, on the text baseline; the math font renders the exponent, the text font keeps the digits of the prose */
+.ml-sci { font-family: inherit; font-size: 1em; white-space: nowrap; }
+.ml-sci mn, .ml-sci mo { font-family: inherit; }
 .ml-about code { font-family: var(--ml-font-data); font-size: 0.9em; overflow-wrap: anywhere; }
 /* source chip: monospace path that links to GitHub */
 .ml-src { display: inline-block; max-width: 100%; padding: 0 var(--ml-space-2); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-sm); color: var(--ml-color-ink); text-decoration: none; background: var(--ml-color-surface); overflow-wrap: anywhere; vertical-align: baseline; }
@@ -48,6 +51,8 @@
 .ml-term__btn:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; border-radius: var(--ml-radius-sm); }
 .ml-term__pop { position: absolute; z-index: 5; inset-inline-start: 0; top: 100%; display: grid; gap: var(--ml-space-1); width: max-content; max-width: min(20rem, 80vw); margin-top: var(--ml-space-1); padding: var(--ml-space-3); border-radius: var(--ml-radius-md); border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); font-size: var(--ml-text-sm); }
 .ml-term__en, .ml-term__short { color: var(--ml-color-ink-muted); }
+.ml-term__hint { color: var(--ml-color-ink-muted); font-style: italic; }
+.ml-tag--internal { margin-inline-start: var(--ml-space-2); vertical-align: middle; }
 /* M11: below 34rem a path in the prose is plain monospace text with a link underline, not a bordered box: the box was wider than the column,
    broke inside words and left its brackets alone on a line. Paths break after a slash (the chip holds <wbr> there). */
 @media (max-width: 34rem) {

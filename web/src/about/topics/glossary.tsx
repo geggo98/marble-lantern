@@ -1,17 +1,18 @@
 // The glossary page: every term of every topic, alphabetical in the active language, a filter by kind and by text, and deep links
 // `#/about/glossary/<term-id>` that scroll to the term, give it the focus and highlight it. The popover of a term links here.
 import { useMemo, useRef, useState } from 'react';
-import { allTerms, glossaryWord } from '../i18n/glossary';
+import { allTerms, englishToShow, glossaryWord } from '../i18n/glossary';
 import { sectionId } from '../routes';
 import { TopicFrame, useScrollAndFocus } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { filterTerms, termKind } from './glossary-filter';
 import type { KindFilter } from './glossary-filter';
 import { Markup } from '../kit/markup';
+import { InternalTag } from '../kit/InternalTag';
 import { useT } from '../../ui/texts';
 import './glossary.css';
 
-const KINDS: readonly KindFilter[] = ['all', 'ds', 'eng'];
+const KINDS: readonly KindFilter[] = ['all', 'ds', 'eng', 'internal'];
 
 export default function GlossaryPage({ topic, section }: TopicPageProps): React.JSX.Element {
   const { language } = useT();
@@ -57,9 +58,13 @@ export default function GlossaryPage({ topic, section }: TopicPageProps): React.
             <div key={e.id} className={target ? 'ml-about__term ml-about__term--target' : 'ml-about__term'} data-kind={termKind(e)}>
               <dt id={sectionId(topic, e.id)} tabIndex={-1} {...(target ? { 'aria-current': 'location' as const } : {})}>
                 {e.name}
-                {e.english !== undefined && e.english.toLowerCase() !== e.name.toLowerCase() && (
-                  <span className="ml-term__en" lang="en" title={word('english')}> ({e.english})</span>
-                )}
+                {(() => {
+                  const english = englishToShow(lang, e.name, e.english);
+                  return english === undefined ? null : (
+                    <span className="ml-term__en" lang="en" title={word('english')}> ({english})</span>
+                  );
+                })()}
+                {e.internal === true && <InternalTag label={word('internal')} />}
               </dt>
               <dd>
                 <Markup text={e.short} />
@@ -68,6 +73,7 @@ export default function GlossaryPage({ topic, section }: TopicPageProps): React.
                     <Markup text={e.long} />
                   </span>
                 )}
+                {e.internal === true && <span className="ml-glossary__hint">{word('internal.hint')}</span>}
                 <span className="ml-tag ml-glossary__kind">{word(`kind.${termKind(e)}`)}</span>
               </dd>
             </div>
