@@ -175,7 +175,7 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: humanVsTwoEngines(1, 2) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, closed foreign triangles, 4 rows. The evaluation and the network of the figures were trained for it.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 rows. The evaluation and the network of the figures were trained for this game.');
     expect(all('a[data-explain-link]')).toHaveLength(0);
   });
 
@@ -183,7 +183,7 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: withBoardRows(humanVsEngine(1, 2), 5) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, closed foreign triangles, 4 rows. The evaluation and the network of the figures were trained for it.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 rows. The evaluation and the network of the figures were trained for this game.');
   });
 
   it('a finished game: disabled with the over reason', async () => {

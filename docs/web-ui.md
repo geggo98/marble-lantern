@@ -862,7 +862,7 @@ The WebGPU backend uses F32 kernels only and does not request the optional featu
 
 ## Explain this position and live figures
 
-**TL;DR:** The play screen has a card "Explain this position" with five links into the about pages (the Info part, `#/about/<topic>`). A link press copies the current game into memory and opens the page; it starts no engine and downloads nothing. Five figures on those pages then offer a **live switch**, "Example" or "My game (ply N)". Only a press of "My game" starts an engine worker, and that worker computes the figure for the copied position in the reader's browser. The classical figures use a classical browser engine. The net figures use `net-wasm` and may download it and the expert model on first use, about 345 kB. Live mode works for the classic game only (2 players, neighbour jump, closed foreign triangles, 4 rows). Parts that have no live form keep the precomputed example and say so. Time and memory of a live run are not measured, except one end-to-end timing for Fig. 3.3 (about 0.8 to 1.0 s).
+**TL;DR:** The play screen has a card "Explain this position" with five links into the about pages (the Info part, `#/about/<topic>`). A link press copies the current game into memory and opens the page; it starts no engine and downloads nothing. Four figures on those pages then offer a **live switch**, "Example" or "My game (ply N)"; the fifth, Fig. 3.2, offers "My game (ply N)" as a fourth entry of its position selector. Only choosing "My game" starts an engine worker, and that worker computes the figure for the copied position in the reader's browser. The classical figures use a classical browser engine. The net figures use `net-wasm` and may download it and the expert model on first use, about 345 kB. Live mode works for the classic game only (2 players, neighbour jump, closed foreign triangles, 4 rows). Parts that have no live form keep the precomputed example and say so. Time and memory of a live run are not measured, except one end-to-end timing for Fig. 3.3 (about 0.8 to 1.0 s).
 
 ### Terms of this section
 
@@ -919,7 +919,7 @@ The switch is disabled, with the reason as text below it (linked by `aria-descri
 | the game in the snapshot was over | `kit.live.reason.over` |
 | net figure, and this browser cannot run `net-wasm` | `kit.live.reason.nonet` |
 
-A run that fails shows its cause in the figure's status line and offers "Try again" (codes `load`, `offline`, `model`, `internal` and `unsupported` in `LiveErrorCode`, texts `kit.live.error.*`). `unsupported` means that the engine file in the browser is older than the page, or that the position has only one legal move, so the net engine has no search to show. A net engine that cannot use its model gives `model`, never the numbers of a random move.
+A run that fails shows its cause in the figure's status line and offers "Try again" (codes `load`, `offline`, `model`, `internal` and `unsupported` in `LiveErrorCode`, texts `kit.live.error.*`). `unsupported` means that the engine file in the browser is older than the page, or that the position has only one legal move, so the net engine has no search to show. A net engine that cannot use its model gives `model`, never the numbers of a random move. `internal` covers a result that fails a check and every other unexpected error (`codeOf` in `web/src/about/live/useLiveRun.ts`).
 
 ### How each figure is computed
 

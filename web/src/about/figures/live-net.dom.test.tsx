@@ -183,7 +183,7 @@ describe('V10 live', () => {
     const finished = Number(/(\d+) \/ (\d+)/.exec(pos)![2]);
     expect(finished, 'a partial run').toBeLessThan(50);
     expect(q('[data-live-stop]')).toBeTruthy();
-    expect(status()).toMatch(/^Computing in your browser: step \d+ of 50$/);
+    expect(status()).toMatch(/^Computing in your browser: \d+ of 50 steps done$/);
     await act(async () => q<HTMLButtonElement>('[data-live-stop]').click());
     await settle(40);
     expect(q<HTMLInputElement>('input[value=example]').checked).toBe(true);
