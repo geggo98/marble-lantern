@@ -1,0 +1,7 @@
+/* The card "Explain this position" (app/ExplainCard.tsx). */
+.ml-explain { display: grid; gap: var(--ml-space-2); }
+.ml-explain__lead, .ml-explain__reason, .ml-explain__note { margin: 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-explain__list { display: grid; gap: var(--ml-space-1); margin: 0; padding: 0; list-style: none; }
+.ml-explain__link { display: flex; align-items: center; min-height: var(--ml-size-control); color: var(--ml-color-ink); text-decoration: underline; }
+.ml-explain__link[aria-disabled="true"] { opacity: 0.45; text-decoration: none; cursor: not-allowed; }
+.ml-explain__note { display: block; }

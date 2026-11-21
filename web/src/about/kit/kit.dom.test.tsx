@@ -5,7 +5,7 @@ import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BoxDiagram, Chip, Figure, FigureDetail, HeatBoard, Manipulate, MiniBoard, Plot, PlotBars, PlotDots, PlotLine, PlotRef, ReadingList, Segmented, Slider, Stepper, IcicleTree, boxDiagramLabels, kitEn, layoutBoxes, stepperLabels, useStepper } from './index';
+import { BoxDiagram, Chip, Figure, FigureDetail, HeatBoard, Manipulate, MiniBoard, Plot, PlotBars, PlotDots, PlotLine, PlotRef, LiveSwitch, ReadingList, Segmented, Slider, Stepper, IcicleTree, boxDiagramLabels, kitEn, layoutBoxes, stepperLabels, useStepper } from './index';
 import type { ArchData, CellPicker } from './index';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -422,6 +422,78 @@ describe('Manipulate controls', () => {
     const group = q('[role="radiogroup"]');
     expect(namedBy(group)).toBe('Search');
     expect([...group.querySelectorAll<HTMLInputElement>('input')].map((i) => i.checked)).toEqual([false, true]);
+  });
+});
+
+describe('Segmented with a disabled option and LiveSwitch', () => {
+  it('a disabled option is a disabled native radio: a click does not select it, and the reason is linked with aria-describedby', async () => {
+    const onChange = vi.fn();
+    await render(
+      <>
+        <Segmented
+          label="Position"
+          options={[{ value: 'a', label: 'Example' }, { value: 'b', label: 'My game', disabled: true, describedBy: 'why' }]}
+          value="a"
+          onChange={onChange}
+        />
+        <p id="why">Play a game first.</p>
+      </>,
+    );
+    const [a, b] = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(a!.disabled).toBe(false);
+    expect(b!.disabled).toBe(true);
+    expect(b!.getAttribute('aria-describedby')).toBe('why');
+    expect(a!.hasAttribute('aria-describedby')).toBe(false);
+    click(b!);
+    click(b!.closest('label')!);
+    key(b!, ' ');
+    key(a!, 'ArrowRight'); // the browser's arrow key navigation skips a disabled radio; jsdom has none, so only the attribute can be checked
+    expect(onChange).not.toHaveBeenCalled();
+    expect(a!.checked).toBe(true);
+    expect(b!.checked).toBe(false);
+  });
+
+  it('an enabled option is selected by a click and has no aria-describedby', async () => {
+    const onChange = vi.fn();
+    await render(<Segmented label="Position" options={[{ value: 'a', label: 'Example' }, { value: 'b', label: 'Mine', describedBy: 'why' }]} value="a" onChange={onChange} />);
+    click(host.querySelectorAll<HTMLInputElement>('input')[1]!);
+    expect(onChange).toHaveBeenCalledWith('b');
+    expect(host.querySelectorAll('input')[1]!.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  const switchProps = {
+    label: 'Position', exampleLabel: 'Example', mineLabel: 'My game (ply 4)', value: 'example' as const, onChange: () => undefined,
+    busy: false, stopLabel: 'Stop', onStop: () => undefined, failed: false, retryLabel: 'Try again', onRetry: () => undefined,
+  };
+
+  it('LiveSwitch with a reason: My game is disabled and the reason text is what its aria-describedby names', async () => {
+    const onChange = vi.fn();
+    await render(<LiveSwitch {...switchProps} reason="Only for two players." onChange={onChange} />);
+    const mine = host.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]!;
+    expect(mine.disabled).toBe(true);
+    expect(text(mine.getAttribute('aria-describedby')!)).toBe('Only for two players.');
+    click(mine);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('LiveSwitch without a reason: My game can be chosen, no reason text is rendered, Stop and Try again show only when asked for', async () => {
+    const onChange = vi.fn();
+    const onStop = vi.fn();
+    const onRetry = vi.fn();
+    await render(<LiveSwitch {...switchProps} reason={null} onChange={onChange} onStop={onStop} onRetry={onRetry} />);
+    expect(host.querySelector('[data-live-reason]')).toBeNull();
+    expect(host.querySelector('[data-live-stop]')).toBeNull();
+    expect(host.querySelector('[data-live-retry]')).toBeNull();
+    click(host.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]!);
+    expect(onChange).toHaveBeenCalledWith('mine');
+    await render(<LiveSwitch {...switchProps} reason={null} value="mine" busy onStop={onStop} onRetry={onRetry} />);
+    click(q('[data-live-stop]'));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-live-retry]')).toBeNull();
+    await render(<LiveSwitch {...switchProps} reason={null} value="example" failed onStop={onStop} onRetry={onRetry} />);
+    click(q('[data-live-retry]'));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-live-stop]')).toBeNull();
   });
 });
 

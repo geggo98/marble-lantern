@@ -193,5 +193,11 @@
   "fig.mcts.inset.axis.x": "Konstante c",
   "fig.mcts.inset.axis.y": "Elo gegen klassisch",
   "fig.mcts.inset.desc": "Punkt-Whisker-Diagramm mit fünf Messungen: die Elo der Netz-Engine gegen die klassische Engine für `c` = {n:0.5}, {n:1.0}, {n:1.5}, {n:2.5} und {n:4.0}. Der höchste Wert, +338, liegt bei {n:1.0}; die Werte von {n:0.5} bis {n:1.5} überlappen sich.",
-  "fig.mcts.inset.caption": "SMALL-Netz der Generation 0 mit 100 Simulationen gegen die klassische Engine mit {n:1600} Knoten, 100 Eröffnungspaare pro Wert. Zwischen {n:0.5} und {n:1.5} ist die Kurve flach."
+  "fig.mcts.inset.caption": "SMALL-Netz der Generation 0 mit 100 Simulationen gegen die klassische Engine mit {n:1600} Knoten, 100 Eröffnungspaare pro Wert. Zwischen {n:0.5} und {n:1.5} ist die Kurve flach.",
+  "fig.mcts.live.caption": "Deine Partie bei Zug {ply}: die Suche mit {sims} Simulationen auf dem Modell {model}. Der Baum unter der Wurzel ist noch der des Beispiels.",
+  "fig.mcts.live.settings": "Eine Simulation nach der anderen, ohne Rauschen, das Experten-Modell.",
+  "fig.mcts.live.noQ": "Nicht verfügbar: Die Engine-Datei in diesem Browser ist älter als diese Abbildung.",
+  "fig.forward.position.mine": "Meine Partie (Zug {ply})",
+  "fig.forward.live.caption": "Deine Partie bei Zug {ply}, durch das Modell {model} geschickt.",
+  "fig.forward.live.single": "Ein Vorwärtsdurchlauf hat diese Zahlen berechnet."
 }

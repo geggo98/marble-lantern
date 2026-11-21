@@ -460,5 +460,16 @@
   "rules_reason_net_mismatch": "Das gewählte Modell spielt diese Regel nicht, die Netz-Engine zieht dann zufällig. Nach dem Start kannst du unter „Engine und Spielstärke“ eine klassische Engine wählen.",
   "rules_summary_more": "+{n} weitere",
   "rules_hint_toggle": "Mehr zu „{rule}“",
-  "rules_reason_no_engine": "Keine Engine in diesem Build spielt „{value}“."
+  "rules_reason_no_engine": "Keine Engine in diesem Build spielt „{value}“.",
+  "explain_title": "Diese Stellung erklären",
+  "explain_lead": "Öffne die Info-Seite zu deiner Partie und sieh ihre Zahlen.",
+  "explain_link_budget": "Wie tief sieht die Engine?",
+  "explain_link_roots": "Wie gut ist jeder Zug?",
+  "explain_link_eval": "Was die Bewertung zählt",
+  "explain_link_mcts": "Wie MCTS wählt",
+  "explain_link_forward": "Im Inneren des Netzes",
+  "explain_net_note": "Lädt die Netz-Engine und ein Modell (etwa 115 kB), sobald du „Meine Partie“ drückst.",
+  "explain_disabled_nogame": "Starte zuerst eine Partie.",
+  "explain_disabled_over": "Die Partie ist zu Ende; es gibt keinen Zug zu erklären.",
+  "explain_disabled_variant": "Nur für zwei Spieler, Nachbarsprünge, auf dem Brett mit 4 Reihen."
 }

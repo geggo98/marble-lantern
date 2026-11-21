@@ -4,14 +4,14 @@
 #
 # Steps, in this order; the first failure stops the run, the summary names the step:
 #   1  tables      pack rows2.bin into web/public/tables (needs the real table, not an LFS pointer)
-#   2  java-tests  Gradle: :engine:test :tablebase:test, :search:test (BrowserSpecTest only), :teavm-web:test
+#   2  java-tests  Gradle: :engine:test :tablebase:test, :search:test (BrowserSpecTest only), :teavm-web:test, :teavm-net:test
 #   3  wasm-build  C++ engine as WebAssembly
 #   4  wasm-test   node tests of the C++ engine
 #   5  teavm-build Java engine with TeaVM
 #   5b teavm-net-build net-MCTS facade of the net engines with TeaVM (web/public/engines/net/engine-net.*)
 #   6  engines     web/public/engines/engines.json
 #   7  web-install npm ci
-#   8  web-test    typecheck and Vitest
+#   8  web-test    typecheck and Vitest, with REQUIRE_ENGINE_ASSETS=1 (a missing engine file fails the real-engine tests instead of skipping them)
 #   9  web-build   vite build and the bundle checks (index.html base path, no 'connect/' in the static bundle)
 #  10  bench-smoke benchmark with 6 plies and 2,000 nodes: fingerprints must match
 #  11  e2e         Playwright: Chromium and Firefox are gates, WebKit is informative
@@ -72,14 +72,14 @@ print -u2 "web:ci: BASE_PATH=${BASE_PATH:-(default of build.zsh)}"
 typeset -A cmd
 cmd=(
   tables       "scripts/web/tables.zsh"
-  java-tests   "./gradlew --no-build-cache :engine:test :tablebase:test :search:test --tests sternhalma.search.BrowserSpecTest :teavm-web:test"
+  java-tests   "./gradlew --no-build-cache :engine:test :tablebase:test :search:test --tests sternhalma.search.BrowserSpecTest :teavm-web:test :teavm-net:test"
   wasm-build   "scripts/web/build-wasm.zsh"
   wasm-test    "scripts/web/test-wasm.zsh"
   teavm-build  "scripts/web/build-teavm.zsh"
   teavm-net-build "scripts/web/build-teavm-net.zsh"
   engines      "env ENGINES_STRICT=1 scripts/web/engines-manifest.zsh"
   web-install  "scripts/web/install.zsh"
-  web-test     "scripts/web/test.zsh"
+  web-test     "env REQUIRE_ENGINE_ASSETS=1 scripts/web/test.zsh"
   web-build    "scripts/web/build.zsh"
   bench-smoke  "scripts/web/bench.zsh --plies 6 --nodes 2000 --runs 1"
   e2e          "scripts/web/e2e.zsh"

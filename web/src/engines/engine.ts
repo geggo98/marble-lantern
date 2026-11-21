@@ -78,7 +78,13 @@ export interface ChooseResult {
   /** ADR 0001 guard; must stay 0. */
   rows1Requests: number;
   /** Net engines only: what played the move. 'random' is the fallback (the warnings say why). `score` is the mean root value in [-1, 1]; `nodes` the tree size. */
-  net?: { backend: 'wasm' | 'webgpu' | 'random'; sims: number; batches: number };
+  net?: {
+    backend: 'wasm' | 'webgpu' | 'random';
+    sims: number;
+    batches: number;
+    /** The root moves with the visits and the mean value of each (for the side that plays it), in the same order. `values` is absent when the engine file is older than this field. */
+    root?: { moves: number[]; visits: number[]; values?: number[] };
+  };
   /** Net engines only: the warnings that hold after this move (a device loss during the move shows up here). */
   warnings?: EngineWarning[];
 }
@@ -95,6 +101,34 @@ export interface AnalysisResult {
   nodes: number;
   /** Wall time of the analysis inside the worker. */
   ms: number;
+}
+
+/** Result of Engine.features: the linear-r3 evaluation of a classic position, broken down (classical engines only). */
+export interface FeatureReport {
+  /** The 13 features of linear-r3 in the order of LinearEvaluator.GAIN_NAMES, side to move minus opponent. */
+  features: number[];
+  /** Evaluators.byName("linear-r3").evaluate: the rounded score for the side to move. */
+  score: number;
+  sideToMove: 0 | 1;
+  /** distance[p][cell]: single-agent distance of a piece of player p on that cell to p's goal corner (Layout.distance). */
+  distance: [number[], number[]];
+}
+
+/** Result of Engine.netForward: the reference forward pass of the network on the root position (net engines only). */
+export interface NetForwardReport {
+  modelId: string;
+  /** planes[plane][cell], absolute cells. */
+  planes: number[][];
+  /** One entry per trunk layer: conv_in, block0 ... blockN; norm[cell] is the L2 norm over the channels after the ReLU. */
+  layers: { id: string; norm: number[] }[];
+  /** Raw policy logits without the classical prior, absolute cells. */
+  logitsNetOnly: { from: number[]; to: number[] };
+  /** The legal moves with their prior with and without the classical prior (softmax over the legal moves). */
+  policy: { move: number; prior: number; priorNetOnly: number }[];
+  /** Expected result of each absolute player in [-1, 1], with and without the value prior. */
+  values: number[];
+  valuesNetOnly: number[];
+  canonicalRotated: boolean;
 }
 
 export interface Progress {
@@ -147,6 +181,17 @@ export interface Engine {
    * the others. Rejects with code unsupported for two players, illegal-history for an illegal history.
    */
   evaluate3?(history: readonly number[], variant?: Variant): Promise<number[]>;
+  /**
+   * The linear-r3 features of a classic position and the per-cell distances (Info page, live mode). Offered by the classical engines;
+   * absent on the others. Rejects with code unsupported for a variant that is not classic, illegal-history for an illegal history.
+   */
+  features?(history: readonly number[], variant?: Variant): Promise<FeatureReport>;
+  /**
+   * Net engines: encodes the position after `history`, runs the reference forward pass on the loaded model and reports planes,
+   * layers and heads. Rejects with code unsupported when there is nothing to evaluate (game over, one legal move). Aborting
+   * restarts the worker, like choose.
+   */
+  netForward?(history: readonly number[], signal?: AbortSignal): Promise<NetForwardReport>;
   /** Whether the game after `history` goes on, is won (by which seat) or drawn. Rejects with illegal-history for an illegal history. */
   outcome(history: readonly number[], variant?: Variant): Promise<EngineOutcome>;
   dispose(): void;

@@ -157,5 +157,16 @@
   "fig.race.col.move": "Zug",
   "fig.race.col.count": "Züge bis ins Ziel",
   "fig.race.chosen": "gewählt",
-  "fig.race.step.narration": "Nach {move} fehlen noch {count} Züge, bis das Ziel voll ist: die kleinste Zahl unter den {legal} legalen Zügen."
+  "fig.race.step.narration": "Nach {move} fehlen noch {count} Züge, bis das Ziel voll ist: die kleinste Zahl unter den {legal} legalen Zügen.",
+  "fig.budget.live.desc": "Deine Partie bei Zug {ply}: Die Engine suchte mit {levels} Knoten pro Zug und erreichte diese Tiefen.",
+  "fig.budget.live.race": "Diese Stellung ist ein Endspiel. Die Engine spielt aus der Endspieltabelle ohne Suche, darum gibt es keine Tiefenmarken.",
+  "fig.budget.live.plainHidden": "Die Reihe ohne Verbesserungen wird für deine Partie nicht gezeigt: Die Browser-Engines haben diese Suche nicht.",
+  "fig.eval.live.desc": "Deine Partie bei Zug {ply}: die 13 Merkmale der Bewertung und der Wert {score}.",
+  "fig.eval.live.evaluator": "Die Tabelle zeigt {evaluator}. Die Engine, die im Browser spielt, ergänzt sie um exakte Endspiel-Rechnung.",
+  "fig.roots.title": "Wie gut ist jeder Zug?",
+  "fig.roots.desc": "Jeder legale Zug der Beispielstellung, bewertet mit einer kurzen Suche von 4000 Knoten pro Zug.",
+  "fig.roots.live.desc": "Jeder legale Zug deiner Partie bei Zug {ply}, bewertet mit einer kurzen Suche von 4000 Knoten pro Zug.",
+  "fig.roots.table.move": "Zug",
+  "fig.roots.table.score": "Wert",
+  "fig.roots.table.band": "Stufe"
 }

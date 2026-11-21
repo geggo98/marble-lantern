@@ -157,5 +157,16 @@
   "fig.race.col.move": "Move",
   "fig.race.col.count": "Moves to finish",
   "fig.race.chosen": "chosen",
-  "fig.race.step.narration": "{move} leaves {count} moves to fill the goal, the smallest count of the {legal} legal moves."
+  "fig.race.step.narration": "{move} leaves {count} moves to fill the goal, the smallest count of the {legal} legal moves.",
+  "fig.budget.live.desc": "Your game at ply {ply}: the engine searched with {levels} nodes per move and reached these depths.",
+  "fig.budget.live.race": "This position is a race. The engine plays from the race table without a search, so there are no depth markers.",
+  "fig.budget.live.plainHidden": "The series without enhancements is not shown for your game: the browser engines have no such search.",
+  "fig.eval.live.desc": "Your game at ply {ply}: the 13 features of the evaluation and the score {score}.",
+  "fig.eval.live.evaluator": "The table shows {evaluator}. The engine that plays in the browser adds exact race arithmetic to it.",
+  "fig.roots.title": "How good is each move?",
+  "fig.roots.desc": "Every legal move of the example position, scored by a short search of 4,000 nodes per move.",
+  "fig.roots.live.desc": "Every legal move of your game at ply {ply}, scored by a short search of 4,000 nodes per move.",
+  "fig.roots.table.move": "Move",
+  "fig.roots.table.score": "Score",
+  "fig.roots.table.band": "Band"
 }

@@ -6,6 +6,7 @@ import { REPO_URL, hrefFor, hrefForAbout } from './Chrome';
 import { ABOUT_TOPICS } from '../about/routes';
 import type { AboutRoute } from '../about/routes';
 import type { TopicPageProps } from '../about/TopicPage';
+import type { LiveInput } from '../about/live/types';
 import '../about/about.css';
 import { useT } from './texts';
 import type { MemoryKind, NaCode } from '../bench/resources';
@@ -245,6 +246,8 @@ const TECH: { name: string; key: 'tech_tornadovm' | 'tech_teavm' | 'tech_emscrip
 export interface AboutScreenProps extends AboutRoute {
   /** A jump inside the "On this page" list: the app replaces the history entry. */
   onJumpSection?: (section: string) => void;
+  /** The snapshot of the game and the engine sources of an "Explain this position" press; the live figures read it (about/live). */
+  live?: LiveInput;
 }
 
 // The shell of the topic pages (lazy topic chunks, loading line, error boundary) is a chunk of its own: it adds about 2.8 kB to the main
@@ -289,9 +292,9 @@ function AboutTopicLoader(props: TopicPageProps): React.JSX.Element {
 }
 
 /** The hub (today's About content, then the topic cards), or a topic page when the route names one. */
-export function AboutScreen({ topic, section, notFound = false, onJumpSection }: AboutScreenProps = {}): React.JSX.Element {
+export function AboutScreen({ topic, section, notFound = false, onJumpSection, live }: AboutScreenProps = {}): React.JSX.Element {
   const { t } = useT();
-  if (topic !== undefined) return <AboutTopicLoader topic={topic} section={section} onJumpSection={onJumpSection ?? (() => undefined)} />;
+  if (topic !== undefined) return <AboutTopicLoader topic={topic} section={section} onJumpSection={onJumpSection ?? (() => undefined)} {...(live ? { live } : {})} />;
   return (
     <main className="ml-page">
       {notFound && <p className="ml-hint" role="status">{t('about_notfound')}</p>}

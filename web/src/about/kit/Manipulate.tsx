@@ -89,7 +89,8 @@ export function Slider({ label, min, max, step = 1, value, onChange, valueText, 
 
 export interface SegmentedProps<T extends string> {
   label: ReactNode;
-  options: readonly { value: T; label: ReactNode }[];
+  /** A disabled option is a disabled native radio: no click and no arrow key selects it, and the arrow keys skip it. `describedBy` is the id of the element that says why. */
+  options: readonly { value: T; label: ReactNode; disabled?: boolean; describedBy?: string }[];
   value: T;
   onChange: (value: T) => void;
 }
@@ -102,13 +103,83 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
     <Ctl label={label} labelId={labelId}>
       <div className="ml-fig-seg" role="radiogroup" aria-labelledby={labelId}>
         {options.map((o) => (
-          <label key={o.value} className="ml-fig-seg__opt">
-            <input type="radio" name={name} value={o.value} checked={o.value === value} onChange={() => onChange(o.value)} />
+          <label key={o.value} className="ml-fig-seg__opt" {...(o.disabled ? { 'data-disabled': '' } : {})}>
+            <input
+              type="radio"
+              name={name}
+              value={o.value}
+              checked={o.value === value}
+              disabled={o.disabled}
+              aria-describedby={o.disabled ? o.describedBy : undefined}
+              onChange={() => onChange(o.value)}
+            />
             <span>{o.label}</span>
           </label>
         ))}
       </div>
     </Ctl>
+  );
+}
+
+export interface LiveSwitchProps {
+  /** `kit.live.label`. */
+  label: ReactNode;
+  /** `kit.live.example`, and `kit.live.mine` with the ply filled in. */
+  exampleLabel: ReactNode;
+  mineLabel: ReactNode;
+  value: 'example' | 'mine';
+  onChange: (value: 'example' | 'mine') => void;
+  /** Why My game cannot be chosen (`kit.live.reason.*`); null when it can. */
+  reason: string | null;
+  /** A run is starting or going on: the Stop button shows. */
+  busy: boolean;
+  stopLabel: string;
+  onStop: () => void;
+  /** The run failed: the Try again button shows. */
+  failed: boolean;
+  retryLabel: string;
+  onRetry: () => void;
+}
+
+/**
+ * The live switch of a figure: Example or My game. The reason text under a disabled My game is linked to it with aria-describedby. The
+ * running status is not here: it belongs in the narration line of the figure (`Figure status`), the figure's only live region.
+ */
+export function LiveSwitch({ label, exampleLabel, mineLabel, value, onChange, reason, busy, stopLabel, onStop, failed, retryLabel, onRetry }: LiveSwitchProps): React.JSX.Element {
+  const reasonId = useId();
+  return (
+    <div className="ml-fig-live" data-live-switch="">
+      <Segmented
+        label={label}
+        options={[
+          { value: 'example', label: exampleLabel },
+          { value: 'mine', label: mineLabel, disabled: reason !== null, describedBy: reasonId },
+        ]}
+        value={value}
+        onChange={onChange}
+      />
+      {reason !== null && (
+        <p className="ml-fig-live__reason" id={reasonId} data-live-reason="">
+          {reason}
+        </p>
+      )}
+      {(busy || failed) && (
+        <div className="ml-fig-live__actions">
+          {busy && (
+            <button type="button" className="ml-btn" data-live-stop="" onClick={onStop}>
+              <Icon name="pause" />
+              {stopLabel}
+            </button>
+          )}
+          {failed && (
+            <button type="button" className="ml-btn" data-live-retry="" onClick={onRetry}>
+              <Icon name="reset" />
+              {retryLabel}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

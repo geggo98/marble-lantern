@@ -91,6 +91,10 @@ export class JavaRequestHandler {
         return this.ready().analyse(request.history, request.moves, request.nodes, request.variant);
       case 'evaluate3':
         return this.ready().evaluate3(request.history, request.variant);
+      case 'features':
+        throw new EngineFailure('unsupported', 'the features export is not implemented by this engine yet'); // WP2 replaces the stub
+      case 'netForward':
+        throw new EngineFailure('unsupported', 'the classical engines have no network');
       case 'outcome':
         return this.ready().outcome(request.history, request.variant);
       case 'bench':

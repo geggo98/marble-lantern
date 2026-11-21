@@ -15,6 +15,8 @@ import { hrefForAbout } from '../ui/Chrome';
 import { useT } from '../ui/texts';
 import { useWide } from '../ui/useMedia';
 import './kit/topic.css';
+import { LiveProvider } from './live/context';
+import type { LiveInput } from './live/types';
 
 export interface SectionSpec {
   slug: string;
@@ -35,6 +37,8 @@ export interface TopicPageProps {
   section?: string | undefined;
   /** The "On this page" list replaces the history entry, so that Back leaves the topic (plan section 1.2). */
   onJumpSection: (section: string) => void;
+  /** The snapshot of the reader's game (the "Explain this position" card); absent when none was pressed. The live figures read it through useLive. */
+  live?: LiveInput | undefined;
 }
 
 /** Scroll and focus after a route change (plan section 1.2): the top and the h1, or the section and its heading. */
@@ -106,7 +110,7 @@ export function defineTopic<K extends string>(def: Omit<TopicDef, 'catalog'> & {
   return { ...def, catalog: def.catalog as unknown as AboutCatalog<string> };
 }
 
-export function TopicPage({ topic, section, onJumpSection, def }: TopicPageProps & { def: TopicDef }): React.JSX.Element {
+export function TopicPage({ topic, section, onJumpSection, live, def }: TopicPageProps & { def: TopicDef }): React.JSX.Element {
   const c = useChrome();
   const text = def.catalog.useAboutT();
   const wide = useWide();
@@ -147,6 +151,7 @@ export function TopicPage({ topic, section, onJumpSection, def }: TopicPageProps
 
   const reading = def.reading.map((id) => READING[id]).filter((e) => e !== undefined);
   return (
+    <LiveProvider input={live ?? null}>
     <TopicFrame topic={topic} aside={wide ? toc : undefined}>
       <header className="ml-about__head">
         <h1 ref={h1} tabIndex={-1} className="ml-page__title">{text('title')}</h1>
@@ -184,5 +189,6 @@ export function TopicPage({ topic, section, onJumpSection, def }: TopicPageProps
         </section>
       )}
     </TopicFrame>
+    </LiveProvider>
   );
 }

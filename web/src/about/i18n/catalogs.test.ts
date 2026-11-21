@@ -26,7 +26,7 @@ const placeholders = (text: string): string[] => [...text.matchAll(/\{(?<name>\w
 
 const FIGURE_PREFIXES: Record<(typeof TOPICS)[number], readonly string[]> = {
   architecture: ['fig.offline', 'fig.online', 'fig.pipeline', 'fig.tree'],
-  classical: ['fig.ab', 'fig.eval', 'fig.budget', 'fig.race'],
+  classical: ['fig.ab', 'fig.eval', 'fig.budget', 'fig.race', 'fig.roots'],
   inference: ['fig.net', 'fig.forward', 'fig.mcts'],
   training: ['fig.loop', 'fig.pooled', 'fig.lr'],
   tuning: ['fig.story'],
@@ -138,7 +138,7 @@ describe('kit catalog', () => {
 
   it('has the same keys and the same placeholders in both languages, all filled, all under kit.', () => {
     expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort());
-    expect(Object.keys(en).length).toBe(59);
+    expect(Object.keys(en).length).toBe(80); // 59 + the 21 keys of the live mode (kit.live.*, kit.chip.example, mine, exampleOnly)
     expect(Object.keys(en).filter((k) => !k.startsWith('kit.'))).toEqual([]);
     for (const k of Object.keys(en)) {
       expect(de[k], k).toBeTruthy();

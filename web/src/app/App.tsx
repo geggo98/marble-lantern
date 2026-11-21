@@ -36,6 +36,7 @@ import { browserLedgerStore } from '../skill/ledger';
 import type { LedgerStore } from '../skill/ledger';
 import { Sprite } from '../ui/primitives';
 import { AboutScreen, BenchScreen } from '../ui/Screens';
+import type { ExplainTarget, LiveInput } from '../about/live/types';
 import type { BenchRunner } from '../ui/Screens';
 import { StartDialog } from '../ui/StartDialog';
 import type { StartDialogModel } from '../ui/StartDialog';
@@ -147,6 +148,9 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     const rows = parsed.kind === 'game' ? 4 : loadChoice().rows;
     return initialSetup ?? withBoardRows(humanVsEngine(1, DEFAULT_LEVEL), rows);
   });
+  /** The game as it was when "Explain this position" was last pressed; memory only, lost on reload (about/live/types.ts). */
+  const [explain, setExplain] = useState<LiveInput | null>(null);
+  const explainCount = useRef(0);
   const flowRef = useRef(flow);
   const setupRef = useRef(setup);
   /** The side the human played last; stays while a demo runs, so that "new game" returns to it. */
@@ -437,6 +441,17 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     presetLevel: presetLevel.current,
     canShare: playing && !demo,
     getUrl: () => nav.href,
+    explain: {
+      playing,
+      // The link then navigates by itself; this only stores the snapshot. No engine starts here.
+      onExplain: (_target: ExplainTarget) => {
+        const now = game.state;
+        setExplain({
+          snapshot: { id: ++explainCount.current, history: [...now.history], variant: now.variant, ply: now.history.length, over: now.outcome !== null },
+          sources: () => ({ classical: session.analysisSource(), net: session.netSource() }),
+        });
+      },
+    },
     onNewGame: () => {
       tracker.abort();
       // ask for the game again, like at the start; Escape or "keep my game" returns to the game that runs
@@ -552,7 +567,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         <Header screen={screen} online={online} />
         {screen === 'play' && <PlayScreen model={model} />}
         {screen === 'bench' && <BenchScreen runner={benchRunner} />}
-        {screen === 'about' && <AboutScreen {...about} onJumpSection={jumpSection} />}
+        {screen === 'about' && <AboutScreen {...about} onJumpSection={jumpSection} {...(explain ? { live: explain } : {})} />}
         <Footer />
         <UpdateNotice {...(pwa ? { pwa } : {})} />
       </div>

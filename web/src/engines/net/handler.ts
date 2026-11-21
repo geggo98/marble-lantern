@@ -110,6 +110,10 @@ export class NetRequestHandler {
         return this.ready().analyse();
       case 'evaluate3':
         throw new EngineFailure('unsupported', 'the net engines have no static evaluation vector');
+      case 'features':
+        throw new EngineFailure('unsupported', 'the net engines have no feature report');
+      case 'netForward':
+        throw new EngineFailure('unsupported', 'the forward report is not implemented yet'); // WP4 replaces the stub
       case 'outcome':
         return this.ready().outcome(request.history, request.variant);
       case 'bench':

@@ -22,6 +22,10 @@ export type Request =
   | { id: number; type: 'analyse'; history: number[]; moves: number[] | null; nodes: number; variant?: Variant }
   /** The static evaluation vector of a three-player position: three integers, one per absolute player (the classical engines only). */
   | { id: number; type: 'evaluate3'; history: number[]; variant: Variant }
+  /** The linear-r3 feature report of a classic position (the classical engines only). */
+  | { id: number; type: 'features'; history: number[]; variant: Variant }
+  /** The reference forward pass on the root position (the net engines only). */
+  | { id: number; type: 'netForward'; history: number[] }
   /** Ongoing, won or drawn after the history. */
   | { id: number; type: 'outcome'; history: number[]; variant?: Variant }
   /** Runs the benchmark game inside the worker. */

@@ -4,8 +4,8 @@ import './figure.css';
 
 export { Figure, FigureDetail, Legend, LegendItem, Chip } from './Figure';
 export type { FigureProps, FigureDetailProps } from './Figure';
-export { Manipulate, Ctl, Slider, Segmented, Presets, Checkbox, Select, Readout, Stepper } from './Manipulate';
-export type { StepperLabels, StepperProps, SliderProps, SegmentedProps, PresetsProps, CheckboxProps, SelectProps, ReadoutProps, CtlProps } from './Manipulate';
+export { Manipulate, Ctl, Slider, Segmented, Presets, Checkbox, Select, Readout, Stepper, LiveSwitch } from './Manipulate';
+export type { LiveSwitchProps, StepperLabels, StepperProps, SliderProps, SegmentedProps, PresetsProps, CheckboxProps, SelectProps, ReadoutProps, CtlProps } from './Manipulate';
 export { useStepper, stepperReducer, initialStepper, PLAY_INTERVAL_MS } from './useStepper';
 export type { StepperState, StepperAction, UseStepper } from './useStepper';
 export { Plot, PlotLine, PlotBars, PlotDots, PlotRef, PlotBand, PlotCursor, usePlot, useMeasuredWidth } from './Plot';

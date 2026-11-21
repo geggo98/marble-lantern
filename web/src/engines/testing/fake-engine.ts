@@ -5,7 +5,7 @@ import { applyMove, goalCells, initialOwners, outcomeOf, playState } from '../..
 import { DEFAULT_VARIANT, moveLimit } from '../../game/variant';
 import type { Player } from '../../game/variant';
 import type { Variant } from '../../game/variant';
-import type { AnalysisResult, ChooseResult, EngineInfo, EngineOutcome, LoadReport } from '../engine';
+import type { AnalysisResult, ChooseResult, EngineInfo, EngineOutcome, FeatureReport, LoadReport, NetForwardReport } from '../engine';
 import { EngineFailure } from '../protocol';
 import type { Request, WorkerOut } from '../protocol';
 import type { WorkerLike } from '../client';
@@ -52,6 +52,8 @@ export class FakeEngineCore {
   initCalls = 0;
   analyseCalls = 0;
   newGameCalls = 0;
+  featuresCalls = 0;
+  netForwardCalls = 0;
   tableReceived: number | null = null;
 
   constructor(seed = 1) {
@@ -86,9 +88,46 @@ export class FakeEngineCore {
       case 'evaluate3':
         if (request.variant.players !== 3) throw new EngineFailure('unsupported', 'evaluate3 is for three players');
         return [0, 0, 0];
+      case 'features':
+        return this.features(request.history, request.variant);
+      case 'netForward':
+        return this.netForward(request.history);
       case 'bench':
         throw new EngineFailure('internal', 'bench is not implemented by the fake engine');
     }
+  }
+
+  /** A report of the right shape with fixed numbers: 13 features that count the ply, score 0, zero distances. Tests that need real numbers pass their own core. */
+  private features(history: readonly number[], variant: Variant): FeatureReport {
+    this.featuresCalls++;
+    if (variant.players !== 2 || variant.jump !== 'adjacent' || (variant.rows ?? 4) !== 4 || (variant.camps ?? 'closed') !== 'closed') {
+      throw new EngineFailure('unsupported', 'features is for the classic game');
+    }
+    this.legal(history, variant); // illegal-history
+    return {
+      features: Array.from({ length: 13 }, (_, i) => (i === 0 ? history.length : 0)),
+      score: 0,
+      sideToMove: (history.length % 2) as 0 | 1,
+      distance: [Array.from({ length: CELLS.length }, () => 0), Array.from({ length: CELLS.length }, () => 0)],
+    };
+  }
+
+  /** A report of the right shape: two planes of zeros, one layer, a uniform policy over the legal moves, values 0. */
+  private netForward(history: readonly number[]): NetForwardReport {
+    this.netForwardCalls++;
+    const moves = this.legal(history, DEFAULT_VARIANT);
+    if (moves.length < 2) throw new EngineFailure('unsupported', 'nothing to evaluate');
+    const zeros = (): number[] => Array.from({ length: CELLS.length }, () => 0);
+    return {
+      modelId: 'fake',
+      planes: [zeros(), zeros()],
+      layers: [{ id: 'conv_in', norm: zeros() }],
+      logitsNetOnly: { from: zeros(), to: zeros() },
+      policy: moves.map((move) => ({ move, prior: 1 / moves.length, priorNetOnly: 1 / moves.length })),
+      values: [0, 0],
+      valuesNetOnly: [0, 0],
+      canonicalRotated: history.length % 2 === 1,
+    };
   }
 
   private legal(history: readonly number[], variant: Variant): number[] {
@@ -211,7 +250,7 @@ export class FakeWorker implements WorkerLike {
       }
       this.onmessage?.({ data: reply });
     };
-    if ((message.type === 'choose' || message.type === 'analyse') && this.options.chooseDelayMs) {
+    if ((message.type === 'choose' || message.type === 'analyse' || message.type === 'netForward') && this.options.chooseDelayMs) {
       const t = setTimeout(() => { this.timers.delete(t); run(); }, this.options.chooseDelayMs);
       this.timers.add(t);
     } else {

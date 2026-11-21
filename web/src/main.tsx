@@ -4,6 +4,7 @@ import '../design/tokens.css';
 import './ui/ui.css';
 import './ui/ui-extra.css';
 import './ui/guides.css';
+import './ui/explain.css';
 import { i18n } from './i18n/i18n';
 import { App } from './app/App';
 import type { BenchRunner } from './ui/Screens';

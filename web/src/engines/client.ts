@@ -1,5 +1,5 @@
 // Wraps a Worker into an Engine: id counter, pending map, progress routing, terminate-and-restart on abort.
-import type { AnalysisResult, ChooseResult, Engine, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from './engine';
+import type { AnalysisResult, ChooseResult, Engine, FeatureReport, NetForwardReport, EngineInfo, EngineOutcome, GameSetup, LoadReport, Progress } from './engine';
 import { DEFAULT_VARIANT } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { isEvent, EngineFailure } from './protocol';
@@ -126,6 +126,14 @@ export class WorkerEngine implements Engine {
 
   async evaluate3(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<number[]> {
     return (await this.call({ type: 'evaluate3', history: [...history], variant })) as number[];
+  }
+
+  async features(history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<FeatureReport> {
+    return (await this.call({ type: 'features', history: [...history], variant })) as FeatureReport;
+  }
+
+  async netForward(history: readonly number[], signal?: AbortSignal): Promise<NetForwardReport> {
+    return (await this.abortable({ type: 'netForward', history: [...history] }, signal)) as NetForwardReport;
   }
 
   /** A long request that the caller may abort: cancel means terminate the worker and start a new one. */

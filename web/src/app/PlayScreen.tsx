@@ -23,6 +23,10 @@ import type { AnalyseFn } from '../guides/analyser';
 import { estimateDistance } from '../result/distance';
 import type { DistanceEstimate } from '../result/distance';
 import { useDistanceEstimate } from '../result/useDistance';
+import { ExplainCard } from './ExplainCard';
+import type { ExplainBlock } from './ExplainCard';
+import { isClassic } from '../about/live/classic';
+import type { ExplainTarget } from '../about/live/types';
 import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
 import { LanguageToggle } from '../ui/LanguageToggle';
 import { ActionBar } from '../ui/ActionBar';
@@ -72,6 +76,8 @@ export interface PlayModel {
   /** Copy link: only while a human game runs. */
   canShare: boolean;
   getUrl: () => string;
+  /** The card "Explain this position": a game runs (not just the start dialog), and the snapshot is stored when a link is pressed. */
+  explain: { playing: boolean; onExplain: (target: ExplainTarget) => void };
   onNewGame: () => void;
   onSwap: () => void;
   onDemo: () => void;
@@ -347,6 +353,8 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
       ? (goalCells(variant)[state.outcome.winner] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Player }).winner)
       : [];
 
+  const explainBlock: ExplainBlock | null = !model.explain.playing ? 'nogame' : state.outcome ? 'over' : !isClassic(variant) ? 'variant' : null;
+
   const controls = (part: 'all' | 'secondary'): React.JSX.Element => (
     <Controls
       part={part}
@@ -382,6 +390,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         }}
       />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
+      <ExplainCard blocked={explainBlock} onExplain={model.explain.onExplain} />
       <InstallEntry {...(model.pwa ? { pwa: model.pwa } : {})} />
       <EngineCard
         info={s.current?.info ?? null}

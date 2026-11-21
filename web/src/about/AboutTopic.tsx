@@ -82,7 +82,7 @@ class TopicBoundary extends Component<{ topic: AboutTopic; onRetry: () => void; 
   }
 }
 
-export function AboutTopic({ topic, section, onJumpSection }: TopicPageProps): React.JSX.Element {
+export function AboutTopic({ topic, section, onJumpSection, live }: TopicPageProps): React.JSX.Element {
   const { t } = useT();
   const [attempt, setAttempt] = useState(0);
   const Page = lazyTopic(topic);
@@ -96,7 +96,7 @@ export function AboutTopic({ topic, section, onJumpSection }: TopicPageProps): R
           </main>
         }
       >
-        <Page topic={topic} section={section} onJumpSection={onJumpSection} />
+        <Page topic={topic} section={section} onJumpSection={onJumpSection} {...(live ? { live } : {})} />
       </Suspense>
     </TopicBoundary>
   );

@@ -193,5 +193,11 @@
   "fig.mcts.inset.axis.x": "Constant c",
   "fig.mcts.inset.axis.y": "Elo against classical",
   "fig.mcts.inset.desc": "Dot-and-whisker chart of five measurements: the Elo of the net engine against the classical engine for `c` = {n:0.5}, {n:1.0}, {n:1.5}, {n:2.5} and {n:4.0}. The highest value, +338, is at {n:1.0}; the values from {n:0.5} to {n:1.5} overlap.",
-  "fig.mcts.inset.caption": "Generation-0 SMALL network at 100 simulations against the classical engine at {n:1600} nodes, 100 opening pairs per value. Between {n:0.5} and {n:1.5} the curve is flat."
+  "fig.mcts.inset.caption": "Generation-0 SMALL network at 100 simulations against the classical engine at {n:1600} nodes, 100 opening pairs per value. Between {n:0.5} and {n:1.5} the curve is flat.",
+  "fig.mcts.live.caption": "Your game at ply {ply}: the search with {sims} simulations on the model {model}. The tree below the root is still the example’s.",
+  "fig.mcts.live.settings": "One simulation at a time, no noise, the expert model.",
+  "fig.mcts.live.noQ": "Not available: the engine file in this browser is older than this figure.",
+  "fig.forward.position.mine": "My game (ply {ply})",
+  "fig.forward.live.caption": "Your game at ply {ply}, passed through the model {model}.",
+  "fig.forward.live.single": "One forward pass computed these numbers."
 }

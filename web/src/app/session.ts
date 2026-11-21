@@ -85,6 +85,20 @@ export class EngineSession {
     return { id: choice.info.id, create: () => createEngine(choice, manifest, this.deps.baseUrl) };
   }
 
+  /**
+   * The net engine of the Info page, for My-game mode: always `net-wasm` (CPU), never `net-webgpu`. The GPU forward pass rounds
+   * differently, so visit counts could differ from the goldens, and a lost GPU process would add a failure mode the figures do not
+   * need. Null before start(), when this browser cannot run it or the build does not ship it. The choice is looked up for the default
+   * variant: the net engine of a snapshot does not depend on the game variant that is on now. `create` makes the engine, not yet initialised.
+   */
+  netSource(): AnalysisSource | null {
+    const manifest = this.manifest;
+    if (!manifest) return null;
+    const choice = describeEngines(manifest, DEFAULT_VARIANT).find((c) => c.info.id === 'net-wasm');
+    if (!choice?.available) return null;
+    return { id: choice.info.id, create: () => createEngine(choice, manifest, this.deps.baseUrl) };
+  }
+
   getState = (): SessionState => this.state;
 
   subscribe = (listener: () => void): (() => void) => {

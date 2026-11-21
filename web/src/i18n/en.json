@@ -460,5 +460,16 @@
   "rules_reason_net_mismatch": "The model you chose does not play this rule, so the net engine moves at random. After the start, you can choose a classical engine under “Engine and strength”.",
   "rules_summary_more": "+{n} more",
   "rules_hint_toggle": "More about “{rule}”",
-  "rules_reason_no_engine": "No engine in this build plays “{value}”."
+  "rules_reason_no_engine": "No engine in this build plays “{value}”.",
+  "explain_title": "Explain this position",
+  "explain_lead": "Open the Info page for your game and see its numbers.",
+  "explain_link_budget": "How deep does the engine see?",
+  "explain_link_roots": "How good is each move?",
+  "explain_link_eval": "What the evaluation counts",
+  "explain_link_mcts": "How MCTS chooses",
+  "explain_link_forward": "Inside the network",
+  "explain_net_note": "Downloads the network engine and a model (about 115 kB) when you press “My game”.",
+  "explain_disabled_nogame": "Start a game first.",
+  "explain_disabled_over": "The game is over; there is no move to explain.",
+  "explain_disabled_variant": "Only for two players, adjacent jumps, on the 4-row board."
 }

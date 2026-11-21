@@ -65,8 +65,28 @@ export function useFigText(catalog: Catalog): FigText {
 
 export const DATA_DIR = 'web/src/about/data';
 
-/** Source chips (real paths of the repository) and the data chip that names the JSON file of the figure. */
-export function FigFoot({ kit, paths, data }: { kit: Lookup; paths: readonly string[]; data: string }): React.JSX.Element {
+/**
+ * Where the numbers of a live figure come from: the committed example ("Example position, precomputed, ply 30"), the reader's own game
+ * ("Your game, ply N, computed in your browser"), or a part that has no live form ("Example position (precomputed)").
+ */
+export type DataOrigin = { kind: 'example'; ply: number } | { kind: 'mine'; ply: number } | { kind: 'exampleOnly' };
+
+export function originText(kit: Lookup, origin: DataOrigin): string {
+  switch (origin.kind) {
+    case 'example':
+      return kit('kit.chip.example', { ply: origin.ply });
+    case 'mine':
+      return kit('kit.chip.mine', { ply: origin.ply });
+    case 'exampleOnly':
+      return kit('kit.chip.exampleOnly');
+  }
+}
+
+/**
+ * Source chips (real paths of the repository) and the data chip that names the JSON file of the figure. A live figure passes `origin`: the
+ * chip then says where the numbers come from, and in My-game mode the JSON file is not their source, so its chip is left out.
+ */
+export function FigFoot({ kit, paths, data, origin }: { kit: Lookup; paths: readonly string[]; data: string; origin?: DataOrigin }): React.JSX.Element {
   return (
     <>
       {paths.map((p) => (
@@ -74,9 +94,18 @@ export function FigFoot({ kit, paths, data }: { kit: Lookup; paths: readonly str
           {p}
         </Chip>
       ))}
-      <Chip data href={sourceUrl(`${DATA_DIR}/${data}`)} prefix={kit('kit.chip.data')}>
-        {data}
-      </Chip>
+      {origin && (
+        <span data-origin={origin.kind}>
+          <Chip data prefix="">
+            {originText(kit, origin)}
+          </Chip>
+        </span>
+      )}
+      {origin?.kind !== 'mine' && (
+        <Chip data href={sourceUrl(`${DATA_DIR}/${data}`)} prefix={kit('kit.chip.data')}>
+          {data}
+        </Chip>
+      )}
     </>
   );
 }
