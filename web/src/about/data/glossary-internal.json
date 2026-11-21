@@ -1,8 +1,11 @@
 [
   "best-spec",
   "browser-spec",
+  "bucket",
+  "device-thread",
   "equal-cost",
   "gate",
+  "kernel-choice-rule",
   "ladder",
   "loop-run",
   "passed-position",

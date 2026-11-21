@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source": "fact sheet hyperparameters-and-literature.md, section 6, rows 1 to 27; rows 28 to 31: chapters of Russell and Norvig, AIMA 4th ed., Global Edition, chapter and section numbers checked against the book's table of contents on 2026-11-21 (they differ from the US edition)",
+  "source": "fact sheet hyperparameters-and-literature.md, section 6, rows 1 to 27; rows 28 to 31: chapters of Russell and Norvig, AIMA 4th ed., Global Edition, chapter and section numbers checked against the book's table of contents on 2026-11-21 (they differ from the US edition); rows 32 to 44: fact sheet java-facts.md, table 'Further reading' (topic 'java'), each URL answered HTTP 200 on 2026-11-21",
   "verifiedOn": "2026-11-21",
   "items": [
     { "id": 1, "title": "Minimax", "authors": "Chessprogramming Wiki (community)", "url": "https://www.chessprogramming.org/Minimax", "level": "beginner", "verifiedOn": "2026-11-21" },
@@ -33,6 +33,19 @@
     { "id": 28, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 6: Adversarial Search and Games", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner", "verifiedOn": "2026-11-21", "paywalled": true },
     { "id": 29, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 19: Learning from Examples", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner", "verifiedOn": "2026-11-21", "paywalled": true },
     { "id": 30, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 22: Deep Learning", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner to advanced", "verifiedOn": "2026-11-21", "paywalled": true },
-    { "id": 31, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 23: Reinforcement Learning", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "advanced", "verifiedOn": "2026-11-21", "paywalled": true }
+    { "id": 31, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 23: Reinforcement Learning", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "advanced", "verifiedOn": "2026-11-21", "paywalled": true },
+    { "id": 32, "title": "TornadoVM documentation", "authors": "TornadoVM project", "url": "https://tornadovm.readthedocs.io/en/latest/", "level": "beginner to advanced", "verifiedOn": "2026-11-21" },
+    { "id": 33, "title": "TornadoVM source and examples", "authors": "beehive-lab", "url": "https://github.com/beehive-lab/TornadoVM", "level": "advanced", "verifiedOn": "2026-11-21" },
+    { "id": 34, "title": "JEP 537: Vector API (Twelfth Incubator)", "authors": "OpenJDK", "url": "https://openjdk.org/jeps/537", "level": "advanced", "verifiedOn": "2026-11-21" },
+    { "id": 35, "title": "Module jdk.incubator.vector (Java SE 25 API)", "authors": "Oracle", "url": "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.incubator.vector/module-summary.html", "level": "advanced", "verifiedOn": "2026-11-21" },
+    { "id": 36, "title": "JEP 401: Value Objects (Preview)", "authors": "OpenJDK", "url": "https://openjdk.org/jeps/401", "level": "advanced", "verifiedOn": "2026-11-21" },
+    { "id": 37, "title": "Project Valhalla", "authors": "OpenJDK", "url": "https://openjdk.org/projects/valhalla/", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 38, "title": "JDK 28", "authors": "OpenJDK", "url": "https://openjdk.org/projects/jdk/28/", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 39, "title": "JEP 444: Virtual Threads", "authors": "OpenJDK", "url": "https://openjdk.org/jeps/444", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 40, "title": "Virtual Threads (Java SE 25 Core Libraries)", "authors": "Oracle", "url": "https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 41, "title": "JEP 454: Foreign Function & Memory API", "authors": "OpenJDK", "url": "https://openjdk.org/jeps/454", "level": "advanced", "verifiedOn": "2026-11-21" },
+    { "id": 42, "title": "How to create and use browser-callable services in Hilla", "authors": "Vaadin", "url": "https://vaadin.com/docs/latest/hilla/guides/browser-callable-services", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 43, "title": "Hilla documentation", "authors": "Vaadin", "url": "https://vaadin.com/docs/latest/hilla", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 44, "title": "TeaVM overview", "authors": "TeaVM project", "url": "https://teavm.org/docs/intro/overview.html", "level": "beginner", "verifiedOn": "2026-11-21" }
   ]
 }

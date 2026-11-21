@@ -78,5 +78,9 @@
   "kit.live.retry": "Try again",
   "kit.chip.example": "Example position, precomputed, ply {ply}",
   "kit.chip.mine": "Your game, ply {ply}, computed in your browser",
-  "kit.chip.exampleOnly": "Example position (precomputed)"
+  "kit.chip.exampleOnly": "Example position (precomputed)",
+  "kit.code.copy": "Copy code",
+  "kit.code.copied": "Copied",
+  "kit.code.copyfailed": "Copying failed. Select the code and copy it by hand.",
+  "kit.code.lines": "lines {from} to {to}"
 }
