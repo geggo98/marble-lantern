@@ -141,8 +141,9 @@ Limit: an alias resolves on `:root`. A component that forces a theme on a subtre
 | `--ml-color-focus` on `--ml-fig-panel-bg` | #5b2bd9 on #ece5d6 | 5.9 | #c2adff on #0f0d0b | 9.8 | 3 |
 | `--ml-color-focus` on `--ml-fig-accent-bg` | #5b2bd9 on #d9ece8 | 6.1 | #c2adff on #12332f | 6.9 | 3 |
 | `--ml-color-focus` on `--ml-fig-board-bg` | #5b2bd9 on #e7dcc6 | 5.5 | #c2adff on #25201b | 8.2 | 3 |
+| `--ml-color-ink` on `--ml-color-line` (chevron on the hover fill of its zone, V4) | #1f1b16 on #d9cfbb | 11.0 | #f2ebdf on #332d26 | 11.4 | 3 |
 
-All 41 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
+All 42 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
 
 Two fills are below 3:1 on purpose, as decoration: `--ml-fig-band` and `--ml-fig-accent-bg` against the figure background. Each has an outline in `--ml-fig-accent` that carries the shape. Do not draw either without its outline.
 
@@ -584,11 +585,15 @@ Each note gives the view box or coordinate system, the order of the elements fro
 ### V4 Source tree explorer
 
 - **Kind:** HTML tree plus a small dependency graph.
-- **Tree:** a nested list with `role="tree"`; rows 44 px high; indentation 20 px per level; a chevron that turns for an open directory; the path in monospace; tags `.ml-tag` for generated, ignored and LFS; one note line in muted text.
-- **Graph, wide:** an SVG next to the tree (`.ml-fig__stage--split`, graph in the second column), view box `0 0 360 360`: the ten Gradle modules as boxes of 96 × 32 units in four ranks from `engine` at the bottom to `app` and `selfplay` at the top; edges "depends on" point down. Selecting a module sets its edges and neighbours to `active` and the rest to `dim`. `role="img"`; the same facts are in a text line under the graph.
-- **Focusable:** the tree (one tab stop), nothing in the graph.
-- **Controls:** radio group for the filter (segmented switch, 4 options plus "everything").
-- **Compact:** no graph. Under the tree, two text lines for the selected module: "depends on" and "used by".
+- **Tree:** a nested list with `role="tree"`; every row is one target of at least 44 px (chevron zone 44 px, kind icon, text, check-mark column); indentation 20 px per level with a guide line; the path in monospace; one note line in muted text.
+- **One action for every row:** a click selects the row and shows its details in the panel. A folder row that is closed also opens; the chevron zone only opens and closes. A second click does not deselect. Escape and the close button of the panel clear the selection. Origin: owner's remark of 2026-11-21 that it was unclear what can be clicked (`web/src/app/` as the example). Source of the design: `v4-affordance-spec.md` of the design pass of that date.
+- **Row kinds without colour:** folder, open folder, file and module (cube icon plus the tag "module") differ by icon and word. "Not in Git" is a dashed tag with an icon, and the path is italic; Git LFS is a solid tag with an icon. Nothing is struck through. A row outside the filter is one muted line without its note; a row inside is bold.
+- **States:** hover (sunken fill, underlined path), pressed (2 px ink inset), focus (3 px ring inside the row), selected (accent fill, 4 px bar, bold path, check mark). They combine without a special case.
+- **Detail panel:** the kit part `.ml-fig__detail` in a second column of 19rem (wide) or after the tree, sticky at the lower edge of the viewport (compact). It shows kind, path, note, where it runs, Git state, for module rows what it depends on and what uses it, for folders the number of entries, and a link "Open on GitHub" (a sentence for an entry that is not in Git). Empty, it shows a dashed frame with the instruction.
+- **Graph, wide:** an SVG below the legend, at most 440 px wide so that its 12-unit labels stay at 12 px or more; the ten Gradle modules in ranks from `engine` at the bottom; edges "depends on" point down. The module of the selected row (also a child row with the module of its parent) sets its edges and neighbours to `active` and the rest to `dim`. `role="img"`; the facts are in the panel.
+- **Focusable:** the tree (one tab stop, roving `tabindex`), then the link and the close button of the panel, nothing in the graph. Focus does not select; Enter and Space select and change nothing else.
+- **Controls:** radio group for the filter (segmented switch, 4 options plus "everything"); above the tree a status line "19 / 34" with the filter name.
+- **Compact:** no graph. The panel follows the tree and names the dependencies.
 
 ### V5 Alpha-beta tree of the start position
 

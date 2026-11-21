@@ -366,3 +366,175 @@ test('Fig. 5.4 at 820: no two x tick labels touch (m14)', async ({ page }) => {
   expect(gaps.length).toBeGreaterThan(3);
   for (const g of gaps) expect(g).toBeGreaterThanOrEqual(2);
 });
+
+// ===== Fig. 1.1 (V4, source tree): what a row is and what a click does (design spec v4-affordance-spec.md) =====
+const FOLDERS = ['tablebase', 'app', 'cpp', 'webEngines', 'scripts'];
+
+async function openTree(page: Page, size: Size, lang: 'en' | 'de'): Promise<void> {
+  await open(page, 'architecture', 'fig-tree', size, lang);
+  for (const id of FOLDERS) await page.locator(`#fig-tree [data-entry="${id}"] .ml-fig-tree__chev`).click();
+  await expect(page.locator('#fig-tree [data-entry]')).toHaveCount(34);
+}
+
+for (const lang of ['en', 'de'] as const) {
+  for (const size of [PHONE, TABLET]) {
+    test.describe(`Fig. 1.1 source tree, ${lang}, ${size.width}`, () => {
+      test('every row has the pointer, the role and a 44 px target; the chevron zone is 44 by 44 px', async ({ page }) => {
+        await openTree(page, size, lang);
+        const rows = await page.locator('#fig-tree [data-entry]').evaluateAll((els) =>
+          els.map((el) => {
+            const box = el.getBoundingClientRect();
+            const chev = el.querySelector<HTMLElement>('[data-toggle]')?.getBoundingClientRect();
+            return { id: (el as HTMLElement).dataset.entry!, role: el.getAttribute('role'), selected: el.getAttribute('aria-selected'), cursor: getComputedStyle(el).cursor, h: box.height, chevW: chev?.width, chevH: chev?.height, folder: el.hasAttribute('aria-expanded') };
+          }),
+        );
+        expect(rows).toHaveLength(34);
+        for (const r of rows) {
+          expect(r.role, r.id).toBe('treeitem');
+          expect(r.selected, r.id).toBe('false');
+          expect(r.cursor, r.id).toBe('pointer');
+          expect(r.h, r.id).toBeGreaterThanOrEqual(43.5);
+          if (r.folder) {
+            expect(r.chevW, r.id).toBeGreaterThanOrEqual(43.5);
+            expect(r.chevH, r.id).toBeGreaterThanOrEqual(43.5);
+          }
+        }
+        expect(rows.filter((r) => r.folder).map((r) => r.id)).toEqual(FOLDERS);
+      });
+
+      test('the row types differ by icon, tag and text, not by colour alone; nothing is struck through', async ({ page }) => {
+        await openTree(page, size, lang);
+        const look = (id: string) =>
+          page.locator(`#fig-tree [data-entry="${id}"]`).evaluate((el) => {
+            const code = el.querySelector('code')!;
+            const tags = [...el.querySelectorAll<HTMLElement>('.ml-fig-tree__tag')].map((t) => ({ border: getComputedStyle(t).borderTopStyle, icon: t.querySelector('svg') !== null, text: t.textContent!.trim() }));
+            return {
+              kind: el.getAttribute('data-kind'),
+              icon: el.querySelector('.ml-fig-tree__kind svg')?.innerHTML ?? '',
+              italic: getComputedStyle(code).fontStyle,
+              decoration: getComputedStyle(code).textDecorationLine,
+              tags,
+              name: el.textContent!,
+            };
+          });
+        const [module, plain, file, ignored, lfs] = await Promise.all(['engine', 'webApp', 'settings', 'data', 'tables'].map(look));
+        // kind: three different icons for module, directory and file; the module has its own tag with a solid border
+        expect(new Set([module!.icon, plain!.icon, file!.icon]).size).toBe(3);
+        expect(module!.tags).toHaveLength(1);
+        expect(module!.tags[0]!.border).toBe('solid');
+        expect(plain!.tags).toHaveLength(0);
+        // not in Git: italic path, dashed tag with an icon and a word, no line through the text
+        expect(ignored!.italic).toBe('italic');
+        expect(ignored!.tags).toHaveLength(1);
+        expect(ignored!.tags[0]).toMatchObject({ border: 'dashed', icon: true });
+        expect(ignored!.tags[0]!.text.length).toBeGreaterThan(3);
+        expect(plain!.italic).toBe('normal');
+        // Git LFS: solid tag with an icon and a word, upright path
+        expect(lfs!.tags[0]).toMatchObject({ border: 'solid', icon: true });
+        expect(lfs!.italic).toBe('normal');
+        expect(new Set([ignored!.tags[0]!.text, lfs!.tags[0]!.text]).size).toBe(2);
+        // the kind is also in the accessible name (hidden text): a module is told apart from a directory by text
+        expect(module!.name).not.toBe(plain!.name);
+        for (const l of [module, plain, file, ignored, lfs]) expect(l!.decoration).not.toContain('line-through');
+        // the same under a filter, where rows are dimmed
+        await page.locator('#fig-tree .ml-fig-seg label').nth(3).click();
+        const decorations = await page.locator('#fig-tree [data-entry] *').evaluateAll((els) => els.map((e) => getComputedStyle(e).textDecorationLine));
+        expect(decorations.length).toBeGreaterThan(100);
+        expect(decorations.filter((d) => d.includes('line-through'))).toEqual([]);
+      });
+
+      test('a filter makes a row that does not match one muted line, and the count line says how many match', async ({ page }) => {
+        await openTree(page, size, lang);
+        const before = await page.locator('#fig-tree [data-entry="selfplay"]').boundingBox();
+        await page.locator('#fig-tree .ml-fig-seg label').nth(1).click(); // Browser
+        await expect(page.locator('#fig-tree .ml-fig-tree__count b')).toHaveText('19 / 34');
+        const match = page.locator('#fig-tree [data-entry="webApp"]');
+        const other = page.locator('#fig-tree [data-entry="selfplay"]');
+        await expect(match).toHaveAttribute('data-match', 'true');
+        await expect(other).toHaveAttribute('data-match', 'false');
+        const oHeight = (await other.boundingBox())!.height;
+        expect(oHeight).toBeLessThan(before!.height);
+        expect(await match.locator('code').evaluate((e) => Number(getComputedStyle(e).fontWeight))).toBeGreaterThan(
+          await other.locator('code').evaluate((e) => Number(getComputedStyle(e).fontWeight)),
+        );
+        await expect(other.locator('.ml-fig-tree__note')).toBeHidden();
+        await expect(match.locator('.ml-fig-tree__note')).toBeVisible();
+      });
+
+      test('a click on any kind of row selects it and shows what it is; folders open; the link goes to GitHub; a local entry has no link', async ({ page }) => {
+        await openTree(page, size, lang);
+        const detail = page.locator('#fig-tree .ml-fig__detail');
+        const cases: [string, string, string][] = [
+          ['webApp', 'web/src/app/', 'tree'],
+          ['settings', 'settings.gradle.kts', 'blob'],
+          ['engine', 'engine/src/main/java/sternhalma/engine/', 'tree'],
+          ['tables', 'tablebase/tables/', 'tree'],
+          ['appEntry', 'app/src/main/frontend/views/@index.tsx', 'blob'],
+        ];
+        for (const [id, path, type] of cases) {
+          await page.locator(`#fig-tree [data-entry="${id}"]`).click();
+          await expect(page.locator(`#fig-tree [data-entry="${id}"]`)).toHaveAttribute('aria-selected', 'true');
+          await expect(page.locator('#fig-tree [aria-selected="true"]')).toHaveCount(1);
+          await expect(detail.locator('h4')).toHaveText(path);
+          const link = detail.locator('a.ml-fig-tree__gh');
+          const href = await link.getAttribute('href');
+          expect(href!.endsWith(`/${type}/main/${path.replace(/\/$/, '')}`), id).toBe(true);
+          await expect(link).toHaveAttribute('target', '_blank');
+          expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+        }
+        await page.locator('#fig-tree [data-entry="data"]').click();
+        await expect(detail.locator('h4')).toHaveText('data/');
+        await expect(detail.locator('a')).toHaveCount(0);
+        await expect(detail.locator('.ml-fig-tree__local')).toBeVisible();
+        // a second click on the selected row keeps the selection; a click on a folder row does not close the folder
+        await page.locator('#fig-tree [data-entry="data"]').click();
+        await expect(page.locator('#fig-tree [data-entry="data"]')).toHaveAttribute('aria-selected', 'true');
+        await page.locator('#fig-tree [data-entry="cpp"]').click();
+        await expect(page.locator('#fig-tree [data-entry="cpp"]')).toHaveAttribute('aria-expanded', 'true');
+        // the chevron closes without selecting; the close button clears the selection and gives the focus back to the row
+        await page.locator('#fig-tree [data-entry="cpp"] .ml-fig-tree__chev').click();
+        await expect(page.locator('#fig-tree [data-entry="cpp"]')).toHaveAttribute('aria-expanded', 'false');
+        await expect(page.locator('#fig-tree [data-entry="cpp"]')).toHaveAttribute('aria-selected', 'true'); // the selection is on cpp (the click above)
+        await detail.locator('.ml-fig__detail-close').click();
+        await expect(detail).toHaveCount(0);
+        await expect(page.locator('#fig-tree [data-entry="cpp"]')).toBeFocused();
+      });
+
+      test('keyboard: one tab stop, Enter selects, Escape clears and keeps the focus; the page does not overflow horizontally', async ({ page }) => {
+        await open(page, 'architecture', 'fig-tree', size, lang);
+        await expect(page.locator('#fig-tree [data-entry][tabindex="0"]')).toHaveCount(1);
+        await page.locator('#fig-tree [data-entry="settings"]').focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(page.locator('#fig-tree [data-entry="engine"]')).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#fig-tree [data-entry="engine"]')).toHaveAttribute('aria-selected', 'true');
+        // engine and the six modules that depend on it are marked in the graph (the compact layout has no graph)
+        await expect(page.locator('#fig-tree [data-module][data-state="active"]')).toHaveCount(size.width >= 640 ? 7 : 0);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#fig-tree [aria-selected="true"]')).toHaveCount(0);
+        await expect(page.locator('#fig-tree [data-entry="engine"]')).toBeFocused();
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+    });
+  }
+}
+
+test('Fig. 1.1 at 320: an open detail panel sticks to the lower edge of the viewport while the tree is on screen', async ({ page }) => {
+  await openTree(page, PHONE, 'en');
+  await page.locator('#fig-tree [data-entry="webApp"]').click();
+  const detail = page.locator('#fig-tree .ml-fig__detail');
+  await expect(detail).toBeVisible();
+  expect(await detail.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+  await page.locator('#fig-tree [data-entry="settings"]').scrollIntoViewIfNeeded();
+  const box = (await detail.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+});
+
+test('Fig. 1.1 at 820 and 1280: the labels of the module graph are at least 12 px', async ({ page }) => {
+  for (const size of [TABLET, { width: 1280, height: 900 }]) {
+    await open(page, 'architecture', 'fig-tree', size);
+    expect(await scaleOf(page, '#fig-tree svg.ml-fig-dep')).toBeGreaterThanOrEqual(0.99); // 12 units per label, one unit per pixel
+  }
+});

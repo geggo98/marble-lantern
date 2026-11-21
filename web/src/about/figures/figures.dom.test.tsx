@@ -16,6 +16,7 @@ import { EvalFigure } from './EvalFigure';
 import { BudgetFigure } from './BudgetFigure';
 import { edgeKey } from './arch-model';
 import offline from '../data/arch-offline.json';
+import treeData from '../data/source-tree.json';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -209,62 +210,189 @@ describe('V1, V2, V3 (box diagrams)', () => {
 
 describe('V4 (source tree)', () => {
   const rowIds = (): string[] => Array.from(host.querySelectorAll<HTMLElement>('[data-entry]')).map((r) => r.dataset.entry!);
+  const row = (id: string): HTMLElement => q(`[data-entry="${id}"]`);
+  const detail = (): HTMLElement | null => host.querySelector<HTMLElement>('.ml-fig__detail');
+  const selectedIds = (): string[] => Array.from(host.querySelectorAll<HTMLElement>('[aria-selected="true"]')).map((r) => r.dataset.entry!);
+  const filterTo = (label: string): void =>
+    click(Array.from(host.querySelectorAll<HTMLInputElement>('.ml-fig-seg input')).find((i) => i.parentElement?.textContent === label)!);
 
   it('starts collapsed with one tab stop; the arrow keys move, Right expands, Left collapses', async () => {
     await render(<TreeFigure catalog={arch} number={[1, 1]} />);
     expect(q('[role="tree"]').getAttribute('aria-label')).toBe('Source tree');
     expect(host.querySelectorAll('[data-entry][tabindex="0"]')).toHaveLength(1);
     expect(rowIds()).not.toContain('tables');
-    const settings = q('[data-entry="settings"]');
+    const settings = row('settings');
     settings.focus();
     key(settings, 'ArrowDown');
     expect(document.activeElement?.getAttribute('data-entry')).toBe('engine');
     key(document.activeElement!, 'End');
     expect(document.activeElement?.getAttribute('data-entry')).toBe('tornadoSdk');
     key(document.activeElement!, 'Home');
-    const tablebase = q('[data-entry="tablebase"]');
+    const tablebase = row('tablebase');
     tablebase.focus();
     expect(tablebase.getAttribute('aria-expanded')).toBe('false');
     key(tablebase, 'ArrowRight');
     expect(rowIds()).toContain('tables');
-    expect(q('[data-entry="tablebase"]').getAttribute('aria-expanded')).toBe('true');
-    q('[data-entry="tablebase"]').focus();
-    key(q('[data-entry="tablebase"]'), 'ArrowRight'); // open: moves to the first child
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('true');
+    expect(selectedIds()).toEqual([]); // opening a folder with the keyboard does not select it
+    row('tablebase').focus();
+    key(row('tablebase'), 'ArrowRight'); // open: moves to the first child
     expect(document.activeElement?.getAttribute('data-entry')).toBe('tables');
     expect(document.activeElement?.getAttribute('aria-level')).toBe('2');
+    key(document.activeElement!, 'ArrowRight'); // a row without children: nothing happens
+    expect(document.activeElement?.getAttribute('data-entry')).toBe('tables');
     key(document.activeElement!, 'ArrowLeft'); // a child: moves to its parent
     expect(document.activeElement?.getAttribute('data-entry')).toBe('tablebase');
     key(document.activeElement!, 'ArrowLeft'); // an open parent: collapses
     expect(rowIds()).not.toContain('tables');
   });
 
-  it('selects a module with Enter and shows what it depends on and what uses it; Enter again clears it', async () => {
+  it('keeps one tab stop that follows the focus', async () => {
     await render(<TreeFigure catalog={arch} number={[1, 1]} />);
-    const search = q('[data-entry="search"]');
+    row('settings').focus();
+    key(row('settings'), 'ArrowDown');
+    expect(Array.from(host.querySelectorAll('[data-entry][tabindex="0"]')).map((r) => r.getAttribute('data-entry'))).toEqual(['engine']);
+  });
+
+  it('Enter and Space select the focused row and change nothing else; a folder keeps its state', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    const tablebase = row('tablebase');
+    tablebase.focus();
+    key(tablebase, 'Enter');
+    expect(selectedIds()).toEqual(['tablebase']);
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('false'); // Enter does not open a folder
+    key(row('tablebase'), ' ');
+    expect(selectedIds()).toEqual(['tablebase']); // and a second press does not deselect
+    key(row('tablebase'), 'ArrowRight');
+    key(row('tablebase'), 'Enter');
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('true'); // Enter does not close one either
+  });
+
+  it('selects a module and shows what it depends on and what uses it in the panel and the graph; Escape clears it and keeps the focus', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    const search = row('search');
     search.focus();
     key(search, 'Enter');
-    expect(q('[data-entry="search"]').getAttribute('aria-selected')).toBe('true');
-    expect(q('.ml-fig-deps').textContent).toContain('engine, tablebase, nn');
-    expect(q('.ml-fig-deps').textContent).toContain('selfplay');
+    expect(row('search').getAttribute('aria-selected')).toBe('true');
+    expect(detail()!.textContent).toContain('engine, tablebase, nn');
+    expect(detail()!.textContent).toContain('selfplay');
     const active = Array.from(host.querySelectorAll('[data-module][data-state="active"]')).map((g) => g.getAttribute('data-module'));
     expect(active.sort()).toEqual(['app', 'engine', 'nn', 'search', 'selfplay', 'tablebase', 'teavm-net', 'teavm-web']);
-    key(q('[data-entry="search"]'), 'Enter');
+    key(row('search'), 'Escape');
+    expect(detail()).toBeNull();
     expect(host.querySelector('[data-module][data-state="active"]')).toBeNull();
+    expect(document.activeElement?.getAttribute('data-entry')).toBe('search');
   });
 
-  it('dims what does not run in the chosen place', async () => {
+  it('Escape with nothing selected is left to the page (not handled, not prevented)', async () => {
     await render(<TreeFigure catalog={arch} number={[1, 1]} />);
-    const training = Array.from(host.querySelectorAll<HTMLInputElement>('.ml-fig-seg input')).find((i) => i.parentElement?.textContent === 'Training')!;
-    click(training);
-    expect(q('[data-entry="selfplay"]').getAttribute('data-dim')).toBeNull();
-    expect(q('[data-entry="webApp"]').getAttribute('data-dim')).toBe('true');
+    row('settings').focus();
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => {
+      row('settings').dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
   });
 
-  it('marks generated entries with the tag and the Git LFS table after expanding', async () => {
+  it('a click on a row that is neither folder nor module (web/src/app/) selects it, shows its details and offers the GitHub link', async () => {
     await render(<TreeFigure catalog={arch} number={[1, 1]} />);
-    expect(q('[data-entry="data"]').textContent).toContain('git-ignored');
-    click(q('[data-entry="tablebase"]'));
-    expect(q('[data-entry="tables"]').textContent).toContain('Git LFS');
+    click(row('webApp'));
+    expect(selectedIds()).toEqual(['webApp']);
+    expect(row('webApp').hasAttribute('aria-expanded')).toBe(false);
+    expect(detail()!.querySelector('h4')!.textContent).toBe('web/src/app/');
+    const link = detail()!.querySelector<HTMLAnchorElement>('a.ml-fig-tree__gh')!;
+    expect(link.getAttribute('href')).toMatch(/\/tree\/main\/web\/src\/app$/);
+    expect(link.getAttribute('aria-label')).toBe('Open on GitHub: web/src/app/');
+    expect(host.querySelector('[data-module][data-state="active"]')).toBeNull(); // no module, no graph state
+    click(row('webApp'));
+    expect(selectedIds()).toEqual(['webApp']); // a second click does not toggle
+  });
+
+  it('every one of the 34 rows does the same on a click: it selects and shows its path (no plain row without an action)', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    for (const id of ['tablebase', 'app', 'cpp', 'webEngines', 'scripts']) click(row(id));
+    expect(rowIds()).toHaveLength(34);
+    const paths = (treeData as unknown as { entries: { id: string; path: string }[] }).entries;
+    for (const { id, path } of paths) {
+      click(row(id));
+      expect(selectedIds(), id).toEqual([id]);
+      expect(detail()!.querySelector('h4')!.textContent, id).toBe(path);
+    }
+  });
+
+  it('a click on a closed folder row selects and opens it; a click on an open one selects it and leaves it open; the chevron only opens and closes', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    click(row('tablebase'));
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('true');
+    expect(selectedIds()).toEqual(['tablebase']);
+    click(row('engine'));
+    click(row('tablebase'));
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('true');
+    expect(selectedIds()).toEqual(['tablebase']);
+    click(q('[data-entry="engine"]'));
+    click(q('[data-entry="tablebase"] [data-toggle]')); // chevron: closes, selection stays on engine
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('false');
+    expect(selectedIds()).toEqual(['engine']);
+    click(q('[data-entry="tablebase"] [data-toggle]')); // chevron: opens, still no selection change
+    expect(row('tablebase').getAttribute('aria-expanded')).toBe('true');
+    expect(selectedIds()).toEqual(['engine']);
+  });
+
+  it('the close button clears the selection and returns the focus to the row; a hidden selected row hands it to its folder', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    click(row('tablebase'));
+    click(row('tables'));
+    click(q('[data-entry="tablebase"] [data-toggle]')); // closes the folder with the selected child inside
+    expect(selectedIds()).toEqual([]); // the child row is not on screen
+    expect(detail()!.querySelector('h4')!.textContent).toBe('tablebase/tables/'); // but the panel still shows it
+    click(detail()!.querySelector<HTMLElement>('.ml-fig__detail-close')!);
+    expect(detail()).toBeNull();
+    expect(document.activeElement?.getAttribute('data-entry')).toBe('tablebase');
+  });
+
+  it('marks every row with its kind, Git state and filter state in the DOM and in its accessible name', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    expect(row('engine').getAttribute('data-kind')).toBe('module');
+    expect(row('engine').textContent).toContain('Module'); // the tag and the hidden kind text
+    expect(row('webApp').getAttribute('data-kind')).toBe('dir');
+    expect(row('settings').getAttribute('data-kind')).toBe('file');
+    click(row('app'));
+    expect(row('appJava').getAttribute('data-kind')).toBe('dir'); // same module as its parent, no tag of its own
+    expect(row('appJava').querySelector('.ml-fig-tree__tag--module')).toBeNull();
+    expect(row('app').querySelector('.ml-fig-tree__tag--module')).not.toBeNull();
+    expect(row('data').getAttribute('data-git')).toBe('ignored');
+    expect(row('data').textContent).toContain('not in Git');
+    expect(row('data').querySelector('.ml-fig-tree__tag--ignored')).not.toBeNull();
+    click(row('tablebase'));
+    expect(row('tables').getAttribute('data-git')).toBe('lfs');
+    expect(row('tables').textContent).toContain('Git LFS');
+    expect(host.querySelectorAll('[role="treeitem"][aria-selected]').length).toBe(rowIds().length); // aria-selected on every row
+  });
+
+  it('an entry that is not in Git gets a sentence instead of a link', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    click(row('data'));
+    expect(detail()!.querySelector('a')).toBeNull();
+    expect(detail()!.querySelector('.ml-fig-tree__local')!.textContent).toContain('only on a developer');
+    expect(detail()!.textContent).toContain('not in Git');
+  });
+
+  it('filters by where the code runs: a row outside the filter is one muted line, the count line says how many match, nothing is struck through', async () => {
+    await render(<TreeFigure catalog={arch} number={[1, 1]} />);
+    expect(q('.ml-fig-tree__count').textContent).toBe('34 entries');
+    filterTo('Training');
+    expect(row('selfplay').getAttribute('data-match')).toBe('true');
+    expect(row('webApp').getAttribute('data-match')).toBe('false');
+    expect(row('webApp').textContent).toContain('Not part of the filter Training.'); // hidden text for a screen reader
+    expect(row('selfplay').textContent).not.toContain('Not part of the filter');
+    expect(q('.ml-fig-tree__count').getAttribute('role')).toBe('status');
+    expect(q('.ml-fig-tree__count').textContent).toMatch(/^\d+ \/ 34 are used in training$/);
+    const training = (treeData as unknown as { entries: { runsIn: string[] }[] }).entries.filter((e) => e.runsIn.includes('training')).length;
+    expect(q('.ml-fig-tree__count b').textContent).toBe(`${training} / 34`);
+    expect(host.querySelector('[style*="line-through"], .ml-fig-tree__row del, .ml-fig-tree__row s')).toBeNull();
+    filterTo('Everything');
+    expect(row('webApp').getAttribute('data-match')).toBe('true');
+    expect(row('webApp').textContent).not.toContain('Not part of the filter');
   });
 });
 
