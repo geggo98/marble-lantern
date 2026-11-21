@@ -187,3 +187,44 @@ describe('the main catalogs hold a card for every topic', () => {
     });
   }
 });
+
+// One German term per concept. Origin: the fresh-eyes review of 2026-11-21 found "Schleifenlauf" next to "Loop-Lauf",
+// "Figur" next to "Stein", "Genehmigung" next to "Permit" and more; a reader who looks a word up does not connect two names.
+// Each entry is a rejected variant and the term the catalogs use instead. Limit: this catches only the variants listed here.
+describe('German terms', () => {
+  const VARIANTS: ReadonlyArray<readonly [RegExp, string]> = [
+    [/Schleifenlauf/, 'Loop-Lauf'],
+    [/Wettlauf|Renn(en|stellung|modul)/, 'Endspiel, Endspielstellung, Endspieltabelle'],
+    [/Endspieldatenbank/, 'Tablebase'],
+    [/\bSteine?n?\b/, 'Figur'],
+    [/Personen|pro Person\b|(nächsten|dritten) Person\b/, 'Spieler or Seite'],
+    [/Partieserie|\bSerie\b|Quote\b/, 'Match and Score'],
+    [/thread-?safe|thread-sicher/, 'threadsicher'],
+    [/Zielspitze|Startspitze|oberen Spitze/, 'Ecke'],
+    [/aufgestiegen|steigt nur auf|aufsteigt/, 'befördert'],
+    [/Stoppregel/, 'Abbruchkriterium'],
+    [/Teacher-Temperatur/, 'Lehrer-Temperatur'],
+    [/Geräte-Thread/, 'Device-Thread'],
+    [/Kastendiagramm/, 'Blockdiagramm'],
+    [/Engine-Sitzung/, 'Engine Session'],
+    [/\bein \{term:softmax|\bein Softmax/, 'eine Softmax'],
+  ];
+  const main = JSON.parse(readFileSync(here('../../i18n/de.json'), 'utf8')) as Catalog;
+  const catalogs: Record<string, Catalog> = {
+    hub: Object.fromEntries(Object.entries(main).filter(([k]) => k.startsWith('about_learn_'))),
+    ...Object.fromEntries([...TOPICS, 'glossary', 'kit'].map((name) => [name, load('de', name)])),
+  };
+  const entries = Object.entries(catalogs).flatMap(([name, c]) => Object.entries(c).filter(([k]) => !k.endsWith('.en')).map(([k, v]) => ({ where: `${name}:${k}`, v })));
+
+  it('reads every German catalog of the Info part', () => {
+    expect(entries.length).toBeGreaterThan(1000);
+  });
+
+  it.each(VARIANTS.map(([re, use]) => [String(re), re, use] as const))('has no %s', (_, re, use) => {
+    expect(entries.filter(({ v }) => re.test(v)).map(({ where }) => `${where}: use ${use}`)).toEqual([]);
+  });
+
+  it('says "Permit" and glosses it as "Genehmigung" once, where the semaphore is introduced', () => {
+    expect(entries.filter(({ v }) => /Genehmigung/.test(v)).map(({ where }) => where)).toEqual(['architecture:sec.online.p3']);
+  });
+});
