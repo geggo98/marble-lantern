@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "unit": "evaluations per second unless noted",
+  "machine": "Apple M3 Max unless noted in the row",
+  "rows": [
+    {
+      "backend": "Java scalar reference (Network)",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/network.md", "line": 486 }, "value": "115", "range": "94 to 120" }
+    },
+    {
+      "backend": "Java Vector API (VectorNetwork)",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/network.md", "line": 487 }, "value": "1,760", "range": "1,671 to 1,918" }
+    },
+    {
+      "backend": "Java Vector API (VectorNetwork), lower load",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/tornado.md", "line": 435 }, "value": "2,949" }
+    },
+    {
+      "backend": "TornadoVM on Metal",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/tornado.md", "line": 435 }, "value": "1,968", "range": "1,948 to 1,968" },
+      "callTime": { "source": { "doc": "docs/tornado.md", "line": 435 }, "value": "0.51", "unit": "ms" }
+    },
+    {
+      "backend": "TornadoVM on Metal",
+      "preset": "SMALL",
+      "batch": "256",
+      "rate": { "source": { "doc": "docs/tornado.md", "line": 438 }, "value": "111,409", "range": "111,175 to 113,594" }
+    },
+    {
+      "backend": "TornadoVM on Metal",
+      "preset": "LARGE",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/tornado.md", "line": 440 }, "value": "1,005", "range": "1,003 to 1,006" }
+    },
+    {
+      "backend": "TornadoVM on Metal",
+      "preset": "LARGE",
+      "batch": "256",
+      "rate": { "source": { "doc": "docs/tornado.md", "line": 443 }, "value": "21,073", "range": "20,953 to 21,097" }
+    },
+    {
+      "backend": "TornadoVM on CUDA, Tesla T4, run 1",
+      "machine": "AWS Tesla T4",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/cpp-comparison.md", "line": 206 }, "value": "4,701.0" }
+    },
+    {
+      "backend": "TornadoVM on CUDA, Tesla T4, run 1",
+      "machine": "AWS Tesla T4",
+      "preset": "SMALL",
+      "batch": "256",
+      "rate": { "source": { "doc": "docs/cpp-comparison.md", "line": 207 }, "value": "85,222.0" }
+    },
+    {
+      "backend": "C++ WebAssembly, simd (net-wasm)",
+      "machine": "Chrome 156, Firefox 157, Node.js",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 833 }, "value": "3,100" }
+    },
+    {
+      "backend": "C++ WebAssembly, relaxed (net-wasm)",
+      "machine": "Chrome 156, Firefox 157, Node.js",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 833 }, "value": "4,000" }
+    },
+    {
+      "backend": "Java via TeaVM in the browser",
+      "preset": "SMALL",
+      "batch": "1",
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 833 }, "value": "126 to 163" }
+    },
+    {
+      "backend": "WebGPU, batch 1",
+      "preset": "SMALL",
+      "batch": "1",
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 835 }, "value": "0.5", "unit": "ms" }
+    },
+    {
+      "backend": "WebGPU, batch 4",
+      "preset": "SMALL",
+      "batch": "4",
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 835 }, "value": "0.55", "unit": "ms" },
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 835 }, "value": "7,300", "approximate": true }
+    },
+    {
+      "backend": "WebGPU, batch 16",
+      "preset": "SMALL",
+      "batch": "16",
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 835 }, "value": "0.64", "unit": "ms" }
+    },
+    {
+      "backend": "WebGPU, pipelined",
+      "preset": "SMALL",
+      "batch": "16",
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 835 }, "value": "60,000", "approximate": true }
+    }
+  ]
+}

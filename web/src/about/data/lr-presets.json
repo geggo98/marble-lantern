@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "unit": "learning rate; schedules are per generation",
+  "presets": [
+    {
+      "id": "generation0",
+      "use": "supervised start from the classical teacher",
+      "lr": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "1e-3" },
+      "warmup": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "200" },
+      "cosineTo": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "0.1", "relativeTo": "lr" }
+    },
+    {
+      "id": "loopDefault",
+      "use": "loop defaults, constant after warm-up (the stall of loop run 2)",
+      "lr": { "source": { "doc": "docs/training.md", "line": 1399 }, "value": "3e-4" },
+      "warmup": { "source": { "doc": "docs/training.md", "line": 1399 }, "value": "100", "unit": "steps" }
+    },
+    {
+      "id": "sweep1F",
+      "use": "winner of sweep 1, variant F",
+      "lr": { "source": { "doc": "docs/training.md", "line": 1431 }, "value": "3e-4" },
+      "lrFinal": { "source": { "doc": "docs/training.md", "line": 1431 }, "value": "1e-5" },
+      "steps": { "source": { "doc": "docs/training.md", "line": 1431 }, "value": "15,000" }
+    },
+    {
+      "id": "loop3Recipe",
+      "use": "recipe of loop run 3, from sweep 1",
+      "lr": { "source": { "doc": "docs/training.md", "line": 1742 }, "value": "3e-4" },
+      "lrFinal": { "source": { "doc": "docs/training.md", "line": 1742 }, "value": "1e-5" },
+      "reuse": { "source": { "doc": "docs/training.md", "line": 1742 }, "value": "20" }
+    },
+    {
+      "id": "loop4LargeRecipe",
+      "use": "LARGE network in loop run 4, cosine within each generation",
+      "lr": { "source": { "doc": "docs/training.md", "line": 2226 }, "value": "1e-4" },
+      "lrFinal": { "source": { "doc": "docs/training.md", "line": 2226 }, "value": "1e-5" },
+      "reuse": { "source": { "doc": "docs/training.md", "line": 2226 }, "value": "20" }
+    },
+    {
+      "id": "loop4Check3e-4",
+      "use": "check of the LARGE network with sweep 1 peak rate (rejected)",
+      "lr": { "source": { "doc": "docs/training.md", "line": 2363 }, "value": "3e-4" },
+      "lrFinal": { "source": { "doc": "docs/training.md", "line": 2363 }, "value": "1e-5" },
+      "steps": { "source": { "doc": "docs/training.md", "line": 2363 }, "value": "10,000" },
+      "gateScore": { "source": { "doc": "docs/training.md", "line": 2368 }, "value": "0.3699", "se": "0.0177" }
+    }
+  ]
+}
