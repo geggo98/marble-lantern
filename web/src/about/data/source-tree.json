@@ -1,0 +1,489 @@
+{
+ "schema": 1,
+ "source": {
+  "generator": "transcribed",
+  "date": "2026-11-21",
+  "how": "Tree from arch-tree.json (ids as in the figure notes), module dependencies from the rough-design fact sheet, section \"Dependency graph as implemented\" (the build files of the ten Gradle modules, arrow = depends on). The tags come from the notes of arch-tree.json (generated = git-ignored, tables = Git LFS). runsIn is the assessment of the figure author, per entry, from its note."
+ },
+ "modules": [
+  "engine",
+  "tablebase",
+  "nn",
+  "nn-tornado",
+  "search",
+  "selfplay",
+  "teavm-web",
+  "teavm-net",
+  "teavm-nn-bench",
+  "app"
+ ],
+ "deps": [
+  {
+   "from": "nn",
+   "to": "engine"
+  },
+  {
+   "from": "nn-tornado",
+   "to": "nn"
+  },
+  {
+   "from": "tablebase",
+   "to": "engine"
+  },
+  {
+   "from": "search",
+   "to": "engine"
+  },
+  {
+   "from": "search",
+   "to": "tablebase"
+  },
+  {
+   "from": "search",
+   "to": "nn"
+  },
+  {
+   "from": "selfplay",
+   "to": "search"
+  },
+  {
+   "from": "selfplay",
+   "to": "tablebase"
+  },
+  {
+   "from": "selfplay",
+   "to": "nn"
+  },
+  {
+   "from": "selfplay",
+   "to": "nn-tornado"
+  },
+  {
+   "from": "teavm-web",
+   "to": "engine"
+  },
+  {
+   "from": "teavm-web",
+   "to": "tablebase"
+  },
+  {
+   "from": "teavm-web",
+   "to": "search"
+  },
+  {
+   "from": "teavm-net",
+   "to": "engine"
+  },
+  {
+   "from": "teavm-net",
+   "to": "nn"
+  },
+  {
+   "from": "teavm-net",
+   "to": "tablebase"
+  },
+  {
+   "from": "teavm-net",
+   "to": "search"
+  },
+  {
+   "from": "teavm-nn-bench",
+   "to": "nn"
+  },
+  {
+   "from": "app",
+   "to": "engine"
+  },
+  {
+   "from": "app",
+   "to": "search"
+  },
+  {
+   "from": "app",
+   "to": "tablebase"
+  },
+  {
+   "from": "app",
+   "to": "nn"
+  },
+  {
+   "from": "app",
+   "to": "nn-tornado"
+  }
+ ],
+ "entries": [
+  {
+   "id": "settings",
+   "path": "settings.gradle.kts",
+   "kind": "file",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "build"
+   ]
+  },
+  {
+   "id": "engine",
+   "path": "engine/src/main/java/sternhalma/engine/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "server",
+    "training"
+   ],
+   "module": "engine"
+  },
+  {
+   "id": "tablebase",
+   "path": "tablebase/src/main/java/sternhalma/tablebase/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "server",
+    "training"
+   ],
+   "module": "tablebase"
+  },
+  {
+   "id": "tables",
+   "path": "tablebase/tables/",
+   "kind": "dir",
+   "parent": "tablebase",
+   "tags": [
+    "lfs"
+   ],
+   "runsIn": [
+    "browser",
+    "server",
+    "build"
+   ]
+  },
+  {
+   "id": "search",
+   "path": "search/src/main/java/sternhalma/search/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "server",
+    "training"
+   ],
+   "module": "search"
+  },
+  {
+   "id": "nn",
+   "path": "nn/src/main/java/sternhalma/nn/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "server",
+    "training"
+   ],
+   "module": "nn"
+  },
+  {
+   "id": "nnTornado",
+   "path": "nn-tornado/src/main/java/sternhalma/tornado/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "server",
+    "training"
+   ],
+   "module": "nn-tornado"
+  },
+  {
+   "id": "selfplay",
+   "path": "selfplay/src/main/java/sternhalma/selfplay/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "training"
+   ],
+   "module": "selfplay"
+  },
+  {
+   "id": "teavmWeb",
+   "path": "teavm-web/src/main/java/sternhalma/web/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "build"
+   ],
+   "module": "teavm-web"
+  },
+  {
+   "id": "teavmNet",
+   "path": "teavm-net/src/main/java/sternhalma/webnet/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "build"
+   ],
+   "module": "teavm-net"
+  },
+  {
+   "id": "teavmNnBench",
+   "path": "teavm-nn-bench/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "build"
+   ],
+   "module": "teavm-nn-bench"
+  },
+  {
+   "id": "app",
+   "path": "app/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "server",
+    "build"
+   ],
+   "module": "app"
+  },
+  {
+   "id": "appJava",
+   "path": "app/src/main/java/sternhalma/app/",
+   "kind": "dir",
+   "parent": "app",
+   "tags": [],
+   "runsIn": [
+    "server"
+   ],
+   "module": "app"
+  },
+  {
+   "id": "appEntry",
+   "path": "app/src/main/frontend/views/@index.tsx",
+   "kind": "file",
+   "parent": "app",
+   "tags": [],
+   "runsIn": [
+    "server"
+   ]
+  },
+  {
+   "id": "cpp",
+   "path": "cpp/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser",
+    "build"
+   ]
+  },
+  {
+   "id": "cppWasmApi",
+   "path": "cpp/src/wasm/wasm_api.cpp",
+   "kind": "file",
+   "parent": "cpp",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "cppNetApi",
+   "path": "cpp/src/wasm/net_api.cpp",
+   "kind": "file",
+   "parent": "cpp",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webApp",
+   "path": "web/src/app/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webGame",
+   "path": "web/src/game/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webEngines",
+   "path": "web/src/engines/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webEnginesJava",
+   "path": "web/src/engines/java/",
+   "kind": "dir",
+   "parent": "webEngines",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webEnginesCpp",
+   "path": "web/src/engines/cpp/",
+   "kind": "dir",
+   "parent": "webEngines",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webEnginesNet",
+   "path": "web/src/engines/net/",
+   "kind": "dir",
+   "parent": "webEngines",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webEnginesServer",
+   "path": "web/src/engines/server/",
+   "kind": "dir",
+   "parent": "webEngines",
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webUi",
+   "path": "web/src/ui/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webI18n",
+   "path": "web/src/i18n/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "webE2e",
+   "path": "web/e2e/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "build"
+   ]
+  },
+  {
+   "id": "webModels",
+   "path": "web/models/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "browser"
+   ]
+  },
+  {
+   "id": "scripts",
+   "path": "scripts/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": [
+    "build",
+    "training"
+   ]
+  },
+  {
+   "id": "setupTornado",
+   "path": "scripts/setup-tornado.sh",
+   "kind": "file",
+   "parent": "scripts",
+   "tags": [],
+   "runsIn": [
+    "build"
+   ]
+  },
+  {
+   "id": "docs",
+   "path": "docs/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [],
+   "runsIn": []
+  },
+  {
+   "id": "data",
+   "path": "data/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [
+    "ignored"
+   ],
+   "runsIn": [
+    "training"
+   ]
+  },
+  {
+   "id": "cloudResults",
+   "path": "cloud-results/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [
+    "ignored"
+   ],
+   "runsIn": [
+    "training"
+   ]
+  },
+  {
+   "id": "tornadoSdk",
+   "path": "tornado-sdk/",
+   "kind": "dir",
+   "parent": null,
+   "tags": [
+    "ignored"
+   ],
+   "runsIn": [
+    "build",
+    "training"
+   ]
+  }
+ ]
+}

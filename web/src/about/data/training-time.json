@@ -1,0 +1,20 @@
+{
+ "schema": 1,
+ "source": {
+  "generator": "transcribed",
+  "date": "2026-11-21",
+  "how": "Per generation of loop run 1: the CPU trainer needed 22.9 minutes and the GPU trainer (TornadoVM) 41.8 seconds for the same 4,936 steps.",
+  "lines": [
+   {
+    "doc": "docs/training.md",
+    "line": 1713
+   },
+   {
+    "doc": "docs/training.md",
+    "line": 1714
+   }
+  ]
+ },
+ "cpuMinutes": 22.9,
+ "gpuSeconds": 41.8
+}

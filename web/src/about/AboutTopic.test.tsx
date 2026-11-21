@@ -46,7 +46,7 @@ const flush = async (): Promise<void> => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
     });
-    if (host.querySelector('[role="status"]') === null) return;
+    if (host.querySelector('.ml-hint[role="status"]') === null) return;
   }
   throw new Error('the page stayed in its loading state');
 };
@@ -65,11 +65,11 @@ describe('AboutTopic: loading', () => {
     let release: () => void = () => undefined;
     topicLoaders.classical = () => new Promise((resolve) => (release = () => resolve(original.classical())));
     await act(async () => root.render(<AboutTopic topic="classical" onJumpSection={() => undefined} />));
-    expect(q('[role="status"]')?.textContent).toBe('Loading the page');
+    expect(q('.ml-hint[role="status"]')?.textContent).toBe('Loading the page');
     expect(q('h1')).toBeNull();
     await act(async () => release());
     await flush();
-    expect(q('[role="status"]')).toBeNull();
+    expect(q('.ml-hint[role="status"]')).toBeNull();
     expect(q('h1')?.textContent).toBe('The classical algorithm');
   });
 
@@ -209,7 +209,7 @@ describe('AboutTopic: the page', () => {
     await show('classical');
     expect(q('h1')?.textContent).toBe('The classical algorithm');
     await act(async () => i18n.setLanguage('de'));
-    expect(q('[role="status"]')).toBeNull();
+    expect(q('.ml-hint[role="status"]')).toBeNull();
     expect(q('h1')?.textContent).toBe('Der klassische Algorithmus');
     expect(q('a[rel="next"]')?.textContent).toContain('Inferenz und das Netz');
   });

@@ -1,0 +1,20 @@
+{
+ "schema": 1,
+ "source": {
+  "generator": "transcribed",
+  "date": "2026-11-21",
+  "how": "The rule of Engines.java (one permit per availableProcessors(), a wait of WAIT_SECONDS, then busy) is exact; the number of permits of the example is an illustration for the slider and not a measurement of any machine.",
+  "lines": [
+   {
+    "doc": "app/src/main/java/sternhalma/app/Engines.java",
+    "line": 40
+   },
+   {
+    "doc": "app/src/main/java/sternhalma/app/Engines.java",
+    "line": 45
+   }
+  ]
+ },
+ "examplePermits": 4,
+ "waitSeconds": 30
+}

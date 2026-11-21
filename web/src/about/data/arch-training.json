@@ -2,6 +2,17 @@
   "schema": 1,
   "scenario": "training",
   "title": "Training pipeline",
+  "filesNote": "Files of one run directory data/<run>/ (training fact sheet, section 6); the ids are the keys fig.pipeline.file.<id>",
+  "files": [
+    { "id": "runJson", "name": "run.json" },
+    { "id": "samples", "name": "gen-NNNN/samples/" },
+    { "id": "train", "name": "gen-NNNN/train/step-*.safetensors" },
+    { "id": "candidate", "name": "gen-NNNN/candidate.safetensors" },
+    { "id": "gate", "name": "gen-NNNN/gate/*.jsonl" },
+    { "id": "decision", "name": "gen-NNNN/decision.json" },
+    { "id": "strength", "name": "gen-NNNN/strength/" },
+    { "id": "metrics", "name": "metrics.jsonl" }
+  ],
   "boxes": [
     { "id": "teacherGames", "label": "Classical teacher games", "runsIn": "JVM command line", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/SelfPlay.java", "selfplay/src/main/java/sternhalma/selfplay/Teacher.java", "scripts/selfplay.sh"] } },
     { "id": "gen0", "label": "Generation 0", "runsIn": "JVM command line", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/Gen0.java", "scripts/gen0.sh"] } },
