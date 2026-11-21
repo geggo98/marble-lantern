@@ -4,6 +4,7 @@
 //            progress = min(1, (step - warmup) / (steps - 1 - warmup))
 // Generation 0 writes the end value as finalFraction * lr; a constant rate is the case final = base.
 import presets from '../data/lr-presets.json';
+import { sciPlain } from '../kit/sci';
 
 export interface Schedule {
   base: number;
@@ -78,9 +79,12 @@ export function scientific(value: number): { mantissa: string; exponent: number 
   return { mantissa: String(Number(m)), exponent: Number(e) };
 }
 
-/** "3e-4" as the docs write a rate (a real minus sign is not used here: the text is code-like). */
-export function rateText(value: number): string {
+/** A rate as the prose of the page sets it, in plain text with Unicode superscripts: 3 · 10⁻⁴, 10⁻⁵, German 1,6 · 10⁻⁴; 0 stays 0. */
+export function rateDisplay(value: number, language: string): string {
   if (value === 0) return '0';
   const { mantissa, exponent } = scientific(value);
-  return `${mantissa}e${exponent}`;
+  return sciPlain({ mantissa: Number(mantissa), exponent }, language);
 }
+
+/** The power of ten that every tick of a linear rate axis from 0 to `top` shares: the exponent of `top` (5e-4 gives -4, 1e-3 gives -3). */
+export const axisExponent = (top: number): number => Math.floor(Math.log10(top) + 1e-9);

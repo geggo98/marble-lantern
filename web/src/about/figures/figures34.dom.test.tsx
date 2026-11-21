@@ -16,8 +16,7 @@ import { NetFigure } from './NetFigure';
 import { PooledFigure } from './PooledFigure';
 import { BackendsFigure, ForwardFigure } from './ForwardFigure';
 import mcts from '../data/mcts-mid.json';
-import { rateAt } from './lr';
-import { rateText } from './lr';
+import { rateAt, rateDisplay } from './lr';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -524,15 +523,16 @@ describe('V13, the learning-rate schedule', () => {
     expect(button('Sweep 1 winner').getAttribute('aria-pressed')).toBe('true');
     expect(button('Generation 0').getAttribute('aria-pressed')).toBe('false');
     const s = { base: 3e-4, final: 1e-5, warmup: 100, steps: 15000 };
-    expect(status()).toBe(`Step 7,500: rate ${rateText(rateAt(s, 7500))}`);
-    expect(status()).toBe('Step 7,500: rate 1.6e-4');
+    expect(status()).toBe(`Step 7,500: rate ${rateDisplay(rateAt(s, 7500), 'en').replace(/\s/g, ' ')}`);
+    expect(status()).toBe('Step 7,500: rate 1.6 · 10⁻⁴');
   });
   it('a preset sets the sliders: generation 0 has base 1e-3, warm-up 200 and 5,800 steps', async () => {
     await render(<LrFigure />);
     click(button('Generation 0'));
     expect(button('Generation 0').getAttribute('aria-pressed')).toBe('true');
-    expect(text(control('Base rate').closest('.ml-fig-ctl'))).toContain('1e-3');
-    expect(text(control('Final rate').closest('.ml-fig-ctl'))).toContain('1e-4');
+    // a mantissa of 1 is left out, as in the prose: 10⁻³, not 1 · 10⁻³
+    expect(text(control('Base rate').closest('.ml-fig-ctl'))).toMatch(/Base rate\s*10⁻³$/);
+    expect(text(control('Final rate').closest('.ml-fig-ctl'))).toMatch(/Final rate\s*10⁻⁴$/);
     expect(text(control('Warm-up steps').closest('.ml-fig-ctl'))).toContain('200');
     expect(text(control('Total steps').closest('.ml-fig-ctl'))).toContain('5,800');
   });
@@ -540,9 +540,9 @@ describe('V13, the learning-rate schedule', () => {
     await render(<LrFigure />);
     click(button('Constant, loop run 2'));
     setValue(control('Marked step'), 14999);
-    expect(status()).toBe('Step 14,999: rate 3e-4');
+    expect(status()).toBe('Step 14,999: rate 3 · 10⁻⁴');
     setValue(control('Marked step'), 0);
-    expect(status()).toBe('Step 0: rate 3e-6'); // warm-up: 3e-4 * 1 / 100
+    expect(status()).toBe('Step 0: rate 3 · 10⁻⁶'); // warm-up: 3e-4 * 1 / 100
   });
   it('a slider that changes the schedule unpresses the preset', async () => {
     await render(<LrFigure />);
@@ -572,9 +572,22 @@ describe('V13, the learning-rate schedule', () => {
     const ticks = (): string[] => all('.ml-fig-plot text').map(text);
     expect(ticks().filter((t) => t === '0')).toHaveLength(2); // the start of the x axis and of the y axis
     click(control('Logarithmic y-axis'));
-    expect(ticks()).toContain('1e-5');
-    expect(ticks()).toContain('1e-4');
+    expect(ticks()).toContain('10⁻⁵');
+    expect(ticks()).toContain('10⁻⁴');
+    expect(text(q('text.ml-fig-plot__axislabel[text-anchor="start"]'))).toBe('Learning rate');
     expect(ticks().filter((t) => t === '0')).toHaveLength(1); // only the x axis starts at zero
+  });
+  it('the linear axis writes the shared power of ten once, next to its label, and plain mantissas at the ticks', async () => {
+    await render(<LrFigure />);
+    // sweep 1 winner: top of the axis niceTop(3e-4) = 5e-4, ticks every 1e-4
+    expect(text(q('text.ml-fig-plot__axislabel[text-anchor="start"]'))).toBe('Learning rate (× 10⁻⁴)');
+    const y = all('.ml-fig-plot text[text-anchor="end"]').map(text);
+    expect(y).toEqual(['0', '1', '2', '3', '4', '5']);
+  });
+  it('German: decimal comma in the mantissa of the rate', async () => {
+    i18n.setLanguage('de');
+    await render(<LrFigure />);
+    expect(status()).toContain('1,6 · 10⁻⁴');
   });
 });
 

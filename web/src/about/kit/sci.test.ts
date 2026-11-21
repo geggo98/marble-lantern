@@ -21,9 +21,10 @@ describe('words and plain text', () => {
     expect(sciSpoken({ mantissa: 1, exponent: -5 }, 'en')).toBe('10 to the power of minus 5');
     expect(sciSpoken({ mantissa: 2, exponent: 3 }, 'de')).toBe('2 mal 10 hoch 3');
   });
-  it('writes Unicode superscripts as plain text', () => {
-    expect(sciPlain({ mantissa: 3, exponent: -4 }, 'en')).toBe('3 · 10⁻⁴');
-    expect(sciPlain({ mantissa: 1.5, exponent: 12 }, 'de')).toBe('1,5 · 10¹²');
+  // No-break spaces around the dot: at 320 px the readout of Fig. 4.1 broke "1,6 ·" from "10⁻⁴" with plain spaces.
+  it('writes Unicode superscripts as plain text, never broken across lines', () => {
+    expect(sciPlain({ mantissa: 3, exponent: -4 }, 'en')).toBe('3\u00a0·\u00a010⁻⁴');
+    expect(sciPlain({ mantissa: 1.5, exponent: 12 }, 'de')).toBe('1,5\u00a0·\u00a010¹²');
     expect(sciPlain({ mantissa: 1, exponent: -5 }, 'en')).toBe('10⁻⁵');
   });
 });

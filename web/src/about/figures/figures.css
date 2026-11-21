@@ -410,3 +410,7 @@
 .ml-fig-pooled__own { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
 #fig-mcts .ml-fig-seg__opt { flex-basis: 7.5rem; }
 
+/* V4, design review M7: a wider tree column so paths do not break inside words; the graph stays in view while the tree scrolls */
+@container ml-fig (min-width: 40rem) { #fig-tree .ml-fig__stage--split { grid-template-columns: minmax(24rem, 3fr) minmax(0, 2fr); } }
+/* a number that must not break across lines, such as a rate 1,6 · 10⁻⁴ in Fig. 4.1 (browsers break after the superscript minus) */
+.ml-fig-nowrap { white-space: nowrap; }

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Checkbox, Figure, Legend, LegendItem, Manipulate, Plot, PlotCursor, PlotLine, Presets, Readout, Slider } from '../kit';
 import { Markup } from '../kit/markup';
 import { trainingCatalog } from './catalogs';
-import { curve, presetSchedules, rateAt, rateText, sameSchedule, scientific } from './lr';
+import { axisExponent, curve, presetSchedules, rateAt, rateDisplay, sameSchedule, scientific } from './lr';
+import { sciPlain } from '../kit/sci';
 import type { PresetId, Schedule } from './lr';
 import { FootChips, useCompact, useFigText } from './shared';
 
@@ -41,9 +42,17 @@ export function LrFigure(): React.JSX.Element {
     setS(next);
   };
 
+  const rateText = (v: number): string => rateDisplay(v, fig.language);
+  // A rate is one word: Firefox and Chromium would break after the superscript minus (10⁻ | ⁴) in a narrow cell.
+  const rateNode = (v: number): React.JSX.Element => <span className="ml-fig-nowrap">{rateText(v)}</span>;
+  // The log axis labels each power of ten (10⁻⁵); the linear axis writes the power that all its ticks share once, next to its label, and
+  // plain mantissas at the ticks (0, 1, 2 …), so that a tick label stays as narrow as before at 320 px.
+  const top = niceTop(maxRate);
+  const shared = axisExponent(top);
   const yAxis = log
-    ? ({ scale: 'log', domain: [10 ** Math.floor(Math.log10(minRate)), 10 ** Math.ceil(Math.log10(maxRate))] } as const)
-    : ({ scale: 'linear', domain: [0, niceTop(maxRate)] } as const);
+    ? ({ scale: 'log', domain: [10 ** Math.floor(Math.log10(minRate)), 10 ** Math.ceil(Math.log10(maxRate))], format: rateText } as const)
+    : ({ scale: 'linear', domain: [0, top], format: (v: number) => fig.fmt.n(Number((v / 10 ** shared).toPrecision(6))) } as const);
+  const yLabel = log ? fig.plain('fig.lr.axis.y') : `${fig.plain('fig.lr.axis.y')} (× ${sciPlain({ mantissa: 1, exponent: shared }, fig.language)})`;
 
   return (
     <Figure
@@ -73,7 +82,7 @@ export function LrFigure(): React.JSX.Element {
             step={0.001}
             value={exponentOf(s.base)}
             onChange={(e) => set({ base: 10 ** e })}
-            out={rateText(s.base)}
+            out={rateNode(s.base)}
             valueText={spoken(s.base)}
           />
           <Slider
@@ -83,7 +92,7 @@ export function LrFigure(): React.JSX.Element {
             step={0.001}
             value={exponentOf(s.final)}
             onChange={(e) => set({ final: 10 ** e })}
-            out={rateText(s.final)}
+            out={rateNode(s.final)}
             valueText={spoken(s.final)}
           />
           <Slider label={fig.t('fig.lr.slider.warmup')} min={1} max={1000} value={s.warmup} onChange={(v) => set({ warmup: v })} out={fig.fmt.n(s.warmup)} />
@@ -103,7 +112,7 @@ export function LrFigure(): React.JSX.Element {
           layout={compact ? 'compact' : 'wide'}
           height={compact ? 160 : 280}
           x={{ scale: 'linear', domain: [0, last], label: fig.plain('fig.lr.axis.x'), format: (v) => fig.fmt.n(v) }}
-          y={{ ...yAxis, label: fig.plain('fig.lr.axis.y'), format: rateText }}
+          y={{ ...yAxis, label: yLabel }}
         >
           <PlotLine points={points} />
           <PlotCursor x={at} y={rate} />
@@ -112,7 +121,7 @@ export function LrFigure(): React.JSX.Element {
           <LegendItem mark={<path d="M2 8H30" className="ml-fig-plot__line ml-fig-plot__line--1" />}>{fig.t('fig.lr.series')}</LegendItem>
           <LegendItem mark={<path d="M16 0V16" className="ml-fig-plot__cursor" />}>{fig.kit('kit.legend.cursor')}</LegendItem>
         </Legend>
-        <Readout cells={[{ label: fig.t('fig.lr.slider.step'), value: fig.fmt.n(at) }, { label: fig.t('fig.lr.axis.y'), value: rateText(rate) }]} />
+        <Readout cells={[{ label: fig.t('fig.lr.slider.step'), value: fig.fmt.n(at) }, { label: fig.t('fig.lr.axis.y'), value: rateNode(rate) }]} />
       </div>
     </Figure>
   );
