@@ -1,0 +1,70 @@
+/* Figure V14 (topic 5): the staircase, the three small sweep plots, the futility table, the variant list of sweep 1.
+   Tokens only; no colour is written here. Layout notes: web/design/about/about-notes.md, section 10, V14. */
+
+/* ===== staircase ===== */
+.ml-fig-story { display: grid; gap: var(--ml-space-2); min-width: 0; }
+.ml-fig-story__axisrow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-1); font-size: var(--ml-text-sm); color: var(--ml-fig-axis); }
+.ml-fig__stage svg.ml-fig-story__axis, .ml-fig__stage svg.ml-fig-story__whisker { width: auto; height: auto; max-width: 100%; display: block; }
+.ml-fig-story__axis text { font: 12px var(--ml-font-data); fill: var(--ml-fig-axis); font-variant-numeric: tabular-nums; }
+.ml-fig-story__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ml-space-2); }
+.ml-fig-story__item { min-width: 0; }
+.ml-fig-story__row {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-2); align-items: center; width: 100%; min-height: 2.75rem;
+  padding: var(--ml-space-2) var(--ml-space-3); text-align: start; font: inherit; color: var(--ml-color-ink); cursor: pointer;
+  background: var(--ml-fig-bg); border: var(--ml-border) solid var(--ml-fig-border); border-radius: var(--ml-radius-sm);
+}
+.ml-fig-story__row:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; }
+.ml-fig-story__row[aria-pressed="true"] { border-color: var(--ml-fig-accent); box-shadow: inset 0 0 0 1px var(--ml-fig-accent); background: var(--ml-fig-accent-bg); }
+.ml-fig-story__text { display: grid; gap: 2px; min-width: 0; }
+.ml-fig-story__label { font-weight: var(--ml-weight-medium); }
+.ml-fig-story__example { color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); overflow-wrap: anywhere; }
+.ml-fig-story__tag { justify-self: start; }
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-story__axisrow { grid-template-columns: minmax(0, 1fr) 280px; align-items: end; }
+  .ml-fig-story__axislabel { text-align: end; padding-inline-end: var(--ml-space-3); }
+  .ml-fig-story__row { grid-template-columns: minmax(0, 1fr) 280px; padding-inline: var(--ml-space-3); }
+  .ml-fig-story__item { padding-inline-start: calc(var(--ml-story-level, 0) * 12px); }
+  .ml-fig-story__tag { justify-self: center; }
+}
+
+/* ===== three small plots ===== */
+.ml-fig-story__small { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-4); }
+.ml-fig-story__smallplot { min-width: 0; display: grid; gap: var(--ml-space-1); }
+.ml-fig-story__smalltitle { margin: 0; font-weight: var(--ml-weight-medium); font-size: var(--ml-text-sm); }
+@container ml-fig (min-width: 40rem) { .ml-fig-story__small { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ml-space-3); } }
+
+/* ===== futility table: a real table; below 44 rem each row is a block of label and value pairs ===== */
+.ml-fig-story__tablewrap { min-width: 0; }
+.ml-fig-story__table { width: 100%; border-collapse: collapse; font-size: var(--ml-text-sm); }
+.ml-fig-story__table th { text-align: start; font-weight: var(--ml-weight-medium); padding: var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-fig-border); vertical-align: bottom; }
+.ml-fig-story__table td { padding: var(--ml-space-1) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-fig-grid); font-variant-numeric: tabular-nums; vertical-align: middle; }
+.ml-fig-story__cell { font-family: var(--ml-font-data); }
+.ml-fig-story__cell svg { display: inline-block; vertical-align: middle; width: 28px; height: 28px; margin-inline-end: var(--ml-space-2); }
+.ml-fig-story__cell--empty { color: var(--ml-color-ink-muted); font-family: var(--ml-font-ui); }
+.ml-fig-story__ci { color: var(--ml-color-ink-muted); }
+.ml-fig-story__chosen { margin-inline-start: var(--ml-space-2); }
+.ml-fig-story__line[data-chosen="true"] td { border-block: 2px solid var(--ml-color-ink); background: var(--ml-fig-accent-bg); }
+.ml-fig-story__line[data-chosen="true"] td:first-child { border-inline-start: 2px solid var(--ml-color-ink); }
+.ml-fig-story__line[data-chosen="true"] td:last-child { border-inline-end: 2px solid var(--ml-color-ink); }
+@media (max-width: 43.99rem) {
+  .ml-fig-story__table, .ml-fig-story__table tbody, .ml-fig-story__table tr, .ml-fig-story__table td { display: block; }
+  .ml-fig-story__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ml-fig-story__table caption { position: absolute; }
+  .ml-fig-story__line { padding: var(--ml-space-2) 0; border-bottom: var(--ml-border) solid var(--ml-fig-border); }
+  .ml-fig-story__table td { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--ml-space-2); align-items: center; border-bottom: 0; }
+  .ml-fig-story__table td::before { content: attr(data-label); font-family: var(--ml-font-ui); color: var(--ml-color-ink-muted); min-width: 0; overflow-wrap: anywhere; }
+  .ml-fig-story__cell svg { grid-column: 2; grid-row: 1; justify-self: end; }
+  .ml-fig-story__num { grid-column: 2; grid-row: 1; justify-self: end; display: inline-flex; gap: var(--ml-space-2); align-items: center; }
+  .ml-fig-story__cell[data-elo] { grid-template-columns: minmax(0, 1fr) 28px auto; }
+  .ml-fig-story__cell[data-elo] svg { grid-column: 2; margin: 0; }
+  .ml-fig-story__cell[data-elo] .ml-fig-story__num { grid-column: 3; }
+  .ml-fig-story__line[data-chosen="true"] { border: 2px solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); background: var(--ml-fig-accent-bg); padding-inline: var(--ml-space-2); }
+  .ml-fig-story__line[data-chosen="true"] td, .ml-fig-story__line[data-chosen="true"] td:first-child, .ml-fig-story__line[data-chosen="true"] td:last-child { border: 0; background: none; }
+}
+
+/* ===== variant list of sweep 1 ===== */
+.ml-fig-story__variants { margin: 0; padding-inline-start: var(--ml-space-5); display: grid; gap: var(--ml-space-1); font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); list-style: none; padding: 0; }
+.ml-fig-story__variants li { overflow-wrap: anywhere; }
+.ml-fig-story__chosen { justify-self: start; width: max-content; }
+.ml-fig-story__variants li[data-winner="true"] { color: var(--ml-color-ink); font-weight: var(--ml-weight-medium); }
+.ml-fig-story__num { white-space: nowrap; }

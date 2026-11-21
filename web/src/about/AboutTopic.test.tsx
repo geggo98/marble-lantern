@@ -46,7 +46,8 @@ const flush = async (): Promise<void> => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
     });
-    if (host.querySelector('.ml-hint[role="status"]') === null) return;
+    // Settled: the page has its h1 or the failure alert. (Not "no status element": a figure's narration line is a status element too.)
+    if (host.querySelector('h1, [role="alert"]') !== null) return;
   }
   throw new Error('the page stayed in its loading state');
 };

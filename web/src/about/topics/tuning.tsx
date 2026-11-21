@@ -1,19 +1,29 @@
-// Topic page "tuning": placeholder skeleton of WP1. WP4 to WP6 replace the section list with sections that carry figures;
-// the texts come from about/i18n/{en,de}/tuning.json.
-import en from '../i18n/en/tuning.json';
-import de from '../i18n/de/tuning.json';
-import { makeAboutCatalog } from '../i18n/catalog';
-import type { SameKeys } from '../i18n/catalog';
+// Topic page "tuning" (topic 5): the texts come from about/i18n/{en,de}/tuning.json. Figure V14 (hyperparameter story and Elo ladder):
+// the staircase stands in `what`, its panels in the sections of their experiments: Elo curve in `measuring`, futility grid in `grids`,
+// MCTS sweeps in `sweeps`, sweep 1 in `recipe-sweep`.
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
+import { EloFigure, FutilityFigure, StoryFigure, Sweep1Figure, SweepsFigure } from '../figures/tuning';
+import { tuningCatalog } from '../figures/tuning-catalog';
 import { OUTLINE } from './outline';
 
-export const catalogsMatch: SameKeys<typeof en, typeof de> = true;
+export { catalogsMatch } from '../figures/tuning-catalog';
+
+const FIGURES: Record<string, () => React.ReactNode> = {
+  what: () => <StoryFigure />,
+  measuring: () => <EloFigure />,
+  grids: () => <FutilityFigure />,
+  sweeps: () => <SweepsFigure />,
+  'recipe-sweep': () => <Sweep1Figure />,
+};
 
 export const topic = defineTopic({
   id: 'tuning',
-  catalog: makeAboutCatalog({ en, de }),
-  sections: OUTLINE.tuning.map((slug) => ({ slug })),
+  catalog: tuningCatalog,
+  sections: OUTLINE.tuning.map((slug) => {
+    const figure = FIGURES[slug];
+    return figure ? { slug, figure } : { slug };
+  }),
   reading: ['4', '17', '18', '19', '20', '21', '22', '16', '6'],
 });
 

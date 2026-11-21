@@ -20,6 +20,11 @@ export const GLOSSARY_IDS: readonly string[] = Object.keys(en)
   .map((key) => /^term\.(?<id>[a-z0-9-]+)\.name$/.exec(key)?.groups?.['id'])
   .filter((id): id is string => id !== undefined);
 
+/** The page words of the glossary (`glossary.*` keys: title, filter, kinds, empty message), German falling back to English. */
+export function glossaryWord(language: Language, key: string): string {
+  return CATALOGS[language][`glossary.${key}`] ?? CATALOGS.en[`glossary.${key}`] ?? key;
+}
+
 export function termEntry(id: string, language: Language): TermEntry | undefined {
   const pick = (part: string): string | undefined => CATALOGS[language][`term.${id}.${part}`] ?? CATALOGS.en[`term.${id}.${part}`];
   const name = pick('name');
