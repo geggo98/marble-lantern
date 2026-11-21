@@ -221,7 +221,7 @@ describe('AboutTopic: the page', () => {
     expect(names()).toEqual([...names()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })));
     expect(names()).toContain('Tablebase');
     await act(async () => i18n.setLanguage('de'));
-    expect(names()).toContain('Tablebase (Endspieldatenbank)');
+    expect(names()).toContain('Endspieltabelle');
     expect(host.querySelector('#about-glossary-tablebase')?.textContent).toContain('(tablebase (endgame database))');
   });
 });

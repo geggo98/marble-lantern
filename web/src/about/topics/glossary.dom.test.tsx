@@ -46,10 +46,10 @@ const type = async (input: HTMLInputElement, value: string): Promise<void> => {
 };
 
 describe('the glossary page', () => {
-  it('lists every term of the catalog (142), alphabetical in English', async () => {
+  it('lists every term of the catalog (146), alphabetical in English', async () => {
     await show();
     expect(names()).toHaveLength(GLOSSARY_IDS.length);
-    expect(names()).toHaveLength(142);
+    expect(names()).toHaveLength(146);
     expect(names()).toEqual([...names()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })));
   });
 
@@ -64,7 +64,7 @@ describe('the glossary page', () => {
     expect(dt?.querySelector('[lang="en"]')).not.toBeNull();
   });
 
-  it('filters by kind: 78 data-science terms with a long definition, 64 search and engineering terms without', async () => {
+  it('filters by kind: 78 data-science terms with a long definition, 68 search and engineering terms without', async () => {
     await show();
     const kind = (k: string): HTMLElement => host.querySelector(`[data-kind="${k}"]`) as HTMLElement;
     await click(kind('ds'));
@@ -72,10 +72,10 @@ describe('the glossary page', () => {
     expect([...host.querySelectorAll('.ml-about__term')].every((t) => t.getAttribute('data-kind') === 'ds')).toBe(true);
     expect(host.querySelectorAll('.ml-glossary__long')).toHaveLength(78);
     await click(kind('eng'));
-    expect(names()).toHaveLength(64);
+    expect(names()).toHaveLength(68);
     expect(host.querySelectorAll('.ml-glossary__long')).toHaveLength(0);
     await click(kind('all'));
-    expect(names()).toHaveLength(142);
+    expect(names()).toHaveLength(146);
     expect(kind('all').getAttribute('aria-pressed')).toBe('true');
   });
 

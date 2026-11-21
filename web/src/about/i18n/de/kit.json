@@ -56,6 +56,6 @@
   "kit.legend.todo": "Noch nicht erreicht",
   "kit.legend.jump": "Sprung",
   "kit.legend.step": "Schritt",
-  "kit.board.orientation": "{top} startet in der oberen Spitze, {bottom} in der unteren.",
+  "kit.board.orientation": "{top} startet in der oberen Ecke, {bottom} in der unteren.",
   "kit.board.cell": "Feld {cell}: {content}"
 }

@@ -133,7 +133,7 @@ describe('V9a, the layers of the network', () => {
     await render(<NetFigure />);
     expect(text(q('.ml-fig-stack__total'))).toContain('61,734');
     expect(text(q('[data-layer="input"]'))).toContain('[122][13]');
-    click(radio('Shared (2 and 3 players)'));
+    click(radio('Shared (all four variants)'));
     expect(text(q('.ml-fig-stack__total'))).toContain('62,215');
     expect(text(q('[data-layer="input"]'))).toContain('[122][15]');
     expect(text(q('[data-layer="head_value"]'))).toContain('[3]');
