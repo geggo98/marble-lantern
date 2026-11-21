@@ -91,7 +91,7 @@ describe('AboutTopic: loading', () => {
     await click(q('[role="alert"] button')!);
     await flush();
     expect(q('[role="alert"]')).toBeNull();
-    expect(q('h1')?.textContent).toBe('How the hyperparameters were found');
+    expect(q('h1')?.textContent).toBe('How the hyperparameters were chosen');
     expect(loader).toHaveBeenCalledTimes(2);
   });
 
@@ -146,7 +146,7 @@ describe('AboutTopic: the page', () => {
     const jump = vi.fn();
     await show('classical', undefined, jump);
     const link = q<HTMLAnchorElement>('nav.ml-about__toc a[href="#/about/classical/alpha-beta"]')!;
-    expect(link.textContent).toBe('Alpha beta');
+    expect(link.textContent).toBe('Alpha-beta pruning');
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     await act(async () => {
       link.dispatchEvent(event);
@@ -181,11 +181,14 @@ describe('AboutTopic: the page', () => {
   it('renders a heading and a paragraph per section, and the reading list with its links', async () => {
     await show('classical');
     expect(host.querySelectorAll('section.ml-about__section h2')).toHaveLength(11 + 1); // eleven sections and the reading list
-    expect(q('#about-classical-board')?.textContent).toBe('Board');
+    expect(q('#about-classical-board')?.textContent).toBe('Board and moves');
     const reading = [...host.querySelectorAll<HTMLAnchorElement>('.ml-about__reading a')].map((a) => a.getAttribute('href'));
     expect(reading).toEqual([
       'https://www.chessprogramming.org/Minimax',
       'https://www.chessprogramming.org/Alpha-Beta',
+      'https://www.chessprogramming.org/Futility_Pruning',
+      'https://www.chessprogramming.org/Texel%27s_Tuning_Method',
+      'https://sites.ualberta.ca/~nathanst/papers/sturtevant2019chinesecheckers.pdf',
       'https://en.wikipedia.org/wiki/Elo_rating_system',
     ]);
   });
@@ -217,8 +220,8 @@ describe('AboutTopic: the page', () => {
     expect(names()).toEqual([...names()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })));
     expect(names()).toContain('Tablebase');
     await act(async () => i18n.setLanguage('de'));
-    expect(names()).toContain('Endspieltabelle');
-    expect(host.querySelector('#about-glossary-tablebase')?.textContent).toContain('(Tablebase)');
+    expect(names()).toContain('Tablebase (Endspieldatenbank)');
+    expect(host.querySelector('#about-glossary-tablebase')?.textContent).toContain('(tablebase (endgame database))');
   });
 });
 
@@ -233,7 +236,7 @@ describe('TermPopover', () => {
     expect(termButton().getAttribute('aria-expanded')).toBe('true');
     const pop = q('.ml-term__pop')!;
     expect(termButton().getAttribute('aria-controls')).toBe(pop.id);
-    expect(pop.textContent).toContain('All positions reachable by moves, as a tree.');
+    expect(pop.textContent).toContain('Positions as nodes and moves as edges, grown from the current position as the root.');
     expect(pop.querySelector('a')?.getAttribute('href')).toBe('#/about/glossary/game-tree');
     await click(termButton());
     expect(q('.ml-term__pop')).toBeNull();
@@ -268,8 +271,8 @@ describe('TermPopover', () => {
     await click(termButton());
     await act(async () => i18n.setLanguage('de'));
     const pop = q('.ml-term__pop')!;
-    expect(pop.textContent).toContain('Alle durch Züge erreichbaren Stellungen als Baum.');
-    expect(pop.textContent).toContain('(Game tree)');
+    expect(pop.textContent).toContain('Stellungen als Knoten und Züge als Kanten, gewachsen aus der aktuellen Stellung als Wurzel.');
+    expect(pop.textContent).toContain('(game tree)');
   });
 });
 
@@ -295,7 +298,7 @@ describe('AboutScreen: the hub', () => {
     await act(async () => root.render(<AboutScreen />));
     expect(q('[role="status"]')).toBeNull();
     await act(async () => root.render(<AboutScreen notFound />));
-    expect(q('[role="status"]')?.textContent).toBe('That page does not exist. Here is the overview.');
+    expect(q('[role="status"]')?.textContent).toBe('This page does not exist. Here is the overview instead.');
     expect(q('h1')?.textContent).toBe('About');
   });
 

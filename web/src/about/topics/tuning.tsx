@@ -14,7 +14,7 @@ export const topic = defineTopic({
   id: 'tuning',
   catalog: makeAboutCatalog({ en, de }),
   sections: OUTLINE.tuning.map((slug) => ({ slug })),
-  reading: ['elo'],
+  reading: ['4', '17', '18', '19', '20', '21', '22', '16', '6'],
 });
 
 export default function TuningPage(props: TopicPageProps): React.JSX.Element {

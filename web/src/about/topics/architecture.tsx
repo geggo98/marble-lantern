@@ -14,7 +14,7 @@ export const topic = defineTopic({
   id: 'architecture',
   catalog: makeAboutCatalog({ en, de }),
   sections: OUTLINE.architecture.map((slug) => ({ slug })),
-  reading: ['webgpu-mdn'],
+  reading: ['24', '25', '26', '27'],
 });
 
 export default function ArchitecturePage(props: TopicPageProps): React.JSX.Element {

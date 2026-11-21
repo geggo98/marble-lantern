@@ -14,7 +14,7 @@ export const topic = defineTopic({
   id: 'classical',
   catalog: makeAboutCatalog({ en, de }),
   sections: OUTLINE.classical.map((slug) => ({ slug })),
-  reading: ['cpw-minimax', 'cpw-alpha-beta', 'elo'],
+  reading: ['1', '2', '3', '4', '23', '19'],
 });
 
 export default function ClassicalPage(props: TopicPageProps): React.JSX.Element {

@@ -14,7 +14,7 @@ export const topic = defineTopic({
   id: 'inference',
   catalog: makeAboutCatalog({ en, de }),
   sections: OUTLINE.inference.map((slug) => ({ slug })),
-  reading: ['alphazero', 'webgpu-mdn'],
+  reading: ['5', '12', '10', '9', '8', '7', '24'],
 });
 
 export default function InferencePage(props: TopicPageProps): React.JSX.Element {

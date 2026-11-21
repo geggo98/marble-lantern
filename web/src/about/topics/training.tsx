@@ -14,7 +14,7 @@ export const topic = defineTopic({
   id: 'training',
   catalog: makeAboutCatalog({ en, de }),
   sections: OUTLINE.training.map((slug) => ({ slug })),
-  reading: ['alphazero'],
+  reading: ['9', '10', '11', '13', '14', '15', '16'],
 });
 
 export default function TrainingPage(props: TopicPageProps): React.JSX.Element {

@@ -31,7 +31,7 @@ test('the hub keeps the About text and shows one card per topic; a card opens it
 
 test('an unknown topic shows the hub with a notice', async ({ page }) => {
   await openApp(page, 'en', '#/about/nonsense');
-  await expect(page.locator('[role="status"]')).toHaveText('That page does not exist. Here is the overview.');
+  await expect(page.locator('[role="status"]')).toHaveText('This page does not exist. Here is the overview instead.');
   await expect(page.locator('.ml-learn__card')).toHaveCount(6);
 });
 
@@ -118,9 +118,9 @@ test('a game survives the way through the header: About, a topic, the next topic
   const plies = await plyOf(page);
   await page.locator('.ml-nav__link[href="#/about"]').click();
   await page.locator('.ml-learn__link[href="#/about/training"]').click();
-  await expect(page.locator('h1')).toHaveText('How training runs');
+  await expect(page.locator('h1')).toHaveText('How the network was trained');
   await page.locator('a[rel="next"]').click();
-  await expect(page.locator('h1')).toHaveText('How the hyperparameters were found');
+  await expect(page.locator('h1')).toHaveText('How the hyperparameters were chosen');
   await page.locator('.ml-nav__link[href="#/play"]').click();
   await expect.poll(() => plyOf(page)).toBe(plies);
   expect(new URL(page.url()).hash).toMatch(/^#g=/);
