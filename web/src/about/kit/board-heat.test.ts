@@ -1,7 +1,7 @@
 // Levels and arrows of the figure boards.
 import { describe, expect, it } from 'vitest';
 import { cellPoint } from '../../ui/board-model';
-import { ARROW_GAP, arrowGeometry, heatLevel, signedLevel } from './board-heat';
+import { arrowGeometry, heatLevel, signedLevel } from './board-heat';
 
 describe('heatLevel', () => {
   it('cuts [0, 10] into five equal bins', () => {
@@ -33,7 +33,7 @@ describe('arrowGeometry', () => {
     const a = cellPoint(0, false);
     const b = cellPoint(1, false);
     expect(g.from).toEqual(a);
-    expect(Math.hypot(b.x - g.end.x, b.y - g.end.y)).toBeCloseTo(ARROW_GAP, 9);
-    expect(Math.hypot(g.end.x - a.x, g.end.y - a.y)).toBeCloseTo(Math.hypot(b.x - a.x, b.y - a.y) - ARROW_GAP, 9);
+    expect(Math.hypot(b.x - g.end.x, b.y - g.end.y)).toBeCloseTo(26, 9);
+    expect(Math.hypot(g.end.x - a.x, g.end.y - a.y)).toBeCloseTo(Math.hypot(b.x - a.x, b.y - a.y) - 26, 9);
   });
 });

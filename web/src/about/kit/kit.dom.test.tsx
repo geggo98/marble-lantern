@@ -189,6 +189,7 @@ describe('boards', () => {
     expect(namedBy(svg)).toBe('Start | The start position.');
     expect(svg.getAttribute('viewBox')).toBe('-234 -266 468 532');
     expect(host.querySelectorAll('circle.ml-socket')).toHaveLength(121);
+    expect(q('circle.ml-socket').getAttribute('r')).toBe('11.5'); // socket radius of the game board (tokens: --ml-board-socket-r)
     expect([...host.querySelectorAll('use')].map((u) => u.getAttribute('href'))).toEqual(['#ml-piece-a', '#ml-piece-a', '#ml-piece-a', '#ml-piece-b', '#ml-piece-b']);
     expect(host.querySelectorAll('.ml-fig-board__nb')).toHaveLength(1);
     expect(host.querySelectorAll('.ml-fig-board__arrowhead')).toHaveLength(1);
@@ -428,11 +429,11 @@ describe('BoxDiagram', () => {
   });
 
   it('chooses the layout from the figure width when it is not told', async () => {
-    let width = 300;
+    let width = 639;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width, height: 100, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 100, toJSON: () => ({}) }));
     await render(<BoxDiagram {...base} />);
     expect(q('.ml-fig-boxwrap').getAttribute('data-layout')).toBe('compact');
-    width = 700;
+    width = 640;
     await act(async () => root.unmount());
     root = createRoot(host);
     await render(<BoxDiagram {...base} />);

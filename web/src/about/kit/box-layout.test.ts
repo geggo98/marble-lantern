@@ -119,6 +119,24 @@ describe('compact rules of the notes', () => {
   });
 });
 
+describe('region size decides the compact box size', () => {
+  const box = (id: string, runsIn: string): { id: string; label: string; runsIn: string } => ({ id, label: id, runsIn });
+  const sizes = (count: number): Set<string> => {
+    const boxes = Array.from({ length: count }, (_, i) => box(`b${i}`, 'r'));
+    return new Set(layoutBoxes({ boxes, edges: [] }, 'compact').nodes.map((n) => `${n.w}x${n.h}`));
+  };
+  it('one and two boxes are full width; three and more are three to a row (the boundary is three)', () => {
+    expect(sizes(1)).toEqual(new Set(['224x46']));
+    expect(sizes(2)).toEqual(new Set(['224x46']));
+    expect(sizes(3)).toEqual(new Set(['70x50']));
+    expect(sizes(4)).toEqual(new Set(['70x50']));
+  });
+  it('four boxes make a second row of one', () => {
+    const rows = layoutBoxes({ boxes: Array.from({ length: 4 }, (_, i) => box(`b${i}`, 'r')), edges: [] }, 'compact').nodes.map((n) => n.row);
+    expect(rows).toEqual([0, 0, 0, 1]);
+  });
+});
+
 describe('errors in the data', () => {
   it('names the edge when a box does not exist, and refuses a self loop', () => {
     const boxes = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }];
