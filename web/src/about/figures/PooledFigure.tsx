@@ -52,7 +52,16 @@ export function PooledFigure(): React.JSX.Element {
           {mode === 'gpu' && <Stepper state={state} dispatch={dispatch} labels={stepperLabels(fig.kit, fig.t('fig.pooled.stepper'))} />}
         </Manipulate>
       }
-      status={{ ...(mode === 'gpu' && state.step > 0 ? { step: fig.kit('kit.stepper.step', { k: state.step, n: STEPS.length }) } : {}), text: narration }}
+      status={{
+        ...(mode === 'gpu' && state.step > 0 ? { step: fig.kit('kit.stepper.step', { k: state.step, n: STEPS.length }) } : {}),
+        text: narration,
+        // every narration of the figure, so that its status area keeps the height of the longest one
+        all: [
+          { text: fig.plain('fig.pooled.cpu.note') },
+          { text: fig.plain('fig.pooled.idle') },
+          ...STEPS.map((_, i) => ({ step: fig.kit('kit.stepper.step', { k: i + 1, n: STEPS.length }), text: fig.plain(`fig.pooled.step.${i + 1}`) })),
+        ],
+      }}
       caption={<Markup text={fig.t('fig.pooled.caption')} />}
       foot={
         <FootChips

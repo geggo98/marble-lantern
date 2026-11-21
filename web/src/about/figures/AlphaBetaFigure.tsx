@@ -50,10 +50,18 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
   const compact = width > 0 && width < PLOT_BREAKPOINT_PX;
 
   const activeColumn = view ? columnOf(DATA, view.visit) : -1;
-  const narration = view ? view.narration.map((part) => f.plain(`fig.ab.narration.${part.key}`, part.values)).join(' ') : '';
-  const status = minimax
-    ? { text: `${t('fig.ab.counter.label')}: ${t('fig.ab.counter', { visited: n(count.visited), total: n(count.total) })}` }
-    : { ...(view ? { step: f.kit('kit.stepper.step', { k: step, n: DATA.visits.length }) } : {}), text: view ? narration : f.plain('fig.ab.narration.idle') };
+  const narrationAt = (at: number): string => {
+    const v = stepView(DATA, at);
+    return v ? v.narration.map((part) => f.plain(`fig.ab.narration.${part.key}`, part.values)).join(' ') : f.plain('fig.ab.narration.idle');
+  };
+  const stepLine = (at: number): { step?: string; text: string } => ({
+    ...(at > 0 ? { step: f.kit('kit.stepper.step', { k: at, n: DATA.visits.length }) } : {}),
+    text: narrationAt(at),
+  });
+  const minimaxText = (visited: number, total: number): string => `${t('fig.ab.counter.label')}: ${t('fig.ab.counter', { visited: n(visited), total: n(total) })}`;
+  // every narration the figure can show, so that its status area keeps the height of the longest one
+  const all = [...Array.from({ length: DATA.visits.length + 1 }, (_, at) => stepLine(at)), { text: minimaxText(count.total, count.total) }];
+  const status = minimax ? { text: minimaxText(count.visited, count.total), all } : { ...stepLine(step), all };
 
   const rootMoveOptions = [
     { value: '', label: t('fig.ab.select.rootmove') },
@@ -85,7 +93,10 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
           { label: t('fig.ab.counter.label'), value: t('fig.ab.counter', { visited: n(count.visited), total: n(count.total) }) },
         ]}
       />
-      {view?.cut && <p className="ml-fig-ab__cut">{t('fig.ab.cutoff')}</p>}
+      {/* always there, hidden while no cut-off happens: the note must not change the height of the figure from step to step */}
+      <p className={view?.cut ? 'ml-fig-ab__cut' : 'ml-fig-ab__cut ml-fig-ab__cut--off'} aria-hidden={view?.cut ? undefined : true}>
+        {t('fig.ab.cutoff')}
+      </p>
     </div>
   );
 

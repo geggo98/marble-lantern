@@ -81,6 +81,7 @@
 .ml-fig-legend { gap: var(--ml-space-1) var(--ml-space-4); }
 .ml-fig-ab__orientation { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); text-align: center; }
 .ml-fig-ab__cut { justify-self: start; margin: 0; padding: 0 var(--ml-space-2); border: 2px solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); font: var(--ml-weight-bold) var(--ml-text-sm)/1.6 var(--ml-font-ui); }
+.ml-fig-ab__cut--off { visibility: hidden; }
 
 /* ===== V6: feature table ===== */
 .ml-fig-eval__board { display: grid; gap: var(--ml-space-2); min-width: 0; }
