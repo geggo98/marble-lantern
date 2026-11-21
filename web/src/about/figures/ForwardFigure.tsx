@@ -1,6 +1,7 @@
 // V9b: one forward pass on a real position, layer by layer (Fig. 3.2), and the backends of the forward pass (Fig. 3.3).
 // Layout notes: web/design/about/about-notes.md, "V9b". Data: forward-<position>.json (3 files) and backends.json.
 import { useEffect, useId, useState } from 'react';
+import { MODEL_ID } from '../live/mcts';
 import { cellName, isStep, notation } from '../../ui/board-model';
 import { useT } from '../../ui/texts';
 import { Figure, HeatBoard, Manipulate, MiniBoard, Segmented, Select, Stepper, stepperLabels, useStepper } from '../kit';
@@ -13,6 +14,14 @@ import { POSITIONS, STEP_IDS, activationCells, arrowWidth, backendPoints, forwar
 import type { PositionId } from './forward';
 import { HeatLegend } from './HeatLegend';
 import { FootChips, useCompact, useFigText } from './shared';
+import { FigFoot } from './common';
+import { Icon } from '../kit/icons';
+import { liveBlockedReason } from '../live/classic';
+import { useLive } from '../live/context';
+import { runForwardLive } from '../live/forward';
+import { liveStatusText } from '../live/status';
+import { useLiveRun } from '../live/useLiveRun';
+import type { ForwardData } from './forward';
 
 const moveText = (from: number, to: number): string => notation({ from, to, jump: !isStep(from, to) });
 
@@ -20,7 +29,17 @@ export function ForwardFigure(): React.JSX.Element {
   const fig = useFigText(inferenceCatalog);
   const { t: ui } = useT();
   const { ref, compact } = useCompact();
-  const [position, setPosition] = useState<PositionId>('mid');
+  const { input } = useLive();
+  const run = useLiveRun<ForwardData, never>('forward', (engines, signal, report) => runForwardLive(engines, input!.snapshot, signal, report));
+  const blocked = liveBlockedReason(input, 'net');
+  const ply = input?.snapshot.ply ?? 0;
+  const [chosen, setChosen] = useState<PositionId | 'mine'>('mid');
+  // My game stays selected while its run starts, goes on or has finished; after Stop or a failure the figure is back at an example.
+  const running = run.state.kind === 'starting' || run.state.kind === 'running';
+  const live = run.state.kind === 'done' ? run.state.value : null;
+  const mineSelected = chosen === 'mine' && (running || live !== null);
+  const position: PositionId = chosen === 'mine' ? 'mid' : chosen;
+  const select = mineSelected ? 'mine' : position;
   const [plane, setPlane] = useState(0);
   const [priors, setPriors] = useState<'on' | 'off'>('on');
   const { state, dispatch } = useStepper(STEP_IDS.length);
@@ -29,7 +48,7 @@ export function ForwardFigure(): React.JSX.Element {
   const step = Math.max(1, state.step);
   const id = STEP_IDS[step - 1] as (typeof STEP_IDS)[number];
 
-  const d = forwardData(position);
+  const d = live && mineSelected ? live : forwardData(position);
   const withPriors = priors === 'on';
   const top = topMoves(d, withPriors);
   const pieces = piecesOf(d);
@@ -77,10 +96,38 @@ export function ForwardFigure(): React.JSX.Element {
         <Manipulate>
           <Select
             label={fig.t('fig.forward.position')}
-            value={position}
-            onChange={(v) => setPosition(v as PositionId)}
-            options={POSITIONS.map((p) => ({ value: p, label: fig.plain(`fig.forward.position.${p}`) }))}
+            value={select}
+            onChange={(v) => {
+              setChosen(v as PositionId | 'mine');
+              if (v === 'mine') run.start();
+              else run.reset();
+            }}
+            options={[
+              ...POSITIONS.map((p) => ({ value: p as string, label: fig.plain(`fig.forward.position.${p}`) })),
+              ...(input && blocked === null ? [{ value: 'mine', label: fig.plain('fig.forward.position.mine', { ply }) }] : []),
+            ]}
           />
+          {input && blocked !== null && (
+            <p className="ml-fig-live__reason" data-live-reason="">
+              {fig.kit(`kit.live.reason.${blocked}`)}
+            </p>
+          )}
+          {(running || run.state.kind === 'failed') && (
+            <div className="ml-fig-live__actions">
+              {running && (
+                <button type="button" className="ml-btn" data-live-stop="" onClick={run.stop}>
+                  <Icon name="pause" />
+                  {fig.kit('kit.live.stop')}
+                </button>
+              )}
+              {run.state.kind === 'failed' && (
+                <button type="button" className="ml-btn" data-live-retry="" onClick={run.start}>
+                  <Icon name="reset" />
+                  {fig.kit('kit.live.retry')}
+                </button>
+              )}
+            </div>
+          )}
           <Stepper state={state} dispatch={dispatch} labels={stepperLabels(fig.kit, fig.t('fig.forward.layer'))} />
           <Select
             label={fig.t('fig.forward.plane')}
@@ -100,9 +147,24 @@ export function ForwardFigure(): React.JSX.Element {
           />
         </Manipulate>
       }
-      status={{ step: fig.kit('kit.stepper.step', { k: step, n: STEP_IDS.length }), text: narration }}
-      caption={<Markup text={fig.t('fig.forward.caption')} />}
-      foot={<FootChips fig={fig} sources={['nn/src/main/java/sternhalma/nn/Network.java', 'nn/src/main/java/sternhalma/nn/ResidualPriors.java']} data={[`forward-${position}.json`]} />}
+      status={{ step: fig.kit('kit.stepper.step', { k: step, n: STEP_IDS.length }), text: run.state.kind === 'idle' ? narration : liveStatusText(fig.kit, run.state) }}
+      caption={
+        live && mineSelected ? (
+          <>
+            <Markup text={fig.t('fig.forward.live.caption', { ply, model: MODEL_ID })} /> <Markup text={fig.t('fig.forward.live.single')} />
+          </>
+        ) : (
+          <Markup text={fig.t('fig.forward.caption')} />
+        )
+      }
+      foot={
+        <FigFoot
+          kit={fig.kit}
+          paths={['nn/src/main/java/sternhalma/nn/Network.java', 'nn/src/main/java/sternhalma/nn/ResidualPriors.java']}
+          data={`forward-${position}.json`}
+          origin={live && mineSelected ? { kind: 'mine', ply } : { kind: 'example', ply: forwardData(position).meta.ply }}
+        />
+      }
     >
       <div ref={ref} className="ml-fig-forward__board">
         {board}
