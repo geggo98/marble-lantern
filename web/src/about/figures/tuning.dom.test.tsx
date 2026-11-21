@@ -71,6 +71,18 @@ describe('StoryFigure: the staircase', () => {
     expect(one('.ml-fig__detail a').getAttribute('href')).toBe('#/about/tuning/regression');
   });
 
+  it('opens the detail of the selected level directly under its row, in the same list item (review m16), and moves it with the selection', async () => {
+    await render(<StoryFigure />);
+    const owner = (): string | null => one('.ml-fig__detail').closest('li')?.querySelector('[data-level]')?.getAttribute('data-level') ?? null;
+    expect(all('.ml-fig__detail')).toHaveLength(1);
+    expect(owner()).toBe('hand-tuning');
+    expect(one('.ml-fig__detail').previousElementSibling?.getAttribute('data-level')).toBe('hand-tuning'); // the row, not the end of the list
+    await click(one('[data-level="sweeps"]'));
+    expect(all('.ml-fig__detail')).toHaveLength(1);
+    expect(owner()).toBe('sweeps');
+    expect(one('.ml-fig__detail').closest('figure')?.querySelector('figcaption')?.contains(one('.ml-fig__detail'))).toBe(false);
+  });
+
   it('shows level 0 with the tag "not measured", no dot, and no link to an experiment', async () => {
     await render(<StoryFigure />);
     await click(one('[data-level="decisions"]'));
@@ -165,6 +177,17 @@ describe('EloFigure: the Elo curve panel', () => {
     expect(d.match(/L/g)).toHaveLength(119);
   });
 
+  it('writes the short name of loop run 4 between its two lines, with a halo, not across the cursor line (review m12)', async () => {
+    await render(<EloFigure />);
+    const label = one('text.ml-fig-story__reflabel');
+    expect(label.textContent).toBe(en('fig.story.panel.elo.saturation.short'));
+    const [a, b] = all('[data-saturation] line.ml-fig-plot__ref').map((l) => Number(l.getAttribute('x1')));
+    const x = Number(label.getAttribute('x'));
+    expect(x).toBeGreaterThan(Math.min(a ?? 0, b ?? 0));
+    expect(x).toBeLessThan(Math.max(a ?? 0, b ?? 0));
+    expect(label.getAttribute('text-anchor')).toBe('middle');
+  });
+
   it('names the plot by title and description from the catalog, without markup characters', async () => {
     await render(<EloFigure />);
     const svg = one('svg.ml-fig-plot');
@@ -196,6 +219,16 @@ describe('FutilityFigure: the grid table', () => {
     await render(<FutilityFigure />);
     expect(all('.ml-fig-story__cell--empty')).toHaveLength(10);
     expect(all('td').filter((c) => c.textContent === 'off')).toHaveLength(4);
+  });
+
+  it('explains the disc size with the five-disc ramp "low, discs, high" and not with two overlapping discs (review m15)', async () => {
+    await render(<FutilityFigure />);
+    const ramp = one('.ml-fig-heatlegend__ramp');
+    expect(ramp.querySelectorAll('circle')).toHaveLength(5);
+    expect([...ramp.querySelectorAll('circle')].map((c) => Number(c.getAttribute('r')))).toEqual([2.2, 3.2, 4.2, 5.2, 6.2]);
+    expect(ramp.children[0]?.textContent).toBe('low');
+    expect(ramp.children[2]?.textContent).toBe('high');
+    expect(one('.ml-fig-heatlegend__text').textContent).toBe('Larger disc, larger value');
   });
 
   it('gives the biggest disc to the highest Elo (+230) and the smallest to the lowest (+79)', async () => {
@@ -241,6 +274,15 @@ describe('Sweep1Figure', () => {
     expect(one('.ml-fig-plot__best').textContent).toBe('0.5887');
     expect(one('[data-winner="true"]').getAttribute('data-variant')).toBe('F');
     expect(all('[data-variant]')).toHaveLength(9);
+  });
+
+  it('stands the winner label above the whisker of its confirmation, centred on it, with room above the frame (review m13)', async () => {
+    await render(<Sweep1Figure />);
+    const label = one('.ml-fig-plot__best');
+    expect(label.getAttribute('text-anchor')).toBe('middle');
+    const frameTop = Number(one('rect.ml-fig-plot__frame').getAttribute('y'));
+    expect(frameTop).toBe(40);
+    expect(Number(label.getAttribute('y'))).toBeGreaterThan(0);
   });
 
   it('writes the decimals with a comma in German', async () => {

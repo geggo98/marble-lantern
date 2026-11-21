@@ -44,8 +44,9 @@ export function layoutFor(compact: boolean): Layout {
       trayB: { x: 140, y: 196, w: 94, h: 56 },
       device: { x: 52, y: 340, w: 160, h: 64 },
       edges: {
-        aIn: 'M72 120V196',
-        bIn: 'M192 120V196',
+        // the entries stand left and right of the label of the evaluator, so that no arrow crosses it (review M10)
+        aIn: 'M48 120V196',
+        bIn: 'M216 120V196',
         aOut: 'M77 252V300H110V340',
         bOut: 'M187 252V300H154V340',
         backA: 'M52 372H8V92H19',

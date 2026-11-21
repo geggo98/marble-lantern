@@ -143,6 +143,8 @@
 .ml-fig-plot__now { fill: none; stroke: var(--ml-fig-accent); stroke-width: 3; }
 .ml-fig-plot text.ml-fig-plot__value { fill: var(--ml-color-ink); font-weight: 600; }
 .ml-fig-plot text.ml-fig-plot__best { fill: var(--ml-color-ink); font-weight: 700; }
+/* a value label may stand on a leader line or a whisker: a paper halo keeps it readable (review M8) */
+.ml-fig-plot text.ml-fig-plot__value, .ml-fig-plot text.ml-fig-plot__best { paint-order: stroke; stroke: var(--ml-fig-bg); stroke-width: 4px; stroke-linejoin: round; }
 
 /* ===== MiniBoard and HeatBoard (SVG, viewBox -234 -266 468 532) ===== */
 .ml-fig-board { max-width: 22rem; margin-inline: auto; width: 100%; }

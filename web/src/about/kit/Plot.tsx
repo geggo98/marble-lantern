@@ -3,8 +3,8 @@
 // plot (threshold 640 px). Labels come in as props; nothing in here is user text.
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
-import { PLOT_COMPACT, PLOT_WIDE, categoryScale, formatCompact, linearScale, linearTicks, logScale, logTicks, plotBoxFor } from './plot-scale';
-import type { PlotBox, Scale } from './plot-scale';
+import { PLOT_BREAKPOINT_PX, PLOT_COMPACT, PLOT_WIDE, categoryScale, formatCompact, linearScale, linearTicks, logScale, logTicks, plotBoxFor } from './plot-scale';
+import type { PlotBox, PlotMargin, Scale } from './plot-scale';
 
 export interface NumericAxis {
   scale: 'linear' | 'log';
@@ -61,14 +61,26 @@ export function useMeasuredWidth(ref: RefObject<HTMLElement | null>, closest?: s
   return width;
 }
 
+/** Narrowest view box of a fitted plot (units): below it the margins would leave no frame. */
+const MIN_FIT_WIDTH = 200;
+/** Width of one character of a tick label (12 px monospace) and the least space between two labels, in units. */
+const TICK_CHAR_WIDTH = 7.2;
+const TICK_LABEL_GAP = 6;
+
 export interface PlotProps {
   /** Accessible name and description: role="img" with <title> and <desc>. */
   title: string;
   desc: string;
   x: XAxis;
   y: NumericAxis;
-  /** `auto` (default) measures the width of the plot. */
-  layout?: 'auto' | 'wide' | 'compact';
+  /**
+   * `auto` (default) measures the width of the plot. `fit` is for a plot in a slot narrower than the figure (one of two columns): the
+   * compact margins and type, with a view box as wide as the slot, so that one unit stays about one CSS pixel (review M4). `compact` and
+   * `wide` are the fixed boxes of the notes (260 and 640 units).
+   */
+  layout?: 'auto' | 'wide' | 'compact' | 'fit';
+  /** Margins that differ from the box (units), for example more room above the frame for a value label. */
+  margin?: Partial<PlotMargin>;
   /** A figure brief may set another height than 280 (wide) or 180 (compact). */
   height?: number;
   children?: ReactNode;
@@ -83,10 +95,18 @@ function numericTicks(axis: NumericAxis): { major: number[]; minor: number[] } {
   return { major: axis.ticks ? [...axis.ticks] : linearTicks(min, max), minor: [] };
 }
 
-export function Plot({ title, desc, x, y, layout = 'auto', height, children }: PlotProps): React.JSX.Element {
+export function Plot({ title, desc, x, y, layout = 'auto', height, margin: marginOverride, children }: PlotProps): React.JSX.Element {
   const holder = useRef<HTMLDivElement>(null);
   const measured = useMeasuredWidth(holder);
-  const box: PlotBox = layout === 'wide' ? { ...PLOT_WIDE, ...(height ? { height } : {}) } : layout === 'compact' ? { ...PLOT_COMPACT, ...(height ? { height } : {}) } : plotBoxFor(measured, height);
+  const sized = (base: PlotBox): PlotBox => ({
+    ...base,
+    ...(height ? { height } : {}),
+    ...(marginOverride ? { margin: { ...base.margin, ...marginOverride } } : {}),
+  });
+  const base: PlotBox = layout === 'wide' ? PLOT_WIDE : layout === 'compact' ? PLOT_COMPACT : plotBoxFor(measured);
+  // a slot that is narrower than the wide box but wider than the compact one: draw in the width of the slot
+  const fitted: PlotBox = (layout === 'fit' || layout === 'auto') && measured > 0 && measured < PLOT_BREAKPOINT_PX ? { ...PLOT_COMPACT, width: Math.max(MIN_FIT_WIDTH, Math.round(measured)) } : base;
+  const box = sized(layout === 'fit' && !(measured > 0) ? PLOT_COMPACT : fitted);
   const id = useId();
   const { margin } = box;
   const area = { x0: margin.left, x1: box.width - margin.right, y0: margin.top, y1: box.height - margin.bottom };
@@ -103,6 +123,21 @@ export function Plot({ title, desc, x, y, layout = 'auto', height, children }: P
   const yFormat = y.format ?? formatCompact;
   const xTicks = x.scale === 'category' ? null : numericTicks(x);
   const xFormat = x.scale === 'category' ? null : (x.format ?? formatCompact);
+
+  // an x tick keeps its mark but loses its label when the label would touch the one before it (review m14)
+  const labelled = new Set<number>();
+  if (xTicks && xFormat) {
+    let lastPx = -Infinity;
+    let lastLen = 0;
+    for (const v of [...xTicks.major].sort((a, b) => sx(a) - sx(b))) {
+      const len = xFormat(v).length;
+      if (sx(v) - lastPx >= ((lastLen + len) / 2) * TICK_CHAR_WIDTH + TICK_LABEL_GAP) {
+        labelled.add(v);
+        lastPx = sx(v);
+        lastLen = len;
+      }
+    }
+  }
 
   const value: PlotContextValue = { box, area, sx, sy, xLog: x.scale === 'log', yLog: y.scale === 'log' };
   return (
@@ -140,9 +175,11 @@ export function Plot({ title, desc, x, y, layout = 'auto', height, children }: P
             xTicks.major.map((v) => (
               <g key={`x${v}`}>
                 <line className="ml-fig-plot__tick" x1={sx(v)} x2={sx(v)} y1={area.y1} y2={area.y1 + 6} />
-                <text x={sx(v)} y={area.y1 + 19} textAnchor="middle">
-                  {xFormat(v)}
-                </text>
+                {labelled.has(v) && (
+                  <text x={sx(v)} y={area.y1 + 19} textAnchor="middle">
+                    {xFormat(v)}
+                  </text>
+                )}
               </g>
             ))}
           {x.scale === 'category' &&
@@ -216,6 +253,11 @@ export interface Dot {
   /** Text next to the dot (ink, weight 600; 700 when `best`). */
   valueLabel?: string;
   best?: boolean;
+  /**
+   * Where the label stands: `right` of the dot (default), `left` of it, or `above` the top of its whisker (or above the dot), centred.
+   * The last two are for a dot whose right neighbour is too close (review m13).
+   */
+  labelSide?: 'left' | 'right' | 'above';
 }
 
 /**
@@ -239,7 +281,10 @@ export function PlotDots({ dots, series = 1, leaders = false }: { dots: readonly
             {series === 2 && <rect className="ml-fig-plot__pt--2" x={cx - 4} y={cy - 4} width={8} height={8} />}
             {series === 3 && <path className="ml-fig-plot__pt--3" d={`M${cx} ${cy - 6}L${cx + 6} ${cy}L${cx} ${cy + 6}L${cx - 6} ${cy}Z`} />}
             {d.valueLabel !== undefined && (
-              <text className={d.best ? 'ml-fig-plot__best' : 'ml-fig-plot__value'} x={cx + 9} y={cy - 8}>
+              <text className={d.best ? 'ml-fig-plot__best' : 'ml-fig-plot__value'} x={d.labelSide === 'left' ? cx - 9 : d.labelSide === 'above' ? cx : cx + 9}
+                y={d.labelSide === 'above' ? Math.min(cy, d.hi !== undefined ? sy(d.hi) : cy) - 9 : cy - 8}
+                textAnchor={d.labelSide === 'left' ? 'end' : d.labelSide === 'above' ? 'middle' : 'start'}
+              >
                 {d.valueLabel}
               </text>
             )}

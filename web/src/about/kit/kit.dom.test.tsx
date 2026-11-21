@@ -155,6 +155,74 @@ describe('Plot', () => {
     expect(q('svg').getAttribute('data-layout')).toBe('wide');
   });
 
+  const stubWidth = (width: number): void => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width, height: 100, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 100, toJSON: () => ({}) }));
+  };
+
+  it('fit: a plot in a slot of 400 px draws a view box of 400 units (one unit is one pixel), not the 260 of the compact box scaled up (review M4)', async () => {
+    stubWidth(400);
+    await render(<Plot title="t" desc="d" layout="fit" {...axes} />);
+    expect(q('svg').getAttribute('viewBox')).toBe('0 0 400 180');
+    expect(q('svg').getAttribute('data-layout')).toBe('compact');
+  });
+
+  it('fit: without a layout (no measured width) it is the compact box, and a slot of 640 px or more is the wide box', async () => {
+    await render(<Plot title="t" desc="d" layout="fit" {...axes} />);
+    expect(q('svg').getAttribute('viewBox')).toBe('0 0 260 180');
+    stubWidth(700);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await render(<Plot title="t" desc="d" layout="fit" {...axes} />);
+    expect(q('svg').getAttribute('viewBox')).toBe('0 0 640 280');
+  });
+
+  it('fit: the fixed compact box stays 260 units wide whatever the slot', async () => {
+    stubWidth(400);
+    await render(<Plot title="t" desc="d" layout="compact" {...axes} />);
+    expect(q('svg').getAttribute('viewBox')).toBe('0 0 260 180');
+  });
+
+  it('a margin override moves the frame (more room above it for a value label)', async () => {
+    await render(<Plot title="t" desc="d" layout="compact" height={192} margin={{ top: 40 }} {...axes} />);
+    expect(Number(q('rect.ml-fig-plot__frame').getAttribute('y'))).toBe(40);
+  });
+
+  it('an x tick keeps its mark but loses a label that would touch the one before it (review m14)', async () => {
+    await render(
+      <Plot title="t" desc="d" layout="compact" x={{ scale: 'linear', domain: [0, 2], ticks: [0.5, 0.6, 1.5], label: 'x' }} y={{ scale: 'linear', domain: [0, 1], ticks: [0, 1] }} />,
+    );
+    const xLabels = [...host.querySelectorAll('svg text')].map((t) => t.textContent).filter((t) => /^[0-9.]+$/.test(t ?? '') && !['0', '1'].includes(t ?? ''));
+    expect(xLabels).toEqual(['0.5', '1.5']); // 0.6 is 10 units from 0.5
+    expect(host.querySelectorAll('line.ml-fig-plot__tick:not(.ml-fig-plot__tick--minor)')).toHaveLength(5); // 3 x ticks, 2 y ticks
+  });
+
+  it('a value label can stand left of its dot, right aligned to it (review m13)', async () => {
+    await render(
+      <Plot title="t" desc="d" layout="compact" x={{ scale: 'linear', domain: [0, 10] }} y={{ scale: 'linear', domain: [0, 10] }}>
+        <PlotDots dots={[{ x: 5, y: 4, valueLabel: 'L', labelSide: 'left' }, { x: 7, y: 4, valueLabel: 'R' }]} />
+      </Plot>,
+    );
+    const label = (t: string): Element => [...host.querySelectorAll('text.ml-fig-plot__value')].find((e) => e.textContent === t)!;
+    expect(label('L').getAttribute('text-anchor')).toBe('end');
+    expect(Number(label('L').getAttribute('x'))).toBeLessThan(Number(label('R').getAttribute('x')));
+    expect(label('R').getAttribute('text-anchor')).toBe('start');
+  });
+
+  it('a value label can stand centred above the whisker of its dot, so that no neighbour is in its way (review m13)', async () => {
+    await render(
+      <Plot title="t" desc="d" layout="compact" x={{ scale: 'linear', domain: [0, 10] }} y={{ scale: 'linear', domain: [0, 10] }}>
+        <PlotDots dots={[{ x: 5, y: 4, lo: 2, hi: 6, valueLabel: 'A', labelSide: 'above' }]} />
+      </Plot>,
+    );
+    const label = q('text.ml-fig-plot__value');
+    const cx = Number(q('circle.ml-fig-plot__pt--1').getAttribute('cx'));
+    expect(label.getAttribute('text-anchor')).toBe('middle');
+    expect(Number(label.getAttribute('x'))).toBe(cx);
+    // the whisker reaches up to y = 6 (SVG y grows downwards): the label is above that, not above the dot
+    const whiskerTop = Number(q('path.ml-fig-plot__whisker').getAttribute('d')!.match(/V([0-9.]+)/)![1]);
+    expect(Number(label.getAttribute('y'))).toBeLessThan(whiskerTop);
+  });
+
   it('draws bars from the baseline, dots with leaders, whiskers and a value label', async () => {
     await render(
       <Plot title="t" desc="d" layout="wide" x={{ scale: 'linear', domain: [0, 10] }} y={{ scale: 'linear', domain: [0, 10] }}>

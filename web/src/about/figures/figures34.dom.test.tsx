@@ -197,6 +197,14 @@ describe('V9a, the layers of the network', () => {
 
 describe('V9b, a forward pass', () => {
   const firstPrior = (): string => text(all('.ml-fig-policy__num')[0]);
+  it('the heat legend is the sentence, then one row "low, five discs, high" (review m10)', async () => {
+    await render(<ForwardFigure />);
+    expect(text(q('.ml-fig-heatlegend__text'))).toBe('Larger disc, larger value');
+    const ramp = q('.ml-fig-heatlegend__ramp');
+    expect(ramp.children[0]?.textContent).toBe('low');
+    expect(ramp.querySelectorAll('circle')).toHaveLength(5);
+    expect(ramp.children[2]?.textContent).toBe('high');
+  });
   it('starts at the input step on the mid-game position; End goes to the value head; the plane select works only at the input', async () => {
     await render(<ForwardFigure />);
     expect(status()).toContain('Step 1 of 8');
@@ -269,7 +277,8 @@ describe('V9b, the backends', () => {
   it('draws one dot per backend on a log axis and lists the measured values with their documents', async () => {
     await render(<BackendsFigure />);
     expect(all('[data-backend]')).toHaveLength(6);
-    const listed = all('.ml-fig-backlist li').map((li) => [text(li.children[0]), text(li.children[1]), li.querySelector('a')?.getAttribute('href')?.split('/main/')[1]]);
+    // the values are one compact table: name, value, source (review M8; it was a list with a source chip under every row)
+    const listed = all('table.ml-fig-backlist tbody tr').map((tr) => [text(tr.children[0]), text(tr.children[1]), tr.querySelector('a')?.getAttribute('href')?.split('/main/')[1]]);
     expect(listed).toEqual([
       ['Java scalar reference', '115', 'docs/network.md'],
       ['Java Vector API', '1,760', 'docs/network.md'],
@@ -381,8 +390,25 @@ describe('V10, MCTS', () => {
     click(radio('Back up'));
     expect(text(q('table caption'))).toBe('Root moves after simulation 50');
     expect(text(q('svg.ml-fig-ice title'))).toBe('Search tree');
-    // one column per root move and one move bar each
-    expect(all('svg.ml-fig-ice [data-column]')).toHaveLength(54);
+    // a real icicle (review M6): after 50 simulations the four root moves that were tried are blocks, the other 50 moves are one block
+    expect(all('svg.ml-fig-ice [data-column]')).toHaveLength(4);
+    expect(all('svg.ml-fig-ice [data-rest]')).toHaveLength(1);
+    expect(text(q('svg.ml-fig-ice .ml-fig-mi__label--root'))).toBe('N = 50');
+  });
+  it('the table headers are the symbols P, N, Q and PUCT; the long names stand once in the line below the table (review m9)', async () => {
+    await render(<McstFigure />);
+    expect(all('.ml-fig-mcts__table thead th').map(text)).toEqual(['Move', 'P', 'N', 'Q', 'PUCT']);
+    expect(text(q('.ml-fig-mcts__symbols'))).toBe('Prior P · Visits N · Mean value Q · PUCT score');
+  });
+  it('in a narrow figure the next move is marked with a glyph in front of the move, not with a tag that wraps under it (review m9)', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ width: 300, height: 100, x: 0, y: 0, top: 0, left: 0, right: 300, bottom: 100, toJSON: () => ({}) }));
+    await render(<McstFigure />);
+    const row = q('.ml-fig-mcts__table tr[data-next]');
+    expect(row.querySelector('.ml-fig-tag')).toBeNull();
+    expect(text(row.querySelector('.ml-fig-mcts__mark'))).toBe('▸');
+    expect(text(row.querySelector('th'))).toContain('next'); // the word stays for a screen reader
+    expect(text(q('.ml-fig-mcts__symbols'))).toContain('▸ next');
+    vi.restoreAllMocks();
   });
   it('the disclosure shows all 54 moves and hides them again', async () => {
     await render(<McstFigure />);

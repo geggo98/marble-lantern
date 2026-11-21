@@ -2,18 +2,23 @@
 // (puct.ts); the inset chart from sweeps.json. Layout notes: web/design/about/about-notes.md, "V10".
 import { useEffect, useState } from 'react';
 import { isStep, notation } from '../../ui/board-model';
-import { Figure, IcicleTree, Legend, LegendItem, Manipulate, Plot, PlotDots, PlotRef, Segmented, Slider, Stepper, stepperLabels, useStepper } from '../kit';
-import type { IcicleColumn } from '../kit';
+import { Figure, Legend, LegendItem, Manipulate, Plot, PlotDots, PlotRef, Segmented, Slider, Stepper, stepperLabels, useStepper } from '../kit';
 import { Markup } from '../kit/markup';
 import data from '../data/mcts-mid.json';
 import sweeps from '../data/sweeps.json';
 import { inferenceCatalog } from './catalogs';
 import { parseSigned } from './numbers';
-import { SUBSTEPS, argmax, columnCells, edgeQ, movesOf, puctColumn, rootState, visibleSims } from './puct';
+import { McstIcicle } from './McstIcicle';
+import { SUBSTEPS, argmax, edgeQ, movesOf, puctColumn, rootState, visibleSims } from './puct';
 import type { McstData, Substep } from './puct';
 import { FootChips, useCompact, useFigText } from './shared';
 
 const D = data as unknown as McstData;
+const glyphMark = (g: string): React.JSX.Element => (
+  <text x={16} y={8} textAnchor="middle" dominantBaseline="central" fontSize={16} fontWeight={700} fill="currentColor">
+    {g}
+  </text>
+);
 const moveText = (m: readonly [number, number]): string => notation({ from: m[0], to: m[1], jump: !isStep(m[0], m[1]) });
 
 /** The c values of the sweep and their Elo with the 95 % interval (1.96 standard errors), from sweeps.json. */
@@ -27,8 +32,6 @@ export function sweepPoints(): { c: number; elo: number; lo: number; hi: number 
 
 export const C_MIN = 0.25;
 export const C_MAX = 4;
-const CAP = 8;
-const COMPACT_COLUMNS = 14;
 
 export function McstFigure(): React.JSX.Element {
   const fig = useFigText(inferenceCatalog);
@@ -49,22 +52,8 @@ export function McstFigure(): React.JSX.Element {
   const sweep = sweepPoints();
 
   // ---- tree ----
-  const order = D.root.moves.map((_, i) => i).sort((a, b) => (D.root.priors[b] as number) - (D.root.priors[a] as number) || a - b);
-  const byVisits = [...order].sort((a, b) => (rs.visits[b] as number) - (rs.visits[a] as number) || (D.root.priors[b] as number) - (D.root.priors[a] as number));
-  const shownEdges = compact ? byVisits.slice(0, COMPACT_COLUMNS) : order;
-  const rest = compact ? byVisits.slice(COMPACT_COLUMNS) : [];
-  const activeEdge = sim ? (sim.path[0] as number) : -1;
-  const column = (edge: number): IcicleColumn => {
-    const cells = columnCells(D, Math.max(k, 0), substep, edge, CAP).map((cell) => cell.state);
-    const visited = (rs.visits[edge] as number) > 0;
-    const glyph = isStep(D.root.moves[edge]![0], D.root.moves[edge]![1]) ? '›' : '»';
-    return { glyph, ...(edge === activeEdge ? { state: 'active' as const } : {}), cells: visited || cells.length > 0 ? cells : ['todo' as const] };
-  };
-  const columns: IcicleColumn[] = shownEdges.map(column);
-  if (compact) {
-    const anyVisited = rest.some((e) => (rs.visits[e] as number) > 0);
-    columns.push({ glyph: '…', ...(rest.includes(activeEdge) ? { state: 'active' as const } : {}), cells: [anyVisited ? 'visited' : 'todo'] });
-  }
+  const byVisits = D.root.moves.map((_, i) => i).sort((a, b) => (rs.visits[b] as number) - (rs.visits[a] as number) || (D.root.priors[b] as number) - (D.root.priors[a] as number) || a - b);
+  const glyphOf = (edge: number): string => (isStep(D.root.moves[edge]![0], D.root.moves[edge]![1]) ? '›' : '»');
 
   // ---- table ----
   const rowLimit = compact ? 6 : 8;
@@ -123,12 +112,23 @@ export function McstFigure(): React.JSX.Element {
       foot={<FootChips fig={fig} sources={['search/src/main/java/sternhalma/search/Mcts.java', 'search/src/main/java/sternhalma/search/MctsNode.java']} data={['mcts-mid.json', 'sweeps.json']} />}
     >
       <div ref={ref}>
-        <IcicleTree title={treeTitle} desc={fig.plain('fig.mcts.tree.desc')} columns={columns} layout={compact ? 'compact' : 'wide'} />
+        <McstIcicle
+          data={D}
+          k={Math.max(k, 0)}
+          substep={substep}
+          title={treeTitle}
+          desc={fig.plain('fig.mcts.tree.desc')}
+          rootText={`${fig.pick('fig.mcts.col.visits', true)} = ${seen}`}
+          glyphOf={glyphOf}
+          compact={compact}
+        />
         <Legend>
           <LegendItem mark={<rect x={8} y={3} width={16} height={9} className="ml-fig-ice__cell ml-fig-ice__cell--visited" />}>{fig.kit('kit.legend.visited')}</LegendItem>
           <LegendItem mark={<rect x={8} y={3} width={16} height={9} className="ml-fig-ice__cell ml-fig-ice__cell--path" />}>{fig.kit('kit.legend.active')}</LegendItem>
           <LegendItem mark={<rect x={8} y={3} width={16} height={9} className="ml-fig-ice__cell ml-fig-ice__cell--active" />}>{fig.kit('kit.legend.activenode')}</LegendItem>
           <LegendItem mark={<rect x={8} y={3} width={16} height={9} className="ml-fig-ice__cell ml-fig-ice__cell--todo" />}>{fig.kit('kit.legend.todo')}</LegendItem>
+          <LegendItem mark={glyphMark('»')}>{fig.kit('kit.legend.jump')}</LegendItem>
+          <LegendItem mark={glyphMark('›')}>{fig.kit('kit.legend.step')}</LegendItem>
         </Legend>
       </div>
       <div className="ml-fig-mcts__lower">
@@ -138,10 +138,10 @@ export function McstFigure(): React.JSX.Element {
             <thead>
               <tr>
                 <th scope="col">{fig.pick('fig.mcts.col.move', compact)}</th>
-                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.prior', compact)}</th>
-                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.visits', compact)}</th>
-                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.value', compact)}</th>
-                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.puct', compact)}</th>
+                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.prior', true)}</th>
+                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.visits', true)}</th>
+                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.value', true)}</th>
+                <th scope="col" className="ml-fig-table__num">{fig.pick('fig.mcts.col.puct', true)}</th>
               </tr>
             </thead>
             <tbody>
@@ -152,8 +152,9 @@ export function McstFigure(): React.JSX.Element {
                 return (
                   <tr key={e} data-edge={e} data-next={isNext || undefined} data-final={isChoice || undefined}>
                     <th scope="row">
+                      {isNext && compact && <span className="ml-fig-mcts__mark" aria-hidden="true">▸</span>}
                       {moveText(D.root.moves[e] as [number, number])}
-                      {isNext && <span className="ml-tag ml-fig-tag">{fig.t('fig.mcts.next')}</span>}
+                      {isNext && (compact ? <span className="ml-visually-hidden">{fig.t('fig.mcts.next')}</span> : <span className="ml-tag ml-fig-tag">{fig.t('fig.mcts.next')}</span>)}
                     </th>
                     <td className="ml-fig-table__num">{fig.fmt.fixed(D.root.priors[e] as number, 3)}</td>
                     <td className="ml-fig-table__num">{rs.visits[e]}</td>
@@ -164,6 +165,10 @@ export function McstFigure(): React.JSX.Element {
               })}
             </tbody>
           </table>
+          <p className="ml-fig-note ml-fig-mcts__symbols">
+            {(['prior', 'visits', 'value', 'puct'] as const).map((c) => fig.plain(`fig.mcts.col.${c}`)).join(' · ')}
+            {compact && ` · ▸ ${fig.plain('fig.mcts.next')}`}
+          </p>
           {rows.length < D.root.moves.length || showAll ? (
             <button type="button" className="ml-btn" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
               {showAll ? fig.kit('kit.disclosure.hide') : fig.t('fig.mcts.table.showall', { n: D.root.moves.length })}
@@ -179,7 +184,7 @@ export function McstFigure(): React.JSX.Element {
           <Plot
             title={fig.plain('fig.mcts.inset.title')}
             desc={fig.plain('fig.mcts.inset.desc')}
-            layout="compact"
+            layout="fit"
             height={200}
             x={{ scale: 'category', categories: sweep.map((p) => fig.fmt.fixed(p.c, 1)), label: fig.plain('fig.mcts.inset.axis.x') }}
             y={{ scale: 'linear', domain: [-100, 500], ticks: [0, 100, 200, 300, 400, 500], label: fig.plain('fig.mcts.inset.axis.y') }}

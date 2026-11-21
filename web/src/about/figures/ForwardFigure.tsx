@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { cellName, isStep, notation } from '../../ui/board-model';
 import { useT } from '../../ui/texts';
-import { Chip, Figure, HeatBoard, Manipulate, MiniBoard, Segmented, Select, Stepper, stepperLabels, useStepper } from '../kit';
+import { Figure, HeatBoard, Manipulate, MiniBoard, Segmented, Select, Stepper, stepperLabels, useStepper } from '../kit';
 import type { HeatCell } from '../kit';
 import { formatCompact, logScale, logTicks } from '../kit/plot-scale';
 import { Markup } from '../kit/markup';
@@ -11,25 +11,10 @@ import { sourceUrl } from '../kit/SourceChip';
 import { inferenceCatalog } from './catalogs';
 import { POSITIONS, STEP_IDS, activationCells, arrowWidth, backendPoints, forwardData, piecesOf, planeCells, topMoves } from './forward';
 import type { PositionId } from './forward';
+import { HeatLegend } from './HeatLegend';
 import { FootChips, useCompact, useFigText } from './shared';
 
 const moveText = (from: number, to: number): string => notation({ from, to, jump: !isStep(from, to) });
-
-function HeatLegend({ low, high, label }: { low: string; high: string; label: string }): React.JSX.Element {
-  return (
-    <div className="ml-fig-legend">
-      <span className="ml-fig-legend__item">
-        {label}
-        <svg className="ml-fig-legend__ramp" viewBox="0 0 96 16" aria-hidden="true" focusable="false">
-          {[1, 2, 3, 4, 5].map((level, i) => (
-            <circle key={level} cx={10 + i * 19} cy={8} r={[2.2, 3.2, 4.2, 5.2, 6.2][i]} className={`ml-fig-heat__v--${level}`} />
-          ))}
-        </svg>
-        {low} → {high}
-      </span>
-    </div>
-  );
-}
 
 export function ForwardFigure(): React.JSX.Element {
   const fig = useFigText(inferenceCatalog);
@@ -227,15 +212,22 @@ export function BackendsFigure(): React.JSX.Element {
           })}
         </svg>
       </div>
-      <ul className="ml-fig-backlist">
-        {points.map((p) => (
-          <li key={p.id}>
-            <span>{label(p.id, p.batch)}</span>
-            <span className="ml-fig-backlist__num">{fig.fmt.n(Math.round(p.value))}</span>
-            <Chip prefix={fig.kit('kit.chip.src')} href={sourceUrl(p.doc)}>{p.doc}</Chip>
-          </li>
-        ))}
-      </ul>
+      <table className="ml-fig-backlist">
+        <caption className="ml-visually-hidden">{fig.plain('fig.forward.backends.title')}</caption>
+        <tbody>
+          {points.map((p) => (
+            <tr key={p.id}>
+              <th scope="row">{label(p.id, p.batch)}</th>
+              <td className="ml-fig-backlist__num">{fig.fmt.n(Math.round(p.value))}</td>
+              <td className="ml-fig-backlist__src">
+                <a href={sourceUrl(p.doc)} rel="noreferrer">
+                  {p.doc}
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <p className="ml-fig-note"><Markup text={fig.t('fig.forward.backends.note')} /></p>
     </Figure>
   );
