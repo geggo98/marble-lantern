@@ -5,7 +5,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { openApp, plyOf, playOneExchange, waitForHumanTurn, watchPageErrors } from './helpers';
+import { EVAL_MID_HASH } from './eval-mid-link';
+import { openApp, playOneExchange, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SECTIONS = [
   ['budget', 'classical'],
@@ -149,7 +150,52 @@ test.describe('part 2 (WP1): V7 live and the root-scores board', () => {
 });
 
 test.describe('part 3 (WP3): V6 live', () => {
-  test.fixme('two-move game: the feature table differs from the example and the score readout equals the engine\'s; the example history shows 179', async () => {});
+  const FIG = '#fig-eval';
+  const score = (page: Page) => page.locator(`${FIG} .ml-fig-readout__cell`).filter({ has: page.locator('dt', { hasText: /^Score$/ }) }).locator('dd');
+  const values = (page: Page) => page.locator(`${FIG} .ml-fig-feat tbody tr`).locator('td[data-label="Value"]').allTextContents();
+
+  async function explainEvaluation(page: Page): Promise<void> {
+    await expect(page.locator('[data-explain-card]')).not.toHaveAttribute('data-disabled', '');
+    await page.locator('a[data-explain-link="evaluation"]').click();
+    await expect(page.locator(FIG)).toBeVisible();
+  }
+
+  // Both tests need the features export of the engines (WP2). Until WP2 is merged and the engines are rebuilt, the engine answers
+  // "unsupported" and the figure shows its error line. Remove the fixme after the merge.
+  test.fixme('needs WP2 engines: a game of four plies: the feature table differs from the example and the chip says "Your game, ply 4"', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    await openApp(page, 'en', '', 'human');
+    await playOneExchange(page);
+    await playOneExchange(page);
+    expect(await plyOf(page)).toBe(4);
+    await explainEvaluation(page);
+    const example = await values(page);
+    expect(await score(page).textContent()).toBe('+179');
+    await page.locator(`${FIG} [data-live-switch] input[value="mine"]`).check();
+    await expect(page.locator(`${FIG} [data-origin]`)).toHaveAttribute('data-origin', 'mine', { timeout: 30_000 });
+    await expect(page.locator(`${FIG} [data-origin]`)).toContainText('Your game, ply 4');
+    await expect(page.locator(`${FIG} .ml-fig__status`)).toHaveText('Computed in your browser.');
+    expect(await values(page)).not.toEqual(example);
+    expect(await score(page).textContent()).not.toBe('+179');
+    // Example brings the committed numbers back
+    await page.locator(`${FIG} [data-live-switch] input[value="example"]`).check();
+    expect(await score(page).textContent()).toBe('+179');
+    errors.expectNone();
+  });
+
+  test.fixme('needs WP2 engines: the example history (30 plies) shows the 13 values and the score +179 of eval-mid.json', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    await openApp(page, 'en', EVAL_MID_HASH);
+    await page.locator('[data-choice="link-side-to-move"]').click();
+    await waitForHumanTurn(page);
+    await explainEvaluation(page);
+    const example = await values(page);
+    await page.locator(`${FIG} [data-live-switch] input[value="mine"]`).check();
+    await expect(page.locator(`${FIG} [data-origin]`)).toContainText('Your game, ply 30', { timeout: 30_000 });
+    expect(await score(page).textContent()).toBe('+179');
+    expect(await values(page)).toEqual(example);
+    errors.expectNone();
+  });
 });
 
 test.describe('part 4 (WP6): V10 and V9b live', () => {
