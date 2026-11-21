@@ -7,6 +7,7 @@
       "use": "supervised start from the classical teacher",
       "lr": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "1e-3" },
       "warmup": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "200" },
+      "steps": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "5800" },
       "cosineTo": { "source": { "doc": "docs/training.md", "line": 841 }, "value": "0.1", "relativeTo": "lr" }
     },
     {
