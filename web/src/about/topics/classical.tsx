@@ -10,6 +10,7 @@ import type { TopicPageProps } from '../TopicPage';
 import { AlphaBetaFigure } from '../figures/AlphaBetaFigure';
 import { BudgetFigure } from '../figures/BudgetFigure';
 import { EvalFigure } from '../figures/EvalFigure';
+import { RootScoresFigure } from '../figures/RootScoresFigure';
 import { OUTLINE } from './outline';
 
 export const catalogsMatch: SameKeys<typeof en, typeof de> = true;
@@ -18,7 +19,12 @@ const catalog = makeAboutCatalog({ en, de });
 const shared = catalog as unknown as AboutCatalog<string>;
 
 const FIGURES: Record<string, () => React.JSX.Element> = {
-  'alpha-beta': () => <AlphaBetaFigure catalog={shared} number={[2, 1]} />,
+  'alpha-beta': () => (
+    <>
+      <AlphaBetaFigure catalog={shared} number={[2, 1]} />
+      <RootScoresFigure catalog={shared} number={[2, 1]} />
+    </>
+  ),
   budget: () => <BudgetFigure catalog={shared} number={[2, 2]} />,
   evaluation: () => <EvalFigure catalog={shared} number={[2, 3]} />,
 };

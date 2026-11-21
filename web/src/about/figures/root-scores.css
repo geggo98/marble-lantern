@@ -1,0 +1,10 @@
+/* Fig. 2.1b, the root-scores board: the board on the left (wide) or on top (narrow), the table of all moves beside or below it. */
+.ml-fig-roots { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-roots__board { display: grid; gap: var(--ml-space-2); min-width: 0; max-width: 18rem; justify-self: center; width: 100%; }
+.ml-fig-roots__scroll { min-width: 0; max-height: 18rem; overflow: auto; border: var(--ml-border) solid var(--ml-color-line); border-radius: var(--ml-radius-sm); }
+.ml-fig-roots__scroll thead th { position: sticky; top: 0; background: var(--ml-fig-panel-bg); }
+.ml-fig-roots tr[data-rank] th, .ml-fig-roots tr[data-rank] td { font-weight: var(--ml-weight-bold); }
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-roots { grid-template-columns: 18rem minmax(0, 1fr); align-items: start; gap: var(--ml-space-4); }
+  .ml-fig-roots__scroll { max-height: 26rem; }
+}
