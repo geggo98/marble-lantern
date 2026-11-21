@@ -59,8 +59,8 @@ describe('the glossary page', () => {
     const de = names();
     expect(de).toEqual([...de].sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' })));
     expect(de).not.toEqual(allTerms('en').map((e) => e.name));
-    const dt = host.querySelector('#about-glossary-tablebase');
-    expect(dt?.textContent).toContain('(tablebase (endgame database))');
+    const dt = host.querySelector('#about-glossary-branching-factor');
+    expect(dt?.textContent).toContain('Verzweigungsfaktor (branching factor)');
     expect(dt?.querySelector('[lang="en"]')).not.toBeNull();
   });
 
@@ -105,7 +105,7 @@ describe('the glossary page', () => {
     const text = host.textContent ?? '';
     expect(text).not.toMatch(/\{(n|term|src|sec):/);
     expect(text).not.toContain('`');
-    expect(host.querySelector('#about-glossary-batch')?.closest('.ml-about__term')?.textContent).toContain('1,968');
+    expect(host.querySelector('#about-glossary-batch')?.closest('.ml-about__term')?.textContent).toContain('2,000');
   });
 
   it('shows the English term in brackets only where it differs from the name, ignoring case', async () => {
@@ -146,6 +146,6 @@ describe('filterTerms', () => {
   });
   it('finds a German term by its English name', () => {
     const de = allTerms('de');
-    expect(filterTerms(de, 'all', 'endgame database').map((e) => e.id)).toContain('tablebase');
+    expect(filterTerms(de, 'all', 'branching factor').map((e) => e.id)).toContain('branching-factor');
   });
 });

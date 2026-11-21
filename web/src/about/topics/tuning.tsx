@@ -24,7 +24,7 @@ export const topic = defineTopic({
     const figure = FIGURES[slug];
     return figure ? { slug, figure } : { slug };
   }),
-  reading: ['4', '17', '18', '19', '20', '21', '22', '16', '6'],
+  reading: ['4', '17', '18', '19', '20', '21', '22', '16', '6', '29'],
 });
 
 export default function TuningPage(props: TopicPageProps): React.JSX.Element {

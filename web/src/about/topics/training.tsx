@@ -26,7 +26,7 @@ export const topic = defineTopic({
     const figure = FIGURES[slug];
     return figure ? { slug, figure } : { slug };
   }),
-  reading: ['9', '10', '11', '13', '14', '15', '16'],
+  reading: ['9', '10', '11', '13', '14', '15', '16', '29', '30', '31'],
 });
 
 export default function TrainingPage(props: TopicPageProps): React.JSX.Element {

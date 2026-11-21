@@ -191,6 +191,7 @@ describe('AboutTopic: the page', () => {
       'https://www.chessprogramming.org/Texel%27s_Tuning_Method',
       'https://sites.ualberta.ca/~nathanst/papers/sturtevant2019chinesecheckers.pdf',
       'https://en.wikipedia.org/wiki/Elo_rating_system',
+      'https://aima.cs.berkeley.edu/',
     ]);
   });
 
@@ -222,7 +223,7 @@ describe('AboutTopic: the page', () => {
     expect(names()).toContain('Tablebase');
     await act(async () => i18n.setLanguage('de'));
     expect(names()).toContain('Endspieltabelle');
-    expect(host.querySelector('#about-glossary-tablebase')?.textContent).toContain('(tablebase (endgame database))');
+    expect(host.querySelector('#about-glossary-race-table')?.textContent).toContain('Endspieltabelle (race table)');
   });
 });
 

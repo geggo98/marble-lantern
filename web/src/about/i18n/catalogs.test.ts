@@ -117,9 +117,12 @@ describe('glossary catalog', () => {
     for (const id of ids(en)) for (const c of [en, de]) for (const part of ['name', 'short']) expect(c[`term.${id}.${part}`], `${id}.${part}`).toBeTruthy();
   });
 
-  it('has the English term of every entry in the German file only', () => {
+  // Since the owner feedback of 2026-11-21 the German file names the English term only where it differs from the
+  // German name (glossary-names.test.ts checks that rule), so `.en` is optional but never empty.
+  it('has English terms in the German file only, none of them empty', () => {
     expect(Object.keys(en).filter((k) => k.endsWith('.en'))).toEqual([]);
-    for (const id of ids(de)) expect(de[`term.${id}.en`], id).toBeTruthy();
+    for (const id of ids(de)) if (`term.${id}.en` in de) expect(de[`term.${id}.en`], id).toBeTruthy();
+    expect(ids(de).filter((id) => `term.${id}.en` in de).length).toBeGreaterThan(0);
   });
 
   it('lists a long definition in both languages or in neither', () => {
@@ -159,10 +162,18 @@ describe('glossary page keys', () => {
 });
 
 describe('the reading list', () => {
-  it('has all 27 rows keyed by the id as a string', () => {
-    expect(Object.keys(READING)).toHaveLength(27);
+  it('has all 31 rows keyed by the id as a string', () => {
+    expect(Object.keys(READING)).toHaveLength(31);
     expect(READING['19']?.url).toBe('https://en.wikipedia.org/wiki/Elo_rating_system');
     expect(READING['27']?.id).toBe('27');
+    expect(READING['31']?.id).toBe('31');
+  });
+
+  it('lists the four chapters of Russell and Norvig (Global Edition numbering) as paywalled book entries', () => {
+    const aima = Object.values(READING).filter((e) => e.url === 'https://aima.cs.berkeley.edu/');
+    expect(aima.map((e) => e.id)).toEqual(['28', '29', '30', '31']);
+    expect(aima.map((e) => /Chapter (\d+):/.exec(e.title)?.[1])).toEqual(['6', '19', '22', '23']);
+    for (const e of aima) expect(e.paywalled, e.id).toBe(true);
   });
 });
 

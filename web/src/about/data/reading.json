@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source": "fact sheet hyperparameters-and-literature.md, section 6, rows 1 to 27",
+  "source": "fact sheet hyperparameters-and-literature.md, section 6, rows 1 to 27; rows 28 to 31: chapters of Russell and Norvig, AIMA 4th ed., Global Edition, chapter and section numbers checked against the book's table of contents on 2026-11-21 (they differ from the US edition)",
   "verifiedOn": "2026-11-21",
   "items": [
     { "id": 1, "title": "Minimax", "authors": "Chessprogramming Wiki (community)", "url": "https://www.chessprogramming.org/Minimax", "level": "beginner", "verifiedOn": "2026-11-21" },
@@ -29,6 +29,10 @@
     { "id": 24, "title": "WebGPU API", "authors": "MDN Web Docs", "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API", "level": "beginner", "verifiedOn": "2026-11-21" },
     { "id": 25, "title": "WebAssembly", "authors": "WebAssembly project", "url": "https://webassembly.org/", "level": "beginner", "verifiedOn": "2026-11-21" },
     { "id": 26, "title": "TeaVM", "authors": "TeaVM project", "url": "https://teavm.org/", "level": "beginner", "verifiedOn": "2026-11-21" },
-    { "id": 27, "title": "TornadoVM", "authors": "TornadoVM project", "url": "https://www.tornadovm.org/", "level": "beginner", "verifiedOn": "2026-11-21" }
+    { "id": 27, "title": "TornadoVM", "authors": "TornadoVM project", "url": "https://www.tornadovm.org/", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 28, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 6: Adversarial Search and Games", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner", "verifiedOn": "2026-11-21", "paywalled": true },
+    { "id": 29, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 19: Learning from Examples", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner", "verifiedOn": "2026-11-21", "paywalled": true },
+    { "id": 30, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 22: Deep Learning", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "beginner to advanced", "verifiedOn": "2026-11-21", "paywalled": true },
+    { "id": 31, "title": "Artificial Intelligence: A Modern Approach, 4th ed., Global Edition, Chapter 23: Reinforcement Learning", "authors": "S. Russell, P. Norvig", "year": 2022, "url": "https://aima.cs.berkeley.edu/", "level": "advanced", "verifiedOn": "2026-11-21", "paywalled": true }
   ]
 }

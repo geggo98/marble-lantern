@@ -1,4 +1,4 @@
-// The reading list entries that topic pages cite: the 27 verified rows of data/reading.json, keyed by the id as a string.
+// The reading list entries that topic pages cite: the 31 verified rows of data/reading.json, keyed by the id as a string.
 // A topic catalog holds the note of an entry under `read.<id>.note`; catalogs.test.ts checks that every such id exists here.
 import data from './data/reading.json';
 

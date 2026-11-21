@@ -36,7 +36,7 @@ export const topic = defineTopic({
     const figure = FIGURES[slug];
     return figure ? { slug, figure } : { slug };
   }),
-  reading: ['1', '2', '3', '4', '23', '19'],
+  reading: ['1', '2', '3', '4', '23', '19', '28'],
 });
 
 export default function ClassicalPage(props: TopicPageProps): React.JSX.Element {

@@ -27,7 +27,7 @@ export const topic = defineTopic({
     const figure = FIGURES[slug];
     return figure ? { slug, figure } : { slug };
   }),
-  reading: ['5', '12', '10', '9', '8', '7', '24'],
+  reading: ['5', '12', '10', '9', '8', '7', '24', '28', '30'],
 });
 
 export default function InferencePage(props: TopicPageProps): React.JSX.Element {

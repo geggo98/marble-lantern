@@ -988,8 +988,8 @@ The Vite plugin `web/tooling/pwa-plugin.ts` runs after `vite build`. It hashes e
 
 | Cache | Files | Size |
 |---|---|---|
-| Precache | `index.html`, everything in `assets/` (code, styles, workers), the manifest, icons and favicons, `engines/engines.json`, the files of the default engine `java-wasmgc` (ADR 0003), `tables/rows2.manifest.json` and `tables/rows2.bin.gz` | 22 files, 3,825,969 bytes |
-| Runtime cache | the other engines (`cpp-wasm`, `java-js`, the net engines with all flavours), `models/` | up to 15 files, 2,268,098 bytes |
+| Precache | `index.html`, everything in `assets/` (code, styles, workers), the manifest, icons and favicons, `engines/engines.json`, the files of the default engine `java-wasmgc` (ADR 0003), `tables/rows2.manifest.json` and `tables/rows2.bin.gz` | 44 files, about 4.7 MB (build of 2026-11-21) |
+| Runtime cache | the other engines (`cpp-wasm`, `java-js`, the net engines with all flavours), `models/` | up to 15 files, about 2.3 MB |
 | Not cached | `sw.js`, source maps, dot files, any URL with a query string, other origins, POST requests, every path with `/connect/` (the server engines) | |
 
 The sizes are the file sizes in `web/dist/`. A server that sends `rows2.bin.gz` with `Content-Encoding: gzip` hands the service worker the inflated table, and the cache then holds 13 MB for it: `vite preview` does this, and the browser test measured a precache of 14,495,962 bytes.
