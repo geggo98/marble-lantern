@@ -115,48 +115,257 @@ class ExplainerDataTest {
         assertEquals(0, tracer.score);
         assertEquals("(2,-6)->(2,-4)", Move.toString(tracer.move));
 
-        int[] rootMoves = start.legalMoves();
+        Map<String, Object> file = abTreeFile(start, tracer, List.of(), "start position",
+                "Tracer in ExplainerDataTest, a replica of AlphaBeta, asserted equal to it at depths 1 to 3");
+        Map<?, ?> meta = (Map<?, ?>) file.get("meta");
+        assertEquals(14, meta.get("rootMoves"));
+        assertEquals(6, meta.get("rootJumps"), "6 jumps from the back rows (fact sheet, section 6.2)");
+        assertEquals(210L, meta.get("minimaxNodes"), "14 + 14 x 14 without pruning (fact sheet, section 6.2)");
+        assertEquals(List.of(14L, 41L), meta.get("iterationNodes"));
+        check("ab-tree-start.json", file);
+    }
+
+    @Test
+    void abTreeMid() throws IOException {
+        Position mid = Position.initial(RuleSet.defaults(2));
+        for (int[] ft : MID_HISTORY) {
+            mid.make(moveOf(mid, ft[0], ft[1]));
+        }
+        assertEquals(24, mid.ply());
+        assertEquals(0, mid.sideToMove());
+        assertEquals(67, mid.legalMoves().length);
+
+        // The replica against the engine at depths 1 and 2. This position has no transposition up to depth 2, so the
+        // replica without a table must match; if that ever changes, the assert fails loudly.
+        for (int depth = 1; depth <= 2; depth++) {
+            SearchResult real = new AlphaBeta(new DistanceEvaluator()).search(mid, depth);
+            Tracer replica = new Tracer(mid, depth, false);
+            assertEquals(real.nodes(), replica.nodes, "replica node count, depth " + depth);
+            assertEquals(real.score(), replica.score, "replica score, depth " + depth);
+            assertEquals(real.move(), replica.move, "replica move, depth " + depth);
+        }
+
+        Tracer tracer = new Tracer(mid, 2, true);
+        assertEquals(298, tracer.nodes, "67 calls at depth 1, 231 at depth 2");
+        assertEquals(-10, tracer.score);
+        assertEquals("(0,-1)->(-2,3)", Move.toString(tracer.move));
+
+        Map<String, Object> file = abTreeFile(mid, tracer, Arrays.asList(MID_HISTORY), MID_GAME,
+                "Tracer in ExplainerDataTest, a replica of AlphaBeta, asserted equal to it at depths 1 and 2");
+        Map<?, ?> meta = (Map<?, ?>) file.get("meta");
+        assertEquals(67, meta.get("rootMoves"));
+        assertEquals(3180L, meta.get("minimaxNodes"), "67 + the replies of all 67 root moves, without pruning");
+        assertEquals(List.of(67L, 231L), meta.get("iterationNodes"));
+        List<?> roots = (List<?>) file.get("rootMoves");
+        assertEquals(2, roots.stream().filter(r -> !(Boolean) ((Map<?, ?>) r).get("cutoff")).count(),
+                "two root moves are searched in full: the first one and the one that raises alpha");
+        assertEquals(65, roots.stream().filter(r -> (Boolean) ((Map<?, ?>) r).get("cutoff")).count());
+        check("ab-tree-mid.json", file);
+    }
+
+    /** The game of the mid-game example: how its position came about, for the caption and the data chip. */
+    private static final String MID_GAME = "G3: linear-r3 (side 0) against distance (side 1), 3000 nodes each, 4 random opening plies, seed 5";
+
+    /** The 24 moves (from, to) that lead from the start position to the mid-game example. */
+    private static final int[][] MID_HISTORY = {
+        {4, 17}, {113, 104}, {9, 18}, {116, 103}, {2, 29}, {112, 90}, {3, 41}, {115, 79}, {0, 16}, {79, 68}, {8, 51},
+        {120, 58}, {1, 4}, {103, 59}, {6, 28}, {117, 79}, {4, 61}, {90, 49}, {29, 50}, {59, 4}, {17, 80}, {68, 29},
+        {16, 60}, {58, 3}
+    };
+
+    /**
+     * The file of schema 2 for one position (design spec v5-mid-spec.md, section 5): one entry per root move in the
+     * order of the iteration for depth 2, every score for the side to move at the root. It is built from the visits of
+     * the {@link Tracer} and asserts the three sums that the figure relies on.
+     */
+    private static Map<String, Object> abTreeFile(Position start, Tracer tracer, List<int[]> history,
+            String positionName, String how) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> visits = (List<Map<String, Object>>) (List<?>) tracer.visits;
+        int mover = start.sideToMove();
+        Layout layout = start.layout();
+        long d1Calls = visits.stream().filter(v -> (int) v.get("iteration") == 1).count();
+        List<Map<String, Object>> rootsD1 = visits.stream()
+                .filter(v -> (int) v.get("parent") == 0 && (int) v.get("iteration") == 1).toList();
+        List<Map<String, Object>> rootsD2 = visits.stream()
+                .filter(v -> (int) v.get("parent") == 0 && (int) v.get("iteration") == 2).toList();
+        assertEquals(rootsD1.size(), rootsD2.size(), "both iterations visit every root move");
+
+        int negInf = -INFINITY;
+        int alpha = negInf;
+        int bestScore = negInf;
+        long visited2 = 0;
+        long replyTotal = 0;
         int jumps = 0;
         List<Object> rootList = new ArrayList<>();
-        long minimax = rootMoves.length;
-        for (int m : rootMoves) {
-            boolean jump = !isNeighbour(Move.from(m), Move.to(m));
+        for (int i = 0; i < rootsD2.size(); i++) {
+            Map<String, Object> node = rootsD2.get(i);
+            int from = (int) ((Map<?, ?>) node.get("move")).get("from");
+            int to = (int) ((Map<?, ?>) node.get("move")).get("to");
+            Map<String, Object> d1 = rootsD1.stream().filter(v -> {
+                Map<?, ?> mv = (Map<?, ?>) v.get("move");
+                return (int) mv.get("from") == from && (int) mv.get("to") == to;
+            }).findFirst().orElseThrow();
+            int id = (int) node.get("id");
+            List<Map<String, Object>> kids = visits.stream().filter(v -> (int) v.get("parent") == id).toList();
+            boolean jump = !isNeighbour(from, to);
             jumps += jump ? 1 : 0;
-            Map<String, Object> entry = move(m);
-            entry.put("kind", jump ? "jump" : "step");
+            // Negamax: the call of a root move returns the score of the replier, the mover's value is its negation.
+            // A leaf call after a reply is evaluated for the side to move, which is the mover again, so the score of
+            // a reply call is already a score for the mover.
+            int value = -(int) node.get("score");
+            boolean cutoff = (boolean) node.get("cutoff");
+            int replies = (int) node.get("legal");
+            int skipped = (int) node.get("skipped");
+            assertEquals(replies, kids.size() + skipped, "searched and skipped replies make all replies");
+            int lowest = Integer.MAX_VALUE;
+            int decider = -1;
+            List<Object> searched = new ArrayList<>();
+            for (int k = 0; k < kids.size(); k++) {
+                Map<String, Object> kid = kids.get(k);
+                Map<?, ?> rm = (Map<?, ?>) kid.get("move");
+                int score = (int) kid.get("score");
+                assertEquals(k, (int) kid.get("order"));
+                if (score < lowest) {
+                    lowest = score;
+                    decider = k;
+                }
+                searched.add(List.of((long) (int) rm.get("from"), (long) (int) rm.get("to"),
+                        isNeighbour((int) rm.get("from"), (int) rm.get("to")) ? 0L : 1L, (long) score));
+            }
+            assertEquals(lowest, value, "the value of a root move is the lowest score of its searched replies");
+            int alphaBefore = alpha;
+            assertEquals(cutoff, value <= alphaBefore, "a cut-off is a root move whose value is not above alpha");
+            boolean newBest = value > bestScore;
+            if (newBest) {
+                bestScore = value;
+                if (value > alpha) {
+                    alpha = value;
+                }
+            }
+            Position after = start.copy();
+            after.make(moveOf(start, from, to));
+            Map<?, ?> deciding = (Map<?, ?>) kids.get(decider).get("move");
+            visited2 += 1 + kids.size();
+            replyTotal += replies;
+            Map<String, Object> entry = obj(
+                    "from", from, "to", to,
+                    "path", ints(hopPath(start, from, to)),
+                    "kind", jump ? "jump" : "step",
+                    "gain", i == 0 ? (Object) "pv"
+                            : (Object) (long) (layout.distance(mover, from) - layout.distance(mover, to)),
+                    "d1", -(int) d1.get("score"),
+                    "visit1", (int) d1.get("id"),
+                    "visit2", id,
+                    "replies", replies,
+                    "alphaBefore", alphaBefore <= negInf ? (Object) "-infinity" : (Object) (long) alphaBefore,
+                    "alphaAfter", alpha <= negInf ? (Object) "-infinity" : (Object) (long) alpha,
+                    "value", value,
+                    "bound", cutoff ? "upper" : "exact",
+                    "cutoff", cutoff,
+                    "skipped", skipped,
+                    "newBest", newBest);
+            // The deciding reply is the one with the lowest score (the first of them). Its chain of cells is only
+            // written for a jump: the chain of a step is [from, to], and the file stays within its size budget.
+            if (!isNeighbour((int) deciding.get("from"), (int) deciding.get("to"))) {
+                entry.put("replyPath", ints(hopPath(after, (int) deciding.get("from"), (int) deciding.get("to"))));
+            }
+            entry.put("searched", searched);
             rootList.add(entry);
+        }
+        long minimax = rootsD2.size() + replyTotal;
+        // The three sums of the spec, section 5, that the figure relies on.
+        assertEquals(tracer.nodes - d1Calls, visited2, "sum(1 + searched) over the root moves is the nodes of depth 2");
+        assertEquals(tracer.score, alpha, "alpha after the last root move is the score of the search");
+        assertEquals(tracer.score, bestScore);
+        long counted = start.legalMoves().length;
+        for (int m : start.legalMoves()) {
             Position child = start.copy();
             child.make(m);
-            minimax += child.legalMoves().length;
+            counted += child.legalMoves().length;
         }
-        assertEquals(14, rootMoves.length);
-        assertEquals(6, jumps, "6 jumps from the back rows (fact sheet, section 6.2)");
-        assertEquals(210, minimax, "14 + 14 x 14 without pruning (fact sheet, section 6.2)");
+        assertEquals(counted, minimax, "rootMoves.length + sum(replies) is the tree without pruning");
 
         Map<String, Object> bestMove = move(tracer.move);
         bestMove.put("text", Move.toString(tracer.move));
+        List<Object> historyList = new ArrayList<>();
+        for (int[] ft : history) {
+            historyList.add(List.of((long) ft[0], (long) ft[1]));
+        }
         Map<String, Object> meta = obj(
                 "spec", "ab:eval=distance, SearchOptions.DEFAULT (no enhancements), fixed depth 2",
                 "depth", 2,
+                "perspective", "mover",
+                "ply", start.ply(),
+                "sideToMove", mover,
+                "game", positionName,
+                "history", historyList,
                 "nodes", tracer.nodes,
+                "iterationNodes", List.of(d1Calls, tracer.nodes - d1Calls),
                 "minimaxNodes", minimax,
                 "bestMove", bestMove,
                 "score", tracer.score,
-                "rootMoves", rootMoves.length,
+                "rootMoves", rootsD2.size(),
                 "rootJumps", jumps,
                 "infinity", INFINITY,
-                "iterationNodes", List.of(14L, tracer.nodes - 14),
-                "note", "nodes counts every negamax call of the iterations for depth 1 and depth 2 (as AlphaBeta does); "
-                        + "minimaxNodes is the tree of depth 2 alone without pruning; alpha and beta are the window "
-                        + "of the node itself, infinity stands for -infinity and +infinity");
-        Map<String, Object> file = obj(
-                "source", source("Tracer in ExplainerDataTest: replica of AlphaBeta (baseline options), asserted equal to "
-                        + "AlphaBeta at depths 1 to 3 of the start position"),
+                "note", "scores are for the side to move at the root; a reply is [from, to, kind (0 step, 1 jump), "
+                        + "score]; path is one shortest chain of cells, replyPath that of the deciding reply if it jumps; "
+                        + "nodes counts the calls of depths 1 and 2");
+        return obj(
+                "schema", 2,
+                "source", source(how),
                 "meta", meta,
                 "cells", owners(start),
-                "rootMoves", rootList,
-                "visits", tracer.visits);
-        check("ab-tree-start.json", file);
+                "rootMoves", rootList);
+    }
+
+    private static int moveOf(Position p, int from, int to) {
+        for (int m : p.legalMoves()) {
+            if (Move.from(m) == from && Move.to(m) == to) {
+                return m;
+            }
+        }
+        throw new IllegalStateException("no legal move " + from + "-" + to);
+    }
+
+    /**
+     * One shortest chain of cells for a move on the board of {@code p}: {@code [from, to]} for a step, else the
+     * cells of the fewest jumps, found breadth-first in direction order, as {@code jumpPath} of the web app does (the
+     * piece's own start cell counts as empty).
+     */
+    private static int[] hopPath(Position p, int from, int to) {
+        if (isNeighbour(from, to)) {
+            return new int[] {from, to};
+        }
+        int[] previous = new int[Geometry.CELLS];
+        Arrays.fill(previous, -2);
+        previous[from] = -1;
+        java.util.ArrayDeque<Integer> queue = new java.util.ArrayDeque<>();
+        queue.add(from);
+        while (!queue.isEmpty()) {
+            int at = queue.poll();
+            for (int d = 0; d < Geometry.DIRECTIONS; d++) {
+                int over = Geometry.neighbor(at, d);
+                if (over < 0 || over == from || p.owner(over) < 0) {
+                    continue;
+                }
+                int land = Geometry.jumpLanding(at, d);
+                if (land < 0 || (land != from && p.owner(land) >= 0) || previous[land] != -2) {
+                    continue;
+                }
+                previous[land] = at;
+                if (land == to) {
+                    List<Integer> chain = new ArrayList<>();
+                    for (int c = to; c != -1; c = previous[c]) {
+                        chain.add(c);
+                    }
+                    java.util.Collections.reverse(chain);
+                    return chain.stream().mapToInt(Integer::intValue).toArray();
+                }
+                queue.add(land);
+            }
+        }
+        throw new IllegalStateException("no jump chain " + from + "-" + to);
     }
 
     @Test

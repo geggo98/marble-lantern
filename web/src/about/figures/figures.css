@@ -64,21 +64,78 @@
 .ml-fig-dep__edge[data-state="dim"] { stroke: var(--ml-fig-dim); }
 .ml-fig-dep__head[data-state="dim"] { fill: var(--ml-fig-dim); }
 
-/* ===== V5: alpha-beta ===== */
-/* Narrow: readout, tree, board (the board half width). From the figure breakpoint: board (16rem) and readout side by side, the tree across the
-   full width below them, so that the tree is the largest part and its glyphs are at least 12 px (review M5). DOM order stays the same. */
-.ml-fig-ab { display: grid; gap: var(--ml-space-3); min-width: 0; }
-.ml-fig-ab__info, .ml-fig-ab__tree { display: grid; gap: var(--ml-space-3); min-width: 0; align-content: start; }
-.ml-fig-ab__board { display: grid; gap: var(--ml-space-2); min-width: 0; max-width: 14rem; justify-self: center; width: 100%; }
-@container ml-fig (min-width: 40rem) {
-  .ml-fig-ab { grid-template-columns: 16rem minmax(0, 1fr); gap: var(--ml-space-4); align-items: start; }
-  .ml-fig-ab__board { grid-column: 1; grid-row: 1; max-width: none; }
-  .ml-fig-ab__info { grid-column: 2; grid-row: 1; }
-  .ml-fig-ab__tree { grid-column: 1 / -1; grid-row: 2; }
-  .ml-fig-ab .ml-fig-readout { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
+/* ===== V5: alpha-beta (mid-game example, one step per root move; design v5-mid-spec.md) ===== */
+/* Order of the stage: readout, overview (value band, work band, scrubber, counter, legend), then the close view and the board. */
+.ml-fig-ab2 { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-ab2__defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ml-fig-ab2__read { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0; border: var(--ml-border) solid var(--ml-color-line); border-radius: var(--ml-radius-sm); background: var(--ml-color-line); overflow: hidden; }
+.ml-fig-ab2__read > div { display: grid; grid-template-rows: 1.4em 1.5em; gap: 2px; padding: 6px var(--ml-space-2); background: var(--ml-fig-bg); min-width: 0; }
+.ml-fig-ab2__read dt { font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-fig-ab2__read dd { margin: 0; font: var(--ml-weight-medium) 16px/1.5 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-fig-ab2__sym { font: var(--ml-weight-bold) 14px/1 var(--ml-font-display); color: var(--ml-color-ink); margin-inline-end: 4px; }
+.ml-fig-ab2__over { display: grid; gap: 4px; min-width: 0; }
+.ml-fig-ab2 [data-p] > svg { display: block; width: 100%; height: auto; }
+.ml-fig-ab2 svg text { font: 12px var(--ml-font-data); fill: var(--ml-fig-axis); }
+.ml-ab2-hatchline { stroke: var(--ml-fig-dim); stroke-width: 1.2; }
+.ml-ab2-frame { fill: none; stroke: var(--ml-fig-frame); stroke-width: 1; }
+.ml-ab2-grid { stroke: var(--ml-fig-frame); stroke-width: 1; }
+.ml-ab2-alpha { fill: none; stroke: var(--ml-fig-mark); stroke-width: 2; stroke-linejoin: miter; }
+.ml-ab2-alpha-ahead { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; stroke-dasharray: 2 3; }
+.ml-ab2-exact { fill: var(--ml-fig-mark); stroke: var(--ml-fig-bg); stroke-width: 1; }
+.ml-ab2-bound { fill: none; stroke: var(--ml-fig-axis); stroke-width: 1.5; }
+.ml-ab2-cur { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 1.5; }
+.ml-ab2-done { fill: var(--ml-fig-axis); }
+.ml-ab2-done.is-cur, .ml-ab2-exact.is-cur { fill: var(--ml-fig-accent); stroke: var(--ml-color-ink); stroke-width: 1; }
+.ml-ab2-bound.is-cur { stroke: var(--ml-fig-accent); stroke-width: 2.5; }
+.ml-ab2-skip { stroke: var(--ml-fig-dim); stroke-width: 0.75; }
+.ml-ab2-skip--thin { fill: none; }
+.ml-ab2-skip.is-cur { stroke: var(--ml-fig-accent); stroke-width: 1; }
+.ml-ab2-todo { fill: var(--ml-fig-dim); }
+.ml-ab2-pointer { fill: var(--ml-fig-accent); stroke: var(--ml-color-ink); stroke-width: 1; }
+.ml-ab2-zone { stroke: none; }
+.ml-ab2-tick { stroke: var(--ml-fig-axis); stroke-width: 1.5; }
+.ml-ab2-tick.is-min { stroke: var(--ml-fig-accent); stroke-width: 3; }
+.ml-ab2-arrow { fill: none; stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-ab2 svg text.ml-ab2-strong { fill: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-ab2__scrub { display: block; width: 100%; height: 44px; margin: 0; accent-color: var(--ml-fig-accent); }
+.ml-fig-ab2__count { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px var(--ml-space-3); font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-fig-ab2__count output { font: var(--ml-weight-medium) 14px/1.3 var(--ml-font-data); color: var(--ml-color-ink); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 13ch; text-align: end; }
+.ml-fig-ab2__bar { grid-column: 1 / -1; height: 10px; border: 1px solid var(--ml-fig-frame); border-radius: 2px; background: repeating-linear-gradient(135deg, transparent 0 3px, var(--ml-fig-dim) 3px 4px); }
+.ml-fig-ab2__bar > i { display: block; height: 100%; min-width: 2px; background: var(--ml-fig-mark); }
+.ml-fig-ab2__lower { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-ab2__focus { display: grid; gap: var(--ml-space-2); min-width: 0; padding: var(--ml-space-2); border: var(--ml-border) solid var(--ml-color-line); border-inline-start: 4px solid var(--ml-fig-accent); border-radius: var(--ml-radius-sm); }
+.ml-fig-ab2__move { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--ml-space-2); min-height: 28px; }
+.ml-fig-ab2__rank { font: var(--ml-weight-bold) 12px/1.5 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 8ch; }
+.ml-fig-ab2__san { font: var(--ml-weight-medium) 14px/1.5 var(--ml-font-data); white-space: nowrap; }
+/* The four verdicts lie in one grid cell; the inactive ones keep their room and are hidden, so the tag never changes the layout. */
+.ml-fig-ab2__stack { display: grid; }
+.ml-fig-ab2__stack > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-ab2__stack > [data-off] { visibility: hidden; }
+.ml-fig-ab2__tag { display: inline-block; justify-self: end; padding: 0 6px; border: 1px solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); font: var(--ml-weight-medium) 12px/1.5 var(--ml-font-ui); white-space: nowrap; }
+.ml-fig-ab2__tag[data-kind="best"] { background: var(--ml-color-primary); color: var(--ml-color-on-primary); border-color: var(--ml-color-primary); font-weight: 700; }
+.ml-fig-ab2__tag[data-kind="cut"] { border-style: dashed; }
+.ml-fig-ab2__strip { display: flex; flex-wrap: wrap; gap: 2px; align-content: start; }
+.ml-fig-ab2__strip i { flex: none; width: 8px; height: 8px; border: 1px dashed var(--ml-fig-dim); }
+.ml-fig-ab2__strip i[data-s="done"] { border: 1px solid var(--ml-fig-axis); background: var(--ml-fig-axis); }
+.ml-fig-ab2__strip i[data-s="min"] { border: 1px solid var(--ml-color-ink); background: var(--ml-fig-accent); outline: 1px solid var(--ml-color-ink); }
+.ml-fig-ab2__strip i[data-s="none"] { visibility: hidden; }
+.ml-fig-ab2__tally { display: flex; flex-wrap: wrap; gap: 0 var(--ml-space-4); margin: 0; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); min-height: 1.5em; }
+.ml-fig-ab2__tally b { font: var(--ml-weight-bold) 12px/1.5 var(--ml-font-data); color: var(--ml-color-ink); font-variant-numeric: tabular-nums; display: inline-block; min-width: 2ch; text-align: end; }
+.ml-fig-ab2__board { justify-self: center; width: 100%; max-width: 15rem; display: grid; gap: 4px; min-width: 0; }
+.ml-fig-ab2__board p { margin: 0; font-size: var(--ml-text-xs); text-align: center; color: var(--ml-color-ink-muted); }
+.ml-ab2-chain__line { fill: none; stroke: var(--ml-fig-mark); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+.ml-ab2-chain__head { fill: var(--ml-fig-mark); stroke: var(--ml-fig-mark); stroke-width: 2; stroke-linejoin: round; }
+.ml-ab2-chain--reply .ml-ab2-chain__line { stroke: var(--ml-fig-accent); stroke-dasharray: 9 7; }
+.ml-ab2-chain--reply .ml-ab2-chain__head { fill: var(--ml-fig-accent); stroke: var(--ml-fig-accent); }
+.ml-fig-ab2__link { margin: var(--ml-space-2) 0 0; }
 .ml-fig-legend > * { white-space: nowrap; }
 .ml-fig-legend { gap: var(--ml-space-1) var(--ml-space-4); }
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-ab2__lower { grid-template-columns: 15rem minmax(0, 1fr); gap: var(--ml-space-4); align-items: start; }
+  .ml-fig-ab2__board { grid-column: 1; grid-row: 1; }
+  .ml-fig-ab2__focus { grid-column: 2; grid-row: 1; }
+  .ml-fig-ab2__strip i { width: 10px; height: 10px; }
+}
 .ml-fig-ab__orientation { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); text-align: center; }
 .ml-fig-ab__cut { justify-self: start; margin: 0; padding: 0 var(--ml-space-2); border: 2px solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); font: var(--ml-weight-bold) var(--ml-text-sm)/1.6 var(--ml-font-ui); }
 .ml-fig-ab__cut--off { visibility: hidden; }

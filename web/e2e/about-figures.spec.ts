@@ -48,19 +48,23 @@ test.describe('plots in a slot narrower than the figure draw one unit per pixel 
   }
 });
 
-test('Fig. 2.1 at 820: the tree is the widest part, its glyphs are at least 12 px and the board is not larger than 16 rem (M5)', async ({ page }) => {
+// Requirement changed (v5-mid-spec.md, section 4): the icicle tree of Fig. 2.1 is replaced by the overview of all root moves. The checks that
+// pinned the tree (glyphs of the tree, board beside the readout) now pin the overview, the close view and the board.
+test('Fig. 2.1 at 820: the overview is the widest part, its type is at least 12 px, the board is not larger than 16 rem and stands beside the close view (M5)', async ({ page }) => {
   await open(page, 'classical', 'fig-ab', TABLET);
-  const scale = await scaleOf(page, '#fig-ab svg.ml-fig-ice');
-  const tree = await page.locator('#fig-ab svg.ml-fig-ice').boundingBox();
-  const board = await page.locator('#fig-ab .ml-fig-ab__board svg').first().boundingBox();
-  const readout = await page.locator('#fig-ab .ml-fig-readout').boundingBox();
-  expect(tree!.width).toBeGreaterThan(640);
+  const scale = await scaleOf(page, '#fig-ab svg.ml-fig-ab2__overview');
+  const overview = await page.locator('#fig-ab svg.ml-fig-ab2__overview').boundingBox();
+  const board = await page.locator('#fig-ab .ml-fig-ab2__board svg').first().boundingBox();
+  const focus = await page.locator('#fig-ab .ml-fig-ab2__focus').boundingBox();
+  expect(overview!.width).toBeGreaterThan(560);
   expect(12 * scale).toBeGreaterThanOrEqual(12);
   expect(board!.width).toBeLessThanOrEqual(16 * 16 + 1);
-  expect(tree!.width).toBeGreaterThan(board!.width * 2);
-  // the board and the readout stand side by side above the tree; the readout has no empty gap cell (four cells share the row)
-  expect(Math.abs(board!.y - readout!.y)).toBeLessThan(40);
-  const cells = await page.locator('#fig-ab .ml-fig-readout__cell').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().y)));
+  expect(overview!.width).toBeGreaterThan(board!.width * 2);
+  // wide: the board and the close view stand side by side below the overview; the three readout cells share one row
+  expect(Math.abs(board!.y - focus!.y)).toBeLessThan(40);
+  expect(board!.x).toBeLessThan(focus!.x);
+  const cells = await page.locator('#fig-ab .ml-fig-ab2__read > div').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().y)));
+  expect(cells).toHaveLength(3);
   expect(new Set(cells).size).toBe(1);
 });
 
@@ -73,6 +77,57 @@ for (const size of [PHONE, TABLET, { width: 1280, height: 900 }]) {
     for (const i of items) expect(i.wrap).toBe('nowrap');
   });
 }
+
+// The stable layout of Fig. 2.1 (spec, section 10): while the user steps, the stage and what lies in it keep their size and place. The
+// narration may change its lines only by what the kit rule gives; the height of the stage and the offsets inside the stage must not move.
+for (const size of [PHONE, TABLET, { width: 1280, height: 900 }]) {
+  for (const lang of ['en', 'de'] as const) {
+    test(`Fig. 2.1 stage keeps its size and the places of its parts over all steps and both examples at ${size.width} (${lang})`, async ({ page }) => {
+      await open(page, 'classical', 'fig-ab', size, lang);
+      const fig = page.locator('#fig-ab');
+      const scrub = fig.locator('input.ml-fig-ab2__scrub');
+      for (const example of ['mid', 'start'] as const) {
+        await fig.locator('.ml-fig-seg input[type=radio]').nth(example === 'mid' ? 0 : 1).check({ force: true });
+        const last = Number(await scrub.getAttribute('max'));
+        const seen = new Map<string, Set<number>>();
+        for (let step = 0; step <= last; step++) {
+          await scrub.evaluate((el, value) => {
+            const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+            set.call(el, String(value));
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }, step);
+          const m = await fig.evaluate((el) => {
+            const top = el.querySelector('.ml-fig__stage')!.getBoundingClientRect().top;
+            const at = (sel: string): number => el.querySelector(sel)!.getBoundingClientRect().top - top;
+            const h = (sel: string): number => el.querySelector(sel)!.getBoundingClientRect().height;
+            return {
+              stageH: h('.ml-fig__stage'),
+              readT: at('.ml-fig-ab2__read'),
+              overT: at('.ml-fig-ab2__overview'),
+              overH: h('.ml-fig-ab2__overview'),
+              scrubT: at('input.ml-fig-ab2__scrub'),
+              lowerT: at('.ml-fig-ab2__lower'),
+              focusH: h('.ml-fig-ab2__focus'),
+              boardH: h('.ml-fig-ab2__board'),
+            };
+          });
+          for (const [k, v] of Object.entries(m)) {
+            if (!seen.has(k)) seen.set(k, new Set());
+            seen.get(k)!.add(Math.round(v * 2) / 2); // 0.5 px tolerance
+          }
+        }
+        for (const [k, values] of seen) expect([...values], `${example}: ${k}`).toHaveLength(1);
+      }
+    });
+  }
+}
+
+test('Fig. 2.1: the link in the section "The game tree" selects the start position of the figure', async ({ page }) => {
+  await open(page, 'classical', 'fig-ab', TABLET);
+  await page.locator('[data-ab-link="start"] a').first().click();
+  await expect(page.locator('#fig-ab .ml-fig-seg input[type=radio]').nth(1)).toBeChecked();
+  await expect(page.locator('#fig-ab [data-counter]')).toContainText('0 of 210');
+});
 
 for (const lang of ['en', 'de'] as const) {
   test(`Fig. 3.3 is an icicle that grows: after 50 simulations 4 root blocks, widths follow the visits, the root is labelled (M6, ${lang})`, async ({ page }) => {
