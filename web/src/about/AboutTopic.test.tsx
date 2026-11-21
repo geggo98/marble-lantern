@@ -46,7 +46,7 @@ const flush = async (): Promise<void> => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
     });
-    if (host.querySelector('[role="status"]') === null) return;
+    if (host.querySelector('.ml-hint[role="status"]') === null) return; // the loading line; the live regions of figures are role="status" too
   }
   throw new Error('the page stayed in its loading state');
 };
