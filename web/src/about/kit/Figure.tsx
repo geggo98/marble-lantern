@@ -4,6 +4,12 @@ import { useId } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { Icon } from './icons';
 
+/** One narration: the step label (when the figure shows one) and the sentence. */
+export interface StatusLine {
+  step?: string;
+  text: string;
+}
+
 export interface FigureProps {
   /** Becomes the id prefix; the title is `<id>-title`. */
   id: string;
@@ -14,7 +20,7 @@ export interface FigureProps {
   /** Control panel: `<Manipulate>`. */
   panel?: ReactNode;
   /** The narration line. Give it as soon as the figure has steps, so that the live region exists before it changes. */
-  status?: { step?: string; text: string };
+  status?: { step?: string; text: string; all?: readonly StatusLine[] };
   /** The plot, board or diagram, then legend and readouts. */
   children: ReactNode;
   /** Two columns (20rem and the rest) from the figure breakpoint. */
@@ -43,9 +49,19 @@ export function Figure({ id, labelWord, number, title, panel, status, children, 
       </div>
       {panel}
       {status && (
-        <div className="ml-fig__status" role="status" aria-live="polite">
-          {status.step && <span className="ml-fig__step">{status.step}</span>}
-          <span>{status.text}</span>
+        <div className="ml-fig__status">
+          <div className="ml-fig__status-line" role="status" aria-live="polite">
+            {status.step && <span className="ml-fig__step">{status.step}</span>}
+            <span>{status.text}</span>
+          </div>
+          {/* The height of the status area is that of the longest narration of the figure in this language at this width: all texts stand in the
+              one grid cell of the live line, the others hidden from the eye and from screen readers, so that the figure does not jump from step to step. */}
+          {status.all?.map((line, i) => (
+            <div key={i} className="ml-fig__status-line ml-fig__status-line--ghost" aria-hidden="true">
+              {line.step && <span className="ml-fig__step">{line.step}</span>}
+              <span>{line.text}</span>
+            </div>
+          ))}
         </div>
       )}
       <div className={split ? 'ml-fig__stage ml-fig__stage--split' : 'ml-fig__stage'}>{children}</div>

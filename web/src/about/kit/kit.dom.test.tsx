@@ -109,6 +109,37 @@ describe('Figure', () => {
     expect(q('[role="status"]')).toBe(region);
     expect(region.textContent).toBe('now 1');
   });
+
+  it('reserves the height of the longest narration: all texts stand in one grid cell, the others hidden from screen readers, one live region', async () => {
+    const all = [{ text: 'short' }, { step: 'Step 2 of 2', text: 'a much longer sentence' }];
+    await render(
+      <Figure id="f" title="T" status={{ step: 'Step 1 of 2', text: 'short', all }}>
+        <p>stage</p>
+      </Figure>,
+    );
+    expect(host.querySelectorAll('[aria-live]')).toHaveLength(1);
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
+    const lines = [...host.querySelectorAll('.ml-fig__status > .ml-fig__status-line')];
+    expect(lines).toHaveLength(3);
+    expect(lines[0]?.getAttribute('role')).toBe('status');
+    expect(lines[0]?.getAttribute('aria-hidden')).toBeNull();
+    const ghosts = lines.slice(1);
+    for (const g of ghosts) {
+      expect(g.getAttribute('aria-hidden')).toBe('true');
+      expect(g.className).toContain('ml-fig__status-line--ghost');
+      expect(g.hasAttribute('role')).toBe(false);
+    }
+    expect(ghosts.map((g) => g.textContent)).toEqual(['short', 'Step 2 of 2a much longer sentence']);
+  });
+
+  it('shows no ghost lines when the figure gives only the current narration', async () => {
+    await render(
+      <Figure id="f" title="T" status={{ text: 'now' }}>
+        <p>stage</p>
+      </Figure>,
+    );
+    expect(host.querySelectorAll('.ml-fig__status-line')).toHaveLength(1);
+  });
 });
 
 describe('Plot', () => {

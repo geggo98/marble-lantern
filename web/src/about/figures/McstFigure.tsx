@@ -93,22 +93,30 @@ export function McstFigure(): React.JSX.Element {
   if (!showAll && !rows.includes(next)) rows.push(next);
 
   // ---- narration ----
-  let narration = fig.plain('fig.mcts.table.caption', { k: seen });
-  if (sim) {
-    const root = D.root.moves[sim.path[0] as number] as [number, number];
-    const lastMoves = movesOf(D, sim.nodes[sim.nodes.length - 1] as number);
-    const last = lastMoves[sim.path[sim.path.length - 1] as number] ?? root;
-    const afterEdge = rootState(D, k);
-    const e = sim.path[0] as number;
-    narration =
-      substep === 'select'
-        ? fig.plain('fig.mcts.narration.select', { k, depth: sim.path.length, move: moveText(root) })
-        : substep === 'expand'
-          ? fig.plain('fig.mcts.narration.expand', { move: moveText(last) })
-          : substep === 'evaluate'
-            ? fig.plain('fig.mcts.narration.evaluate', { value: fig.fmt.signed(sim.values[D.meta.rootMover] as number, 3), moves: sim.expanded.moves.length })
-            : fig.plain('fig.mcts.narration.backup', { move: moveText(root), visits: afterEdge.visits[e] as number, q: fig.fmt.fixed(edgeQ(D, afterEdge, e), 3) });
-  }
+  const narrationOf = (simNo: number, sub: Substep, seenNo: number): string => {
+    const sm = D.sims[simNo - 1];
+    if (!sm) return fig.plain('fig.mcts.table.caption', { k: seenNo });
+    const root = D.root.moves[sm.path[0] as number] as [number, number];
+    const lastMoves = movesOf(D, sm.nodes[sm.nodes.length - 1] as number);
+    const last = lastMoves[sm.path[sm.path.length - 1] as number] ?? root;
+    const afterEdge = rootState(D, simNo);
+    const e = sm.path[0] as number;
+    return sub === 'select'
+      ? fig.plain('fig.mcts.narration.select', { k: simNo, depth: sm.path.length, move: moveText(root) })
+      : sub === 'expand'
+        ? fig.plain('fig.mcts.narration.expand', { move: moveText(last) })
+        : sub === 'evaluate'
+          ? fig.plain('fig.mcts.narration.evaluate', { value: fig.fmt.signed(sm.values[D.meta.rootMover] as number, 3), moves: sm.expanded.moves.length })
+          : fig.plain('fig.mcts.narration.backup', { move: moveText(root), visits: afterEdge.visits[e] as number, q: fig.fmt.fixed(edgeQ(D, afterEdge, e), 3) });
+  };
+  const narration = narrationOf(sim ? k : 0, substep, seen);
+  // every narration the figure can show (every simulation in every sub-step, the table caption of the last step), so that its status area keeps the height of the longest one
+  const stepLabel = (at: number): string => fig.kit('kit.stepper.step', { k: at, n: live ? ALL_KS.length : D.sims.length });
+  const SUBSTEPS: readonly Substep[] = ['select', 'expand', 'evaluate', 'backup'];
+  const narrations = [
+    ...D.sims.flatMap((_, i) => SUBSTEPS.map((sub) => ({ step: stepLabel(i + 1), text: narrationOf(i + 1, sub, 0) }))),
+    { step: stepLabel(Math.max(D.sims.length, live ? ALL_KS.length : 0)), text: fig.plain('fig.mcts.table.caption', { k: Math.max(D.sims.length, ...ALL_KS) }) },
+  ];
   const choice = T.root.moves[T.meta.choiceEdge] as [number, number];
   const runText = liveStatusText(fig.kit, run.state);
   const statusText = run.state.kind === 'idle' ? narration : runText;
@@ -157,7 +165,7 @@ export function McstFigure(): React.JSX.Element {
           />
         </Manipulate>
       }
-      status={{ step: fig.kit('kit.stepper.step', { k, n: live ? ALL_KS.length : D.sims.length }), text: statusText }}
+      status={{ step: fig.kit('kit.stepper.step', { k, n: live ? ALL_KS.length : D.sims.length }), text: statusText, all: narrations }}
       caption={
         live ? (
           <>

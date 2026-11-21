@@ -112,7 +112,14 @@ export function ArchFigure({ catalog, kind, number }: ArchFigureProps): React.JS
 
   const idleText = t(`${prefix}.idle`);
   const stepKey = kind === 'offline' && cancel ? `${prefix}.cancel.step.${step}` : `${prefix}.step.${step}`;
-  const status = { ...(step > 0 ? { step: f.kit('kit.stepper.step', { k: step, n: steps.length }) } : {}), text: step > 0 ? f.plain(stepKey) : idleText.replace(/`/g, '') };
+  const lineAt = (at: number, count: number, key: string): { step?: string; text: string } => ({
+    ...(at > 0 ? { step: f.kit('kit.stepper.step', { k: at, n: count }) } : {}),
+    text: at > 0 ? f.plain(key) : idleText.replace(/`/g, ''),
+  });
+  // every narration the figure can show (the cancel variant of the offline figure too), so that its status area keeps the height of the longest one
+  const variants: [string, number][] = kind === 'offline' ? [[`${prefix}.step.`, STEPS[kind].length], [`${prefix}.cancel.step.`, OFFLINE_CANCEL_STEPS.length]] : [[`${prefix}.step.`, steps.length]];
+  const all = variants.flatMap(([base, count]) => Array.from({ length: count + 1 }, (_, at) => lineAt(at, count, `${base}${at}`)));
+  const status = { ...lineAt(step, steps.length, stepKey), all };
 
   const open = openId === null ? null : arranged.boxes.get(openId);
   const kindOf = (id: string): 'component' | 'store' | 'external' => KINDS[kind][id] ?? 'component';

@@ -75,11 +75,17 @@ export function ForwardFigure(): React.JSX.Element {
     );
   }
 
-  const narration = fig.plain(`fig.forward.step.${id}`, {
-    plane: fig.plain(`fig.forward.plane.${plane}`),
-    moves: d.meta.legalMoves,
-    value: fig.fmt.signed(values[mover] as number, 2),
-  });
+  const narrate = (stepId: string, planeNo: number): string =>
+    fig.plain(`fig.forward.step.${stepId}`, {
+      plane: fig.plain(`fig.forward.plane.${planeNo}`),
+      moves: d.meta.legalMoves,
+      value: fig.fmt.signed(values[mover] as number, 2),
+    });
+  const narration = narrate(id, plane);
+  // every narration the figure can show (every step, every plane of the input step), so that its status area keeps the height of the longest one
+  const narrations = STEP_IDS.flatMap((stepId, i) =>
+    (stepId === 'input' ? d.meta.planeNames.map((_, p) => p) : [plane]).map((p) => ({ step: fig.kit('kit.stepper.step', { k: i + 1, n: STEP_IDS.length }), text: narrate(stepId, p) })),
+  );
 
   const tracks = [
     { key: 0, label: fig.t('fig.forward.value.player.0'), v: values[mover] as number },
@@ -147,7 +153,7 @@ export function ForwardFigure(): React.JSX.Element {
           />
         </Manipulate>
       }
-      status={{ step: fig.kit('kit.stepper.step', { k: step, n: STEP_IDS.length }), text: run.state.kind === 'idle' ? narration : liveStatusText(fig.kit, run.state) }}
+      status={{ step: fig.kit('kit.stepper.step', { k: step, n: STEP_IDS.length }), text: run.state.kind === 'idle' ? narration : liveStatusText(fig.kit, run.state), all: narrations }}
       caption={
         live && mineSelected ? (
           <>
@@ -168,7 +174,10 @@ export function ForwardFigure(): React.JSX.Element {
     >
       <div ref={ref} className="ml-fig-forward__board">
         {board}
-        {id !== 'policy' && id !== 'value' && <HeatLegend label={fig.kit('kit.legend.heat')} low={fig.kit('kit.legend.low')} high={fig.kit('kit.legend.high')} />}
+        {/* the legend stays in the layout (hidden) at the steps without a heat map, so that the board column keeps its height from step to step */}
+        <div className="ml-fig-forward__legend" {...(id === 'policy' || id === 'value' ? { 'aria-hidden': true, style: { visibility: 'hidden' as const } } : {})}>
+          <HeatLegend label={fig.kit('kit.legend.heat')} low={fig.kit('kit.legend.low')} high={fig.kit('kit.legend.high')} />
+        </div>
         <p className="ml-fig-note">{fig.kit('kit.board.orientation', { top: ui('side_a'), bottom: ui('side_b') })}</p>
       </div>
       <div className="ml-fig-forward__side">

@@ -39,7 +39,9 @@
 .ml-fig__stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-3); padding: var(--ml-space-3) var(--ml-fig-pad); min-width: 0; }
 .ml-fig__stage svg { display: block; width: 100%; height: auto; }
 @container ml-fig (min-width: 40rem) { .ml-fig__stage--split { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); align-items: start; gap: var(--ml-space-4); } }
-.ml-fig__status { display: block; align-items: baseline; gap: var(--ml-space-2); min-height: 3.5rem; margin: var(--ml-space-3) var(--ml-fig-pad) 0; padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-sm); background: var(--ml-color-info-bg); font-size: var(--ml-text-sm); }
+.ml-fig__status { display: grid; min-height: 3.5rem; margin: var(--ml-space-3) var(--ml-fig-pad) 0; padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-sm); background: var(--ml-color-info-bg); font-size: var(--ml-text-sm); }
+.ml-fig__status-line { grid-area: 1 / 1; display: block; align-items: baseline; gap: var(--ml-space-2); min-width: 0; }
+.ml-fig__status-line--ghost { visibility: hidden; pointer-events: none; user-select: none; }
 .ml-fig__step { display: block; flex: none; font: var(--ml-weight-bold) var(--ml-text-xs)/1.75 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ml-fig__caption { max-width: 44rem; padding: 0 var(--ml-fig-pad) var(--ml-space-2); color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
 .ml-fig__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--ml-space-2); padding: 0 var(--ml-fig-pad); border-top: var(--ml-border) solid var(--ml-color-line); }
@@ -50,7 +52,7 @@
 .ml-fig__detail-chips { display: flex; flex-wrap: wrap; gap: 0 var(--ml-space-2); }
 
 /* M3: in the compact layout the step label stands on its own line above the sentence; two columns only from the figure breakpoint */
-@container ml-fig (min-width: 40rem) { .ml-fig__status { display: flex; } .ml-fig__step { display: inline; } }
+@container ml-fig (min-width: 40rem) { .ml-fig__status-line { display: flex; } .ml-fig__step { display: inline; } }
 /* M2: in the compact layout the row with the step controls stays on screen while the reader scrolls through the stage that it changes (not in a
    landscape phone, where it would fill the screen). The panel is boxless there, so that the row sticks to the figure, not to the panel; the
    rows keep the look of the panel. */
@@ -238,7 +240,7 @@
 .ml-fig-box__key { display: grid; gap: var(--ml-space-1); font-size: var(--ml-text-sm); }
 .ml-fig-box__key li { display: grid; grid-template-columns: 1.375rem minmax(0, 1fr); gap: var(--ml-space-2); align-items: start; min-height: 1.5rem; }
 .ml-fig-box__key li[data-state="dim"] { color: var(--ml-color-ink-muted); }
-.ml-fig-box__key li[data-state="active"] { font-weight: var(--ml-weight-bold); }
+.ml-fig-box__key li[data-state="active"] { -webkit-text-stroke: 0.4px currentColor; } /* not bold: a bold row is wider, wraps more and makes the figure jump from step to step */
 
 /* ===== IcicleTree (SVG) ===== */
 .ml-fig-ice text { font: 700 12px var(--ml-font-data); text-anchor: middle; dominant-baseline: central; fill: var(--ml-color-ink); }

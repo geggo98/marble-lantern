@@ -146,7 +146,7 @@ export function StoryFigure(): React.JSX.Element {
           />
         </Manipulate>
       }
-      status={{ text: current ? effect(current) : '' }}
+      status={{ text: current ? effect(current) : '', all: all.map((l) => ({ text: effect(l) })) }}
       caption={md('fig.story.caption')}
       foot={chips(kit, [SRC.elo, SRC.arena], [DATA_LADDER])}
     >
