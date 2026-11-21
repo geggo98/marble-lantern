@@ -1,0 +1,113 @@
+/*
+ * marble-lantern design tokens for the Info part ("about"): the figure kit.
+ *
+ * Additive file. Load it after tokens.css; it changes no token of tokens.css.
+ * Theme selection works as in tokens.css: light values on :root, dark values under
+ * prefers-color-scheme and under :root[data-theme="dark"]. Keep the two dark blocks equal.
+ *
+ * Tokens that hold var(--ml-...) are aliases of tokens.css values and need no dark value of their own.
+ * Tokens that hold a hex value are new colours; each has a light and a dark value.
+ * Contrast figures are in about-notes.md, section "Colour and contrast".
+ */
+
+:root {
+  /* ---------- surfaces and lines (aliases) ---------- */
+  --ml-fig-bg: var(--ml-color-surface);              /* figure frame, plot area, diagram boxes */
+  --ml-fig-panel-bg: var(--ml-color-surface-sunken); /* control panel, diagram groups, chips */
+  --ml-fig-border: var(--ml-color-line-strong);      /* figure frame */
+  --ml-fig-frame: var(--ml-color-line-strong);       /* plot frame and ticks */
+  --ml-fig-grid: var(--ml-color-line);               /* optional grid lines, decorative */
+  --ml-fig-axis: var(--ml-color-ink-muted);          /* tick labels, axis labels */
+  --ml-fig-mark: var(--ml-color-ink);                /* series 1, edges, box outlines */
+  --ml-fig-dim: var(--ml-color-line-strong);         /* dimmed edges and outlines, nodes that were not visited */
+  --ml-fig-board-bg: var(--ml-board-star);           /* plate of MiniBoard and HeatBoard, flat, no glow */
+
+  /* ---------- accent: the active step, the current marker, series 2 ---------- */
+  --ml-fig-accent: #0b6660;        /* teal; text and marks */
+  --ml-fig-accent-bg: #d9ece8;     /* fill of the active box or row; ink text stays 4.5:1 on it */
+  --ml-fig-band: #cfe6e1;          /* interval band; decorative, its edges are drawn in --ml-fig-accent */
+  --ml-fig-alt: #8a2a6b;           /* plum; series 3 */
+
+  /* ---------- sequential ramp for heat maps: 1 = low, 5 = high; each step is 3:1 on the plate ---------- */
+  --ml-fig-heat-1: #4b837b;
+  --ml-fig-heat-2: #2f746d;
+  --ml-fig-heat-3: #1a625c;
+  --ml-fig-heat-4: #0c4c48;
+  --ml-fig-heat-5: #052f2e;
+
+  /* ---------- diverging ramp for signed values: plum = negative, teal = positive ---------- */
+  --ml-fig-neg-2: #7a1f5c;
+  --ml-fig-neg-1: #a8548c;
+  --ml-fig-zero: #6e6557;
+  --ml-fig-pos-1: #2f746d;
+  --ml-fig-pos-2: #0c4c48;
+
+  /* ---------- geometry ---------- */
+  --ml-fig-pad: 0.75rem;           /* inner padding of a figure below the figure breakpoint */
+  --ml-fig-pad-wide: 1rem;         /* inner padding of a figure from the figure breakpoint */
+  --ml-fig-radius: var(--ml-radius-md);
+  --ml-fig-stroke: 2;              /* series line, data edge (SVG user units or CSS px with non-scaling stroke) */
+  --ml-fig-stroke-thin: 1.5;       /* control edge, whisker */
+  --ml-fig-stroke-active: 3.5;     /* active edge, active path */
+  --ml-fig-breakpoint: 40rem;      /* documentation only: figure width from which the wide layout applies */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ml-fig-accent: #62cfc2;
+    --ml-fig-accent-bg: #12332f;
+    --ml-fig-band: #17403b;
+    --ml-fig-alt: #e58fc8;
+
+    --ml-fig-heat-1: #3f8a82;
+    --ml-fig-heat-2: #4fa59b;
+    --ml-fig-heat-3: #62cfc2;
+    --ml-fig-heat-4: #93e3d8;
+    --ml-fig-heat-5: #d2f7f1;
+
+    --ml-fig-neg-2: #f0a6d6;
+    --ml-fig-neg-1: #c273a6;
+    --ml-fig-zero: #a59a88;
+    --ml-fig-pos-1: #4fa59b;
+    --ml-fig-pos-2: #93e3d8;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ml-fig-accent: #62cfc2;
+  --ml-fig-accent-bg: #12332f;
+  --ml-fig-band: #17403b;
+  --ml-fig-alt: #e58fc8;
+
+  --ml-fig-heat-1: #3f8a82;
+  --ml-fig-heat-2: #4fa59b;
+  --ml-fig-heat-3: #62cfc2;
+  --ml-fig-heat-4: #93e3d8;
+  --ml-fig-heat-5: #d2f7f1;
+
+  --ml-fig-neg-2: #f0a6d6;
+  --ml-fig-neg-1: #c273a6;
+  --ml-fig-zero: #a59a88;
+  --ml-fig-pos-1: #4fa59b;
+  --ml-fig-pos-2: #93e3d8;
+}
+
+/* Forced colours: the user agent picks the palette. Size, shape, dash and position keep every distinction. */
+@media (forced-colors: active) {
+  :root {
+    --ml-fig-accent: Highlight;
+    --ml-fig-accent-bg: Canvas;
+    --ml-fig-band: Canvas;
+    --ml-fig-alt: CanvasText;
+    --ml-fig-heat-1: CanvasText;
+    --ml-fig-heat-2: CanvasText;
+    --ml-fig-heat-3: CanvasText;
+    --ml-fig-heat-4: CanvasText;
+    --ml-fig-heat-5: CanvasText;
+    --ml-fig-neg-2: CanvasText;
+    --ml-fig-neg-1: CanvasText;
+    --ml-fig-zero: CanvasText;
+    --ml-fig-pos-1: CanvasText;
+    --ml-fig-pos-2: CanvasText;
+  }
+}
