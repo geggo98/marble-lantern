@@ -63,8 +63,20 @@
 .ml-fig-dep__head[data-state="dim"] { fill: var(--ml-fig-dim); }
 
 /* ===== V5: alpha-beta ===== */
-.ml-fig-ab__main { display: grid; gap: var(--ml-space-3); min-width: 0; }
-.ml-fig-ab__board { display: grid; gap: var(--ml-space-2); min-width: 0; }
+/* Narrow: readout, tree, board (the board half width). From the figure breakpoint: board (16rem) and readout side by side, the tree across the
+   full width below them, so that the tree is the largest part and its glyphs are at least 12 px (review M5). DOM order stays the same. */
+.ml-fig-ab { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-ab__info, .ml-fig-ab__tree { display: grid; gap: var(--ml-space-3); min-width: 0; align-content: start; }
+.ml-fig-ab__board { display: grid; gap: var(--ml-space-2); min-width: 0; max-width: 14rem; justify-self: center; width: 100%; }
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-ab { grid-template-columns: 16rem minmax(0, 1fr); gap: var(--ml-space-4); align-items: start; }
+  .ml-fig-ab__board { grid-column: 1; grid-row: 1; max-width: none; }
+  .ml-fig-ab__info { grid-column: 2; grid-row: 1; }
+  .ml-fig-ab__tree { grid-column: 1 / -1; grid-row: 2; }
+  .ml-fig-ab .ml-fig-readout { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.ml-fig-legend > * { white-space: nowrap; }
+.ml-fig-legend { gap: var(--ml-space-1) var(--ml-space-4); }
 .ml-fig-ab__orientation { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); text-align: center; }
 .ml-fig-ab__cut { justify-self: start; margin: 0; padding: 0 var(--ml-space-2); border: 2px solid var(--ml-color-ink); border-radius: var(--ml-radius-sm); font: var(--ml-weight-bold) var(--ml-text-sm)/1.6 var(--ml-font-ui); }
 
@@ -89,7 +101,11 @@
 .ml-fig-feat__pick:hover { text-decoration: underline; }
 .ml-fig-feat__pick:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: 2px; border-radius: var(--ml-radius-sm); }
 .ml-fig-feat__pick[aria-pressed="true"] { font-weight: var(--ml-weight-bold); }
-.ml-fig-feat__contrib { display: grid; grid-template-columns: minmax(3rem, 1fr) auto; align-items: center; gap: var(--ml-space-2); }
+.ml-fig-feat__contrib { min-width: 9rem; vertical-align: middle; }
+.ml-fig-feat__contrib-in { display: grid; grid-template-columns: minmax(3rem, 1fr) auto; align-items: center; gap: var(--ml-space-2); }
+.ml-fig-feat thead th:last-child { text-align: start; }
+/* the board column is 16rem (the kit gives it 20rem), so the table gets the room (review m7) */
+@container ml-fig (min-width: 40rem) { #fig-eval .ml-fig__stage--split { grid-template-columns: minmax(0, 16rem) minmax(0, 1fr); } }
 .ml-fig-bar { position: relative; height: 0.75rem; border: var(--ml-border) solid var(--ml-color-line); background: var(--ml-fig-bg); }
 .ml-fig-bar::after { content: ''; position: absolute; top: -3px; bottom: -3px; inset-inline-start: 50%; border-inline-start: 1px solid var(--ml-fig-mark); }
 .ml-fig-bar__fill { position: absolute; top: 0; bottom: 0; }
@@ -102,7 +118,7 @@
   .ml-fig-feat th, .ml-fig-feat td { border-top: 0; }
   .ml-fig-feat tr > td:first-child { grid-row: 1; grid-column: 1; }
   .ml-fig-feat tr > th { grid-row: 1; grid-column: 2 / -1; }
-  .ml-fig-feat tr > td.ml-fig-feat__contrib { grid-row: 2; grid-column: 2 / -1; }
+  .ml-fig-feat tr > td.ml-fig-feat__contrib { grid-row: 2; grid-column: 2 / -1; min-width: 0; }
   .ml-fig-feat tr > td:nth-of-type(2) { grid-row: 3; grid-column: 2; text-align: start; }
   .ml-fig-feat tr > td:nth-of-type(3) { grid-row: 3; grid-column: 3; text-align: start; }
   .ml-fig-feat td[data-label]::before { content: attr(data-label) " "; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1 var(--ml-font-ui); }
@@ -122,6 +138,9 @@
 .ml-fig-math { max-width: 100%; padding: var(--ml-space-2) var(--ml-space-3); border-inline-start: 3px solid var(--ml-color-line-strong); font-family: var(--ml-font-display); font-size: var(--ml-text-sm); overflow-x: auto; overflow-wrap: normal; }
 @container ml-fig (min-width: 40rem) { .ml-fig-math { font-size: var(--ml-text-md); } }
 .ml-fig-math math { font-family: var(--ml-font-display); }
+/* Chromium ignores columnalign and centres every cell: the left column is right aligned, the continuation rows start under the equals sign (review m11) */
+.ml-fig-math mtd { text-align: left; }
+.ml-fig-math mtd:first-child { text-align: right; }
 .ml-fig-final { margin: 0; font-weight: var(--ml-weight-bold); }
 .ml-fig-tag { margin-inline-start: var(--ml-space-2); }
 
@@ -152,7 +171,7 @@
 
 /* V9b: board, policy list, value tracks, backends */
 .ml-fig-forward__board, .ml-fig-forward__side { display: grid; gap: var(--ml-space-3); min-width: 0; align-content: start; }
-.ml-fig-policy, .ml-fig-value, .ml-fig-backlist { display: grid; gap: var(--ml-space-2); margin: 0; padding: 0; list-style: none; }
+.ml-fig-policy, .ml-fig-value { display: grid; gap: var(--ml-space-2); margin: 0; padding: 0; list-style: none; }
 .ml-fig-policy li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) 3.25rem; align-items: center; gap: var(--ml-space-2); font-family: var(--ml-font-data); font-size: var(--ml-text-sm); }
 .ml-fig-policy__bar { height: 10px; border: 1px solid var(--ml-fig-mark); border-radius: 2px; }
 .ml-fig-policy__bar > span { display: block; height: 100%; background: var(--ml-fig-mark); }
@@ -163,11 +182,28 @@
 .ml-fig-value__bar { position: absolute; inset-block: 2px; background: var(--ml-fig-mark); }
 .ml-fig-backends { max-width: 100%; }
 .ml-fig-backends text { font-size: 12px; }
-.ml-fig-backlist li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 var(--ml-space-3); font-size: var(--ml-text-sm); }
-.ml-fig-backlist__num { font: var(--ml-weight-medium) var(--ml-text-sm)/1.3 var(--ml-font-data); font-variant-numeric: tabular-nums; text-align: end; }
-.ml-fig-backlist .ml-fig-chip { grid-column: 1 / -1; }
+/* the values of Fig. 3.4 as one compact table (the chart above is the picture); the source column is the foot's job on a narrow figure */
+.ml-fig-backlist { width: 100%; border-collapse: collapse; font-size: var(--ml-text-sm); }
+.ml-fig-backlist th, .ml-fig-backlist td { padding: var(--ml-space-1) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-color-line); text-align: start; font-weight: var(--ml-weight-regular, 400); vertical-align: baseline; }
+.ml-fig-backlist td.ml-fig-backlist__num { text-align: end; font: var(--ml-weight-medium) var(--ml-text-sm)/1.3 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-fig-backlist__src { font: var(--ml-text-xs)/1.3 var(--ml-font-data); overflow-wrap: anywhere; }
+@container ml-fig (max-width: 39.99rem) { .ml-fig-backlist__src { display: none; } }
 
-/* V10: root table and lower row */
+/* V10: the icicle of the search (width of a block = its visits), root table and lower row */
+.ml-fig-mi { display: block; width: 100%; height: auto; overflow: visible; }
+.ml-fig-mi .ml-fig-mi__block.ml-fig-ice__cell--visited { fill: var(--ml-fig-axis); stroke: var(--ml-fig-bg); stroke-width: 1.5; }
+.ml-fig-mi .ml-fig-mi__block.ml-fig-ice__cell--todo { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; }
+.ml-fig-mi .ml-fig-mi__block.ml-fig-ice__cell--path { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 3.5; }
+.ml-fig-mi .ml-fig-mi__block.ml-fig-ice__cell--active { fill: var(--ml-fig-accent); stroke: var(--ml-color-ink); stroke-width: 2; }
+.ml-fig-ice .ml-fig-mi__label { fill: var(--ml-fig-bg); font: 700 12px var(--ml-font-data); pointer-events: none; }
+.ml-fig-ice .ml-fig-mi__label--root { text-anchor: start; }
+.ml-fig-ice .ml-fig-mi__label--path { fill: var(--ml-color-ink); }
+.ml-fig-ice .ml-fig-mi__label--todo { fill: var(--ml-color-ink-muted); }
+.ml-fig-mcts__mark { margin-inline-end: 0.25em; }
+.ml-fig-mcts__symbols { overflow-wrap: normal; hyphens: manual; }
+.ml-fig-mcts__table th { hyphens: manual; overflow-wrap: normal; }
+.ml-fig-mcts__table tr[data-next] th[scope="row"] { font-weight: var(--ml-weight-bold); }
+.ml-fig-mcts__table th[scope="row"] .ml-fig-tag { margin-inline-start: var(--ml-space-2); }
 .ml-fig-mcts__lower { display: grid; gap: var(--ml-space-4); min-width: 0; }
 .ml-fig-mcts__lower > * { display: grid; gap: var(--ml-space-2); min-width: 0; align-content: start; }
 @container ml-fig (min-width: 40rem) { .ml-fig-mcts__lower { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--ml-space-5); } }
@@ -181,21 +217,31 @@
 .ml-fig-table tr[data-final] td, .ml-fig-table tr[data-final] th { font-weight: var(--ml-weight-bold); }
 @media (max-width: 24rem) { .ml-fig-table th, .ml-fig-table td { padding-inline: 3px; } .ml-fig-tag { display: block; margin-inline-start: 0; } }
 
-/* V11: the cycle of six stages. Wide: 3 columns, the second row runs backwards; compact: one column with a return lane. */
+/* V11: the cycle of six stages as one closed loop (review M13). Narrow: one column; the return runs along the right edge from box 6 up to
+   box 1 and ends in an arrowhead at box 1 (dashed when the generation was rejected). Wide: 3 x 2 boxes, the second row runs backwards, the six
+   arrows have the same weight, and the readout stands beside the loop. */
 .ml-fig-loop { display: grid; gap: var(--ml-space-4); min-width: 0; }
 .ml-fig-loop__cycle, .ml-fig-loop__plots > div { display: grid; gap: var(--ml-space-3); min-width: 0; align-content: start; }
 .ml-fig-loop__plots { display: grid; gap: var(--ml-space-4); min-width: 0; }
-@container ml-fig (min-width: 40rem) { .ml-fig-loop__plots { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--ml-space-5); } .ml-fig-loop__cycle { max-width: 44rem; } }
-.ml-fig-cycle { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin: 0; padding: 0 20px 0 0; list-style: none; position: relative; }
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-loop__plots { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--ml-space-5); }
+  .ml-fig-loop__cycle { grid-template-columns: auto minmax(0, 1fr); column-gap: var(--ml-space-5); align-items: start; }
+  .ml-fig-loop__cycle > .ml-fig-cycle { grid-row: 1 / span 3; }
+  .ml-fig-loop__cycle > :not(.ml-fig-cycle) { grid-column: 2; }
+}
+.ml-fig-cycle { --ml-lane: 2px; --ml-lane-style: solid; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin: 0; padding: 0 22px 0 0; list-style: none; position: relative; }
+.ml-fig-cycle[data-return="control"] { --ml-lane-style: dashed; }
 .ml-fig-cycle__item { position: relative; min-width: 0; }
 .ml-fig-cycle__item:not(:last-child)::after { content: "\2193" / ""; position: absolute; inset-inline-start: 50%; top: 100%; transform: translate(-50%, -1px); line-height: 18px; font-size: 18px; }
-.ml-fig-cycle__item:last-child::after { content: "\2191" / ""; position: absolute; inset-inline-end: -18px; top: 50%; transform: translateY(-50%); font-size: 18px; }
-.ml-fig-cycle__item:last-child::before { content: ""; position: absolute; inset-inline-end: -12px; top: -9999px; }
-.ml-fig-cycle[data-return="control"] .ml-fig-cycle__item:last-child::after { content: "\21e1" / ""; }
+/* the return lane, in pieces: a corner at box 1, a straight piece along boxes 2 to 5 (and the gap below each), a corner at box 6 */
+.ml-fig-cycle__item::before { content: ""; position: absolute; inset-inline-end: -12px; width: 12px; top: 0; bottom: -18px; border-inline-end: var(--ml-lane) var(--ml-lane-style) var(--ml-fig-mark); }
+.ml-fig-cycle__item:first-child::before { top: 50%; border-block-start: var(--ml-lane) var(--ml-lane-style) var(--ml-fig-mark); }
+.ml-fig-cycle__item:last-child::before { bottom: 50%; border-block-end: var(--ml-lane) var(--ml-lane-style) var(--ml-fig-mark); }
+.ml-fig-cycle__item:first-child .ml-fig-cycle__stage::after { content: ""; position: absolute; inset-inline-end: -8px; top: 50%; transform: translateY(-50%); border: 5px solid transparent; border-inline-start: 0; border-inline-end: 8px solid var(--ml-fig-mark); }
 .ml-fig-cycle__stage {
   display: grid; grid-template-columns: 1.375rem minmax(0, 1fr); gap: 0 var(--ml-space-2); align-items: center; width: 100%; min-height: var(--ml-size-control);
   margin: 0; padding: var(--ml-space-1) var(--ml-space-3); border: 1.5px solid var(--ml-fig-mark); border-radius: var(--ml-radius-sm); background: var(--ml-fig-bg);
-  color: var(--ml-color-ink); font: var(--ml-weight-medium) var(--ml-text-sm)/1.25 var(--ml-font-ui); text-align: start; cursor: pointer;
+  color: var(--ml-color-ink); font: var(--ml-weight-medium) var(--ml-text-sm)/1.25 var(--ml-font-ui); text-align: start; cursor: pointer; position: relative;
 }
 .ml-fig-cycle__stage:hover { background: var(--ml-fig-panel-bg); }
 .ml-fig-cycle__stage[data-state="active"] { border-width: 3px; border-color: var(--ml-fig-accent); background: var(--ml-fig-accent-bg); }
@@ -203,16 +249,27 @@
 .ml-fig-cycle__num { display: grid; place-items: center; width: 1.375rem; height: 1.375rem; border-radius: 50%; background: var(--ml-fig-mark); color: var(--ml-color-bg); font: 700 var(--ml-text-xs)/1 var(--ml-font-data); }
 .ml-fig-cycle__sub { grid-column: 2; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.3 var(--ml-font-data); }
 @container ml-fig (min-width: 40rem) {
-  .ml-fig-cycle { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 24px; padding: 0; }
+  .ml-fig-cycle { grid-template-columns: repeat(3, minmax(0, 9.5rem)); gap: 28px 40px; padding: 0; }
   .ml-fig-cycle__item[data-pos="4"] { grid-column: 3; grid-row: 2; }
   .ml-fig-cycle__item[data-pos="5"] { grid-column: 2; grid-row: 2; }
   .ml-fig-cycle__item[data-pos="6"] { grid-column: 1; grid-row: 2; }
-  .ml-fig-cycle__item:not(:last-child)::after { content: "\2192" / ""; inset-inline-start: 100%; top: 50%; transform: translate(0, -50%); width: 24px; text-align: center; }
-  .ml-fig-cycle__item[data-pos="3"]::after { content: "\2193" / ""; inset-inline-start: 50%; top: 100%; width: auto; transform: translate(-50%, 0); line-height: 28px; }
-  .ml-fig-cycle__item[data-pos="4"]::after { content: "\2190" / ""; inset-inline-start: auto; inset-inline-end: 100%; }
-  .ml-fig-cycle__item[data-pos="5"]::after { content: "\2190" / ""; inset-inline-start: auto; inset-inline-end: 100%; }
-  .ml-fig-cycle__item:last-child::after { content: "\2191" / ""; inset-inline-end: auto; inset-inline-start: 50%; top: auto; bottom: 100%; transform: translate(-50%, 0); line-height: 28px; }
-  .ml-fig-cycle[data-return="control"] .ml-fig-cycle__item:last-child::after { content: "\21e1" / ""; }
+  /* six arrows of one weight, each a line (::after) with an arrowhead (::before); the return from 6 to 1 is dashed when the generation was rejected */
+  .ml-fig-cycle__item::before, .ml-fig-cycle__item::after, .ml-fig-cycle__item:not(:last-child)::after, .ml-fig-cycle__item:last-child::before, .ml-fig-cycle__item:last-child::after, .ml-fig-cycle__item:first-child::before {
+    content: ""; position: absolute; width: 0; height: 0; inset: auto; transform: none; border: 0; line-height: 0; font-size: 0;
+  }
+  /* right: 1 to 2 and 2 to 3 */
+  .ml-fig-cycle__item[data-pos="1"]::after, .ml-fig-cycle__item[data-pos="2"]::after { inset-inline-start: 100%; top: calc(50% - 1px); width: 40px; border-top: 2px solid var(--ml-fig-mark); }
+  .ml-fig-cycle__item[data-pos="1"]::before, .ml-fig-cycle__item[data-pos="2"]::before { inset-inline-start: calc(100% + 32px); top: calc(50% - 5px); border: 5px solid transparent; border-inline-end: 0; border-inline-start: 8px solid var(--ml-fig-mark); }
+  /* down: 3 to 4 */
+  .ml-fig-cycle__item[data-pos="3"]::after { inset-inline-start: calc(50% - 1px); top: 100%; height: 28px; border-inline-start: 2px solid var(--ml-fig-mark); }
+  .ml-fig-cycle__item[data-pos="3"]::before { inset-inline-start: calc(50% - 5px); top: calc(100% + 20px); border: 5px solid transparent; border-block-start: 8px solid var(--ml-fig-mark); border-block-end: 0; }
+  /* left: 4 to 5 and 5 to 6 */
+  .ml-fig-cycle__item[data-pos="4"]::after, .ml-fig-cycle__item[data-pos="5"]::after { inset-inline-end: 100%; top: calc(50% - 1px); width: 40px; border-top: 2px solid var(--ml-fig-mark); }
+  .ml-fig-cycle__item[data-pos="4"]::before, .ml-fig-cycle__item[data-pos="5"]::before { inset-inline-end: calc(100% + 32px); top: calc(50% - 5px); border: 5px solid transparent; border-inline-start: 0; border-inline-end: 8px solid var(--ml-fig-mark); }
+  /* up: 6 to 1, the return of the loop */
+  .ml-fig-cycle__item[data-pos="6"]::after { inset-inline-start: calc(50% - 1px); bottom: 100%; height: 28px; border-inline-start: 2px var(--ml-lane-style) var(--ml-fig-mark); }
+  .ml-fig-cycle__item[data-pos="6"]::before { inset-inline-start: calc(50% - 5px); bottom: calc(100% + 20px); border: 5px solid transparent; border-block-end: 8px solid var(--ml-fig-mark); border-block-start: 0; }
+  .ml-fig-cycle__item:first-child .ml-fig-cycle__stage::after { content: none; }
 }
 
 /* V12: pooled schematic */

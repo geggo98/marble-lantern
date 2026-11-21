@@ -15,6 +15,7 @@ import { kitCatalog } from '../i18n/kit';
 import { useT } from '../../ui/texts';
 import { hrefForAbout } from '../../ui/Chrome';
 import { plainText } from '../topics/plain-text';
+import { HeatLegend } from './HeatLegend';
 import { tuningCatalog } from './tuning-catalog';
 import type { TuningKey } from './tuning-catalog';
 import {
@@ -117,7 +118,9 @@ export function StoryFigure(): React.JSX.Element {
   const shown = filter === 'all' ? all : all.filter((l) => l.measured);
   const current = shown.find((l) => l.id === selected) ?? shown[0];
   const domain = staircaseDomain(all);
-  const width = compact ? 120 : 280;
+  const slot = useMeasuredWidth(list);
+  // from the figure breakpoint the whiskers get half of the row (review m16): 240 to 440 units, one unit one pixel
+  const width = compact ? 120 : slot > 0 ? Math.min(440, Math.max(240, Math.round(slot * 0.5))) : 280;
   const ticks = linearTicks(domain[0], domain[1], compact ? 4 : 7);
   const sx = linearScale(domain, [PAD, width - PAD]);
 
@@ -144,30 +147,10 @@ export function StoryFigure(): React.JSX.Element {
         </Manipulate>
       }
       status={{ text: current ? effect(current) : '' }}
-      detail={
-        current && (
-          <section className="ml-fig__detail" aria-labelledby="fig-story-detail-title" data-level={current.id}>
-            <p className="ml-kicker">{text('fig.story.level.number', { k: current.k })}</p>
-            <h4 className="ml-fig__detail-title" id="fig-story-detail-title">
-              {md(levelKey(current.id, 'label'))}
-            </h4>
-            <div className="ml-fig__detail-text">
-              <p>{md(levelKey(current.id, 'example'))}</p>
-              {current.k > 0 && (
-                <p>
-                  <a className="ml-about-link" href={hrefForAbout('tuning', current.id)}>
-                    {plain('fig.story.panel.open', { level: plain(levelKey(current.id, 'label')) })}
-                  </a>
-                </p>
-              )}
-            </div>
-          </section>
-        )
-      }
       caption={md('fig.story.caption')}
       foot={chips(kit, [SRC.elo, SRC.arena], [DATA_LADDER])}
     >
-      <div className="ml-fig-story" data-layout={compact ? 'compact' : 'wide'}>
+      <div className="ml-fig-story" data-layout={compact ? 'compact' : 'wide'} style={{ '--ml-whisker-w': `${width}px` } as React.CSSProperties}>
         <div className="ml-fig-story__axisrow">
           <span className="ml-fig-story__axislabel">{text('fig.story.axis.elo')}</span>
           <svg className="ml-fig-story__axis" viewBox={`0 0 ${width} 22`} width={width} height={22} aria-hidden="true" focusable="false">
@@ -196,6 +179,24 @@ export function StoryFigure(): React.JSX.Element {
                   <span className="ml-tag ml-fig-story__tag">{text('fig.story.unmeasured')}</span>
                 )}
               </button>
+              {current?.id === l.id && (
+                <section className="ml-fig__detail" aria-labelledby="fig-story-detail-title" data-level={l.id}>
+                  <p className="ml-kicker">{text('fig.story.level.number', { k: l.k })}</p>
+                  <h4 className="ml-fig__detail-title" id="fig-story-detail-title">
+                    {md(levelKey(l.id, 'label'))}
+                  </h4>
+                  <div className="ml-fig__detail-text">
+                    <p>{md(levelKey(l.id, 'example'))}</p>
+                    {l.k > 0 && (
+                      <p>
+                        <a className="ml-about-link" href={hrefForAbout('tuning', l.id)}>
+                          {plain('fig.story.panel.open', { level: plain(levelKey(l.id, 'label')) })}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
             </li>
           ))}
         </ol>
@@ -208,16 +209,21 @@ export function StoryFigure(): React.JSX.Element {
 // Panel: Elo from a score
 // ---------------------------------------------------------------------------------------------------------------------------
 
-/** The two reference lines of loop run 4, with one label that stands left of the first line (it would run over the second otherwise). */
-function Saturation({ label, scores }: { label: string; scores: [number, number] }): React.JSX.Element {
+/**
+ * The two reference lines of loop run 4. The label stands between them at the top of the frame, with a paper halo (review m12); where the
+ * space between the lines is too narrow for it (a narrow plot), the legend carries the name alone and `label` is null.
+ */
+function Saturation({ label, scores }: { label: string | null; scores: [number, number] }): React.JSX.Element {
   const { sx, area } = usePlot();
   return (
     <g data-saturation={scores.join(',')}>
       <PlotRef x={scores[0]} />
       <PlotRef x={scores[1]} />
-      <text x={sx(scores[0]) - 4} y={area.y0 + 12} textAnchor="end">
-        {label}
-      </text>
+      {label !== null && (
+        <text className="ml-fig-story__reflabel" x={(sx(scores[0]) + sx(scores[1])) / 2} y={area.y0 + 14} textAnchor="middle">
+          {label}
+        </text>
+      )}
     </g>
   );
 }
@@ -282,7 +288,7 @@ export function EloFigure(): React.JSX.Element {
         >
           <PlotRef y={0} />
           <PlotBand xs={curve.map((p) => p.score)} lo={curve.map((p) => clip(p.lo))} hi={curve.map((p) => clip(p.hi))} />
-          <Saturation label={plain(compact ? 'fig.story.panel.elo.saturation.short' : 'fig.story.panel.elo.saturation')} scores={scores} />
+          <Saturation label={compact ? null : plain('fig.story.panel.elo.saturation.short')} scores={scores} />
           <PlotLine points={curve.map((p) => ({ x: p.score, y: p.elo }))} />
           <PlotCursor x={score} y={point.elo} />
         </Plot>
@@ -345,7 +351,7 @@ export function SweepsFigure(): React.JSX.Element {
           <div key={p.id} className="ml-fig-story__smallplot" data-sweep={p.id}>
             <p className="ml-fig-story__smalltitle">{md(p.key)}</p>
             <Plot
-              layout="compact"
+              layout="fit"
               title={plain(p.key)}
               desc={i === 0 ? plain('fig.story.panel.sweeps.desc') : plain('fig.story.panel.sweeps.axis.elo')}
               x={p.x}
@@ -436,18 +442,7 @@ export function FutilityFigure(): React.JSX.Element {
           </tbody>
         </table>
       </div>
-      <Legend>
-        <LegendItem
-          mark={
-            <>
-              <circle className="ml-fig-heat__v--1" cx={9} cy={8} r={HEAT_RADIUS[1]} />
-              <circle className="ml-fig-heat__v--5" cx={22} cy={8} r={HEAT_RADIUS[5] - 4.5} />
-            </>
-          }
-        >
-          {kit("kit.legend.heat")}
-        </LegendItem>
-      </Legend>
+      <HeatLegend label={kit('kit.legend.heat')} low={kit('kit.legend.low')} high={kit('kit.legend.high')} />
     </Figure>
   );
 }
@@ -459,6 +454,10 @@ export function FutilityFigure(): React.JSX.Element {
 export function Sweep1Figure(): React.JSX.Element {
   const { text, plain, md, kit, fmt } = useFig();
   const data = useMemo(sweep1, []);
+  const holder = useRef<HTMLDivElement>(null);
+  const measured = useMeasuredWidth(holder);
+  // 12 units more above the frame: the value of the winner stands above its whisker (review m13)
+  const baseHeight = measured > 0 && measured < 640 ? 180 : 280;
   const [lo, hi] = sweep1Domain(data);
   const index = (id: string): number => data.variants.findIndex((v) => v.id === id);
   const four = (v: number): string => fmt(v, 4);
@@ -473,7 +472,7 @@ export function Sweep1Figure(): React.JSX.Element {
     y: c.score,
     lo: c.score - c.half,
     hi: c.score + c.half,
-    ...(c.id === data.winner ? { valueLabel: four(c.score), best: true } : {}),
+    ...(c.id === data.winner ? { valueLabel: four(c.score), best: true, labelSide: 'above' as const } : {}),
   }));
   return (
     <Figure
@@ -488,8 +487,10 @@ export function Sweep1Figure(): React.JSX.Element {
       }
       foot={chips(kit, [SRC.sweep, SRC.gate], [DATA_SWEEPS])}
     >
-      <div>
+      <div ref={holder}>
         <Plot
+          height={baseHeight + 12}
+          margin={{ top: 40 }}
           title={plain("fig.story.panel.sweep1.title")}
           desc={plain('fig.story.panel.sweep1.desc')}
           x={{ scale: 'category', categories: data.variants.map((v) => v.id), label: text('fig.story.panel.sweep1.axis.x') }}

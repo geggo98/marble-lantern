@@ -75,8 +75,8 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
     </text>
   );
 
-  const main = (
-    <div ref={holder} className="ml-fig-ab__main">
+  const info = (
+    <div className="ml-fig-ab__info">
       <Readout
         cells={[
           { label: t('fig.ab.readout.alpha'), value: minimax || !view ? '–' : view.alpha },
@@ -86,6 +86,11 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
         ]}
       />
       {view?.cut && <p className="ml-fig-ab__cut">{t('fig.ab.cutoff')}</p>}
+    </div>
+  );
+
+  const tree = (
+    <div className="ml-fig-ab__tree">
       <IcicleTree
         title={t('fig.ab.title')}
         desc={f.plain('fig.ab.desc')}
@@ -109,7 +114,6 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
       id="fig-ab"
       labelWord={figLabel(kit, number[0], number[1])}
       title={t('fig.ab.title')}
-      split={!compact}
       status={status}
       panel={
         <Manipulate>
@@ -138,17 +142,11 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
       caption={<Markup text={t('fig.ab.caption')} />}
       foot={<FigFoot kit={kit} paths={['search/src/main/java/sternhalma/search/AlphaBeta.java', 'search/src/main/java/sternhalma/search/Evaluators.java']} data="ab-tree-start.json" />}
     >
-      {compact ? (
-        <>
-          {main}
-          {board}
-        </>
-      ) : (
-        <>
-          {board}
-          {main}
-        </>
-      )}
+      <div ref={holder} className="ml-fig-ab">
+        {info}
+        {tree}
+        {board}
+      </div>
     </Figure>
   );
 }

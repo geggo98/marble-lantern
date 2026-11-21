@@ -128,7 +128,7 @@ export function LoopFigure(): React.JSX.Element {
           <Plot
             title={fig.plain('fig.loop.timeline.title')}
             desc={fig.plain('fig.loop.timeline.desc')}
-            layout="compact"
+            layout="fit"
             height={220}
             x={{ scale: 'linear', domain: xDomain, ticks, label: fig.plain('fig.loop.timeline.axis.x'), format: (v) => fig.fmt.n(v) }}
             y={{ scale: 'linear', domain: [0.44, 0.64], ticks: [0.44, 0.48, 0.52, 0.56, 0.6, 0.64], label: fig.plain('fig.loop.timeline.axis.y'), format: (v) => fig.fmt.fixed(v, 2) }}
@@ -151,7 +151,7 @@ export function LoopFigure(): React.JSX.Element {
           <Plot
             title={fig.plain('fig.loop.ladder.title')}
             desc={fig.plain('fig.loop.ladder.desc')}
-            layout="compact"
+            layout="fit"
             height={200}
             x={{ scale: 'category', categories: rungs.map((r) => fig.fmt.n(r.gen)), label: fig.plain('fig.loop.timeline.axis.x') }}
             y={{ scale: 'linear', domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500], label: fig.plain('fig.loop.ladder.axis') }}

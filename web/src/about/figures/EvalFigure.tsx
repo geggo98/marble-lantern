@@ -145,14 +145,16 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
               <td data-num data-label={t('fig.eval.col.value')}>{n(feature.value)}</td>
               <td data-num data-label={t('fig.eval.col.weight')}>{fmt(weight, 3)}</td>
               <td className="ml-fig-feat__contrib">
-                <span className="ml-fig-bar" aria-hidden="true">
-                  <span
-                    className="ml-fig-bar__fill"
-                    data-sign={share < 0 ? 'neg' : 'pos'}
-                    style={{ width: `${Math.abs(share) * 50}%`, insetInlineStart: share < 0 ? `${50 + share * 50}%` : '50%' }}
-                  />
-                </span>
-                <span data-num>{`${sign(contribution)}${n(Math.round(contribution) || 0)}`}</span>
+                <div className="ml-fig-feat__contrib-in">
+                  <span className="ml-fig-bar" aria-hidden="true">
+                    <span
+                      className="ml-fig-bar__fill"
+                      data-sign={share < 0 ? 'neg' : 'pos'}
+                      style={{ width: `${Math.abs(share) * 50}%`, insetInlineStart: share < 0 ? `${50 + share * 50}%` : '50%' }}
+                    />
+                  </span>
+                  <span data-num>{`${sign(contribution)}${n(Math.round(contribution) || 0)}`}</span>
+                </div>
               </td>
             </tr>
           );
@@ -165,7 +167,7 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
     <Plot
       title={t('fig.eval.sigmoid.title')}
       desc={f.plain('fig.eval.sigmoid.desc')}
-      layout="compact"
+      layout="fit"
       x={{ scale: 'linear', domain: [-SIGMOID_RANGE, SIGMOID_RANGE], ticks: [-SIGMOID_RANGE / 2, 0, SIGMOID_RANGE / 2], label: t('fig.eval.sigmoid.axis.x') }}
       y={{ scale: 'linear', domain: [0, 1], ticks: [0, 0.5, 1], label: t('fig.eval.sigmoid.axis.y') }}
     >
