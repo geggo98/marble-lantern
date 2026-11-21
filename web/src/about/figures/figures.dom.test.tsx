@@ -169,6 +169,11 @@ describe('V9a, the layers of the network', () => {
     expect(Number(text(all('.ml-fig-readout__value')[1]))).toBeLessThan(6);
     expect(text(host)).toContain('Padding row');
   });
+  it('the focused cell is a disc of level 5 and its neighbours discs of level 2', async () => {
+    await render(<NetFigure />);
+    expect(all('svg.ml-fig-board [data-level="5"]')).toHaveLength(1);
+    expect(all('svg.ml-fig-board [data-level="2"]')).toHaveLength(6);
+  });
   it('the ring marks exactly the neighbours: 6 rings in the middle, 2 at the tip after picking cell 0', async () => {
     await render(<NetFigure />);
     expect(all('svg.ml-fig-board .ml-fig-board__nb')).toHaveLength(6);
@@ -210,6 +215,15 @@ describe('V9b, a forward pass', () => {
     expect(status()).toContain('Step 7 of 8');
     expect(all('.ml-fig-board__arrow')).toHaveLength(5);
     expect(all('.ml-fig-board__from')).toHaveLength(5);
+  });
+  it('the value bars start at the zero line: the positive one to its right, the negative one to its left, with a real minus sign', async () => {
+    await render(<ForwardFigure />);
+    const [own, other] = all<HTMLElement>('.ml-fig-value__bar');
+    expect(own?.style.left).toBe('50%');
+    expect(own?.style.width).toBe('46.39%');
+    expect(other?.style.left).toBe('3.61%');
+    expect(other?.style.width).toBe('46.39%');
+    expect(text(all('.ml-fig-value__num')[1])).toBe('\u22120.93');
   });
   it('the priors switch changes the first prior from 0.594 to the network-only 0.520, and back', async () => {
     await render(<ForwardFigure />);
@@ -501,6 +515,14 @@ describe('V13, the learning-rate schedule', () => {
     setValue(control('Total steps'), 500);
     setValue(control('Warm-up steps'), 1000);
     expect(control('Total steps').value).toBe('1002');
+  });
+  it('at the boundary the run is one step longer than its warm-up plus one: warm-up 499 and 500 steps give 501 steps', async () => {
+    await render(<LrFigure />);
+    setValue(control('Total steps'), 500);
+    setValue(control('Warm-up steps'), 499);
+    expect(text(control('Total steps').closest('.ml-fig-ctl'))).toContain('501');
+    setValue(control('Warm-up steps'), 498);
+    expect(text(control('Total steps').closest('.ml-fig-ctl'))).toContain('501'); // 500 > 498 + 1: left alone
   });
   it('the slider reads the rate in words: "3 times 10 to the power of -4"', async () => {
     await render(<LrFigure />);

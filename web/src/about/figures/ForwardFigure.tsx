@@ -147,7 +147,7 @@ export function ForwardFigure(): React.JSX.Element {
                 <span className="ml-fig-value__zero" />
                 <span
                   className="ml-fig-value__bar"
-                  style={{ left: `${50 + Math.min(0, tr.v) * 50}%`, width: `${Math.abs(tr.v) * 50}%` }}
+                  style={{ left: `${(50 + Math.min(0, tr.v) * 50).toFixed(2)}%`, width: `${(Math.abs(tr.v) * 50).toFixed(2)}%` }}
                 />
               </span>
               <span className="ml-fig-value__num">{fig.fmt.signed(tr.v, 2)}</span>
