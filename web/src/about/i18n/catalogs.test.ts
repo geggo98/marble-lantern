@@ -150,7 +150,7 @@ describe.each(TOPICS)('text budgets of topic %s', (topic) => {
 // the page looks these keys up by name, so a missing or renamed key would show the key itself on the page.
 describe('the key contract of the topic java', () => {
   const en = load('en', 'java');
-  const SNIPPETS = ['a1', 'a2', 'a3', 'b1', 'b2', 'd1', 'd2', 'e1', 'e2', 'e3', 'h1', 'h3', 'illus'];
+  const SNIPPETS = ['a1', 'a2', 'a3', 'b1', 'b2', 'd1', 'd2', 'e1', 'e2', 'e3', 'h1', 'h3', 'hgen', 'illus'];
   const ROWS = ['java-scalar-b1', 'java-vec-1t', 'tornado-metal-b256', 'java-vec-avx512', 'tornado-cuda-t4', 'cpp-cuda-t4', 'teavm-scalar-b1', 'cpp-wasm-simd'];
   const FIG = ['title', 'desc', 'caption', 'axis', 'switch.label', 'switch.java', 'switch.all', 'group.mac', 'group.other', 'value', ...ROWS.map((r) => `row.${r}`)];
 

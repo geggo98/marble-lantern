@@ -1,6 +1,6 @@
 // Topic page "java" (topic 6): Java in practice. The sections of the outline, with the speed chart J1 in `overview` and the code snippets
 // (data/java-snippets.json, cut from the repository) under the sections that explain them. The texts come from about/i18n/{en,de}/java.json.
-// Snippet captions are the catalog keys `snip.<id>.caption`; the generated Hilla client has no caption of its own.
+// Snippet captions are the catalog keys `snip.<id>.caption`, the generated Hilla client (hgen) included: its chip cannot link to GitHub, so the caption says that the file is generated and not in Git.
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { CodeSnippet } from '../kit/CodeSnippet';

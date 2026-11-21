@@ -866,7 +866,7 @@ The WebGPU backend uses F32 kernels only and does not request the optional featu
 
 ### Terms of this section
 
-- **Example data:** the JSON files in `web/src/about/data/` that the figures show by default. They were computed in advance (in Java or by a Vitest generator) for a mid-game position after 30 plies (`eval-mid.json` `history`) and committed.
+- **Example data:** the JSON files in `web/src/about/data/` that the figures show by default. They were computed in advance (in Java or by a Vitest generator) for a mid-game position after 30 plies (`eval-mid.json` `history`) and committed. Fig. 2.1, alpha-beta, has no live mode and uses its own examples: a position after 24 plies (`ab-tree-mid.json`) and the start position (`ab-tree-start.json`).
 - **Snapshot:** the copy of the game that a link of the card stores (`LiveSnapshot` in `web/src/about/live/types.ts`): the move history, the variant, the ply count and whether the game was over. It does not follow later moves. It lives in the memory of the page (`App.tsx`, state `explain`), so a reload loses it. Every press makes a new snapshot with a new `id`.
 - **Live switch:** the control "Position: Example | My game (ply N)" of a live figure (`LiveSwitch` in `web/src/about/kit/Manipulate.tsx`). Fig. 3.2 has no switch: its position selector gains a fourth entry "My game (ply N)" instead.
 - **Example mode, My-game mode:** the two sides of the switch. In My-game mode the figure shows numbers computed in the browser for the snapshot.

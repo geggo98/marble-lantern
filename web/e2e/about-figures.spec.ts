@@ -536,6 +536,8 @@ test('Fig. 1.1 at 820 and 1280: the labels of the module graph are at least 12 p
   for (const size of [TABLET, { width: 1280, height: 900 }]) {
     await open(page, 'architecture', 'fig-tree', size);
     expect(await scaleOf(page, '#fig-tree svg.ml-fig-dep')).toBeGreaterThanOrEqual(0.99); // 12 units per label, one unit per pixel
+  }
+});
 
 // ---- topic 6 (java): the speed chart J1 and the code snippets ----
 
@@ -558,6 +560,8 @@ for (const lang of ['en', 'de'] as const) {
         rows: fig.querySelectorAll('[data-row]').length,
         ticks: fig.querySelectorAll('.ml-fig-plot__catlabel').length,
         labels: fig.querySelectorAll('.ml-fig-plot__value').length,
+        marks: [...fig.querySelectorAll('svg.ml-speed__mark')].map((e) => Math.max(e.getBoundingClientRect().width, e.getBoundingClientRect().height)),
+        numbering: [...fig.querySelectorAll('ol.ml-speed__list')].map((e) => getComputedStyle(e).listStyleType),
       };
     });
     expect(m.page, 'page scroll').toBeLessThanOrEqual(0);
@@ -568,6 +572,9 @@ for (const lang of ['en', 'de'] as const) {
     expect(m.labels, 'no value labels on the plot at 320 px (the list carries the values)').toBe(0);
     for (const h of m.targets) expect(h).toBeGreaterThanOrEqual(43.4);
     expect(m.rows).toBe(m.ticks);
+    for (const n of m.numbering) expect(n, 'the list shows the numbers of the x ticks').toBe('decimal');
+    expect(m.marks.length, 'every list row has its mark').toBeGreaterThan(0);
+    for (const s of m.marks) expect(s, 'a list mark stays an inline 12 px symbol, not a disc as wide as the figure').toBeLessThanOrEqual(16);
     // the switch adds the two C++ rows
     await page.locator('#fig-javaspeed .ml-fig-seg__opt').nth(1).click();
     expect(await page.locator('#fig-javaspeed [data-row]').count()).toBe(8);
