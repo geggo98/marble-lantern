@@ -3,7 +3,7 @@
 //
 // The move history is the game state: every call replays it from the start position in the module's one global game.
 // One player per side lives for the whole game (so its transposition table carries over); newGame replaces them.
-import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, FeatureReport, GameSetup } from '../engine';
 import { DEFAULT_VARIANT, campsOf, playsOn, rankingOf, rowsOf } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
 import { needsTable, requireThreePlayers, seatNodes, variantOf } from '../variant-args';
@@ -60,6 +60,12 @@ export interface CppModule {
   _shw_analysis_nodes(): number;
   /** Writes the static evaluation of the current three-player position (three ints) to `out3`. 0, or -1 for a two-player game. */
   _shw_evaluate3(out3: number): number;
+  /**
+   * The linear-r3 evaluation of the current position, term by term: 13 doubles to `out13`, score and side to move (two ints) to
+   * `outScoreSide`, the distance of every cell for player 0 and then player 1 (242 ints) to `outDist242`. 0, or -1 for a game that is not
+   * the classic one. Missing in an engine file built before the export (an older cached file).
+   */
+  _shw_features?(out13: number, outScoreSide: number, outDist242: number): number;
   _shw_rows1_requests(): number;
 }
 
@@ -78,6 +84,10 @@ const LOAD_ERRORS: Readonly<Record<number, ErrorCode>> = {
 /** Capacity of the legal-move buffer in ints: the engine's kMaxMoves (15 pieces times 121 cells), above the largest move list of any position. */
 const MOVE_CAPACITY = 1815;
 const MAX_PLIES = 1000;
+/** The features of linear-r3 (LinearEvaluator.GAIN_FEATURES), the board cells, and the bytes of the shw_features buffers. */
+const FEATURE_COUNT = 13;
+const CELLS = 121;
+const FEATURES_BYTES = FEATURE_COUNT * 8 + 2 * 4 + 2 * CELLS * 4;
 
 const now = (): number => performance.now();
 
@@ -95,6 +105,8 @@ export class CppCore {
   private movesPtr = 0;
   /** Scratch for analyse: input moves, output moves, output scores (MOVE_CAPACITY ints each). */
   private analysisPtr = 0;
+  /** Scratch for features: 13 doubles, score and side, 242 distances (FEATURES_BYTES). */
+  private featuresPtr = 0;
 
   private constructor(module: CppModule) {
     this.m = module;
@@ -255,6 +267,40 @@ export class CppCore {
     // HEAP32 is read after the call: a view taken earlier may be stale after memory growth.
     const base = this.analysisPtr >>> 2;
     return Array.from(this.m.HEAP32.subarray(base, base + 3));
+  }
+
+  /**
+   * The linear-r3 evaluation of the classic position after `history`, term by term (shw_features): no search and no table, and no game
+   * or analysis player is touched. Rejects with unsupported for another variant, and for an engine file that predates the export.
+   */
+  features(history: readonly number[], variant: Variant = DEFAULT_VARIANT): FeatureReport {
+    const shwFeatures = this.m._shw_features;
+    if (typeof shwFeatures !== 'function') {
+      throw new EngineFailure('unsupported', 'this engine file has no features export; reload the page to update the engine');
+    }
+    this.replay(history, variant);
+    if (this.featuresPtr === 0) {
+      this.featuresPtr = this.m._malloc(FEATURES_BYTES);
+      if (this.featuresPtr === 0) throw new EngineFailure('internal', 'out of memory for the features buffer');
+    }
+    // malloc aligns to 8 bytes at least (16 in Emscripten), so the 13 doubles may start at the base.
+    const base = this.featuresPtr;
+    const scoreSide = base + FEATURE_COUNT * 8;
+    const dist = scoreSide + 2 * 4;
+    const rc = shwFeatures.call(this.m, base, scoreSide, dist);
+    if (rc !== 0) throw new EngineFailure('unsupported', `shw_features returned ${rc}: ${this.m.UTF8ToString(this.m._shw_error())}`);
+    // The views are taken after the call: a view taken earlier may be stale after memory growth.
+    const values = Array.from(new Float64Array(this.m.HEAPU8.buffer, base, FEATURE_COUNT));
+    const heap = this.m.HEAP32;
+    const [score, side] = [heap[scoreSide >>> 2]!, heap[(scoreSide >>> 2) + 1]!];
+    if (side !== 0 && side !== 1) throw new EngineFailure('internal', `shw_features gave side ${side}`);
+    const d = dist >>> 2;
+    return {
+      features: values,
+      score,
+      sideToMove: side,
+      distance: [Array.from(heap.subarray(d, d + CELLS)), Array.from(heap.subarray(d + CELLS, d + 2 * CELLS))],
+    };
   }
 
   /**

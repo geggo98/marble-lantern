@@ -3,7 +3,7 @@
 //
 // The facade exports string-only methods that never throw (see Web.java): the reply is "ok <fields>" or
 // "error <code> <message>". The move history is the game state and crosses the boundary as "1,2,3".
-import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, GameSetup } from '../engine';
+import type { AnalysisResult, BenchResult, ChooseResult, EngineOutcome, FeatureReport, GameSetup } from '../engine';
 import { DEFAULT_VARIANT, campsOf, rankingOf } from '../../game/variant';
 import type { Player, Variant } from '../../game/variant';
 import { needsTable, requireThreePlayers, rowsArg, seatNodes, variantOf } from '../variant-args';
@@ -36,6 +36,12 @@ export interface JavaModule {
    * "full" a seat that is out holds a rank constant (1000000 first, 500000 second, -1000000 last).
    */
   evaluate3(history: string, jump: string, ranking: string, camps: string, rows: string): string;
+  /**
+   * `ok <f0,...,f12> <score> <sideToMove> <d0_0,...,d0_120> <d1_0,...,d1_120>`: the linear-r3 evaluation, term by term, with the distance
+   * of every cell for both players; `error unsupported ...` for a game that is not the classic one. Missing in an engine file built
+   * before the export (an older cached file).
+   */
+  features?(history: string, jump: string, players: string, ranking: string, camps: string, rows: string): string;
 }
 
 const CODES: ReadonlySet<string> = new Set<ErrorCode>([
@@ -77,6 +83,9 @@ export function rankingOutcome(order: readonly number[], reply: readonly string[
 const numbers = (list: string | undefined): number[] => (list ? list.split(',').map(Number) : []);
 
 const MAX_PLIES = 1000;
+/** The features of linear-r3 (LinearEvaluator.GAIN_FEATURES) and the board cells. */
+const FEATURE_COUNT = 13;
+const CELLS = 121;
 
 export class JavaCore {
   private readonly m: JavaModule;
@@ -184,6 +193,30 @@ export class JavaCore {
       throw new EngineFailure('internal', `unexpected evaluate3 reply: ${f.join(' ').slice(0, 120)}`);
     }
     return values;
+  }
+
+  /**
+   * The linear-r3 evaluation of the classic position after `history`, term by term (Web.features): no search and no table, and no game
+   * or analysis player is touched. Rejects with unsupported for another variant, and for an engine file that predates the export.
+   */
+  features(history: readonly number[], variant: Variant = DEFAULT_VARIANT): FeatureReport {
+    const webFeatures = this.m.features;
+    if (typeof webFeatures !== 'function') {
+      throw new EngineFailure('unsupported', 'this engine file has no features export; reload the page to update the engine');
+    }
+    const f = fields(webFeatures.call(this.m, this.encode(history), variant.jump, String(variant.players), rankingOf(variant), campsOf(variant), rowsArg(variant)));
+    const values = numbers(f[0]);
+    const score = Number(f[1]);
+    const side = Number(f[2]);
+    const d0 = numbers(f[3]);
+    const d1 = numbers(f[4]);
+    if (
+      f.length !== 5 || values.length !== FEATURE_COUNT || !values.every(Number.isFinite) || !Number.isInteger(score) ||
+      (side !== 0 && side !== 1) || d0.length !== CELLS || d1.length !== CELLS || ![...d0, ...d1].every(Number.isInteger)
+    ) {
+      throw new EngineFailure('internal', `unexpected features reply: ${f.join(' ').slice(0, 120)}`);
+    }
+    return { features: values, score, sideToMove: side, distance: [d0, d1] };
   }
 
   /**

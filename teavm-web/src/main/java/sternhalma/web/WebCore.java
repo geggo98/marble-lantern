@@ -6,13 +6,17 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
+import sternhalma.engine.Geometry;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.search.AlphaBeta;
 import sternhalma.search.AlphaBetaPlayer;
+import sternhalma.search.Evaluators;
+import sternhalma.search.LinearEvaluator;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.RaceTableSource;
 import sternhalma.search.SearchResult;
@@ -632,6 +636,45 @@ public final class WebCore {
             analysisRows3 = rows;
         }
         return analysisPlayer3.evaluation(position);
+    }
+
+    /**
+     * The result of {@link #features}: the {@link LinearEvaluator#GAIN_FEATURES} features of {@code linear-r3} in the
+     * order of {@link LinearEvaluator#GAIN_NAMES} (side to move minus opponent), the {@code linear-r3} score for the side
+     * to move, the side to move, and {@code distance[p][cell]}, the single-agent distance of a piece of player p on that
+     * cell to p's goal corner ({@link sternhalma.engine.Layout#distance}).
+     */
+    public record Features(double[] values, int score, int sideToMove, int[][] distance) {
+    }
+
+    /**
+     * The static evaluation of the position after {@code history} by {@code linear-r3}, term by term: the explanation of
+     * the evaluation for the Info pages. Classic games only (two players, adjacent jumps, 4 rows, closed foreign corners;
+     * the ranking rule changes nothing for two players), else {@code unsupported}. No search and no table. The position
+     * is replayed into a state of its own and the evaluator is a fresh one, so no game player, analysis player or
+     * transposition table is touched. A finished game is evaluated like any position.
+     */
+    public Features features(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking,
+            RuleSet.ForeignCamps camps, TriangleRows rows) {
+        if (playerCount != 2 || jump != RuleSet.JumpRule.ADJACENT || camps != RuleSet.ForeignCamps.CLOSED
+                || rows != TriangleRows.FOUR) {
+            throw new WebFailure("unsupported", "the evaluation features exist for the classic game only (two players, "
+                    + "adjacent jumps, 4 rows, closed corners), not " + playerCount + " players, " + jump + ", " + rows
+                    + ", " + camps);
+        }
+        Position position = replay(history, jump, playerCount, ranking, camps, rows);
+        double[] values = new double[LinearEvaluator.GAIN_FEATURES];
+        LinearEvaluator.features(position, values, LinearEvaluator.GainMode.BOTH);
+        // linear-r3 reads no race table; the source only keeps Evaluators away from the ambient (system property) one
+        RaceTableSource none = RaceTableSource.ofTables(race -> noTable(), race -> noTable());
+        int score = Evaluators.byName("linear-r3", Map.of(), none).evaluate(position);
+        int[][] distance = new int[2][Geometry.CELLS];
+        for (int p = 0; p < 2; p++) {
+            for (int cell = 0; cell < Geometry.CELLS; cell++) {
+                distance[p][cell] = position.layout().distance(p, cell);
+            }
+        }
+        return new Features(values, score, position.sideToMove(), distance);
     }
 
     /**

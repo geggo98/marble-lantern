@@ -52,7 +52,7 @@ export class CppRequestHandler {
       case 'evaluate3':
         return this.ready().evaluate3(request.history, request.variant);
       case 'features':
-        throw new EngineFailure('unsupported', 'the features export is not implemented by this engine yet'); // WP2 replaces the stub
+        return this.ready().features(request.history, request.variant);
       case 'netForward':
         throw new EngineFailure('unsupported', 'the classical engines have no network');
       case 'outcome':

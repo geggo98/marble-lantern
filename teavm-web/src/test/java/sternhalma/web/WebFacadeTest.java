@@ -10,12 +10,15 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.search.AlphaBetaPlayer;
+import sternhalma.search.Evaluators;
+import sternhalma.search.LinearEvaluator;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.SearchResult;
 import sternhalma.search.Strategies;
@@ -796,5 +799,135 @@ class WebFacadeTest {
         assertTrue(Web.newGame(0, 5, null, null, 0, null, null, null).startsWith("error internal "));
         assertTrue(Web.setTable(new byte[3], false).startsWith("error table-truncated "));
         assertTrue(Web.setTable(null, false).startsWith("error internal "), Web.setTable(null, false));
+    }
+
+    // ---- the evaluation features (live V6 of the Info pages) ----
+
+    /**
+     * The position of web/src/about/data/eval-mid.json: 30 plies of ab:eval=distance,nodes=2000 against itself
+     * (ExplainerDataTest, Fixtures.mid()), as encoded moves (from | to &lt;&lt; 8) from that file's history.
+     */
+    private static final int[] MID = {
+        4099, 26227, 7440, 22886, 10496, 19832, 4360, 16973, 13057, 14453, 15633, 26480, 17949, 23159, 20777,
+        20071, 23603, 20596, 30033, 17497, 23366, 15182, 3844, 12868, 4613, 12088, 7174, 9519, 6919, 6693,
+    };
+
+    /** The 13 feature values of eval-mid.json (rounded there to four decimals), in the order of GAIN_NAMES. */
+    private static final double[] MID_FEATURES = {-9, 0, -7.1, 1, -2, 2, -6, 2, 3, -3, -12.51, 1, 0};
+
+    private static WebCore.Features classicFeatures(WebCore core, int[] history) {
+        return core.features(history, RuleSet.JumpRule.ADJACENT, 2, RuleSet.Ranking.FIRST_WINNER_ONLY,
+                RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FOUR);
+    }
+
+    @Test
+    void theFeaturesOfTheMidPositionEqualTheExplainerGolden() {
+        WebCore.Features f = classicFeatures(new WebCore(), MID); // no table: a static evaluation needs none
+        assertEquals(13, f.values().length);
+        for (int i = 0; i < 13; i++) {
+            assertEquals(MID_FEATURES[i], f.values()[i], 1e-4, "feature " + LinearEvaluator.GAIN_NAMES[i]);
+        }
+        assertEquals(179, f.score(), "linear-r3 score at ply 30 (eval-mid.json meta.score)");
+        assertEquals(0, f.sideToMove());
+        // per-piece distances of eval-mid.json, sides[].pieces: {cell, distance}
+        int[][] mover = {{2, 12}, {9, 10}, {15, 9}, {18, 9}, {27, 8}, {28, 8}, {61, 5}, {91, 2}, {92, 2}, {117, 0}};
+        int[][] opponent = {{26, 2}, {50, 4}, {59, 5}, {66, 6}, {80, 7}, {90, 8}, {111, 10}, {113, 10}, {114, 10}, {118, 12}};
+        for (int[] p : mover) {
+            assertEquals(p[1], f.distance()[0][p[0]], "distance of player 0 at cell " + p[0]);
+        }
+        for (int[] p : opponent) {
+            assertEquals(p[1], f.distance()[1][p[0]], "distance of player 1 at cell " + p[0]);
+        }
+        assertEquals(121, f.distance()[0].length);
+        assertEquals(121, f.distance()[1].length);
+    }
+
+    @Test
+    void theFeaturesAfterAnOddPlyAreThoseOfPlayerOneToMove() {
+        int[] history = Arrays.copyOf(MID, 29);
+        Position position = Position.initial(RuleSet.defaults(2));
+        for (int move : history) {
+            position.make(move);
+        }
+        double[] expected = new double[13];
+        LinearEvaluator.features(position, expected, LinearEvaluator.GainMode.BOTH);
+        WebCore.Features f = classicFeatures(new WebCore(), history);
+        assertEquals(1, f.sideToMove());
+        assertArrayEquals(expected, f.values());
+        assertEquals(Evaluators.byName("linear-r3").evaluate(position), f.score());
+        for (int cell = 0; cell < 121; cell++) {
+            assertEquals(position.layout().distance(1, cell), f.distance()[1][cell], "player 1, cell " + cell);
+            assertEquals(position.layout().distance(0, cell), f.distance()[0][cell], "player 0, cell " + cell);
+        }
+    }
+
+    @Test
+    void featuresBetweenTheMovesLeaveTheBenchmarkFingerprintAsItWas() {
+        WebCore core = ready();
+        core.newGame(20_000, 20_000);
+        int[] history = new int[40];
+        long checksum = 0;
+        long nodes = 0;
+        for (int ply = 0; ply < 40; ply++) {
+            classicFeatures(core, Arrays.copyOf(history, ply));
+            WebCore.Choice c = core.choose(Arrays.copyOf(history, ply));
+            history[ply] = c.move();
+            nodes += c.nodes();
+            checksum = checksum * 31 + c.move();
+        }
+        assertEquals(-1986550544382302149L, checksum);
+        assertEquals(800_000L, nodes);
+    }
+
+    @Test
+    void featuresAreForTheClassicGameOnly() {
+        WebCore core = new WebCore();
+        RuleSet.Ranking first = RuleSet.Ranking.FIRST_WINNER_ONLY;
+        RuleSet.ForeignCamps closed = RuleSet.ForeignCamps.CLOSED;
+        RuleSet.TriangleRows four = RuleSet.TriangleRows.FOUR;
+        RuleSet.JumpRule adjacent = RuleSet.JumpRule.ADJACENT;
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], RuleSet.JumpRule.LONG, 2, first, closed, four)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 3, first, closed, four)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 2, first, RuleSet.ForeignCamps.OPEN, four)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 2, first, RuleSet.ForeignCamps.PASS_THROUGH, four)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 2, first, closed, RuleSet.TriangleRows.FIVE)).code());
+        assertEquals("illegal-history", assertThrows(WebFailure.class,
+                () -> core.features(new int[] {MID[1]}, adjacent, 2, first, closed, four)).code());
+        // the ranking rule plays the same two-player game
+        assertArrayEquals(classicFeatures(core, MID).values(),
+                core.features(MID, adjacent, 2, RuleSet.Ranking.FULL_RANKING, closed, four).values());
+    }
+
+    @Test
+    void theExportedFeaturesAnswerInTheDocumentedFormat() {
+        String history = Arrays.stream(MID).mapToObj(Integer::toString).collect(Collectors.joining(","));
+        String[] reply = Web.features(history, null, null, null, null, null).split(" ");
+        assertEquals(6, reply.length, Arrays.toString(reply));
+        assertEquals("ok", reply[0]);
+        WebCore.Features f = classicFeatures(new WebCore(), MID);
+        String[] values = reply[1].split(",");
+        assertEquals(13, values.length);
+        for (int i = 0; i < 13; i++) {
+            assertEquals(f.values()[i], Double.parseDouble(values[i]), 0.0, "feature " + i); // round trip, exact
+        }
+        assertEquals("179", reply[2]);
+        assertEquals("0", reply[3]);
+        for (int p = 0; p < 2; p++) {
+            String[] d = reply[4 + p].split(",");
+            assertEquals(121, d.length);
+            for (int cell = 0; cell < 121; cell++) {
+                assertEquals(f.distance()[p][cell], Integer.parseInt(d[cell]), "player " + p + ", cell " + cell);
+            }
+        }
+        assertTrue(Web.features("", "long", null, null, null, null).startsWith("error unsupported "));
+        assertTrue(Web.features("", null, "3", null, null, null).startsWith("error unsupported "));
+        assertTrue(Web.features("", null, null, null, "open", null).startsWith("error unsupported "));
+        assertTrue(Web.features("", null, null, null, null, "5").startsWith("error unsupported "));
+        assertTrue(Web.features("1,x", null, null, null, null, null).startsWith("error illegal-history "));
     }
 }

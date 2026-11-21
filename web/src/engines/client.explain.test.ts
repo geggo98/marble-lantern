@@ -92,10 +92,17 @@ describe('handler stubs', () => {
   const features: Request = { id: 1, type: 'features', history: [], variant: DEFAULT_VARIANT };
   const forward: Request = { id: 2, type: 'netForward', history: [] };
 
-  it('every real handler answers unsupported until the export exists, and never touches an engine core', async () => {
+  it('every real handler answers unsupported for a request it has no export for, and never touches an engine core', async () => {
     for (const handler of [new CppRequestHandler(), new JavaRequestHandler(), new NetRequestHandler()]) {
-      await expect(handler.handle(features)).rejects.toMatchObject({ code: 'unsupported' });
       await expect(handler.handle(forward)).rejects.toMatchObject({ code: 'unsupported' });
+    }
+    await expect(new NetRequestHandler().handle(features)).rejects.toMatchObject({ code: 'unsupported' });
+  });
+
+  it('the classical handlers serve features through the engine core (WP2): before init they fail like every core request', async () => {
+    // The features export itself is checked against the real engines in features.cross.test.ts.
+    for (const handler of [new CppRequestHandler(), new JavaRequestHandler()]) {
+      await expect(handler.handle(features)).rejects.toMatchObject({ code: 'internal', message: expect.stringContaining('not initialised') });
     }
   });
 });

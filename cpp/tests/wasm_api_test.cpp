@@ -3,10 +3,13 @@
 // shw_player_new3, the outcome codes, the refusals, the error code of shw_analyse). The node tests of cpp/wasm/test run the same calls on the
 // WebAssembly build; this test needs no Emscripten and no race table (the long player does not read one).
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "check.hpp"
 #include "geometry.hpp"
@@ -47,6 +50,9 @@ double shw_race_moves(int id);
 int shw_analyse(int nodes, const std::int32_t* moves_in, int n_in, std::int32_t* moves_out, std::int32_t* scores_out, int cap);
 double shw_analysis_nodes();
 int shw_evaluate3(std::int32_t* out3);
+int shw_features(double* out13, std::int32_t* out_score_side, std::int32_t* out_dist242);
+int shw_last_score(int id);
+double shw_last_nodes(int id);
 }
 
 namespace {
@@ -436,6 +442,102 @@ SH_TEST(analysis_follows_the_house_size) {
     // the move list of a 5-row start position does not fit a buffer of the old 1210 moves only when it is that long; kCap holds any list
     CHECK_EQ(shw_game_new5(1, 2, 0, 0, 5), 0);
     CHECK(shw_analyse(100, nullptr, 0, moves_out.data(), scores_out.data(), 3) == -3);  // cap too small is still reported
+}
+
+// ---- shw_features: the linear-r3 evaluation term by term (live V6 of the Info pages) ----
+
+namespace {
+// The position of web/src/about/data/eval-mid.json (ExplainerDataTest, Fixtures.mid()): 30 plies, moves from | to << 8 from that file's history.
+constexpr std::array<int, 30> kMid = {4099,  26227, 7440,  22886, 10496, 19832, 4360,  16973, 13057, 14453, 15633, 26480, 17949, 23159, 20777,
+                                      20071, 23603, 20596, 30033, 17497, 23366, 15182, 3844,  12868, 4613,  12088, 7174,  9519,  6919,  6693};
+// The 13 features of eval-mid.json (rounded there to four decimals), order of LinearEvaluator.GAIN_NAMES.
+constexpr std::array<double, 13> kMidFeatures = {-9, 0, -7.1, 1, -2, 2, -6, 2, 3, -3, -12.51, 1, 0};
+
+struct Features {
+    std::array<double, 13> values{};
+    std::array<std::int32_t, 2> score_side{};
+    std::array<std::int32_t, 242> distance{};
+    int rc = 0;
+};
+
+Features features_now() {
+    Features f;
+    f.values.fill(99);
+    f.score_side.fill(99);
+    f.distance.fill(99);
+    f.rc = shw_features(f.values.data(), f.score_side.data(), f.distance.data());
+    return f;
+}
+
+void play_mid(std::size_t plies) {
+    CHECK_EQ(shw_game_new5(0, 2, 0, 0, 4), 0);
+    for (std::size_t i = 0; i < plies; ++i) CHECK_EQ(shw_play(kMid[i]), 0);
+}
+}  // namespace
+
+SH_TEST(features_of_the_mid_position_equal_the_explainer_golden) {
+    play_mid(kMid.size());
+    const Features f = features_now();
+    CHECK_EQ(f.rc, 0);
+    for (std::size_t i = 0; i < 13; ++i) CHECK(std::abs(f.values[i] - kMidFeatures[i]) < 1e-4);
+    CHECK_EQ(f.score_side[0], 179);  // eval-mid.json meta.score
+    CHECK_EQ(f.score_side[1], 0);
+    // per-piece distances of eval-mid.json, sides[].pieces: {cell, distance}; player 1 starts at index 121
+    for (const auto [cell, d] : std::array<std::pair<int, int>, 4>{{{2, 12}, {61, 5}, {92, 2}, {117, 0}}})
+        CHECK_EQ(f.distance[static_cast<std::size_t>(cell)], d);
+    for (const auto [cell, d] : std::array<std::pair<int, int>, 4>{{{26, 2}, {66, 6}, {111, 10}, {118, 12}}})
+        CHECK_EQ(f.distance[static_cast<std::size_t>(121 + cell)], d);
+}
+
+SH_TEST(features_after_an_odd_ply_are_for_player_one_and_every_distance_is_the_layouts) {
+    play_mid(29);
+    const Features f = features_now();
+    CHECK_EQ(f.rc, 0);
+    CHECK_EQ(f.score_side[1], 1);
+    const sh::Layout& layout = sh::Layout::of(2);
+    for (int p = 0; p < 2; ++p)
+        for (int cell = 0; cell < 121; ++cell) CHECK_EQ(f.distance[static_cast<std::size_t>(p * 121 + cell)], layout.distance(p, cell));
+}
+
+SH_TEST(features_are_for_the_classic_game_only) {
+    for (const std::array<int, 5> g : {std::array<int, 5>{1, 2, 0, 0, 4}, std::array<int, 5>{0, 3, 0, 0, 4}, std::array<int, 5>{0, 2, 0, 1, 4},
+                                       std::array<int, 5>{0, 2, 0, 2, 4}, std::array<int, 5>{0, 2, 0, 0, 5}}) {
+        CHECK_EQ(shw_game_new5(g[0], g[1], g[2], g[3], g[4]), 0);
+        CHECK_EQ(features_now().rc, -1);
+        CHECK(std::string(shw_error()).find("classic") != std::string::npos);
+    }
+    CHECK_EQ(shw_game_new5(0, 2, 1, 0, 4), 0);  // the ranking rule changes nothing for two players
+    CHECK_EQ(features_now().rc, 0);
+}
+
+// The guard against shared state: features between the moves of a game leave every choose result (move, score, depth, nodes) as without them.
+SH_TEST(features_between_two_choose_calls_leave_the_choose_results_unchanged) {
+    struct Step {
+        int move, score, depth;
+        double nodes;
+        bool operator==(const Step&) const = default;
+    };
+    const auto game = [](bool with_features) {
+        const std::array<int, 2> players = {shw_player_new(1500, 0), shw_player_new(1500, 0)};
+        CHECK(players[0] >= 0 && players[1] >= 0);
+        std::vector<Step> steps;
+        std::vector<int> history;
+        for (int ply = 0; ply < 16; ++ply) {
+            CHECK_EQ(shw_game_new5(0, 2, 0, 0, 4), 0);
+            for (const int m : history) CHECK_EQ(shw_play(m), 0);
+            if (with_features) {
+                CHECK_EQ(features_now().rc, 0);
+            }
+            const int id = players.at(static_cast<std::size_t>(shw_side_to_move()));
+            const int move = shw_choose(id);
+            steps.push_back({move, shw_last_score(id), shw_last_depth(id), shw_last_nodes(id)});
+            history.push_back(move);
+        }
+        return steps;
+    };
+    const std::vector<Step> plain = game(false);
+    const std::vector<Step> interleaved = game(true);
+    CHECK(plain == interleaved);
 }
 
 int main() { return sh::test::run_all(); }
