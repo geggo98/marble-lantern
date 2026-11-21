@@ -7,6 +7,7 @@ import { makeAboutCatalog } from '../i18n/catalog';
 import type { AboutCatalog, SameKeys } from '../i18n/catalog';
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
+import { AbStartLink } from '../figures/AbStartLink';
 import { AlphaBetaFigure } from '../figures/AlphaBetaFigure';
 import { BudgetFigure } from '../figures/BudgetFigure';
 import { EvalFigure } from '../figures/EvalFigure';
@@ -19,6 +20,9 @@ const catalog = makeAboutCatalog({ en, de });
 const shared = catalog as unknown as AboutCatalog<string>;
 
 const FIGURES: Record<string, () => React.JSX.Element> = {
+  // The two sections before the figure link to it with the start position selected (spec v5, section 9, finding 13).
+  'game-tree': () => <AbStartLink catalog={shared} />,
+  minimax: () => <AbStartLink catalog={shared} />,
   'alpha-beta': () => (
     <>
       <AlphaBetaFigure catalog={shared} number={[2, 1]} />

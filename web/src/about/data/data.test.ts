@@ -31,71 +31,129 @@ function ownerCounts(cells: number[]): Record<number, number> {
   return out;
 }
 
-describe('ab-tree-start.json', () => {
-  const d = load('ab-tree-start.json');
+// Schema 2 of the alpha-beta files (design v5-mid-spec.md, section 5): one entry per root move in the order of the iteration for depth 2, every
+// score for the side to move at the root. The figure computes the counter and the alpha line from these fields, so a file that breaks one of the
+// three sums would draw a wrong picture without an error.
+import { gzipSync } from 'node:zlib';
 
-  it('has the source block and the anchors of the fact sheet', () => {
+describe.each([
+  { file: 'ab-tree-mid.json', roots: 67, nodes: 298, iteration: [67, 231], minimax: 3180, score: -10, ply: 24, maxBytes: 20000, maxGzip: 3000, full: 2 },
+  { file: 'ab-tree-start.json', roots: 14, nodes: 55, iteration: [14, 41], minimax: 210, score: 0, ply: 0, maxBytes: 5000, maxGzip: 3000, full: 1 },
+])('$file (schema 2)', ({ file, roots, nodes, iteration, minimax, score, ply, maxBytes, maxGzip, full }) => {
+  const d = load(file);
+  const moves: Json[] = d.rootMoves;
+  const inf = (v: unknown): number => (v === '-infinity' ? -d.meta.infinity : (v as number));
+
+  it('has the source block, the schema and the anchors', () => {
     sourceOk(d);
+    expect(d.schema).toBe(2);
     expect(d.meta.depth).toBe(2);
-    expect(d.meta.nodes).toBe(55);
-    expect(d.meta.minimaxNodes).toBe(210);
-    expect(d.meta.score).toBe(0);
-    expect(d.meta.bestMove.text).toBe('(2,-6)->(2,-4)');
-    expect(d.meta.rootMoves).toBe(14);
-    expect(d.meta.rootJumps).toBe(6);
-    expect(d.meta.iterationNodes).toEqual([14, 41]);
-  });
-
-  it('is the start position', () => {
+    expect(d.meta.perspective).toBe('mover');
+    expect(d.meta.ply).toBe(ply);
+    expect(d.meta.history).toHaveLength(ply);
+    expect(d.meta.nodes).toBe(nodes);
+    expect(d.meta.iterationNodes).toEqual(iteration);
+    expect(d.meta.minimaxNodes).toBe(minimax);
+    expect(d.meta.score).toBe(score);
+    expect(d.meta.rootMoves).toBe(roots);
+    expect(moves).toHaveLength(roots);
     expect(d.cells).toHaveLength(CELLS);
     expect(ownerCounts(d.cells)).toEqual({ '-1': 101, '0': 10, '1': 10 });
-    expect(d.rootMoves).toHaveLength(14);
+  });
+
+  it('keeps the size budget of the spec', () => {
+    const minified = JSON.stringify(d);
+    expect(minified.length).toBeLessThanOrEqual(maxBytes);
+    expect(gzipSync(minified).length).toBeLessThanOrEqual(maxGzip);
+    expect(d.meta.nodes).toBeLessThanOrEqual(450);
+    expect(roots).toBeLessThanOrEqual(100);
+  });
+
+  // The three sums of the spec, section 5.
+  it('sum(1 + searched.length) over the root moves is the nodes of depth 2', () => {
+    expect(moves.reduce((s, m) => s + 1 + m.searched.length, 0)).toBe(d.meta.iterationNodes[1]);
+  });
+
+  it('rootMoves.length + sum(replies) is the tree without pruning', () => {
+    expect(moves.length + moves.reduce((s, m) => s + m.replies, 0)).toBe(d.meta.minimaxNodes);
+  });
+
+  it('alphaAfter of the last root move is the score of the search', () => {
+    expect(moves[moves.length - 1].alphaAfter).toBe(d.meta.score);
+  });
+
+  it('has per root move cells, a consistent window and consistent counts', () => {
+    let alpha = -d.meta.infinity;
+    let best = -d.meta.infinity;
+    moves.forEach((m, i) => {
+      expect(isCell(m.from) && isCell(m.to)).toBe(true);
+      expect(m.path[0]).toBe(m.from);
+      expect(m.path[m.path.length - 1]).toBe(m.to);
+      expect(m.path.every(isCell)).toBe(true);
+      expect(m.kind === 'step' ? m.path.length === 2 : m.path.length >= 2).toBe(true);
+      expect(m.gain === 'pv' ? i === 0 : Number.isInteger(m.gain)).toBe(true);
+      expect(m.visit1).toBeGreaterThan(0);
+      expect(m.visit2).toBeGreaterThan(d.meta.iterationNodes[0]);
+      expect(m.searched.length + m.skipped).toBe(m.replies);
+      expect(m.searched.length).toBeGreaterThan(0);
+      expect(inf(m.alphaBefore)).toBe(alpha);
+      // a reply is [from, to, kind, score]; the value of a root move is the lowest score of its searched replies
+      expect(Math.min(...m.searched.map((r: number[]) => r[3]))).toBe(m.value);
+      m.searched.forEach((r: number[]) => {
+        expect(isCell(r[0]) && isCell(r[1])).toBe(true);
+        expect([0, 1]).toContain(r[2]);
+      });
+      // cut off: the value is not above alpha; searched in full: it is above alpha
+      expect(m.cutoff).toBe(m.value <= alpha);
+      expect(m.bound).toBe(m.cutoff ? 'upper' : 'exact');
+      expect(m.newBest).toBe(m.value > best);
+      if (m.newBest) {
+        best = m.value;
+        alpha = Math.max(alpha, m.value);
+      }
+      expect(inf(m.alphaAfter)).toBe(alpha);
+      if (m.replyPath) expect(m.replyPath[0]).toBe(m.searched.find((r: number[]) => r[3] === m.value)[0]); // the chain of the deciding reply starts at its origin
+    });
+    expect(moves.filter((m) => !m.cutoff)).toHaveLength(full);
+    expect(moves[0].alphaBefore).toBe('-infinity');
+    expect(moves[0].gain).toBe('pv');
+  });
+
+  it('names the best move that the last alpha belongs to', () => {
+    const best = moves.find((m) => m.from === d.meta.bestMove.from && m.to === d.meta.bestMove.to);
+    expect(best).toBeDefined();
+    expect(best!.value).toBe(d.meta.score);
+    expect(best!.newBest).toBe(true);
+    expect(d.meta.bestMove.text).toMatch(/^\(-?\d+,-?\d+\)->\(-?\d+,-?\d+\)$/);
+  });
+});
+
+describe('ab-tree-start.json, the fact sheet', () => {
+  const d = load('ab-tree-start.json');
+
+  it('is the start position with the best move (2,-6)->(2,-4)', () => {
+    expect(d.meta.bestMove.text).toBe('(2,-6)->(2,-4)');
+    expect(d.meta.rootJumps).toBe(6);
     expect(d.rootMoves.filter((m: Json) => m.kind === 'jump')).toHaveLength(6);
     expect(d.rootMoves.filter((m: Json) => m.kind === 'step')).toHaveLength(8);
+    expect(d.meta.history).toEqual([]);
+    // 14 root moves of 14 replies: the first is searched in full, the other 13 stop after one reply
+    expect(d.rootMoves.map((m: Json) => m.replies)).toEqual(Array(14).fill(14));
+    expect(d.rootMoves.slice(1).every((m: Json) => m.searched.length === 1 && m.skipped === 13)).toBe(true);
   });
+});
 
-  it('has 55 visits in visit order with a consistent tree', () => {
-    const v: Json[] = d.visits;
-    expect(v).toHaveLength(55);
-    v.forEach((x, i) => {
-      expect(x.id).toBe(i + 1);
-      expect(x.parent).toBeGreaterThanOrEqual(0);
-      expect(x.parent).toBeLessThan(x.id);
-      expect(isCell(x.move.from) && isCell(x.move.to)).toBe(true);
-      expect([1, 2]).toContain(x.iteration);
-      expect(Number.isInteger(x.alpha) && Number.isInteger(x.beta) && Number.isInteger(x.score)).toBe(true);
-      expect(Math.abs(x.alpha)).toBeLessThanOrEqual(d.meta.infinity);
-      expect(Math.abs(x.beta)).toBeLessThanOrEqual(d.meta.infinity);
-      expect(typeof x.cutoff).toBe('boolean');
-      if (x.skipped > 0) expect(x.cutoff).toBe(true);
-    });
-    expect(v.filter((x) => x.iteration === 1)).toHaveLength(14);
-    expect(v.filter((x) => x.iteration === 2)).toHaveLength(41);
-  });
+describe('ab-tree-mid.json, the mid-game example', () => {
+  const d = load('ab-tree-mid.json');
 
-  it('obeys negamax: the score of a node is the best negated score of its searched children', () => {
-    const v: Json[] = d.visits;
-    const children = new Map<number, Json[]>();
-    for (const x of v) children.set(x.parent, [...(children.get(x.parent) ?? []), x]);
-    for (const x of v) {
-      const kids = children.get(x.id) ?? [];
-      if (x.depthLeft === 0) {
-        expect(kids).toHaveLength(0);
-        continue;
-      }
-      expect(kids.length + x.skipped).toBe(x.legal);
-      expect(Math.abs(x.score - Math.max(...kids.map((k) => -k.score)))).toBe(0); // not toBe on the values: -0 and 0 differ
-      kids.forEach((k, i) => {
-        expect(k.order).toBe(i); // children appear in the order they were searched
-        expect(k.depthLeft).toBe(x.depthLeft - 1);
-      });
-    }
-    // the root of the second iteration: best move and score of meta
-    const rootKids = (children.get(0) ?? []).filter((k) => k.iteration === 2);
-    expect(rootKids).toHaveLength(14);
-    expect(Math.abs(Math.max(...rootKids.map((k) => -k.score)) - d.meta.score)).toBe(0);
-    const best = rootKids.find((k) => -k.score === d.meta.score)!;
-    expect(best.move).toEqual({ from: d.meta.bestMove.from, to: d.meta.bestMove.to });
+  it('is the position after 24 plies with 67 root moves, 30 of them jumps', () => {
+    expect(d.meta.rootJumps).toBe(30);
+    expect(d.meta.sideToMove).toBe(0);
+    expect(d.meta.history.every((h: number[]) => isCell(h[0]) && isCell(h[1]))).toBe(true);
+    const full = d.rootMoves.filter((m: Json) => !m.cutoff);
+    // the first move (value -20) and the one that raises alpha to -10; 65 root moves are cut off after one reply
+    expect(full.map((m: Json) => m.value)).toEqual([-20, -10]);
+    expect(d.rootMoves.filter((m: Json) => m.cutoff).every((m: Json) => m.searched.length === 1)).toBe(true);
   });
 });
 

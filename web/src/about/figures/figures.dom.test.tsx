@@ -268,56 +268,213 @@ describe('V4 (source tree)', () => {
   });
 });
 
-describe('V5 (alpha-beta)', () => {
-  it('counts 0 of 55 at the start, 55 of 55 after the last step and 210 of 210 in the minimax view', async () => {
+describe('V5 (alpha-beta, one step per root move)', () => {
+  const readout = (name: 'alpha' | 'move' | 'beta'): string => q(`[data-readout="${name}"]`).textContent ?? '';
+  const counter = (): string => q('[data-counter]').textContent ?? '';
+  const pos = (): string => (q('.ml-fig-stepper__pos').textContent ?? '').replace(/^Step\s*/, '');
+  const scrub = (): HTMLInputElement => q<HTMLInputElement>('input.ml-fig-ab2__scrub');
+  const verdict = (): string => Array.from(host.querySelectorAll('.ml-fig-ab2__tag:not([data-off])')).map((e) => e.textContent).join('|');
+  const radio = (label: string): HTMLInputElement => Array.from(host.querySelectorAll<HTMLInputElement>('.ml-fig-seg input')).find((i) => i.parentElement?.textContent?.startsWith(label))!;
+  const overview = (selector: string): number => host.querySelectorAll(`[data-p="over"] ${selector}`).length;
+
+  it('opens on the mid-game example at step 0: 0 of 3,180, alpha minus infinity, beta plus infinity', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
-    const counter = (): string => Array.from(host.querySelectorAll('.ml-fig-readout__cell')).find((c) => c.querySelector('dt')!.textContent === 'Nodes visited')!.querySelector('dd')!.textContent!;
-    expect(counter()).toBe('0 of 55');
-    key(q('.ml-fig-stepper'), 'End');
-    expect(counter()).toBe('55 of 55');
-    const minimax = Array.from(host.querySelectorAll<HTMLInputElement>('.ml-fig-seg input')).find((i) => i.parentElement?.textContent === 'Minimax (no pruning)')!;
-    click(minimax);
-    expect(counter()).toBe('210 of 210');
-    expect(host.querySelector('.ml-fig-stepper')).toBeNull();
-    expect(host.querySelectorAll('svg.ml-fig-ice .ml-fig-ice__cell--visited')).toHaveLength(196);
+    expect(radio('Mid-game, ply 24').checked).toBe(true);
+    expect(pos()).toContain('0 / 68');
+    expect(counter()).toBe('0 of 3,180');
+    expect([readout('alpha'), readout('move'), readout('beta')]).toEqual(['−∞', '–', '+∞']);
+    expect(status()).toContain('Step 0 of 68');
+    expect(host.querySelectorAll('[data-chain]')).toHaveLength(0);
+    expect(overview('.ml-ab2-todo')).toBe(67); // nothing reached yet: a tick per root move
   });
 
-  it('reads alpha, beta and score of the active call and says the cut-off', async () => {
+  it('the first three steps show the three events: full search, cut-off, new best (spec, section 3)', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
-    const value = (label: string): string => Array.from(host.querySelectorAll('.ml-fig-readout__cell')).find((c) => c.querySelector('dt')!.textContent === label)!.querySelector('dd')!.textContent!;
-    key(q('.ml-fig-stepper'), 'Home');
-    expect([value('Alpha'), value('Beta'), value('Score')]).toEqual(['−∞', '+∞', '−20']); // call 1 of the file: window (-inf, +inf), score -20
-    // step 15 is the first root move of depth 2, entered with the full window
-    for (let i = 1; i < 15; i++) forward();
-    expect(status()).toContain('The search tries (2,-6)->(2,-4) with alpha −∞ and beta +∞');
-    // the step of the first cut: last searched reply of the second root move of depth 2 (visit 31)
-    for (let i = 15; i < 31; i++) forward();
-    expect(status()).toContain('Cut-off');
-    expect(host.querySelector('.ml-fig-ab__cut')?.textContent).toBe('Cut-off');
-    expect(host.querySelectorAll('.ml-fig-ice__cut').length).toBe(1);
-  });
-
-  it('jumps to a root move with the select', async () => {
-    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
-    const select = q<HTMLSelectElement>('select');
-    expect(select.options).toHaveLength(15);
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
-      set.call(select, '1');
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(q('.ml-fig-stepper__pos').textContent).toContain('30 / 55');
-  });
-
-  it('draws the root move and, for a reply, a dashed arrow on the board', async () => {
-    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
-    expect(host.querySelectorAll('.ml-fig-board__arrow')).toHaveLength(0);
-    for (let i = 0; i < 15; i++) forward();
-    expect(host.querySelectorAll('.ml-fig-board__arrow')).toHaveLength(1);
     forward();
-    const arrows = Array.from(host.querySelectorAll('.ml-fig-board__arrow'));
-    expect(arrows).toHaveLength(2);
-    expect(arrows.filter((a) => a.getAttribute('stroke-dasharray'))).toHaveLength(1);
+    expect([readout('alpha'), readout('move'), verdict(), counter()]).toEqual(['−20', '= −20', 'First move', '56 of 3,180']);
+    expect(status()).toContain('H5»N3');
+    forward();
+    expect([readout('alpha'), readout('move'), verdict(), counter()]).toEqual(['−20', '≤ −40', 'Cut off', '58 of 3,180']);
+    expect(q('[data-tally="searched"]').textContent).toBe('1');
+    expect(q('[data-tally="skipped"]').textContent).toBe('59');
+    // the gauge: the one searched reply is the deciding tick, there is no other tick; the first move had 55 replies, 54 of them other ticks
+    expect(host.querySelectorAll('[data-p="gauge"] .ml-ab2-tick')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-p="gauge"] .ml-ab2-tick.is-min')).toHaveLength(1);
+    setRange(scrub(), 1);
+    expect(host.querySelectorAll('[data-p="gauge"] .ml-ab2-tick')).toHaveLength(55);
+    setRange(scrub(), 2);
+    forward();
+    expect([readout('alpha'), readout('move'), verdict()]).toEqual(['−10', '= −10', 'New best']);
+    expect(q('[data-focus="rank"]').textContent).toBe('3 / 67');
+    expect(q('[data-focus="move"]').textContent).toBe('H5»L6');
+  });
+
+  it('after the last step: 231 of 3,180, the overview holds 2 discs and 65 caps, 65 hollow columns, and the result narration', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    key(q('.ml-fig-stepper'), 'End');
+    expect(pos()).toContain('68 / 68');
+    expect(counter()).toBe('231 of 3,180');
+    expect(verdict()).toBe('Result');
+    expect(overview('.ml-ab2-exact')).toBe(2);
+    expect(overview('.ml-ab2-bound')).toBe(65);
+    expect(overview('.ml-ab2-skip')).toBe(65);
+    expect(overview('.ml-ab2-done')).toBe(67);
+    expect(overview('.ml-ab2-todo')).toBe(0);
+    expect(overview('.ml-ab2-alpha-ahead')).toBe(0);
+    expect(status()).toContain('231 of the 3,180');
+  });
+
+  it('Home goes to step 1, End to the result; the scrubber and the stepper stay in step', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    key(q('.ml-fig-stepper'), 'Home');
+    expect(pos()).toContain('1 / 68');
+    expect(scrub().value).toBe('1');
+    setRange(scrub(), 3);
+    expect(pos()).toContain('3 / 68');
+    expect(scrub().getAttribute('aria-valuetext')).toBe('Step 3 of 68: H5»L6, New best');
+    expect(scrub().max).toBe('68');
+    expect(overview('.ml-ab2-cur')).toBe(1);
+  });
+
+  it('Page Down and Page Up on the stepper go to the next and the previous notable step', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    const stepper = q('.ml-fig-stepper button');
+    const seen: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      key(stepper, 'PageDown');
+      seen.push(pos().replace(/\s/g, ''));
+    }
+    expect(seen).toEqual(['1/68', '2/68', '3/68', '4/68', '67/68', '68/68']);
+    key(stepper, 'PageUp');
+    expect(pos()).toContain('67 / 68');
+    // Page Down outside the stepper does nothing
+    key(q('input.ml-fig-ab2__scrub'), 'PageDown');
+    expect(pos()).toContain('67 / 68');
+  });
+
+  it('switching to the start position goes to step 0 and shows 14 root moves, 41 of 210 at the end', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    setRange(scrub(), 10);
+    click(radio('Start position'));
+    expect(pos()).toContain('0 / 15');
+    expect(counter()).toBe('0 of 210');
+    expect(overview('.ml-ab2-todo')).toBe(14);
+    expect(scrub().max).toBe('15');
+    key(q('.ml-fig-stepper'), 'End');
+    expect(counter()).toBe('41 of 210');
+    expect(overview('.ml-ab2-exact')).toBe(1);
+    expect(overview('.ml-ab2-bound')).toBe(13);
+    expect(q('[data-tally="skipped"]').textContent).toBe('–'); // the result step has no root move in the close view
+    expect(host.textContent).toContain('ab-tree-start.json');
+  });
+
+  it('the figure keeps the same parts at every step of both examples (no part appears or disappears)', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    const shape = (): string =>
+      [host.querySelectorAll('.ml-fig-ab2__tag').length, host.querySelectorAll('.ml-fig-ab2__strip i').length, host.querySelectorAll('.ml-fig-ab2__read dd').length, host.querySelectorAll('[data-p="over"] svg').length, host.querySelectorAll('[data-p="gauge"] svg').length].join(',');
+    for (const example of ['Mid-game', 'Start position']) {
+      click(radio(example));
+      const seen = new Set<string>();
+      for (let s = 0; s <= Number(scrub().max); s++) {
+        setRange(scrub(), s);
+        seen.add(shape());
+        // exactly one verdict tag is visible from step 1 on
+        expect(host.querySelectorAll('.ml-fig-ab2__tag:not([data-off])').length).toBe(s === 0 ? 0 : 1);
+      }
+      expect([...seen]).toHaveLength(1);
+    }
+  });
+
+  it('draws the root move and the deciding reply on the board as chains; a dashed ring marks the origin', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    forward();
+    expect(host.querySelectorAll('[data-chain="move"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-chain="reply"]')).toHaveLength(1);
+    expect(host.querySelectorAll('.ml-fig-board__from')).toHaveLength(1);
+    // step 1 is a triple jump (spec: "H5»N3"): its chain has the landing cells of the hops
+    const points = (q('[data-chain="move"] path').getAttribute('d') ?? '').split(/[ML]/).filter(Boolean);
+    expect(points.length).toBeGreaterThan(2);
+    key(q('.ml-fig-stepper'), 'End');
+    expect(host.querySelectorAll('[data-chain]')).toHaveLength(2); // the best move and its best reply
+  });
+
+  it('a link from the text sections selects the start position and goes to step 0', async () => {
+    const { AbStartLink } = await import('./AbStartLink');
+    await render(
+      <>
+        <AbStartLink catalog={classic} />
+        <AlphaBetaFigure catalog={classic} number={[2, 1]} />
+      </>,
+    );
+    forward();
+    click(q('a[href]'));
+    expect(radio('Start position').checked).toBe(true);
+    expect(pos()).toContain('0 / 15');
+    expect(q('[data-ab-link] a').textContent).toBe('Count the columns in the figure with the start position');
+  });
+
+  describe('playback', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('stays 1.2 s on a notable step and 0.25 s on another one, and the narration is not live while it runs', async () => {
+      vi.useFakeTimers();
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      setRange(scrub(), 10); // an ordinary step: a cut-off like the one before
+      click(byLabel('Play'));
+      expect(q('[role="status"]').getAttribute('aria-live')).toBe('off');
+      await act(async () => vi.advanceTimersByTime(249));
+      expect(pos()).toContain('10 / 68');
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(pos()).toContain('11 / 68');
+      await act(async () => vi.advanceTimersByTime(250));
+      await act(async () => vi.advanceTimersByTime(250));
+      expect(pos()).toContain('13 / 68');
+      // pause: the narration of the current step is announced once, by the hidden region
+      expect(q('[data-ab-announce]').textContent).toBe('');
+      click(byLabel('Pause'));
+      expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
+      expect(q('[data-ab-announce]').textContent).toContain('are skipped');
+    });
+
+    it('a notable step lasts 1.2 s; the playback ends at the result and the announcement follows', async () => {
+      vi.useFakeTimers();
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      setRange(scrub(), 66);
+      click(byLabel('Play'));
+      await act(async () => vi.advanceTimersByTime(250));
+      expect(pos()).toContain('67 / 68'); // step 66 is an ordinary step
+      await act(async () => vi.advanceTimersByTime(1199));
+      expect(pos()).toContain('67 / 68'); // step 67 is the last root move: notable
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(pos()).toContain('68 / 68');
+      expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
+      expect(q('[data-ab-announce]').textContent).toContain('231 of the 3,180');
+    });
+
+    it('stepping by hand or switching the example stops it', async () => {
+      vi.useFakeTimers();
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      click(byLabel('Play'));
+      click(radio('Start position'));
+      await act(async () => vi.advanceTimersByTime(5000));
+      expect(pos()).toContain('0 / 15');
+      click(byLabel('Play'));
+      setRange(scrub(), 5);
+      await act(async () => vi.advanceTimersByTime(5000));
+      expect(pos()).toContain('5 / 15');
+    });
+  });
+
+  it('under reduced motion the play button is not rendered; the stepper, the scrubber and the keys reach every step', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduced-motion'), addEventListener: () => undefined, removeEventListener: () => undefined }));
+    try {
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      expect(host.querySelector('[aria-label="Play"]')).toBeNull();
+      forward();
+      expect(pos()).toContain('1 / 68');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

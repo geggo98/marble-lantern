@@ -8,15 +8,13 @@ import offline from '../data/arch-offline.json';
 import online from '../data/arch-online.json';
 import pipeline from '../data/arch-training.json';
 import treeJson from '../data/source-tree.json';
-import abJson from '../data/ab-tree-start.json';
 import evalJson from '../data/eval-mid.json';
 import budgetJson from '../data/ab-budget-mid.json';
 import { OFFLINE_CANCEL_STEPS, STEPS, arrange, edgeKey, groupOf, resolveStep, semaphoreState } from './arch-model';
 import type { ArchKind, RawArch } from './arch-model';
+import { moveText } from './ab-model';
 import { GRAPH, WHERE, graphLayout, matchesFilter, moduleDeps, ranks, visibleEntries } from './tree-model';
 import type { TreeData } from './tree-model';
-import { bound, columnOf, columnsAt, counter, cutStep, moveText, stepOfRootMove, stepView } from './ab-model';
-import type { AbData } from './ab-model';
 import { barShare, contributionOf, overlayOf, scoreOf, winProbability } from './eval-model';
 import type { EvalData, Setting } from './eval-model';
 
@@ -165,92 +163,6 @@ describe('tree-model and source-tree.json (V4)', () => {
     }
     // an edge runs downward: from the bottom of the dependent module to the top of its dependency
     for (const e of layout.edges) expect(e.y2).toBeGreaterThan(e.y1);
-  });
-});
-
-const ab = abJson as unknown as AbData;
-
-describe('ab-model and ab-tree-start.json (V5)', () => {
-  it('counts 55 visits of the search and 210 nodes of the tree without pruning (fact sheet section 6.2)', () => {
-    expect(counter(ab, 0, false)).toEqual({ visited: 0, total: 55 });
-    expect(counter(ab, 55, false)).toEqual({ visited: 55, total: 55 });
-    expect(counter(ab, 0, true)).toEqual({ visited: 210, total: 210 });
-  });
-
-  it('names a move in the axial coordinates of the engine: the best move is (2,-6)->(2,-4)', () => {
-    expect(moveText(ab.meta.bestMove.from, ab.meta.bestMove.to)).toBe('(2,-6)->(2,-4)');
-    expect(ab.meta.bestMove.text).toBe('(2,-6)->(2,-4)');
-  });
-
-  it('draws 14 columns of 14 reply cells; after the last step 14 + 13 x 1 cells were searched and 13 x 13 are cut off', () => {
-    const cols = columnsAt(ab, 55, false);
-    expect(cols).toHaveLength(14);
-    expect(cols.every((c) => c.cells.length === 14)).toBe(true);
-    const states = cols.flatMap((c) => c.cells);
-    expect(states.filter((s) => s === 'visited' || s === 'active')).toHaveLength(27); // 41 visits of depth 2 less the 14 root-move calls
-    expect(states.filter((s) => s === 'skipped')).toHaveLength(169);
-    expect(cols[0]!.cutAfter).toBeUndefined();
-    expect(cols[1]!.cutAfter).toBe(1);
-    expect(cols.map((c) => c.glyph).join('')).toBe('»»»»»»››››››››'); // 6 jumps, then 8 steps
-  });
-
-  it('shows nothing at step 0 and the full tree without cuts in the minimax view (196 cells)', () => {
-    expect(columnsAt(ab, 0, false).flatMap((c) => c.cells).every((s) => s === 'todo')).toBe(true);
-    const full = columnsAt(ab, 0, true).flatMap((c) => c.cells);
-    expect(full).toHaveLength(196);
-    expect(full.every((s) => s === 'visited')).toBe(true);
-    expect(columnsAt(ab, 0, true).some((c) => c.cutAfter !== undefined)).toBe(false);
-  });
-
-  it('marks exactly one active cell for a reply step and the active column of the move bar', () => {
-    const reply = ab.visits.find((v) => v.parent !== 0)!;
-    const cols = columnsAt(ab, reply.id, false);
-    expect(cols.flatMap((c) => c.cells).filter((s) => s === 'active')).toHaveLength(1);
-    expect(cols.filter((c) => c.state === 'active')).toHaveLength(1);
-    expect(cols[columnOf(ab, reply)]!.state).toBe('active');
-  });
-
-  it('shows the cut-off at the step of the last searched reply of a cut root move and not before', () => {
-    const cutNode = ab.visits.find((v) => v.cutoff)!;
-    const at = cutStep(ab, cutNode)!;
-    const column = columnOf(ab, cutNode);
-    expect(columnsAt(ab, at, false)[column]!.cutAfter).toBe(1);
-    expect(columnsAt(ab, at - 1, false)[column]!.cutAfter).toBeUndefined();
-    expect(stepView(ab, at)!.cut).toBe(true);
-    expect(stepView(ab, at - 1)!.cut).toBe(false);
-    expect(stepView(ab, at)!.narration.map((p) => p.key)).toEqual(['leaf', 'cutoff']);
-    // data: the root move of the second column skips 13 replies (14 legal, 1 searched)
-    expect(stepView(ab, at)!.narration[1]!.values['skipped']).toBe(13);
-  });
-
-  it('walks every step of the file: a step has one visit and a narration, the last step is the 55th call', () => {
-    for (let s = 1; s <= 55; s++) {
-      const v = stepView(ab, s)!;
-      expect(v.visit.id).toBe(s);
-      expect(v.narration.length).toBeGreaterThan(0);
-    }
-    expect(stepView(ab, 56)).toBeNull();
-    expect(stepView(ab, 0)).toBeNull();
-    expect(stepView(ab, 1)!.narration[0]!.key).toBe('leaf'); // depth-1 call: a leaf
-    expect(stepView(ab, 15)!.narration[0]).toEqual({ key: 'enter', values: { move: '(2,-6)->(2,-4)', alpha: '−∞', beta: '+∞', left: 1 } });
-    // the first root move ends without a cut-off: its last reply adds the value of the root move to the narration
-    expect(stepView(ab, 29)!.narration.map((p) => p.key)).toEqual(['leaf', 'return']);
-    expect(stepView(ab, 29)!.narration[1]!.values).toEqual({ move: '(2,-6)->(2,-4)', score: '0', alpha: '0' });
-    // a reply that is not the last one of its root move is only a leaf
-    expect(stepView(ab, 16)!.narration.map((p) => p.key)).toEqual(['leaf']);
-  });
-
-  it('jumps to the iteration for depth 2 of a root move', () => {
-    expect(stepOfRootMove(ab, 0)).toBe(15);
-    expect(stepOfRootMove(ab, 1)).toBe(30);
-    expect(ab.visits[stepOfRootMove(ab, 13) - 1]!.depthLeft).toBe(1);
-  });
-
-  it('writes the window bounds with the infinity of the file', () => {
-    expect(bound(ab.meta.infinity, ab.meta.infinity)).toBe('+∞');
-    expect(bound(-ab.meta.infinity, ab.meta.infinity)).toBe('−∞');
-    expect(bound(-20, ab.meta.infinity)).toBe('−20');
-    expect(bound(0, ab.meta.infinity)).toBe('0');
   });
 });
 
