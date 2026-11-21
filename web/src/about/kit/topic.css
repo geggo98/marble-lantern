@@ -1,0 +1,38 @@
+/* A topic page: layout, "On this page", sections, reading list, term popover, source chip. Loaded with the topic chunk. */
+.ml-about { gap: var(--ml-space-5); }
+.ml-about__crumb, .ml-about-link { color: var(--ml-color-ink); text-underline-offset: 0.2em; }
+.ml-about__crumb { font-size: var(--ml-text-sm); display: inline-block; padding-block: var(--ml-space-2); min-height: 2.75rem; }
+.ml-about__layout { display: grid; gap: var(--ml-space-5); }
+.ml-about__body { display: grid; gap: var(--ml-space-5); min-width: 0; }
+.ml-about__head { display: grid; gap: var(--ml-space-3); }
+.ml-about__head h1:focus, .ml-about__h2:focus, .ml-about__term dt:focus { outline: none; }
+.ml-about__head h1:focus-visible, .ml-about__h2:focus-visible, .ml-about__term dt:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; }
+.ml-about__h2 { font: var(--ml-weight-medium) var(--ml-text-lg)/var(--ml-leading-tight) var(--ml-font-display); scroll-margin-top: var(--ml-space-4); }
+.ml-about__section { display: grid; gap: var(--ml-space-3); }
+@media (min-width: 60rem) {
+  .ml-about__layout--rail { grid-template-columns: 14rem minmax(0, 1fr); align-items: start; }
+  .ml-about__toc--rail { position: sticky; top: var(--ml-space-4); }
+}
+.ml-about__toc summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; font-weight: var(--ml-weight-medium); }
+.ml-about__toclist { margin: 0; padding-left: var(--ml-space-5); display: grid; gap: var(--ml-space-1); }
+.ml-about__toclist a { display: inline-block; padding-block: var(--ml-space-2); color: var(--ml-color-ink); }
+.ml-about__reading { margin: 0; padding-left: var(--ml-space-5); display: grid; gap: var(--ml-space-2); }
+.ml-about__by { color: var(--ml-color-ink-muted); margin-left: var(--ml-space-2); font-size: var(--ml-text-sm); }
+.ml-about__pn { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--ml-space-3); }
+.ml-about__pn .ml-btn { display: grid; gap: var(--ml-space-1); justify-items: start; text-align: left; }
+.ml-about__next { justify-items: end; text-align: right; margin-left: auto; }
+.ml-about__glossary { display: grid; gap: var(--ml-space-3); margin: 0; }
+.ml-about__term dt { font-weight: var(--ml-weight-medium); scroll-margin-top: var(--ml-space-4); }
+.ml-about__term dd { margin: 0; color: var(--ml-color-ink-muted); }
+.ml-about-num { font-variant-numeric: tabular-nums; }
+.ml-about code { font-family: var(--ml-font-data); font-size: 0.9em; overflow-wrap: anywhere; }
+/* source chip: monospace path that links to GitHub */
+.ml-src { display: inline-block; max-width: 100%; padding: 0 var(--ml-space-2); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-sm); color: var(--ml-color-ink); text-decoration: none; background: var(--ml-color-surface); overflow-wrap: anywhere; vertical-align: baseline; }
+.ml-src code { font-size: var(--ml-text-xs); }
+.ml-src:hover { background: var(--ml-color-surface-sunken); }
+/* glossary term: a button with a dotted underline and a popover under it */
+.ml-term { position: relative; display: inline; }
+.ml-term__btn { all: unset; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; color: inherit; }
+.ml-term__btn:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; border-radius: var(--ml-radius-sm); }
+.ml-term__pop { position: absolute; z-index: 5; inset-inline-start: 0; top: 100%; display: grid; gap: var(--ml-space-1); width: max-content; max-width: min(20rem, 80vw); margin-top: var(--ml-space-1); padding: var(--ml-space-3); border-radius: var(--ml-radius-md); border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); font-size: var(--ml-text-sm); }
+.ml-term__en, .ml-term__short { color: var(--ml-color-ink-muted); }

@@ -1,7 +1,11 @@
 // The benchmark screen and the about screen (design-notes.md, section 9, screens 05 and 06).
 import { useRef, useState } from 'react';
 import { Icon } from './primitives';
-import { REPO_URL, hrefFor } from './Chrome';
+import { REPO_URL, hrefFor, hrefForAbout } from './Chrome';
+import { AboutTopic } from '../about/AboutTopic';
+import { ABOUT_TOPICS } from '../about/routes';
+import type { AboutRoute } from '../about/routes';
+import '../about/about.css';
 import { useT } from './texts';
 import type { MemoryKind, NaCode } from '../bench/resources';
 import type { MessageKey } from '../i18n/keys';
@@ -237,10 +241,18 @@ const TECH: { name: string; key: 'tech_tornadovm' | 'tech_teavm' | 'tech_emscrip
   { name: 'Vaadin Hilla, React', key: 'tech_hilla' },
 ];
 
-export function AboutScreen(): React.JSX.Element {
+export interface AboutScreenProps extends AboutRoute {
+  /** A jump inside the "On this page" list: the app replaces the history entry. */
+  onJumpSection?: (section: string) => void;
+}
+
+/** The hub (today's About content, then the topic cards), or a topic page when the route names one. */
+export function AboutScreen({ topic, section, notFound = false, onJumpSection }: AboutScreenProps = {}): React.JSX.Element {
   const { t } = useT();
+  if (topic !== undefined) return <AboutTopic topic={topic} section={section} onJumpSection={onJumpSection ?? (() => undefined)} />;
   return (
     <main className="ml-page">
+      {notFound && <p className="ml-hint" role="status">{t('about_notfound')}</p>}
       <div>
         <h1 className="ml-page__title">{t('about_title')}</h1>
         <p className="ml-page__lead">{t('about_lead')}</p>
@@ -275,6 +287,22 @@ export function AboutScreen(): React.JSX.Element {
           <span>{t('link_bench')}</span>
         </a>
       </div>
+      <section aria-labelledby="about-learn-title" className="ml-learn">
+        <h2 id="about-learn-title" className="ml-learn__title">{t('about_learn_title')}</h2>
+        <p className="ml-page__lead">{t('about_learn_lead')}</p>
+        <ul className="ml-learn__cards">
+          {ABOUT_TOPICS.map((topic) => (
+            <li key={topic} className="ml-card ml-learn__card" data-topic={topic}>
+              <p className="ml-kicker">{t(`about_learn_${topic}_kicker`, { n: ABOUT_TOPICS.indexOf(topic) + 1 })}</p>
+              <h3 className="ml-card__title">
+                <a className="ml-learn__link" href={hrefForAbout(topic)}>{t(`about_learn_${topic}_title`)}</a>
+              </h3>
+              <p>{t(`about_learn_${topic}_teaser`)}</p>
+              <p className="ml-kicker">{t(`about_learn_${topic}_time`)}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

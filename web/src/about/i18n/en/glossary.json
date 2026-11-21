@@ -1,0 +1,19 @@
+{
+  "term.engine.name": "Engine",
+  "term.engine.short": "The program that chooses a move.",
+  "term.web-worker.name": "Web Worker",
+  "term.web-worker.short": "A browser thread without access to the page.",
+  "term.game-tree.name": "Game tree",
+  "term.game-tree.short": "All positions reachable by moves, as a tree.",
+  "term.alpha-beta-pruning.name": "Alpha-beta pruning",
+  "term.alpha-beta-pruning.short": "Skips moves that cannot change the result.",
+  "term.tensor.name": "Tensor",
+  "term.tensor.short": "A block of numbers with a shape, like a flat float array.",
+  "term.elo.name": "Elo",
+  "term.elo.short": "A rating computed from the scores of games.",
+  "term.node-budget.name": "Node budget",
+  "term.node-budget.short": "The number of search nodes an engine may visit per move.",
+  "term.tablebase.name": "Tablebase",
+  "term.tablebase.short": "A table of exact results computed in advance.",
+  "term.tensor.long": "Stub long definition of a tensor."
+}

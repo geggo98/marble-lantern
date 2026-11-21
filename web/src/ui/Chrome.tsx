@@ -5,6 +5,7 @@ import { Icon } from './primitives';
 import type { IconName } from './primitives';
 import { useT } from './texts';
 import type { UiKey } from './texts';
+import type { AboutTopic } from '../about/routes';
 import './start-dialog.css';
 
 export type Screen = 'play' | 'bench' | 'about';
@@ -17,6 +18,12 @@ const NAV: { screen: Screen; key: UiKey }[] = [
 
 export function hrefFor(screen: Screen): string {
   return `#/${screen}`;
+}
+
+/** `#/about`, `#/about/<topic>` or `#/about/<topic>/<section>`. The fragment is the router, so every in-page link uses the full route. */
+export function hrefForAbout(topic?: AboutTopic, section?: string): string {
+  if (topic === undefined) return hrefFor('about');
+  return section === undefined ? `#/about/${topic}` : `#/about/${topic}/${section}`;
 }
 
 export function Header({ screen, online }: { screen: Screen; online: boolean }): React.JSX.Element {

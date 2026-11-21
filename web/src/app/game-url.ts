@@ -22,6 +22,8 @@ import { makeMove, moveFrom, moveTo } from '../engines/engine';
 import { CELL_COUNT } from '../board/cells';
 import { isValidLevel } from '../skill/level';
 import type { Screen } from '../ui/Chrome';
+import { isAboutTopic, isSlug } from '../about/routes';
+import type { AboutRoute } from '../about/routes';
 
 export const GAME_URL_VERSION = 'v1';
 const BITS_PER_MOVE = 14;
@@ -53,7 +55,7 @@ export interface GameLink {
 export const variantOfLink = (link: GameLink): Variant => link.variant ?? DEFAULT_VARIANT;
 
 export type ParsedHash =
-  | { kind: 'screen'; screen: Screen }
+  | ({ kind: 'screen'; screen: Screen } & AboutRoute)
   | { kind: 'game'; link: GameLink }
   | { kind: 'broken'; reason: GameUrlReason };
 
@@ -222,7 +224,20 @@ export function parseGameFragment(fragment: string): GameLink {
   return link;
 }
 
-/** Tells a game link from a route. Anything that is not `#/bench`, `#/about` or `#g=...` is the play screen. */
+/**
+ * The About screen with its optional path: `#/about`, `#/about/<topic>`, `#/about/<topic>/<section>`. An unknown topic, a malformed
+ * section or a further segment gives the hub with `notFound`.
+ */
+function parseAbout(rest: string[]): ParsedHash {
+  if (rest.length === 0 || (rest.length === 1 && rest[0] === '')) return { kind: 'screen', screen: 'about' };
+  const [topic, section, ...more] = rest;
+  if (topic === undefined || !isAboutTopic(topic) || more.length > 0) return { kind: 'screen', screen: 'about', notFound: true };
+  if (section === undefined || section === '') return { kind: 'screen', screen: 'about', topic };
+  if (!isSlug(section)) return { kind: 'screen', screen: 'about', notFound: true };
+  return { kind: 'screen', screen: 'about', topic, section };
+}
+
+/** Tells a game link from a route. Anything that is not `#/bench`, `#/about[/...]` or `#g=...` is the play screen. */
 export function parseHash(hash: string): ParsedHash {
   const body = hash.replace(/^#/, '');
   if (body === 'g' || body.startsWith('g=')) {
@@ -234,5 +249,7 @@ export function parseHash(hash: string): ParsedHash {
     }
   }
   const name = body.replace(/^\//, '');
-  return { kind: 'screen', screen: name === 'bench' || name === 'about' ? name : 'play' };
+  const parts = name.split('/');
+  if (parts[0] === 'about') return parseAbout(parts.slice(1));
+  return { kind: 'screen', screen: name === 'bench' ? 'bench' : 'play' };
 }

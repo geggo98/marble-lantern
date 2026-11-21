@@ -27,6 +27,8 @@ import type { Sims } from '../engines/warnings';
 import type { EnginesManifest } from '../engines/registry';
 import { Footer, Header } from '../ui/Chrome';
 import type { Screen } from '../ui/Chrome';
+import { hrefForAbout } from '../ui/Chrome';
+import type { AboutRoute } from '../about/routes';
 import { DEFAULT_LEVEL, NODE_LEVELS } from '../ui/Panels';
 import { isPresetLevel, nodesOfLevel } from '../skill/level';
 import { SkillTracker } from '../skill/tracker';
@@ -80,6 +82,19 @@ function screenFromHash(hash: string): Screen {
   return parsed.kind === 'screen' ? parsed.screen : 'play';
 }
 
+/** The topic, section and notice of the About screen; empty for every other route. */
+function aboutFromHash(hash: string): AboutRoute {
+  const parsed = parseHash(hash);
+  if (parsed.kind !== 'screen' || parsed.screen !== 'about') return {};
+  return {
+    ...(parsed.topic === undefined ? {} : { topic: parsed.topic }),
+    ...(parsed.section === undefined ? {} : { section: parsed.section }),
+    ...(parsed.notFound ? { notFound: true } : {}),
+  };
+}
+
+const sameAbout = (a: AboutRoute, b: AboutRoute): boolean => a.topic === b.topic && a.section === b.section && !!a.notFound === !!b.notFound;
+
 /** The controller's options for a setup: who plays each seat, and the variant. */
 const controllerOptions = (setup: GameSetup) => ({ seats: controllerSeats(setup), variant: variantOf(setup) });
 
@@ -111,6 +126,13 @@ const continuesAtOnce = (link: GameLink): boolean => (link.variant?.players ?? 2
 export function App({ manifestLoader, benchRunner = null, navigation, ledgerStore, initialSetup, netSelection, pwa }: AppProps): React.JSX.Element {
   const nav = useMemo(() => navigation ?? browserNavigation(), [navigation]);
   const [screen, setScreen] = useState<Screen>(() => screenFromHash(nav.hash));
+  const [about, setAboutState] = useState<AboutRoute>(() => aboutFromHash(nav.hash));
+  const setAbout = (next: AboutRoute): void => setAboutState((current) => (sameAbout(current, next) ? current : next));
+  /** A jump in the "On this page" list: the entry is replaced, so that Back leaves the topic instead of stepping through its sections. */
+  const jumpSection = (section: string): void => {
+    nav.replace(hrefForAbout(about.topic, section));
+    setAbout({ ...about, section });
+  };
   const [flow, setFlowState] = useState<Flow>(() => {
     const parsed = parseHash(nav.hash);
     if (parsed.kind === 'game' && continuesAtOnce(parsed.link)) return { kind: 'playing' };
@@ -232,7 +254,8 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
     const parsed = parseHash(event.hash);
     if (parsed.kind === 'screen') {
       setScreen(parsed.screen);
-      if (parsed.screen === 'play' && flowRef.current.kind === 'playing' && !isDemo(setupRef.current)) {
+      setAbout(aboutFromHash(event.hash));
+      if (parsed.screen === 'play'&& flowRef.current.kind === 'playing' && !isDemo(setupRef.current)) {
         nav.replace(formatGameFragment(snapshot())); // the way back from another screen: the address shows the game again
       }
       return;
@@ -260,7 +283,10 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
   useEffect(() => nav.subscribe((event) => onNavRef.current(event)), [nav]);
 
   useEffect(() => {
-    const onHash = (): void => setScreen(screenFromHash(nav.hash));
+    const onHash = (): void => {
+      setScreen(screenFromHash(nav.hash));
+      setAbout(aboutFromHash(nav.hash));
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, [nav]);
@@ -526,7 +552,7 @@ export function App({ manifestLoader, benchRunner = null, navigation, ledgerStor
         <Header screen={screen} online={online} />
         {screen === 'play' && <PlayScreen model={model} />}
         {screen === 'bench' && <BenchScreen runner={benchRunner} />}
-        {screen === 'about' && <AboutScreen />}
+        {screen === 'about' && <AboutScreen {...about} onJumpSection={jumpSection} />}
         <Footer />
         <UpdateNotice {...(pwa ? { pwa } : {})} />
       </div>

@@ -55,6 +55,34 @@ perl -e '
   die "web:build: no chunk contains requestAdapter (the control of the WebGPU scan failed)\n" unless $elsewhere;
   print STDERR "web:build: entry chunk $entry has no WebGPU code ($elsewhere x requestAdapter in other chunks)\n";
 '
+# Check 4b: the texts of the Info topics are not in the entry chunk (plan section 1.4). For every topic catalog, in both languages, the
+# longest plain run (letters, digits, space, comma, full stop, hyphen; at least 20 characters) of its "lead" is the marker.
+# The control: every marker must occur in some other chunk, else the scan reads the wrong files or the marker does not survive minification.
+perl -MJSON::PP -e '
+  open my $h, "<", "dist/index.html" or die "dist/index.html: $!"; local $/; my $html = <$h>; close $h;
+  my ($entry) = $html =~ m{<script[^>]*\ssrc="[^"]*?(assets/[^"/]+\.js)"} or die "web:build: no entry script in dist/index.html\n";
+  my %js;
+  for my $f (glob "dist/assets/*.js") { open my $c, "<:raw", $f or die "$f: $!"; $js{$f} = <$c>; close $c; }
+  die "web:build: info-text scan saw no file\n" unless %js;
+  my ($markers, $leaks) = (0, 0);
+  for my $lang (qw(en de)) {
+    for my $f (sort glob "src/about/i18n/$lang/*.json") {
+      next if $f =~ m{/(?:glossary|chrome)\.json$};
+      open my $j, "<:raw", $f or die "$f: $!"; my $raw = <$j>; close $j;
+      my $lead = decode_json($raw)->{lead} // die "web:build: $f has no lead\n";
+      utf8::encode($lead);
+      my ($marker) = sort { length($b) <=> length($a) } ($lead =~ /([A-Za-z0-9 ,.-]{20,})/g);
+      die "web:build: $f: the lead has no plain run of 20 characters for the scan\n" unless defined $marker;
+      $markers++;
+      my ($inside, $elsewhere) = (0, 0);
+      for my $file (keys %js) { my $has = index($js{$file}, $marker) >= 0; if ($file eq "dist/$entry") { $inside += $has } else { $elsewhere += $has } }
+      die "web:build: control failed: the marker of $f does not occur in any lazy chunk (\"$marker\")\n" unless $elsewhere;
+      if ($inside) { print STDERR "web:build: the entry chunk contains the text of $f (\"$marker\")\n"; $leaks++ }
+    }
+  }
+  die "web:build: $leaks topic catalog(s) leaked into the entry chunk\n" if $leaks;
+  print STDERR "web:build: info texts stay in the lazy chunks ($markers markers, none in dist/$entry)\n";
+'
 # Check 5: the installable app. index.html links the manifest and the apple-touch-icon under the base path, and dist/sw.js
 # (written by web/tooling/pwa-plugin.ts) names index.html, the manifest, the default engine and the table in its precache.
 perl -e '
