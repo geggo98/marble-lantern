@@ -26,7 +26,15 @@ perl -e '
   for my $f (glob "dist/assets/*.js") {
     open my $h, "<:raw", $f or die "$f: $!"; local $/; my $s = <$h>;
     $files++; $bytes += length $s;
-    my $n = () = $s =~ m{connect/}g;
+    # A hit inside a string literal that holds a space is prose (the Info topic "architecture" documents the server path and this very check);
+    # a Hilla client call is a bare path without a space. Only the latter counts.
+    my $n = 0;
+    while ($s =~ m{connect/}g) {
+      my $at = pos($s) - 8;
+      my $from = rindex($s, q{"}, $at); my $to = index($s, q{"}, $at + 8);
+      my $lit = ($from >= 0 && $to > $from) ? substr($s, $from, $to - $from) : "";
+      $n++ unless $lit =~ /\s/;
+    }
     $hits += $n; $control++ if $s =~ /Marble Lantern/;
     print STDERR "  $f: connect/ = $n\n";
   }
@@ -67,7 +75,7 @@ perl -MJSON::PP -e '
   my ($markers, $leaks) = (0, 0);
   for my $lang (qw(en de)) {
     for my $f (sort glob "src/about/i18n/$lang/*.json") {
-      next if $f =~ m{/(?:glossary|chrome)\.json$};
+      next if $f =~ m{/(?:glossary|chrome|kit)\.json$};
       open my $j, "<:raw", $f or die "$f: $!"; my $raw = <$j>; close $j;
       my $lead = decode_json($raw)->{lead} // die "web:build: $f has no lead\n";
       utf8::encode($lead);

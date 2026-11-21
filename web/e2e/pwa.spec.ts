@@ -87,3 +87,29 @@ test('after one visit the game starts and plays without network, also with an en
   }
   errors.expectNone();
 });
+
+test('an Info topic that was never opened online renders with its figures without network (the topic chunk comes from the precache)', async ({ page, context }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en');
+  await waitForHumanTurn(page);
+  await page.waitForFunction(() => !!navigator.serviceWorker?.controller, undefined, { timeout: 60_000 });
+
+  const caches_ = (await cacheReport(page)).filter((c) => c.name.startsWith('ml:/marble-lantern/:'));
+  const pre = caches_.find((c) => c.name.includes(':precache-'))!;
+  // the lazy chunk of the topic and the shared figure chunk are in the precache, although no page has asked for them yet
+  expect(pre.urls.filter((u) => /\/assets\/inference-[\w-]+\.js$/.test(u)), 'inference chunk in the precache').toHaveLength(1);
+  expect(pre.urls.filter((u) => /\/assets\/shared-[\w-]+\.js$/.test(u)), 'shared figure chunk in the precache').toHaveLength(1);
+
+  await context.setOffline(true);
+  try {
+    await page.goto('about:blank'); // a real load: the next goto must not be a mere hash change of the open document
+    await openApp(page, 'en', '#/about/inference');
+    await expect(page.locator('main[data-topic]')).toHaveAttribute('data-topic', 'inference');
+    expect(await page.locator('figure.ml-fig').count(), 'figures of the topic').toBeGreaterThanOrEqual(3);
+    await expect(page.locator('figure.ml-fig svg[role="img"]').first()).toBeVisible();
+    await expect(page.locator('.ml-alert'), 'no load-error alert').toHaveCount(0);
+  } finally {
+    await context.setOffline(false);
+  }
+  errors.expectNone();
+});

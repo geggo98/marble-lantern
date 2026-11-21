@@ -1,5 +1,6 @@
 /* A topic page: layout, "On this page", sections, reading list, term popover, source chip. Loaded with the topic chunk. */
-.ml-about { gap: var(--ml-space-5); }
+/* clip, not hidden: a glossary term's hit area (padding, see .ml-term__btn) may reach past the page edge at the end of a line; clip adds no scroll container, so the sticky rail keeps working */
+.ml-about { gap: var(--ml-space-5); overflow-x: clip; }
 .ml-about__crumb, .ml-about-link { color: var(--ml-color-ink); text-underline-offset: 0.2em; }
 .ml-about__crumb { font-size: var(--ml-text-sm); display: inline-block; padding-block: var(--ml-space-2); min-height: 2.75rem; }
 .ml-about__layout { display: grid; gap: var(--ml-space-5); }
@@ -32,7 +33,7 @@
 .ml-src:hover { background: var(--ml-color-surface-sunken); }
 /* glossary term: a button with a dotted underline and a popover under it */
 .ml-term { position: relative; display: inline; }
-.ml-term__btn { all: unset; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; color: inherit; }
+.ml-term__btn { all: unset; padding: 0.625rem 1.125rem; margin: -0.625rem -1.125rem; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; color: inherit; }
 .ml-term__btn:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; border-radius: var(--ml-radius-sm); }
 .ml-term__pop { position: absolute; z-index: 5; inset-inline-start: 0; top: 100%; display: grid; gap: var(--ml-space-1); width: max-content; max-width: min(20rem, 80vw); margin-top: var(--ml-space-1); padding: var(--ml-space-3); border-radius: var(--ml-radius-md); border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); font-size: var(--ml-text-sm); }
 .ml-term__en, .ml-term__short { color: var(--ml-color-ink-muted); }

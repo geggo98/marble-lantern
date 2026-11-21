@@ -85,11 +85,13 @@ type Filter = 'all' | 'measured';
 const ROW_H = 24;
 const PAD = 14;
 
-function Whisker({ level, domain, width, ticks, label }: { level: Level; domain: [number, number]; width: number; ticks: number[]; label: string }): React.JSX.Element {
+function Whisker({ level, domain, width, ticks, label, desc }: { level: Level; domain: [number, number]; width: number; ticks: number[]; label: string; desc: string }): React.JSX.Element {
   const sx = linearScale(domain, [PAD, width - PAD]);
   const cy = ROW_H / 2;
   return (
     <svg className="ml-fig-story__whisker" viewBox={`0 0 ${width} ${ROW_H}`} width={width} height={ROW_H} role="img" aria-label={label} data-elo={level.elo}>
+      <title>{label}</title>
+      <desc>{desc}</desc>
       {ticks.map((t) => (
         <line key={t} className="ml-fig-plot__grid" x1={sx(t)} x2={sx(t)} y1={2} y2={ROW_H - 2} />
       ))}
@@ -189,7 +191,7 @@ export function StoryFigure(): React.JSX.Element {
                   <span className="ml-fig-story__example">{md(levelKey(l.id, 'example'))}</span>
                 </span>
                 {l.measured ? (
-                  <Whisker level={l} domain={domain} width={width} ticks={ticks} label={effect(l)} />
+                  <Whisker level={l} domain={domain} width={width} ticks={ticks} label={effect(l)} desc={plain(levelKey(l.id, 'label'))} />
                 ) : (
                   <span className="ml-tag ml-fig-story__tag">{text('fig.story.unmeasured')}</span>
                 )}

@@ -275,7 +275,7 @@ describe('V9b, the backends', () => {
 describe('V10, MCTS', () => {
   const rows = (): { move: string; edge: number; p: number; n: number; q: number | null; puct: number; next: boolean }[] =>
     all('.ml-fig-mcts__table tbody tr').map((tr) => {
-      const cells = all('td', tr).length ? Array.from(tr.querySelectorAll('td')).map(text) : [];
+      const cells = Array.from(tr.querySelectorAll('td')).map(text);
       return {
         move: text(tr.querySelector('th')).replace(/next$/, '').trim(),
         edge: Number(tr.getAttribute('data-edge')),
