@@ -1,0 +1,70 @@
+{
+  "source": {
+    "generator": "ExplainerDataTest",
+    "date": "2026-11-21",
+    "how": "LinearEvaluator.features and Evaluators.byName(\"linear-r3\") on the position after 30 plies of ab:eval=distance,nodes=2000 against itself; weights = LinearWeights.ROUND3",
+    "regenerate": "devenv task about:data (gradle -Pexplainer.write=true :search:test --tests sternhalma.search.ExplainerDataTest)"
+  },
+  "meta": {
+    "ply": 30,
+    "legalMoves": 54,
+    "sideToMove": 0,
+    "evaluator": "linear-r3",
+    "scale": 100,
+    "score": 179,
+    "winProbability": 0.8569,
+    "distance": "single-agent distance to the goal corner of the piece's player, Layout.distance"
+  },
+  "history": [
+    {"from":3,"to":16},
+    {"from":115,"to":102},
+    {"from":16,"to":29},
+    {"from":102,"to":89},
+    {"from":0,"to":41},
+    {"from":120,"to":77},
+    {"from":8,"to":17},
+    {"from":77,"to":66},
+    {"from":1,"to":51},
+    {"from":117,"to":56},
+    {"from":17,"to":61},
+    {"from":112,"to":103},
+    {"from":29,"to":70},
+    {"from":119,"to":90},
+    {"from":41,"to":81},
+    {"from":103,"to":78},
+    {"from":51,"to":92},
+    {"from":116,"to":80},
+    {"from":81,"to":117},
+    {"from":89,"to":68},
+    {"from":70,"to":91},
+    {"from":78,"to":59},
+    {"from":4,"to":15},
+    {"from":68,"to":50},
+    {"from":5,"to":18},
+    {"from":56,"to":47},
+    {"from":6,"to":28},
+    {"from":47,"to":37},
+    {"from":7,"to":27},
+    {"from":37,"to":26}
+  ],
+  "cells": [-1,-1,0,-1,-1,-1,-1,-1,-1,0,-1,-1,-1,-1,-1,0,-1,-1,0,-1,-1,-1,-1,-1,-1,-1,1,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,0,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,1,1,-1,-1,0,1,-1,-1],
+  "features": [
+    {"name":"dsum","value":-9,"weight":-0.259472,"contribution":233.5248},
+    {"name":"dmax","value":0,"weight":-0.386404,"contribution":0},
+    {"name":"dsq","value":-7.1,"weight":-0.2344,"contribution":166.424},
+    {"name":"inGoal","value":1,"weight":0.28531,"contribution":28.531},
+    {"name":"inStart","value":-2,"weight":0.142903,"contribution":-28.5806},
+    {"name":"spread","value":2,"weight":0.0773203,"contribution":15.4641},
+    {"name":"lateral","value":-6,"weight":-0.11641,"contribution":69.846},
+    {"name":"jumps","value":2,"weight":0.094937,"contribution":18.9874},
+    {"name":"adjacent","value":3,"weight":-0.0580585,"contribution":-17.4175},
+    {"name":"steps","value":-3,"weight":0.0452636,"contribution":-13.5791},
+    {"name":"dsumPhase","value":-12.51,"weight":0.261648,"contribution":-327.3216},
+    {"name":"tempo","value":1,"weight":0.327666,"contribution":32.7666},
+    {"name":"bestGain","value":0,"weight":0.156608,"contribution":0}
+  ],
+  "sides": [
+    {"role":"mover","player":0,"pieces":[{"cell":2,"distance":12,"lateral":1},{"cell":9,"distance":10,"lateral":3},{"cell":15,"distance":9,"lateral":2},{"cell":18,"distance":9,"lateral":4},{"cell":27,"distance":8,"lateral":3},{"cell":28,"distance":8,"lateral":1},{"cell":61,"distance":5,"lateral":2},{"cell":91,"distance":2,"lateral":1},{"cell":92,"distance":2,"lateral":1},{"cell":117,"distance":0,"lateral":2}],"sums":{"dsum":65,"dmax":12,"dmin":0,"dsq":567,"inGoal":1,"inStart":2,"lateral":20,"jumps":3,"adjacent":5,"steps":15},"marks":{"inGoal":[117],"inStart":[2,9],"adjacent":[[9,18],[15,28],[15,27],[27,28],[91,92]],"jumps":[[9,31],[15,40],[15,38]],"steps":[[2,5],[2,4],[9,17],[18,31],[18,30],[27,39],[27,38],[28,40],[28,39],[61,71],[61,70],[91,104],[91,103],[92,105],[92,104]]}},
+    {"role":"opponent","player":1,"pieces":[{"cell":26,"distance":2,"lateral":5},{"cell":50,"distance":4,"lateral":1},{"cell":59,"distance":5,"lateral":2},{"cell":66,"distance":6,"lateral":7},{"cell":80,"distance":7,"lateral":0},{"cell":90,"distance":8,"lateral":3},{"cell":111,"distance":10,"lateral":3},{"cell":113,"distance":10,"lateral":1},{"cell":114,"distance":10,"lateral":3},{"cell":118,"distance":12,"lateral":1}],"sums":{"dsum":74,"dmax":12,"dmin":2,"dsq":638,"inGoal":0,"inStart":4,"lateral":26,"jumps":1,"adjacent":2,"steps":18},"marks":{"inGoal":[],"inStart":[111,113,114,118],"adjacent":[[50,59],[113,114]],"jumps":[[59,40]],"steps":[[26,14],[50,39],[50,40],[59,49],[66,56],[66,57],[80,69],[80,70],[90,78],[90,79],[111,102],[111,103],[113,104],[113,105],[114,105],[114,106],[118,115],[118,116]]}}
+  ]
+}
