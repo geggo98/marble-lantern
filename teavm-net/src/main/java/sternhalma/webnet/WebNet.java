@@ -145,16 +145,18 @@ public final class WebNet {
     }
 
     /**
-     * {@code ok <move> <rootValue> <sims> <nodes> <exactLeaves> <raceMove 0|1> <moves> <visits>}: the move to play and
+     * {@code ok <move> <rootValue> <sims> <nodes> <exactLeaves> <raceMove 0|1> <moves> <visits> <values>}: the move to play and
      * the statistics of the search; the two lists (legal moves of the root and their visits) are comma separated and
-     * empty when no search ran (a single legal move, a race move).
+     * empty when no search ran (a single legal move, a race move). A ninth field follows: {@code <values>}, the root
+     * value of each of those moves (the mean backed-up value for the player to move, as {@code MctsResult.values}),
+     * comma separated in the order of the moves, printed with {@link Double#toString}; empty when no search ran.
      */
     @JSExport
     public static String best() {
         try {
             WebNetCore.Best b = CORE.best();
             return "ok " + b.move() + " " + b.rootValue() + " " + b.sims() + " " + b.nodes() + " " + b.exactLeaves() + " "
-                    + (b.raceMove() ? 1 : 0) + " " + join(b.moves()) + " " + join(b.visits());
+                    + (b.raceMove() ? 1 : 0) + " " + join(b.moves()) + " " + join(b.visits()) + " " + join(b.values());
         } catch (RuntimeException e) {
             return error(e);
         }
@@ -180,6 +182,14 @@ public final class WebNet {
             }
         }
         return moves;
+    }
+
+    private static String join(double[] values) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.length; i++) {
+            sb.append(i == 0 ? "" : ",").append(Double.toString(values[i]));
+        }
+        return sb.toString();
     }
 
     private static String join(int[] values) {

@@ -68,7 +68,8 @@ class FakeWebNet {
     this.left--;
     return `ok ${this.left > 0 ? 1 : 0}`;
   }
-  best(): string { return `ok ${this.move} 0.25 20 21 0 0 ${LEGAL.join(',')} 5,5,5,5`; }
+  bestReply: string | null = null;
+  best(): string { return this.bestReply ?? `ok ${this.move} 0.25 20 21 0 0 ${LEGAL.join(',')} 5,5,5,5 0.5,-0.25,0,1.5e-5`; }
 }
 
 class FakeBackend implements NetBackend {
@@ -134,6 +135,55 @@ function rig(models: ModelInfo[] = [EXPERT, SHARED]): Rig {
 }
 
 const codes = (w: ReadonlyArray<{ code: string }>): string[] => w.map((x) => x.code);
+
+describe('NetCore: the root of the search', () => {
+  it('parses the moves, visits and values of best() into net.root', async () => {
+    const core = new NetCore('wasm', rig().deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    const res = await core.choose([]);
+    expect(res.net.root).toEqual({ moves: LEGAL, visits: [5, 5, 5, 5], values: [0.5, -0.25, 0, 1.5e-5] });
+  });
+
+  it('leaves root.values undefined for a reply of an older engine file with eight fields', async () => {
+    const r = rig();
+    r.web.bestReply = `ok 30 0.25 20 21 0 0 ${LEGAL.join(',')} 5,5,5,5`;
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    const res = await core.choose([]);
+    expect(res.net.root).toEqual({ moves: LEGAL, visits: [5, 5, 5, 5] });
+    expect(res.net.root).not.toHaveProperty('values');
+  });
+
+  it('has no root for a move without a search (empty lists)', async () => {
+    const r = rig();
+    r.web.bestReply = 'ok 30 0 0 0 0 0   ';
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    expect((await core.choose([])).net.root).toBeUndefined();
+  });
+});
+
+describe('NetCore.netForward without a usable position or model', () => {
+  it('rejects with unsupported when begin finds nothing to evaluate', async () => {
+    const r = rig();
+    r.web.leaves = 0;
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    await expect(core.netForward([])).rejects.toMatchObject({ code: 'unsupported' });
+  });
+
+  it('fails instead of answering with a random move when no model is selected', async () => {
+    const core = new NetCore('wasm', rig().deps);
+    await core.newGame({ nodes: [1, 1], model: null });
+    await expect(core.netForward([])).rejects.toMatchObject({ code: 'internal', message: expect.stringMatching(/model/) });
+  });
+
+  it('rejects a three-player or non-classic1 model as unsupported', async () => {
+    const core = new NetCore('wasm', rig().deps);
+    await core.newGame({ nodes: [1, 1, 1], variant: LONG2 as Variant, model: 'shared' });
+    await expect(core.netForward([])).rejects.toMatchObject({ code: 'unsupported' });
+  });
+});
 
 describe('NetCore: the search loop', () => {
   it('runs begin, then inputs/evaluate/apply until the search is done, and reports the facade move', async () => {

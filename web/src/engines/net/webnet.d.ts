@@ -9,7 +9,7 @@
 //   create(...); setWeightsInfo(...); [setTable(...)]          once per game, or when the variant or options change
 //   n = begin(history)                                          "ok n"; history is "m1,m2,..." (empty at the start)
 //   while (n > 0) { x = inputs(); {from,to,values} = net(x); n = apply(from, to, values) }
-//   best()                                                      "ok move rootValue sims nodes exactLeaves raceMove moves visits"
+//   best()                                                      "ok move rootValue sims nodes exactLeaves raceMove moves visits values"
 //
 // Error codes: illegal-history, bad-options, not-ready, no-weights-info, bad-weights-info, bad-outputs, non-finite,
 // table-magic, no-table, internal.
@@ -56,7 +56,10 @@ export interface WebNetModule {
    * "ok <move> <rootValue> <sims> <nodes> <exactLeaves> <raceMove 0|1> <moves> <visits>": the move to play (an engine
    * move code, as in the history), the mean value of the root for its mover, simulations run, nodes in the tree,
    * simulations that ended in an exact leaf, whether the race module chose the move, and two comma separated lists:
-   * the legal moves of the root and their visit counts (both empty when no search ran).
+   * the legal moves of the root and their visit counts (both empty when no search ran). A ninth field `<values>` follows: the
+   * mean value of each of those moves for the side that plays it, comma separated in the order of the moves, as
+   * `Double.toString` writes it (0 for a move without visits). An engine-net file older than this field answers with eight fields;
+   * NetCore then leaves `root.values` undefined.
    */
   best(): string;
 }

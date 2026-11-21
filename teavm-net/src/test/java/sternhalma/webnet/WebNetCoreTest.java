@@ -218,6 +218,43 @@ class WebNetCoreTest {
         }
     }
 
+    /** best() carries nine fields; the last is the root value of each move, in the order of the moves, as Double.toString. */
+    @Test
+    void facadeBestAppendsTheRootValuesInTheOrderOfTheMoves() {
+        WebNetCore core = new WebNetCore();
+        core.create(RuleSet.JumpRule.ADJACENT, 2, 12, 1, 3, "");
+        core.setWeightsInfo("classic1", 2);
+        assertEquals("ok", WebNet.create("adjacent", "2", 12, 1, 3, "", "closed", "4"));
+        assertTrue(WebNet.setWeightsInfo("classic1", 2).startsWith("ok "));
+        int[] history = new int[] {};
+        int n = core.begin(history);
+        while (n > 0) {
+            float[][] out = HashBackend.forward(core.inputs(), core.inputSize(), n, 2);
+            n = core.apply(out[0], out[1], out[2]);
+        }
+        WebNetCore.Best expected = core.best();
+        String begin = WebNet.begin("");
+        assertEquals("ok " + n0(begin), begin);
+        int m = Integer.parseInt(begin.substring(3));
+        while (m > 0) {
+            float[][] out = HashBackend.forward(WebNet.inputs(), core.inputSize(), m, 2);
+            m = Integer.parseInt(WebNet.apply(out[0], out[1], out[2]).substring(3));
+        }
+        String[] f = WebNet.best().split(" ");
+        assertEquals(9, f.length - 1, "ok plus nine fields");
+        StringBuilder values = new StringBuilder();
+        for (int i = 0; i < expected.values().length; i++) {
+            values.append(i == 0 ? "" : ",").append(expected.values()[i]);
+        }
+        assertEquals(expected.moves().length, f[7].split(",").length);
+        assertEquals(values.toString(), f[9]);
+        assertTrue(expected.values().length > 1);
+    }
+
+    private static String n0(String reply) {
+        return reply.substring(3);
+    }
+
     private static boolean contains(int[] moves, int move) {
         for (int m : moves) {
             if (m == move) {
