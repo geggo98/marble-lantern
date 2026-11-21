@@ -1,8 +1,8 @@
-// End-to-end matrix of the Info part (plan section 6.5): hub, five topics and the glossary, in four viewports, two themes and two languages.
+// End-to-end matrix of the Info part (plan section 6.5): hub, six topics and the glossary, in four viewports, two themes and two languages.
 // The full matrix is sampled to keep the run short:
 //   - every route x all four sizes in en/light (28 cells),
 //   - every route in de/dark at 320 x 568 and 844 x 390 (14 cells),
-//   - one 'no-preference' run per topic that steps every stepper and plays one animation (5 runs).
+//   - one 'no-preference' run per topic that steps every stepper and plays one animation (6 runs).
 // E2E_WIDE_FONT=1 (the repo switch, applied by `openApp`) runs the same cells with a wide fallback font; the de cells at 320 must pass.
 // Checks per cell: no horizontal scroll (page and every figure frame), accessible names of all controls, role and name of every figure
 // svg, heading order, focus order with a visible ring on every stop, targets of 44 px, no running animation under reduced motion,
@@ -11,7 +11,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openApp, watchPageErrors } from './helpers';
 
-const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning'] as const;
+const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java'] as const;
 const ROUTES = [{ id: 'hub', hash: '#/about' }, ...TOPICS.map((t) => ({ id: t, hash: `#/about/${t}` })), { id: 'glossary', hash: '#/about/glossary' }] as const;
 
 const SIZES = [
@@ -339,9 +339,9 @@ test.describe('about topics (motion allowed)', () => {
       await openRoute(page, route, { width: 390, height: 844, theme: 'light', language: 'en' }, 'no-preference');
       const steppers = page.locator('.ml-fig-stepper');
       const count = await steppers.count();
-      if (topic === 'tuning') {
-        // The tuning figures have no stepper (a staircase with a filter, a curve with a phase switch, sweeps): nothing to step or play.
-        expect(count, 'tuning figures with a stepper').toBe(0);
+      if (topic === 'tuning' || topic === 'java') {
+        // The tuning and java figures have no stepper (tuning: a staircase with a filter, a curve with a phase switch, sweeps; java: a dot chart with one switch): nothing to step or play.
+        expect(count, 'tuning or java figures with a stepper').toBe(0);
         errors.expectNone();
         return;
       }

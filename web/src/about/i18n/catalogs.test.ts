@@ -30,6 +30,7 @@ const FIGURE_PREFIXES: Record<(typeof TOPICS)[number], readonly string[]> = {
   inference: ['fig.net', 'fig.forward', 'fig.mcts'],
   training: ['fig.loop', 'fig.pooled', 'fig.lr'],
   tuning: ['fig.story'],
+  java: ['fig.javaspeed'],
 };
 
 describe.each(TOPICS)('topic catalog %s', (topic) => {
@@ -141,7 +142,7 @@ describe('kit catalog', () => {
 
   it('has the same keys and the same placeholders in both languages, all filled, all under kit.', () => {
     expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort());
-    expect(Object.keys(en).length).toBe(80); // 59 + the 21 keys of the live mode (kit.live.*, kit.chip.example, mine, exampleOnly)
+    expect(Object.keys(en).length).toBe(84); // 59 + the 21 keys of the live mode (kit.live.*, kit.chip.example, mine, exampleOnly) + the 4 keys of the code snippet (kit.code.*)
     expect(Object.keys(en).filter((k) => !k.startsWith('kit.'))).toEqual([]);
     for (const k of Object.keys(en)) {
       expect(de[k], k).toBeTruthy();
@@ -162,8 +163,8 @@ describe('glossary page keys', () => {
 });
 
 describe('the reading list', () => {
-  it('has all 31 rows keyed by the id as a string', () => {
-    expect(Object.keys(READING)).toHaveLength(31);
+  it('has all 44 rows keyed by the id as a string', () => {
+    expect(Object.keys(READING)).toHaveLength(44);
     expect(READING['19']?.url).toBe('https://en.wikipedia.org/wiki/Elo_rating_system');
     expect(READING['27']?.id).toBe('27');
     expect(READING['31']?.id).toBe('31');

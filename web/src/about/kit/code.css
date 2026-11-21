@@ -1,0 +1,20 @@
+/* CodeSnippet (kit): a code block in its own frame. Colours are the --ml-code-* tokens of design/about/tokens-about.css (contrast 4.5 or more
+   in both themes, checked by contrast.test.ts). The block scrolls inside the frame; the page never does (min-width: 0 on every grid and
+   flex ancestor is the figure's job; here the frame takes the width of its column and the <pre> overflows by itself). */
+.ml-code { margin: var(--ml-space-4) 0; border: var(--ml-border) solid var(--ml-fig-border); border-radius: var(--ml-fig-radius); background: var(--ml-code-bg); min-width: 0; max-width: 100%; overflow: hidden; }
+.ml-code__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ml-space-2); padding: var(--ml-space-1) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-fig-border); min-width: 0; }
+.ml-code__src { min-width: 0; flex: 1 1 12rem; }
+.ml-code__src .ml-src { max-width: 100%; }
+.ml-code__copy { min-height: 2.75rem; min-width: 2.75rem; flex: 0 0 auto; }
+.ml-code__pre { margin: 0; padding: var(--ml-space-3); overflow-x: auto; overflow-y: hidden; max-width: 100%; color: var(--ml-code-ink); background: var(--ml-code-bg); font-family: var(--ml-font-data); font-size: var(--ml-text-sm); line-height: 1.5; tab-size: 4; white-space: pre; }
+.ml-code__pre:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: -3px; }
+.ml-code__pre code { font: inherit; white-space: inherit; background: none; padding: 0; }
+.ml-code__kw { color: var(--ml-code-keyword); font-weight: 600; }
+.ml-code__comment { color: var(--ml-code-comment); font-style: italic; }
+.ml-code__string { color: var(--ml-code-string); }
+.ml-code__elide { color: var(--ml-code-comment); user-select: none; }
+.ml-code__status { margin: 0; padding: 0 var(--ml-space-3) var(--ml-space-2); }
+.ml-code__caption { margin: 0; padding: var(--ml-space-2) var(--ml-space-3); border-top: var(--ml-border) solid var(--ml-fig-border); font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); background: var(--ml-fig-bg); }
+@media (forced-colors: active) {
+  .ml-code__kw, .ml-code__comment, .ml-code__string { color: CanvasText; }
+}

@@ -97,7 +97,7 @@ flowchart LR
 
 Solid arrows carry data; the dashed arrow means "starts". The grey box is outside the repository.
 
-The Info part of the live page explains each part for readers new to game AI: [architecture](https://geggo98.github.io/marble-lantern/#/about/architecture), [classical search](https://geggo98.github.io/marble-lantern/#/about/classical), [inference](https://geggo98.github.io/marble-lantern/#/about/inference), [training](https://geggo98.github.io/marble-lantern/#/about/training) and [tuning](https://geggo98.github.io/marble-lantern/#/about/tuning). The design documents are [architecture](docs/architecture.md), [web UI](docs/web-ui.md) and [training](docs/training.md).
+The Info part of the live page explains each part for readers new to game AI: [architecture](https://geggo98.github.io/marble-lantern/#/about/architecture), [classical search](https://geggo98.github.io/marble-lantern/#/about/classical), [inference](https://geggo98.github.io/marble-lantern/#/about/inference), [training](https://geggo98.github.io/marble-lantern/#/about/training), [tuning](https://geggo98.github.io/marble-lantern/#/about/tuning) and [Java in practice](https://geggo98.github.io/marble-lantern/#/about/java). The design documents are [architecture](docs/architecture.md), [web UI](docs/web-ui.md) and [training](docs/training.md).
 
 ## Source-code map
 

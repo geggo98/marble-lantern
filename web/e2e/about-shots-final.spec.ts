@@ -13,6 +13,7 @@ const ROUTES = [
   { id: 'inference', hash: '#/about/inference' },
   { id: 'training', hash: '#/about/training' },
   { id: 'tuning', hash: '#/about/tuning' },
+  { id: 'java', hash: '#/about/java' },
   { id: 'glossary', hash: '#/about/glossary' },
 ] as const;
 const SIZES = [

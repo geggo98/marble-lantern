@@ -78,5 +78,9 @@
   "kit.live.retry": "Erneut versuchen",
   "kit.chip.example": "Beispielstellung, vorberechnet, Halbzug {ply}",
   "kit.chip.mine": "Deine Partie, Halbzug {ply}, in deinem Browser berechnet",
-  "kit.chip.exampleOnly": "Beispielstellung (vorberechnet)"
+  "kit.chip.exampleOnly": "Beispielstellung (vorberechnet)",
+  "kit.code.copy": "Code kopieren",
+  "kit.code.copied": "Kopiert",
+  "kit.code.copyfailed": "Kopieren nicht möglich. Der Code ist markiert: kopiere ihn von Hand.",
+  "kit.code.lines": "Zeilen {from} bis {to}"
 }

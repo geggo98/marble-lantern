@@ -22,6 +22,13 @@
   --ml-fig-dim: var(--ml-color-line-strong);         /* dimmed edges and outlines, nodes that were not visited */
   --ml-fig-board-bg: var(--ml-board-star);           /* plate of MiniBoard and HeatBoard, flat, no glow */
 
+  /* ---------- code snippets (aliases: colours follow the theme through their targets) ---------- */
+  --ml-code-bg: var(--ml-fig-panel-bg);
+  --ml-code-ink: var(--ml-color-ink);
+  --ml-code-comment: var(--ml-color-ink-muted);
+  --ml-code-keyword: var(--ml-fig-accent);
+  --ml-code-string: var(--ml-fig-alt);
+
   /* ---------- accent: the active step, the current marker, series 2 ---------- */
   --ml-fig-accent: #0b6660;        /* teal; text and marks */
   --ml-fig-accent-bg: #d9ece8;     /* fill of the active box or row; ink text stays 4.5:1 on it */

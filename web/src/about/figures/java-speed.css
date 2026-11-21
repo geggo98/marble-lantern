@@ -1,0 +1,7 @@
+/* Figure J1 (java speed chart): the numbered list under the plot. The numbers are the x ticks of the plot. */
+.ml-speed { display: grid; gap: var(--ml-space-3); margin-top: var(--ml-space-3); min-width: 0; }
+.ml-speed__head { margin: 0 0 var(--ml-space-1); font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); font-weight: 600; }
+.ml-speed__list { margin: 0; padding-inline-start: 1.5rem; display: grid; gap: var(--ml-space-2); font-size: var(--ml-text-sm); min-width: 0; }
+.ml-speed__list li { min-width: 0; overflow-wrap: anywhere; }
+.ml-speed__mark { display: inline-block; vertical-align: -1px; margin-inline-end: var(--ml-space-1); }
+.ml-speed__value { font-family: var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }

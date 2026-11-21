@@ -18,6 +18,7 @@ export const topicLoaders: Record<AboutTopic, Loader> = {
   inference: () => import('./topics/inference'),
   training: () => import('./topics/training'),
   tuning: () => import('./topics/tuning'),
+  java: () => import('./topics/java'),
   glossary: () => import('./topics/glossary'),
 };
 
