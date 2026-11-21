@@ -170,6 +170,7 @@
 .ml-fig-ab2__strip i[data-s="done"] { border: 1px solid var(--ml-fig-axis); background: var(--ml-fig-axis); }
 .ml-fig-ab2__strip i[data-s="min"] { border: 1px solid var(--ml-color-ink); background: var(--ml-fig-accent); outline: 1px solid var(--ml-color-ink); }
 .ml-fig-ab2__strip i[data-s="none"] { visibility: hidden; }
+.ml-fig-ab2__plural { display: inline-grid; }
 .ml-fig-ab2__tally { display: flex; flex-wrap: wrap; gap: 0 var(--ml-space-4); margin: 0; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); min-height: 1.5em; }
 .ml-fig-ab2__tally b { font: var(--ml-weight-bold) 12px/1.5 var(--ml-font-data); color: var(--ml-color-ink); font-variant-numeric: tabular-nums; display: inline-block; min-width: 2ch; text-align: end; }
 .ml-fig-ab2__board { justify-self: center; width: 100%; max-width: 15rem; display: grid; gap: 4px; min-width: 0; }

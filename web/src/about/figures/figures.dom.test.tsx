@@ -302,7 +302,7 @@ describe('V4 (source tree)', () => {
     expect(detail()!.querySelector('h4')!.textContent).toBe('web/src/app/');
     const link = detail()!.querySelector<HTMLAnchorElement>('a.ml-fig-tree__gh')!;
     expect(link.getAttribute('href')).toMatch(/\/tree\/main\/web\/src\/app$/);
-    expect(link.getAttribute('aria-label')).toBe('Open on GitHub: web/src/app/');
+    expect(link.getAttribute('aria-label')).toBe('Open web/src/app/ on GitHub');
     expect(host.querySelector('[data-module][data-state="active"]')).toBeNull(); // no module, no graph state
     click(row('webApp'));
     expect(selectedIds()).toEqual(['webApp']); // a second click does not toggle
@@ -353,7 +353,7 @@ describe('V4 (source tree)', () => {
   it('marks every row with its kind, Git state and filter state in the DOM and in its accessible name', async () => {
     await render(<TreeFigure catalog={arch} number={[1, 1]} />);
     expect(row('engine').getAttribute('data-kind')).toBe('module');
-    expect(row('engine').textContent).toContain('Module'); // the tag and the hidden kind text
+    expect(row('engine').textContent).toContain('Gradle module'); // the hidden kind text before the path
     expect(row('webApp').getAttribute('data-kind')).toBe('dir');
     expect(row('settings').getAttribute('data-kind')).toBe('file');
     click(row('app'));
@@ -435,6 +435,32 @@ describe('V5 (alpha-beta, one step per root move)', () => {
     expect([readout('alpha'), readout('move'), verdict()]).toEqual(['−10', '= −10', 'New best']);
     expect(q('[data-focus="rank"]').textContent).toBe('3 / 67');
     expect(q('[data-focus="move"]').textContent).toBe('H5»L6');
+  });
+
+  it('counts replies with the right plural form: one reply searched, 59 replies skipped (the tally and the narration of a cut-off)', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    setRange(scrub(), 2);
+    // the visible text: each label holds both forms, the inactive one hidden (data-off), so that its width does not change
+    const tally = (): string => {
+      const copy = q('.ml-fig-ab2__tally').cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[data-off]').forEach((e) => e.remove());
+      return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+    };
+    expect(tally()).toBe('1 reply searched59 replies skipped');
+    expect(status()).toContain('skips 59 of its 60 replies');
+    setRange(scrub(), 3);
+    expect(tally()).toBe('44 replies searched0 replies skipped');
+    // the legend names the two parts of a column as replies, apart from the cap of a bound
+    expect(q('.ml-fig-ab2__over').textContent).toContain('Replies skipped');
+  });
+
+  it('the narration area holds every narration of the example, so its height does not change from step to step', async () => {
+    await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+    const ghosts = (): string[] => Array.from(host.querySelectorAll('.ml-fig__status-line--ghost')).map((g) => g.textContent ?? '');
+    expect(ghosts()).toHaveLength(69); // steps 0 to 68
+    expect(ghosts().some((g) => g.includes('231 of the 3,180'))).toBe(true);
+    click(radio('Start position'));
+    expect(ghosts()).toHaveLength(16); // steps 0 to 15
   });
 
   it('after the last step: 231 of 3,180, the overview holds 2 discs and 65 caps, 65 hollow columns, and the result narration', async () => {
@@ -538,7 +564,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
     click(q('a[href]'));
     expect(radio('Start position').checked).toBe(true);
     expect(pos()).toContain('0 / 15');
-    expect(q('[data-ab-link] a').textContent).toBe('Count the columns in the figure with the start position');
+    expect(q('[data-ab-link] a').textContent).toBe('Open the alpha-beta figure with the start position: 14 root moves, 14 replies each');
   });
 
   describe('playback', () => {
@@ -561,7 +587,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       expect(q('[data-ab-announce]').textContent).toBe('');
       click(byLabel('Pause'));
       expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
-      expect(q('[data-ab-announce]').textContent).toContain('are skipped');
+      expect(q('[data-ab-announce]').textContent).toContain('The search skips 45 of its 46 replies');
     });
 
     it('a notable step lasts 1.2 s; the playback ends at the result and the announcement follows', async () => {

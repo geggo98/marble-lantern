@@ -19,6 +19,7 @@ import {
   neighbourNotable,
   notableSteps,
   overviewLayout,
+  pluralForm,
   replyChain,
   replyStrip,
   scoreText,
@@ -98,7 +99,7 @@ describe('the readout, the narration and the close view', () => {
     expect(narration(mid, 1)).toEqual({ key: 'first', values: { move: 'H5»N3', replies: '55', value: '−20' } });
     const cut = narration(mid, 2);
     expect(cut.key).toBe('cut');
-    expect(cut.values).toMatchObject({ move: 'H6»N2', reply: 'N1»H7', bound: '−40', alpha: '−20', skipped: '59' });
+    expect(cut.values).toMatchObject({ move: 'H6»N2', reply: 'N1»H7', bound: '−40', alpha: '−20', skipped: '59', replies: '60' });
     expect(narration(mid, 3)).toEqual({
       key: 'best',
       values: { move: 'H5»L6', replies: '44', value: '−10', alphaOld: '−20', alphaNew: '−10' },
@@ -106,6 +107,18 @@ describe('the readout, the narration and the close view', () => {
     expect(narration(mid, 0)).toEqual({ key: 'idle', values: { n: '67', d1: '67' } });
     expect(narration(mid, 68).values).toMatchObject({ score: '−10', visited: '231', total: '3180' });
     expect(narration(start, 0).values).toMatchObject({ n: '14', d1: '14' });
+  });
+
+  it('picks the plural form of a count with the rules of the language: "one" only for 1, in English and in German', () => {
+    expect([0, 1, 2, 59].map((k) => pluralForm('en', k))).toEqual(['other', 'one', 'other', 'other']);
+    expect([0, 1, 2, 59].map((k) => pluralForm('de', k))).toEqual(['other', 'one', 'other', 'other']);
+  });
+
+  it('every cut-off root move has 2 or more replies, so the cut-off narration "{skipped} of its {replies} replies" needs no singular', () => {
+    for (const data of [mid, start]) {
+      const fewest = Math.min(...data.rootMoves.filter((m) => m.cutoff).map((m) => m.replies));
+      expect(fewest).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it('writes "= value" for an exact value and "<= bound" for a cut-off, and a dash when there is no root move', () => {
