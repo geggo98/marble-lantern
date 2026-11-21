@@ -254,7 +254,7 @@ test.describe('part 4 (WP6): V10 and V9b live', () => {
     await page.evaluate(() => {
       const fig = document.querySelector('#fig-mcts')!; // the status line is re-created with the figure, so the whole figure is watched
       (window as unknown as { __stopWatch: MutationObserver }).__stopWatch = new MutationObserver(() => {
-        const m = /Computing … (\d+) of 50/.exec(fig.querySelector('[role=status]')?.textContent ?? '');
+        const m = /Computing in your browser: step (\d+) of 50/.exec(fig.querySelector('[role=status]')?.textContent ?? '');
         if (m && Number(m[1]) >= 3) (document.querySelector('#fig-mcts [data-live-stop]') as HTMLButtonElement | null)?.click();
       });
       (window as unknown as { __stopWatch: MutationObserver }).__stopWatch.observe(fig, { childList: true, subtree: true, characterData: true });

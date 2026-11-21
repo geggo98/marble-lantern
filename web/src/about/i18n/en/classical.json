@@ -158,15 +158,15 @@
   "fig.race.col.count": "Moves to finish",
   "fig.race.chosen": "chosen",
   "fig.race.step.narration": "{move} leaves {count} moves to fill the goal, the smallest count of the {legal} legal moves.",
-  "fig.budget.live.desc": "Your game at ply {ply}: the engine searched with {levels} nodes per move and reached these depths.",
-  "fig.budget.live.race": "This position is a race. The engine plays from the race table without a search, so there are no depth markers.",
-  "fig.budget.live.plainHidden": "The series without enhancements is not shown for your game: the browser engines have no such search.",
-  "fig.eval.live.desc": "Your game at ply {ply}: the 13 features of the evaluation and the score {score}.",
-  "fig.eval.live.evaluator": "The table shows {evaluator}. The engine that plays in the browser adds exact race arithmetic to it.",
+  "fig.budget.live.desc": "Your game at ply {ply}, searched in your browser by the classical browser engine, once per budget: {levels} nodes. Each dot is the deepest completed iteration.",
+  "fig.budget.live.race": "Your position is a race: the armies have passed each other. The engine then takes its move from the race table without a search, so there is no depth to show.",
+  "fig.budget.live.plainHidden": "The series without enhancements exists for the example only: the browser engines do not offer that search, so it was computed in advance in Java.",
+  "fig.eval.live.desc": "Your game at ply {ply}, with {score} for the side to move. The marks show what the selected feature counts.",
+  "fig.eval.live.evaluator": "For your game, the engine in your browser computed the 13 features and the score with {evaluator}. The page counted the marks on the board itself and checked them against these numbers.",
   "fig.roots.title": "How good is each move?",
-  "fig.roots.desc": "Every legal move of the example position, scored by a short search of 4,000 nodes per move.",
-  "fig.roots.live.desc": "Every legal move of your game at ply {ply}, scored by a short search of 4,000 nodes per move.",
+  "fig.roots.desc": "Every legal move of the example position, scored by a search of {n:4000} nodes per move, the same analysis as the move guides. Larger discs mark pieces with a better best move; arrows show the three best moves.",
+  "fig.roots.live.desc": "Every legal move of your game at ply {ply}, scored in your browser by a search of {n:4000} nodes per move, as for the move guides. Larger discs mark pieces with a better best move; arrows show the three best moves.",
   "fig.roots.table.move": "Move",
   "fig.roots.table.score": "Score",
-  "fig.roots.table.band": "Band"
+  "fig.roots.table.band": "Rating"
 }

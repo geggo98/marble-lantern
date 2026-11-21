@@ -122,7 +122,7 @@ describe('V7 live', () => {
     expect(q<HTMLInputElement>('input[value=mine]').checked).toBe(true);
     expect(dots(1)).toHaveLength(5);
     expect(dots(2), 'the series without enhancements has no live form').toHaveLength(0);
-    expect(q('[data-live-note=plain]').textContent).toContain('not shown for your game');
+    expect(q('[data-live-note=plain]').textContent).toContain('exists for the example only');
     expect(q('[data-origin]').textContent?.trim()).toBe('Your game, ply 2, computed in your browser');
     expect(status()).toBe('Computed in your browser.');
     // the readout is the engine's, not the example's: the scripted score is the node budget of the level (level 3 = 20,000)
@@ -150,7 +150,7 @@ describe('V7 live', () => {
     await act(async () => q<HTMLButtonElement>('[data-live-stop]').click());
     await settle(60);
     expect(q<HTMLInputElement>('input[value=example]').checked).toBe(true);
-    expect(status()).toBe('Stopped.');
+    expect(status()).toBe('Stopped. The figure shows the example again.');
     expect(dots(2)).toHaveLength(5); // the example is back
     await press('mine');
     await settle(200);
@@ -161,9 +161,9 @@ describe('V7 live', () => {
   it('a finished game and a three-player snapshot leave My game disabled with the reason', async () => {
     await render(<BudgetFigure catalog={catalog} number={[2, 2]} />, snapshot(TWO_MOVES, true));
     expect(q<HTMLInputElement>('input[value=mine]').disabled).toBe(true);
-    expect(q('[data-live-reason]').textContent).toBe('The game is over; there is no move to explain.');
+    expect(q('[data-live-reason]').textContent).toBe('The game is over, so there is no move left to explain.');
     await render(<BudgetFigure catalog={catalog} number={[2, 2]} />, snapshot(TWO_MOVES, false, THREE));
-    expect(q('[data-live-reason]').textContent).toContain('Only for two players');
+    expect(q('[data-live-reason]').textContent).toContain('Only for the classic game');
   });
 });
 

@@ -462,14 +462,14 @@
   "rules_hint_toggle": "More about “{rule}”",
   "rules_reason_no_engine": "No engine in this build plays “{value}”.",
   "explain_title": "Explain this position",
-  "explain_lead": "Open the Info page for your game and see its numbers.",
+  "explain_lead": "Each link opens a figure on the About pages. Nothing is computed yet: there, press “My game” to compute the figure for this position in your browser.",
   "explain_link_budget": "How deep does the engine see?",
   "explain_link_roots": "How good is each move?",
   "explain_link_eval": "What the evaluation counts",
-  "explain_link_mcts": "How MCTS chooses",
+  "explain_link_mcts": "How MCTS chooses a move",
   "explain_link_forward": "Inside the network",
-  "explain_net_note": "Downloads the network engine and a model (about 115 kB) when you press “My game”.",
+  "explain_net_note": "The first press of “My game” may download the net engine and a model, about 345 kB.",
   "explain_disabled_nogame": "Start a game first.",
-  "explain_disabled_over": "The game is over; there is no move to explain.",
-  "explain_disabled_variant": "Only for two players, adjacent jumps, on the 4-row board."
+  "explain_disabled_over": "The game is over, so there is no move left to explain.",
+  "explain_disabled_variant": "Only for the classic game: 2 players, neighbour jump, closed foreign triangles, 4 rows. The evaluation and the network of the figures were trained for it."
 }

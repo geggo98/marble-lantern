@@ -26,13 +26,14 @@ The static site can be installed as an app and plays offline after one visit ([i
 10. [Distance of the result](#distance-of-the-result)
 11. [Skill estimate](#skill-estimate)
 12. [Net engines](#net-engines)
-13. [Small screens and touch](#small-screens-and-touch)
-14. [Installable app and offline cache](#installable-app-and-offline-cache)
-15. [Loading and checking the race table](#loading-and-checking-the-race-table)
-16. [Build, run and test](#build-run-and-test)
-17. [Continuous integration](#continuous-integration)
-18. [Fading move trail](#fading-move-trail)
-19. [Known limits](#known-limits)
+13. [Explain this position and live figures](#explain-this-position-and-live-figures)
+14. [Small screens and touch](#small-screens-and-touch)
+15. [Installable app and offline cache](#installable-app-and-offline-cache)
+16. [Loading and checking the race table](#loading-and-checking-the-race-table)
+17. [Build, run and test](#build-run-and-test)
+18. [Continuous integration](#continuous-integration)
+19. [Fading move trail](#fading-move-trail)
+20. [Known limits](#known-limits)
 
 The shipped network files have their own document: [models](models.md).
 
@@ -858,6 +859,83 @@ The 800-simulation row is against 102,400 nodes only. Hence the defaults of `def
 State on 2026-11-19: Chrome and Edge from version 113, Safari 26, Firefox 141 on Windows and Firefox 145 to 147 on macOS with Apple silicon; Linux and Android partly. caniuse counts 86.8 % of users with full and 1.8 % with partial support. In every other browser `net-webgpu` plays with the CPU backend, as described in [warnings and fallbacks](#warnings-and-fallbacks).
 
 The WebGPU backend uses F32 kernels only and does not request the optional features `shader-f16` or `subgroups`. Optional features are not present on every adapter, so using them would need a second set of kernels. Origin of the decision: not recorded.
+
+## Explain this position and live figures
+
+**TL;DR:** The play screen has a card "Explain this position" with five links into the about pages (the Info part, `#/about/<topic>`). A link press copies the current game into memory and opens the page; it starts no engine and downloads nothing. Five figures on those pages then offer a **live switch**, "Example" or "My game (ply N)". Only a press of "My game" starts an engine worker, and that worker computes the figure for the copied position in the reader's browser. The classical figures use a classical browser engine. The net figures use `net-wasm` and may download it and the expert model on first use, about 345 kB. Live mode works for the classic game only (2 players, neighbour jump, closed foreign triangles, 4 rows). Parts that have no live form keep the precomputed example and say so. Time and memory of a live run are not measured, except one end-to-end timing for Fig. 3.3 (about 0.8 to 1.0 s).
+
+### Terms of this section
+
+- **Example data:** the JSON files in `web/src/about/data/` that the figures show by default. They were computed in advance (in Java or by a Vitest generator) for a mid-game position after 30 plies (`eval-mid.json` `history`) and committed.
+- **Snapshot:** the copy of the game that a link of the card stores (`LiveSnapshot` in `web/src/about/live/types.ts`): the move history, the variant, the ply count and whether the game was over. It does not follow later moves. It lives in the memory of the page (`App.tsx`, state `explain`), so a reload loses it. Every press makes a new snapshot with a new `id`.
+- **Live switch:** the control "Position: Example | My game (ply N)" of a live figure (`LiveSwitch` in `web/src/about/kit/Manipulate.tsx`). Fig. 3.2 has no switch: its position selector gains a fourth entry "My game (ply N)" instead.
+- **Example mode, My-game mode:** the two sides of the switch. In My-game mode the figure shows numbers computed in the browser for the snapshot.
+- **Info engines:** the engine workers that My-game mode starts, separate from the worker of the game (`LiveEngines` in `web/src/about/live/engines.ts`). There is at most one classical and one net Info engine per open topic page.
+- **Data chip:** the line in the foot of a live figure that says where the numbers come from: "Example position, precomputed, ply 30", or "Your game, ply N, computed in your browser". A part that stays the example even in My-game mode carries "Example position (precomputed)".
+
+### The card on the play screen
+
+The card comes directly after "Copy link" in the card list (`web/src/app/ExplainCard.tsx`, placed in `web/src/app/PlayScreen.tsx`), so it is in the wide side column and in the menu of a small screen. Its five links are real `<a href="#/about/...">` elements:
+
+| Link | Opens | Figure |
+|---|---|---|
+| How deep does the engine see? | `classical/budget` | Fig. 2.2, node budget and search depth |
+| How good is each move? | `classical/alpha-beta` | Fig. 2.1b, root scores |
+| What the evaluation counts | `classical/evaluation` | Fig. 2.3, evaluation |
+| How MCTS chooses a move | `inference/mcts` | Fig. 3.3, MCTS |
+| Inside the network | `inference/forward-pass` | Fig. 3.2, forward pass |
+
+The two net links carry the note that the first press of "My game" may download the net engine and a model. The card is disabled, with the reason as text, before the first game starts, when the game is over, and for a variant other than the classic game.
+
+A link does not switch the figure to My-game mode. The reader presses "My game" on the figure. Origin: the project owner's decision for this feature (November 2026). Rationale: a second engine worker costs memory, CPU time and, for the net figures, a download, so it starts only on an explicit press. Limit: this costs one more press; switching on the link press would save it but would start the worker on the link press.
+
+### When workers start and stop
+
+- **Nothing at page load.** Loading the play screen, an about page or pressing a card link starts no worker beyond the game's and requests nothing under `engines/net/` or `models/`. `web/e2e/about-live.spec.ts`, part 1, checks this with `page.on('worker')` and the request log.
+- **On the press of "My game".** The figure asks the holder `LiveEngines` for its engine. The first request creates and initialises it; later figures on the same page share it. The classical figures of `#/about/classical` (Fig. 2.1b, 2.2, 2.3) share one classical engine; the two net figures of `#/about/inference` share one `net-wasm`.
+- **Stop.** The Stop button fires the run's `AbortSignal`; the engine client then restarts that worker, as for any abort ([the engine interface](#the-engine-interface)). The figure goes back to the example and says "Stopped. The figure shows the example again."
+- **Leaving the page.** When the topic page unmounts, the holder terminates its workers. A later press starts a new engine.
+- **Results are cached.** A finished result is kept per figure and snapshot `id` (`useLiveRun` in `web/src/about/live/useLiveRun.ts`). Switching back to "Example" and again to "My game" shows it without a new run. A new press of a card link gives a new `id` and a new run.
+
+### Which engines, and what is downloaded
+
+| Info engine | Which build | Download on the first press |
+|---|---|---|
+| classical | `EngineSession.analysisSource()`: the first available classical engine in the order `java-wasmgc`, `cpp-wasm`, `java-js` (the same choice as the [analysis for the net engines](#analysis-for-the-net-engines)) | the engine files and the race table `rows2.bin.gz`. The app loaded them at its start, so they come from the precache or the HTTP cache. The worker inflates and holds its own copy of the table. |
+| net | `EngineSession.netSource()`: always `net-wasm` | the net engine, 229,746 bytes gzip in the current build (`downloadGzipBytes` of `net-wasm` in `web/public/engines/engines.json`), and the expert model `small-2p-adjacent-expert`, 114,957 bytes (`packedBytes` in `web/models/models.json`). Both go into the runtime cache ([what is cached](#what-is-cached)), so a second use works offline. A reader who has played with `net-wasm` already has them. |
+
+The net Info engine is never `net-webgpu`. Rationale: the GPU forward pass rounds differently, so visit counts could differ from the example, and a lost GPU process would add a failure mode that the figures do not need. Origin: the design of this feature in November 2026; the design plan is not in the repository.
+
+### Supported and unsupported games
+
+My-game mode works only for a snapshot of the classic game: 2 players, neighbour jump (`adjacent`), closed foreign triangles and 4 rows (`isClassic` in `web/src/about/live/classic.ts`). Rationale: the evaluation `linear-r3` with its weights `ROUND3` and the expert model were fitted to this game, and every example the figures compare with is a classic game. Three players, the long hop, open or pass-through foreign triangles and 5 rows are therefore unsupported. Limit: the classical engines can play these variants; only the explanations are missing.
+
+The switch is disabled, with the reason as text below it (linked by `aria-describedby`), in these cases (`liveBlockedReason`, checked in this order):
+
+| Case | Key of the reason |
+|---|---|
+| no snapshot yet | `kit.live.reason.nosnapshot` |
+| the snapshot is not the classic game | `kit.live.reason.variant` |
+| the game in the snapshot was over | `kit.live.reason.over` |
+| net figure, and this browser cannot run `net-wasm` | `kit.live.reason.nonet` |
+
+A run that fails shows its cause in the figure's status line and offers "Try again" (codes `load`, `offline`, `model`, `internal` and `unsupported` in `LiveErrorCode`, texts `kit.live.error.*`). `unsupported` means that the engine file in the browser is older than the page, or that the position has only one legal move, so the net engine has no search to show. A net engine that cannot use its model gives `model`, never the numbers of a random move.
+
+### How each figure is computed
+
+| Figure | Live computation | What stays precomputed |
+|---|---|---|
+| Fig. 2.2, node budget and depth (`web/src/about/live/budget.ts`) | for each of the five budgets of the strength slider (1,000 to 500,000 nodes): `newGame({ nodes: [L, L] })`, then `choose(history)`. The completed depth, score and move of each level appear when the level finishes. In a race position the engine plays from the race table without a search; the figure says so and shows no depth markers. | the series "Without enhancements": the browser engines do not offer that search, so it exists for the example only and is hidden in My-game mode. |
+| Fig. 2.1b, root scores (`web/src/about/live/root-scores.ts`) | one `analyse(history, null, 4000)`, the same call and the same five bands as the [move guides](#move-guides). | nothing. The example data `root-scores-mid.json` are written by `web/src/about/live/root-scores.data.test.ts` with `ABOUT_DATA_WRITE=1` and verified by it otherwise. |
+| Fig. 2.3, evaluation (`web/src/about/live/eval.ts`) | one `features(history)` call: the 13 features of `linear-r3`, its score and the per-cell distances (Java `WebCore.features`, C++ `shw_features`, see `cpp/README.md`). The page derives the marks on the board itself and checks them: per-side sums must match the engine's features, and `round(100 × Σ weight × feature)` must match its score. A failed check gives the error `internal`, never a wrong figure. | the weights: always `ROUND3` from `eval-mid.json`. The caption names `linear-r3`; the engine that plays uses `racelin1-r3`, which adds race-table arithmetic. |
+| Fig. 3.2, forward pass (`web/src/about/live/forward.ts`) | one `netForward(history)` call: the input planes, the activation norm of every layer of the network, the priors with and without the classical residual prior, and the values ([network](network.md)). It runs `referenceForward` (`web/src/engines/net/reference-forward.ts`), a TypeScript copy of the scalar reference, on the expert model widened from F16 to F32, in the net worker. | the three example positions stay selectable. |
+| Fig. 3.3, MCTS (`web/src/about/live/mcts.ts`) | one `netForward` for the priors and the value of the root, then for k = 1 to 50 a search of its own with `sims: k`, batch 1 and no noise, and `choose(history)`. Such a search is deterministic, so step k shows the same root as the first k simulations of one search. That is 1 + 2 + … + 50 = 1,275 forward passes. The root table fills as k grows; every finished k can be stepped to. | the tree below the root: it needs the trace of single simulations, which the engine does not report, so it carries the note "Example position (precomputed)". An older cached engine file without the mean values Q gives a note in the caption that they are missing. |
+
+### Time and memory
+
+Neither the time of a live run nor the memory of the Info engines was measured, with one exception. `web/e2e/about-live.spec.ts`, part 4, logs the time from the press of "My game" on Fig. 3.3 to "Computed in your browser." for the example history: about 0.8 to 1.0 s in Chromium and Firefox on the development machine on 2026-11-21. This includes the engine start, the model load, one forward pass and the 50 searches. Phones have not been measured; the project owner tests them on real devices.
+
+**Tests.** Unit tests with fake engines for each adapter (`web/src/about/live/*.test.ts`), tests against the real engines in Node.js (`*.real.test.ts`, which need the built engine files; `REQUIRE_ENGINE_ASSETS=1` turns a missing file into a failure), DOM tests of the figures (`live-v7.dom.test.tsx`, `eval.live.dom.test.tsx`, `live-net.dom.test.tsx` and `figfoot.dom.test.tsx` in `web/src/about/figures/`), the card in the whole app (`web/src/app/App.explain.test.tsx`), and the browser test `web/e2e/about-live.spec.ts` in Chromium and Firefox. The visual layout of the switch is in `web/design/about/about-notes.md`.
 
 ## Small screens and touch
 

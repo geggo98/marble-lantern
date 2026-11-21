@@ -175,7 +175,7 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: humanVsTwoEngines(1, 2) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for two players, adjacent jumps, on the 4-row board.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, closed foreign triangles, 4 rows. The evaluation and the network of the figures were trained for it.');
     expect(all('a[data-explain-link]')).toHaveLength(0);
   });
 
@@ -183,7 +183,7 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: withBoardRows(humanVsEngine(1, 2), 5) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for two players, adjacent jumps, on the 4-row board.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, closed foreign triangles, 4 rows. The evaluation and the network of the figures were trained for it.');
   });
 
   it('a finished game: disabled with the over reason', async () => {
@@ -192,7 +192,7 @@ describe('the card "Explain this position"', () => {
     await click(q('[data-choice="link-side-to-move"]')!);
     await until(() => q('.ml-result') !== null, 'the result card');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('The game is over; there is no move to explain.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('The game is over, so there is no move left to explain.');
     expect(all('a[data-explain-link]')).toHaveLength(0);
   });
 });

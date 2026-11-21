@@ -77,14 +77,14 @@ describe('the live switch of V6', () => {
     expect(hold.calls).toBe(1);
     expect(radio('mine').checked).toBe(true);
     expect(q('[data-live-stop]')).not.toBeNull();
-    expect(q('.ml-fig__status').textContent).toBe('Loading the engine …');
+    expect(q('.ml-fig__status').textContent).toBe('Loading the engine; the first time, the browser may download it …');
     expect(score()).toBe('+179'); // still the example while the engine works
     await act(async () => hold.release!(MINE));
     expect(score()).toBe(MINE_SCORE);
     expect(q('[data-origin]').getAttribute('data-origin')).toBe('mine');
     expect(q('[data-origin]').textContent).toContain('Your game, ply 4');
     expect(host.querySelector('[data-live-stop]')).toBeNull();
-    expect(host.querySelector('.ml-fig__caption')!.textContent).toContain('The table shows linear-r3');
+    expect(host.querySelector('.ml-fig__caption')!.textContent).toContain('the score with linear-r3');
   });
 
   it('Example brings the example data back; My game again shows the finished result without a second run', async () => {
@@ -103,7 +103,7 @@ describe('the live switch of V6', () => {
     await press(radio('mine'));
     await press(q('[data-live-stop]'));
     expect(radio('example').checked).toBe(true);
-    expect(q('.ml-fig__status').textContent).toBe('Stopped.');
+    expect(q('.ml-fig__status').textContent).toBe('Stopped. The figure shows the example again.');
     expect(score()).toBe('+179');
   });
 

@@ -57,9 +57,9 @@ test.describe('live figure screenshots', () => {
             }
             await press(page, figure.id);
             const status = fig.locator('[role=status]');
-            if (state === 'loading') await expect(status).toContainText(/Loading the engine|Computing/);
+            if (state === 'loading') await expect(status).toContainText(/Loading the engine|Computing in your browser/);
             if (state === 'done') await expect(status).toContainText('Computed in your browser.', { timeout: 90_000 });
-            if (state === 'model-error') await expect(status).toContainText('The model could not be loaded.', { timeout: 90_000 });
+            if (state === 'model-error') await expect(status).toContainText('The network model could not be loaded, so nothing was computed.', { timeout: 90_000 });
             if (state === 'stopped') {
               await fig.locator('[data-live-stop]').click();
               await expect(status).toContainText('Stopped.');

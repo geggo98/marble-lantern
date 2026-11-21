@@ -158,15 +158,15 @@
   "fig.race.col.count": "Züge bis ins Ziel",
   "fig.race.chosen": "gewählt",
   "fig.race.step.narration": "Nach {move} fehlen noch {count} Züge, bis das Ziel voll ist: die kleinste Zahl unter den {legal} legalen Zügen.",
-  "fig.budget.live.desc": "Deine Partie bei Zug {ply}: Die Engine suchte mit {levels} Knoten pro Zug und erreichte diese Tiefen.",
-  "fig.budget.live.race": "Diese Stellung ist ein Endspiel. Die Engine spielt aus der Endspieltabelle ohne Suche, darum gibt es keine Tiefenmarken.",
-  "fig.budget.live.plainHidden": "Die Reihe ohne Verbesserungen wird für deine Partie nicht gezeigt: Die Browser-Engines haben diese Suche nicht.",
-  "fig.eval.live.desc": "Deine Partie bei Zug {ply}: die 13 Merkmale der Bewertung und der Wert {score}.",
-  "fig.eval.live.evaluator": "Die Tabelle zeigt {evaluator}. Die Engine, die im Browser spielt, ergänzt sie um exakte Endspiel-Rechnung.",
+  "fig.budget.live.desc": "Deine Partie bei Halbzug {ply}, in deinem Browser durchsucht von der klassischen Browser-Engine, einmal pro Budget: {levels} Knoten. Jeder Punkt ist die tiefste abgeschlossene Iteration.",
+  "fig.budget.live.race": "Deine Stellung ist ein Endspiel: Die Armeen sind aneinander vorbei. Dann nimmt die Engine ihren Zug ohne Suche aus der Endspieltabelle, darum gibt es keine Tiefe zu zeigen.",
+  "fig.budget.live.plainHidden": "Die Reihe ohne Erweiterungen gibt es nur für das Beispiel: Die Browser-Engines bieten diese Suche nicht an, darum wurde sie vorab in Java gerechnet.",
+  "fig.eval.live.desc": "Deine Partie bei Halbzug {ply}, mit {score} für die Seite am Zug. Die Markierungen zeigen, was das gewählte Feature zählt.",
+  "fig.eval.live.evaluator": "Für deine Partie hat die Engine in deinem Browser die 13 Features und die Bewertung mit {evaluator} berechnet. Die Markierungen auf dem Brett zählt die Seite selbst und prüft sie gegen diese Zahlen.",
   "fig.roots.title": "Wie gut ist jeder Zug?",
-  "fig.roots.desc": "Jeder legale Zug der Beispielstellung, bewertet mit einer kurzen Suche von 4000 Knoten pro Zug.",
-  "fig.roots.live.desc": "Jeder legale Zug deiner Partie bei Zug {ply}, bewertet mit einer kurzen Suche von 4000 Knoten pro Zug.",
+  "fig.roots.desc": "Jeder legale Zug der Beispielstellung, bewertet mit einer Suche von {n:4000} Knoten pro Zug, wie bei den Zughilfen. Größere Scheiben markieren Figuren mit besserem bestem Zug; Pfeile zeigen die drei besten Züge.",
+  "fig.roots.live.desc": "Jeder legale Zug deiner Partie bei Halbzug {ply}, in deinem Browser bewertet mit einer Suche von {n:4000} Knoten pro Zug, wie bei den Zughilfen. Größere Scheiben markieren Figuren mit besserem bestem Zug; Pfeile zeigen die drei besten Züge.",
   "fig.roots.table.move": "Zug",
   "fig.roots.table.score": "Wert",
-  "fig.roots.table.band": "Stufe"
+  "fig.roots.table.band": "Einstufung"
 }

@@ -138,11 +138,11 @@ describe('V10 live', () => {
 
   it('with no net engine in the browser, a finished game and a three-player snapshot the switch stays disabled with the reason', async () => {
     await render(<McstFigure />, snapshot(TWO_MOVES, false, DEFAULT_VARIANT, false));
-    expect(q('[data-live-reason]').textContent).toBe('The neural-network engine does not run in this browser.');
+    expect(q('[data-live-reason]').textContent).toBe('This browser cannot run the net engine, so this figure shows the example only.');
     await render(<McstFigure />, snapshot(TWO_MOVES, true));
-    expect(q('[data-live-reason]').textContent).toBe('The game is over; there is no move to explain.');
+    expect(q('[data-live-reason]').textContent).toBe('The game is over, so there is no move left to explain.');
     await render(<McstFigure />, snapshot(TWO_MOVES, false, THREE));
-    expect(q('[data-live-reason]').textContent).toContain('Only for two players');
+    expect(q('[data-live-reason]').textContent).toContain('Only for the classic game');
   });
 
   it('My game runs the 50 steps; the stepper ends on 50 with the visits of the root moves adding up to 50, the chip says "Your game", the trace below is marked as the example', async () => {
@@ -183,11 +183,11 @@ describe('V10 live', () => {
     const finished = Number(/(\d+) \/ (\d+)/.exec(pos)![2]);
     expect(finished, 'a partial run').toBeLessThan(50);
     expect(q('[data-live-stop]')).toBeTruthy();
-    expect(status()).toMatch(/^Computing … \d+ of 50$/);
+    expect(status()).toMatch(/^Computing in your browser: step \d+ of 50$/);
     await act(async () => q<HTMLButtonElement>('[data-live-stop]').click());
     await settle(40);
     expect(q<HTMLInputElement>('input[value=example]').checked).toBe(true);
-    expect(status()).toBe('Stopped.');
+    expect(status()).toBe('Stopped. The figure shows the example again.');
     expect(q('.ml-fig-stepper__pos').textContent).toContain(`/ ${mctsGolden.sims.length}`);
     expect(q('[data-origin]').textContent?.trim()).toBe('Example position, precomputed, ply 30');
     await press('mine');
@@ -201,7 +201,7 @@ describe('V10 live', () => {
     await press('mine');
     await settle(20);
     await settle(20);
-    expect(status()).toBe('The model could not be loaded.');
+    expect(status()).toBe('The network model could not be loaded, so nothing was computed.');
     expect(q<HTMLInputElement>('input[value=example]').checked).toBe(true);
     expect(q('[data-live-retry]')).toBeTruthy();
     expect(q('[data-origin]').textContent?.trim()).toBe('Example position, precomputed, ply 30');
@@ -256,7 +256,7 @@ describe('V9b live', () => {
     await choose('mine');
     await settle(20);
     await settle(20);
-    expect(status()).toBe('The model could not be loaded.');
+    expect(status()).toBe('The network model could not be loaded, so nothing was computed.');
     expect(position().value).toBe('mid');
     expect(q('[data-live-retry]')).toBeTruthy();
   });
@@ -264,6 +264,6 @@ describe('V9b live', () => {
   it('a blocked snapshot (finished game) shows the reason and no fourth position', async () => {
     await render(<ForwardFigure />, snapshot(TWO_MOVES, true));
     expect([...position().options].map((o) => o.value)).toEqual(['start', 'mid', 'race']);
-    expect(q('[data-live-reason]').textContent).toBe('The game is over; there is no move to explain.');
+    expect(q('[data-live-reason]').textContent).toBe('The game is over, so there is no move left to explain.');
   });
 });

@@ -462,14 +462,14 @@
   "rules_hint_toggle": "Mehr zu „{rule}“",
   "rules_reason_no_engine": "Keine Engine in diesem Build spielt „{value}“.",
   "explain_title": "Diese Stellung erklären",
-  "explain_lead": "Öffne die Info-Seite zu deiner Partie und sieh ihre Zahlen.",
+  "explain_lead": "Jeder Link öffnet eine Abbildung auf den Info-Seiten. Noch wird nichts berechnet: Drück dort „Meine Partie“, dann rechnet dein Browser die Abbildung für diese Stellung.",
   "explain_link_budget": "Wie tief sieht die Engine?",
   "explain_link_roots": "Wie gut ist jeder Zug?",
   "explain_link_eval": "Was die Bewertung zählt",
-  "explain_link_mcts": "Wie MCTS wählt",
+  "explain_link_mcts": "Wie MCTS einen Zug wählt",
   "explain_link_forward": "Im Inneren des Netzes",
-  "explain_net_note": "Lädt die Netz-Engine und ein Modell (etwa 115 kB), sobald du „Meine Partie“ drückst.",
+  "explain_net_note": "Beim ersten Druck auf „Meine Partie“ lädt der Browser eventuell die Netz-Engine und ein Modell herunter, etwa 345 kB.",
   "explain_disabled_nogame": "Starte zuerst eine Partie.",
-  "explain_disabled_over": "Die Partie ist zu Ende; es gibt keinen Zug zu erklären.",
-  "explain_disabled_variant": "Nur für zwei Spieler, Nachbarsprünge, auf dem Brett mit 4 Reihen."
+  "explain_disabled_over": "Die Partie ist zu Ende, es gibt keinen Zug mehr zu erklären.",
+  "explain_disabled_variant": "Nur für das klassische Spiel: 2 Spieler, Nachbarsprung, gesperrte fremde Dreiecke, 4 Reihen. Die Bewertung und das Netz der Abbildungen sind darauf trainiert."
 }
