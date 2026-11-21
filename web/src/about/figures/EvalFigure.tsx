@@ -6,6 +6,8 @@ import {
   Figure,
   Legend,
   LegendItem,
+  LiveSwitch,
+  Manipulate,
   MiniBoard,
   PLOT_BREAKPOINT_PX,
   Plot,
@@ -21,12 +23,16 @@ import { Icon } from '../kit/icons';
 import { Markup } from '../kit/markup';
 import { cellPoint } from '../../ui/board-model';
 import raw from '../data/eval-mid.json';
+import { liveBlockedReason } from '../live/classic';
+import { useLive } from '../live/context';
+import { runEvalLive } from '../live/eval';
+import { useLiveRun } from '../live/useLiveRun';
 import { FigFoot, figLabel, useFigText } from './common';
-import type { Catalog } from './common';
+import type { Catalog, DataOrigin } from './common';
 import { barShare, contributionOf, overlayOf, scoreOf, weightOf, winProbability } from './eval-model';
 import type { EvalData, Setting } from './eval-model';
 
-const DATA = raw as unknown as EvalData;
+const EXAMPLE = raw as unknown as EvalData;
 const SIGMOID_RANGE = 600;
 
 export interface EvalFigureProps {
@@ -34,12 +40,29 @@ export interface EvalFigureProps {
   number: readonly [number, number];
 }
 
-const cellsOf = (owner: number): number[] => DATA.cells.flatMap((c, i) => (c === owner ? [i] : []));
 const sign = (v: number): string => (v > 0 ? '+' : '');
 
 export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Element {
   const f = useFigText(catalog);
   const { t, kit, n } = f;
+  const { input } = useLive();
+  const run = useLiveRun<EvalData, never>('eval', (engines, signal, report) => runEvalLive(engines, input!.snapshot, signal, report));
+  const live = run.state.kind === 'done' ? run.state.value : null;
+  const DATA = live ?? EXAMPLE;
+  const mine = run.state.kind === 'starting' || run.state.kind === 'running' || run.state.kind === 'done';
+  const blocked = liveBlockedReason(input, 'classical');
+  const state = run.state;
+  const status = {
+    text:
+      state.kind === 'starting' ? kit('kit.live.status.loading')
+      : state.kind === 'running' ? kit('kit.live.status.running', { done: state.done, total: state.total })
+      : state.kind === 'done' ? kit('kit.live.status.done')
+      : state.kind === 'stopped' ? kit('kit.live.status.stopped')
+      : state.kind === 'failed' ? kit(`kit.live.error.${state.code}`)
+      : '',
+  };
+  const origin: DataOrigin = live ? { kind: 'mine', ply: live.meta.ply } : { kind: 'example', ply: EXAMPLE.meta.ply };
+  const cellsOf = (owner: number): number[] => DATA.cells.flatMap((c, i) => (c === owner ? [i] : []));
   const [include, setInclude] = useState<ReadonlySet<string>>(() => new Set(DATA.features.map((x) => x.name)));
   const [weights, setWeights] = useState<Readonly<Record<string, number>>>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -56,7 +79,7 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
   const fmt = (value: number, digits: number): string => new Intl.NumberFormat(f.language, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
   const label = (name: string): string => t(`fig.eval.feature.${name}.label`);
   const selectedFeature = DATA.features.find((x) => x.name === selected);
-  const overlay = useMemo(() => (selected === null ? null : overlayOf(selected, DATA)), [selected]);
+  const overlay = useMemo(() => (selected === null ? null : overlayOf(selected, DATA)), [selected, DATA]);
 
   const toggleInclude = (name: string, on: boolean): void =>
     setInclude((prev) => {
@@ -73,8 +96,8 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
   const board = (
     <div className="ml-fig-eval__board">
       <MiniBoard
-        title={t('fig.eval.board.title')}
-        desc={f.plain('fig.eval.board.desc')}
+        title={live ? kit('kit.live.mine', { ply: live.meta.ply }) : t('fig.eval.board.title')}
+        desc={live ? f.plain('fig.eval.live.desc', { ply: live.meta.ply, score: `${sign(live.meta.score)}${live.meta.score}` }) : f.plain('fig.eval.board.desc')}
         pieces={{ a: cellsOf(0), b: cellsOf(1) }}
         rings={overlay?.rings ?? []}
         arrows={overlay?.arrows ?? []}
@@ -215,8 +238,32 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
       labelWord={figLabel(kit, number[0], number[1])}
       title={t('fig.eval.title')}
       split={!compact}
-      caption={<Markup text={t('fig.eval.caption')} />}
-      foot={<FigFoot kit={kit} paths={['search/src/main/java/sternhalma/search/LinearEvaluator.java', 'search/src/main/java/sternhalma/search/LinearWeights.java']} data="eval-mid.json" />}
+      panel={
+        <Manipulate>
+          <LiveSwitch
+            label={kit('kit.live.label')}
+            exampleLabel={kit('kit.live.example')}
+            mineLabel={kit('kit.live.mine', { ply: input?.snapshot.ply ?? 0 })}
+            value={mine ? 'mine' : 'example'}
+            onChange={(value) => (value === 'mine' ? run.start() : run.reset())}
+            reason={blocked ? kit(`kit.live.reason.${blocked}`) : null}
+            busy={run.state.kind === 'starting' || run.state.kind === 'running'}
+            stopLabel={kit('kit.live.stop')}
+            onStop={run.stop}
+            failed={run.state.kind === 'failed'}
+            retryLabel={kit('kit.live.retry')}
+            onRetry={run.start}
+          />
+        </Manipulate>
+      }
+      status={status}
+      caption={
+        <>
+          <Markup text={t('fig.eval.caption')} />
+          {live && <> <Markup text={t('fig.eval.live.evaluator', { evaluator: '`linear-r3`' })} /></>}
+        </>
+      }
+      foot={<FigFoot kit={kit} paths={['search/src/main/java/sternhalma/search/LinearEvaluator.java', 'search/src/main/java/sternhalma/search/LinearWeights.java']} data="eval-mid.json" origin={origin} />}
     >
       {board}
       <div ref={holder} className="ml-fig-eval__main">
