@@ -160,9 +160,7 @@ test.describe('part 3 (WP3): V6 live', () => {
     await expect(page.locator(FIG)).toBeVisible();
   }
 
-  // Both tests need the features export of the engines (WP2). Until WP2 is merged and the engines are rebuilt, the engine answers
-  // "unsupported" and the figure shows its error line. Remove the fixme after the merge.
-  test.fixme('needs WP2 engines: a game of four plies: the feature table differs from the example and the chip says "Your game, ply 4"', async ({ page }) => {
+  test('a game of four plies: the feature table differs from the example and the chip says "Your game, ply 4"', async ({ page }) => {
     const errors = watchPageErrors(page);
     await openApp(page, 'en', '', 'human');
     await playOneExchange(page);
@@ -183,7 +181,7 @@ test.describe('part 3 (WP3): V6 live', () => {
     errors.expectNone();
   });
 
-  test.fixme('needs WP2 engines: the example history (30 plies) shows the 13 values and the score +179 of eval-mid.json', async ({ page }) => {
+  test('the example history (30 plies) shows the 13 values and the score +179 of eval-mid.json', async ({ page }) => {
     const errors = watchPageErrors(page);
     await openApp(page, 'en', EVAL_MID_HASH);
     await page.locator('[data-choice="link-side-to-move"]').click();
