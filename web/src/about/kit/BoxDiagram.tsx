@@ -125,7 +125,9 @@ export function BoxDiagram(props: BoxDiagramProps): React.JSX.Element {
       >
         {laid.groups.map((g) => (
           <div key={g.id} className="ml-fig-box__group" style={percent(laid, g)} data-group={g.id}>
-            <span className="ml-fig-box__grouplabel">{groupLabels?.[g.id] ?? g.id}</span>
+            <span className="ml-fig-box__grouplabel" title={groupLabels?.[g.id] ?? g.id}>
+              {groupLabels?.[g.id] ?? g.id}
+            </span>
           </div>
         ))}
         <svg className="ml-fig-box__edges" viewBox={`0 0 ${laid.width} ${laid.height}`} aria-hidden="true" focusable="false">

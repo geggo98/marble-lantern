@@ -179,26 +179,31 @@
 .ml-fig-boxwrap[data-layout="compact"] { max-width: 32rem; margin-inline: auto; width: 100%; }
 .ml-fig-box__detail:empty { display: none; }
 .ml-fig-box__detail .ml-fig__detail { margin: 0; scroll-margin-block: var(--ml-space-3); }
-.ml-fig-box { position: relative; width: 100%; }
+.ml-fig-box { position: relative; width: 100%; container: ml-box / inline-size; }
 .ml-fig-box__edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .ml-fig-box__group { position: absolute; border: var(--ml-border) solid var(--ml-color-line); border-radius: var(--ml-radius-md); background: var(--ml-fig-panel-bg); }
-.ml-fig-box__grouplabel { position: absolute; top: 5px; inset-inline-start: 8px; font-size: var(--ml-text-xs); font-weight: var(--ml-weight-medium); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ml-color-ink-muted); line-height: 1.2; }
+.ml-fig-box__grouplabel { position: absolute; top: 4px; inset-inline-start: 8px; max-width: calc(100% - 16px); font-size: var(--ml-text-xs); font-weight: var(--ml-weight-medium); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ml-color-ink-muted); line-height: 1.1; overflow-wrap: break-word; hyphens: auto; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .ml-fig-box__node {
   position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  margin: 0; padding: 2px 4px; border: 1.5px solid var(--ml-fig-mark); border-radius: var(--ml-radius-sm);
-  background: var(--ml-fig-bg); color: var(--ml-color-ink); cursor: pointer;
-  font: var(--ml-weight-medium) var(--ml-text-xs)/1.2 var(--ml-font-ui); text-align: center; overflow-wrap: normal; hyphens: manual;
+  margin: 0; padding: 1px 3px; border: 1.5px solid var(--ml-fig-mark); border-radius: var(--ml-radius-sm);
+  background: var(--ml-fig-bg); color: var(--ml-color-ink); cursor: pointer; min-width: 0; overflow: hidden;
+  font: var(--ml-weight-medium) var(--ml-text-xs)/1.15 var(--ml-font-ui); text-align: center; overflow-wrap: anywhere; hyphens: auto;
 }
-@container ml-fig (min-width: 40rem) { .ml-fig-box__node { font-size: var(--ml-text-sm); } }
-.ml-fig-box__tech { color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.2 var(--ml-font-data); }
+/* The text scales with the figure (the box is a share of its width), so that the label keeps its room when the figure is narrower than the
+   layout width of 720 units; 11 px is the floor. The weight, the border width and the padding never change with the state: a wider glyph or
+   a thicker border of the highlighted box would push the text out of its frame (owner feedback 2026-11-21). */
+.ml-fig-boxwrap[data-layout="wide"] .ml-fig-box__node { font-size: clamp(0.6875rem, 1.9cqw, 0.875rem); }
+.ml-fig-boxwrap[data-layout="wide"] .ml-fig-box__grouplabel { font-size: 0.6875rem; } /* two lines of the title fit into the head of the region (34 units, 0.89 at the narrowest wide figure) */
+.ml-fig-box__tech { max-width: 100%; color: var(--ml-color-ink-muted); font: 0.6875rem/1.15 var(--ml-font-data); overflow-wrap: anywhere; hyphens: manual; }
 .ml-fig-box__node:hover { background: var(--ml-fig-panel-bg); }
-.ml-fig-box__node--store { border-radius: 2px; border-block: 5px double var(--ml-fig-mark); }
+.ml-fig-box__node--store { border-radius: 2px; border-block: 5px double var(--ml-fig-mark); padding-block: 0; }
 .ml-fig-box__node--external { border-style: dashed; background: transparent; }
-.ml-fig-box__node[data-state="active"] { border-width: 3px; border-color: var(--ml-fig-accent); background: var(--ml-fig-accent-bg); font-weight: var(--ml-weight-bold); }
-.ml-fig-box__node--store[data-state="active"] { border-block: 6px double var(--ml-fig-accent); }
+.ml-fig-box__node[data-state="active"] { border-color: var(--ml-fig-accent); background: var(--ml-fig-accent-bg); box-shadow: inset 0 0 0 1.5px var(--ml-fig-accent); }
+.ml-fig-box__node--store[data-state="active"] { border-block-color: var(--ml-fig-accent); }
 .ml-fig-box__node[data-state="dim"] { border-color: var(--ml-fig-dim); color: var(--ml-color-ink-muted); }
 .ml-fig-box__node[data-state="dim"] .ml-fig-box__tech { color: var(--ml-color-ink-muted); }
 .ml-fig-box__node[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--ml-fig-bg), 0 0 0 4px var(--ml-fig-mark); }
+.ml-fig-box__node[data-state="active"][aria-expanded="true"] { box-shadow: inset 0 0 0 1.5px var(--ml-fig-accent), 0 0 0 2px var(--ml-fig-bg), 0 0 0 4px var(--ml-fig-mark); }
 .ml-fig-edge { fill: none; stroke: var(--ml-fig-mark); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .ml-fig-edge--control { stroke-width: 1.5; stroke-dasharray: 6 4; }
 .ml-fig-edge__head { stroke: var(--ml-fig-mark); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
@@ -255,7 +260,7 @@
 
 /* additions of the React kit (not in the mock) */
 /* design review M1: narrow boxes keep long German words inside (hyphenation where the browser has a dictionary, a smaller size where not) */
-.ml-fig-boxwrap[data-layout="compact"] .ml-fig-box__node { padding-inline: 2px; font-size: 0.6875rem; hyphens: auto; }
+.ml-fig-boxwrap[data-layout="compact"] .ml-fig-box__node { padding-inline: 2px; font-size: 0.6875rem; }
 .ml-fig-box__key--hidden, .ml-fig-box__keyrow--hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .ml-fig-box__key { margin: 0; padding: 0; list-style: none; }
 .ml-fig-box__keytext { min-width: 0; overflow-wrap: anywhere; }
