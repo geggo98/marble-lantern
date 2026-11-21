@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "sweep1": {
+    "note": "Offline recipe sweep of eight variants on loop run 2 data; first pass 200 pairs against generation 0.",
+    "variants": [
+      { "id": "BASE", "schedule": "3e-4 constant", "steps": { "source": { "doc": "docs/training.md", "line": 1425 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1425 }, "value": "0.4963", "se": "0.0207" } },
+      { "id": "A", "schedule": "1e-4 constant", "steps": { "source": { "doc": "docs/training.md", "line": 1426 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1426 }, "value": "0.5200", "se": "0.0189" } },
+      { "id": "B", "schedule": "3e-5 constant", "steps": { "source": { "doc": "docs/training.md", "line": 1427 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1427 }, "value": "0.5025", "se": "0.0190" } },
+      { "id": "C", "schedule": "3e-4 cosine to 1e-5", "steps": { "source": { "doc": "docs/training.md", "line": 1428 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1428 }, "value": "0.5212", "se": "0.0183" } },
+      { "id": "D", "schedule": "1e-3 cosine to 1e-5", "steps": { "source": { "doc": "docs/training.md", "line": 1429 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1429 }, "value": "0.5275", "se": "0.0182" } },
+      { "id": "E", "schedule": "3e-4 constant", "steps": { "source": { "doc": "docs/training.md", "line": 1430 }, "value": "15,000" }, "score": { "source": { "doc": "docs/training.md", "line": 1430 }, "value": "0.4812", "se": "0.0191" } },
+      { "id": "F", "schedule": "3e-4 cosine to 1e-5", "steps": { "source": { "doc": "docs/training.md", "line": 1431 }, "value": "15,000" }, "score": { "source": { "doc": "docs/training.md", "line": 1431 }, "value": "0.5625", "se": "0.0184" } },
+      { "id": "G", "schedule": "1e-4 cosine to 1e-6", "steps": { "source": { "doc": "docs/training.md", "line": 1432 }, "value": "15,000" }, "score": { "source": { "doc": "docs/training.md", "line": 1432 }, "value": "0.5200", "se": "0.0190" } },
+      { "id": "H", "schedule": "as C, value coefficient 2", "steps": { "source": { "doc": "docs/training.md", "line": 1433 }, "value": "4596" }, "score": { "source": { "doc": "docs/training.md", "line": 1433 }, "value": "0.5412", "se": "0.0192" } }
+    ],
+    "confirmation": [
+      { "id": "F", "pairs": { "source": { "doc": "docs/training.md", "line": 1437 }, "value": "400" }, "score": { "source": { "doc": "docs/training.md", "line": 1441 }, "value": "0.5887", "se": "0.0136" } },
+      { "id": "H", "pairs": { "source": { "doc": "docs/training.md", "line": 1437 }, "value": "400" }, "score": { "source": { "doc": "docs/training.md", "line": 1442 }, "value": "0.5650", "se": "0.0133" } }
+    ],
+    "strengthF": [
+      {
+        "rung": "25,600 nodes",
+        "generation0": { "source": { "doc": "docs/training.md", "line": 1450 }, "elo": "+338", "se": "69" },
+        "F": { "source": { "doc": "docs/training.md", "line": 1450 }, "elo": "+354", "se": "74" }
+      },
+      {
+        "rung": "102,400 nodes",
+        "generation0": { "source": { "doc": "docs/training.md", "line": 1451 }, "elo": "+173", "se": "51" },
+        "F": { "source": { "doc": "docs/training.md", "line": 1451 }, "elo": "+210", "se": "50" }
+      }
+    ]
+  },
+  "mctsSweep": {
+    "note": "Sweeps on seed 3001 at 100 simulations; rows as the docs tabulate them.",
+    "cpuctBatch1": [
+      { "c": "0.5", "elo": { "source": { "doc": "docs/training.md", "line": 1037 }, "value": "+252", "se": "60" } },
+      { "c": "1.0", "elo": { "source": { "doc": "docs/training.md", "line": 1037 }, "value": "+338", "se": "70" } },
+      { "c": "1.5", "elo": { "source": { "doc": "docs/training.md", "line": 1037 }, "value": "+269", "se": "58" } },
+      { "c": "2.5", "elo": { "source": { "doc": "docs/training.md", "line": 1037 }, "value": "+108", "se": "46" } },
+      { "c": "4.0", "elo": { "source": { "doc": "docs/training.md", "line": 1037 }, "value": "+33", "se": "36" } }
+    ],
+    "batchAtC05": [
+      { "batch": "1", "elo": { "source": { "doc": "docs/training.md", "line": 1036 }, "value": "+542", "se": "136" } },
+      { "batch": "4", "elo": { "source": { "doc": "docs/training.md", "line": 1036 }, "value": "+478", "se": "109" } },
+      { "batch": "16", "elo": { "source": { "doc": "docs/training.md", "line": 1036 }, "value": "+323", "se": "67" } },
+      { "batch": "64", "elo": { "source": { "doc": "docs/training.md", "line": 1036 }, "value": "+85", "se": "43" } }
+    ],
+    "priorTemperature": [
+      { "temperature": "0.7", "elo": { "source": { "doc": "docs/training.md", "line": 1038 }, "value": "+249", "se": "57" } },
+      { "temperature": "1.0", "elo": { "source": { "doc": "docs/training.md", "line": 1038 }, "value": "+338", "se": "70" } },
+      { "temperature": "1.5", "elo": { "source": { "doc": "docs/training.md", "line": 1038 }, "value": "+282", "se": "65" } },
+      { "temperature": "2.5", "elo": { "source": { "doc": "docs/training.md", "line": 1038 }, "value": "+230", "se": "54" } }
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "title": "Source-code map",
+  "nodes": [
+    { "path": "settings.gradle.kts", "what": "module list", "children": [] },
+    { "path": "engine/src/main/java/sternhalma/engine/", "what": "rules engine: Position, RuleSet, Move, Geometry, Layout, Outcome" },
+    { "path": "tablebase/src/main/java/sternhalma/tablebase/", "what": "race tables: RaceTable, RetrogradeBuilder, Ranking, TableFile, estimators", "children": [
+      { "path": "tablebase/tables/", "what": "rows2.bin, rows1.bin.zst (Git LFS)" }
+    ] },
+    { "path": "search/src/main/java/sternhalma/search/", "what": "players: AlphaBeta, Strategies (BEST_SPEC, BROWSER_SPEC), Mcts, MctsPlayer, ThreePlayerSearch, Evaluators, race module, Arena" },
+    { "path": "nn/src/main/java/sternhalma/nn/", "what": "network: Network (reference), VectorNetwork (Vector API), Encoder, Safetensors, ForwardPass, PooledEvaluator, ReferenceTrainer, Optimizer, Checkpoint" },
+    { "path": "nn-tornado/src/main/java/sternhalma/tornado/", "what": "GPU: TornadoNetwork, TornadoTrainer, Kernels*, GpuEvaluators, GpuTrainers, TornadoSupport" },
+    { "path": "selfplay/src/main/java/sternhalma/selfplay/", "what": "training: Loop, Gen0, SelfPlay, LoopGamesJob, Gate, ReplayBuffer, SampleFile, Teacher, RunMonitor" },
+    { "path": "teavm-web/src/main/java/sternhalma/web/", "what": "browser facade of the classical engine: Web, WebCore, Sha256" },
+    { "path": "teavm-net/src/main/java/sternhalma/webnet/", "what": "browser facade of the net MCTS without forward pass: WebNet, WebNetCore" },
+    { "path": "teavm-nn-bench/", "what": "TeaVM benchmark of the Java network" },
+    { "path": "app/", "what": "Spring Boot and Hilla; copies web/public/engines and tables into the jar", "children": [
+      { "path": "app/src/main/java/sternhalma/app/", "what": "GameEndpoint (HTTP API), Engines (server engines, semaphore), records" },
+      { "path": "app/src/main/frontend/views/@index.tsx", "what": "Hilla entry: mounts web/src/app/App" }
+    ] },
+    { "path": "cpp/", "what": "C++23 port of engine, search, race tables and network", "children": [
+      { "path": "cpp/src/wasm/wasm_api.cpp", "what": "flat C API of the classical engine for the browser" },
+      { "path": "cpp/src/wasm/net_api.cpp", "what": "C API of the forward pass for net-wasm" }
+    ] },
+    { "path": "web/src/app/", "what": "App, PlayScreen, EngineSession, SwitchableEngine, game URL, start dialog logic" },
+    { "path": "web/src/game/", "what": "GameController, variants, seats, board state" },
+    { "path": "web/src/engines/", "what": "Engine interface, worker protocol and client, registry, table loader, analysis", "children": [
+      { "path": "web/src/engines/java/", "what": "adapter and worker for engine-java" },
+      { "path": "web/src/engines/cpp/", "what": "adapter and worker for engine-cpp" },
+      { "path": "web/src/engines/net/", "what": "net engines: MCTS driver, wasm and WebGPU backends, models, selection" },
+      { "path": "web/src/engines/server/", "what": "online-only adapter for GameEndpoint" }
+    ] },
+    { "path": "web/src/ui/", "what": "React components; Screens.tsx holds AboutScreen" },
+    { "path": "web/src/i18n/", "what": "German and English texts" },
+    { "path": "web/e2e/", "what": "Playwright tests" },
+    { "path": "web/models/", "what": "shipped networks (*.safetensors.gz) and models.json (committed)" },
+    { "path": "scripts/", "what": "one script per devenv web task, offline, models, cloud, training entry points", "children": [
+      { "path": "scripts/setup-tornado.sh", "what": "pinned TornadoVM SDK download with SHA-256 check" }
+    ] },
+    { "path": "docs/", "what": "architecture, rules, search, network, training, web-ui, offline-mode, models, cloud; adr/" },
+    { "path": "data/", "what": "git-ignored training runs", "generated": true },
+    { "path": "cloud-results/", "what": "git-ignored cloud run results", "generated": true },
+    { "path": "tornado-sdk/", "what": "git-ignored TornadoVM 7.3.1 SDK", "generated": true }
+  ]
+}

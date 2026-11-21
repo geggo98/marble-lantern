@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "unit": "Elo",
+  "note": "Strength steps of the training story, as the docs measured them. Each step names its opponent rung or match.",
+  "steps": [
+    {
+      "id": "loop1-gen0",
+      "run": "loop run 1",
+      "generation": "0",
+      "opponent": "alpha-beta, 25,600 nodes",
+      "elo": { "source": { "doc": "docs/training.md", "line": 1379 }, "value": "-19", "se": "34" }
+    },
+    {
+      "id": "loop1-gen10",
+      "run": "loop run 1",
+      "generation": "10",
+      "opponent": "alpha-beta, 25,600 nodes",
+      "elo": { "source": { "doc": "docs/training.md", "line": 1384 }, "value": "+267", "se": "51" }
+    },
+    {
+      "id": "loop3-gen0",
+      "run": "loop run 3",
+      "generation": "0",
+      "opponent": "alpha-beta, 102,400 nodes",
+      "elo": { "source": { "doc": "docs/training.md", "line": 1746 }, "value": "+211", "se": "35" }
+    },
+    {
+      "id": "loop3-gen9",
+      "run": "loop run 3",
+      "generation": "9",
+      "opponent": "alpha-beta, 102,400 nodes",
+      "elo": { "source": { "doc": "docs/training.md", "line": 1748 }, "value": "+354", "se": "54" }
+    },
+    {
+      "id": "loop4-m1",
+      "run": "loop run 4, direct match M1",
+      "generation": "11 against generation 0",
+      "opponent": "generation 0, 200 simulations",
+      "elo": { "source": { "doc": "docs/training.md", "line": 2275 }, "value": "+78", "se": "19" }
+    },
+    {
+      "id": "loop4-m2a",
+      "run": "loop run 4, direct match M2a",
+      "generation": "11 at 400 simulations",
+      "opponent": "generation 11, 200 simulations",
+      "elo": { "source": { "doc": "docs/training.md", "line": 2276 }, "value": "+99", "se": "24" }
+    },
+    {
+      "id": "loop4-m2b",
+      "run": "loop run 4, direct match M2b",
+      "generation": "11 at 800 simulations",
+      "opponent": "generation 11, 200 simulations",
+      "elo": { "source": { "doc": "docs/training.md", "line": 2277 }, "value": "+220", "se": "35" }
+    },
+    {
+      "id": "loop4-gen11-ladder",
+      "run": "loop run 4, ladder",
+      "generation": "11 against generation 0",
+      "opponent": "alpha-beta, 102,400 nodes",
+      "elo": { "source": { "doc": "docs/training.md", "line": 2215 }, "value": "-3", "se": "60" }
+    },
+    {
+      "id": "loop5-7-pooled",
+      "run": "loop runs 5 to 7, pooled",
+      "generation": "candidates against start network",
+      "opponent": "start network, 800 simulations",
+      "elo": { "source": { "doc": "docs/training.md", "line": 2347 }, "value": "+2", "low": "-12", "high": "+16", "interval": "95 %" }
+    }
+  ]
+}

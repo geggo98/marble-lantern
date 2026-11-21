@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "scenario": "training",
+  "title": "Training pipeline",
+  "boxes": [
+    { "id": "teacherGames", "label": "Classical teacher games", "runsIn": "JVM command line", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/SelfPlay.java", "selfplay/src/main/java/sternhalma/selfplay/Teacher.java", "scripts/selfplay.sh"] } },
+    { "id": "gen0", "label": "Generation 0", "runsIn": "JVM command line", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/Gen0.java", "scripts/gen0.sh"] } },
+    { "id": "loop", "label": "Loop driver", "runsIn": "JVM command line", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/Loop.java", "scripts/loop.sh"] } },
+    { "id": "selfPlayGames", "label": "Self-play games (virtual threads)", "runsIn": "JVM virtual threads", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/LoopGamesJob.java", "selfplay/src/main/java/sternhalma/selfplay/LoopGame.java"] } },
+    { "id": "mcts", "label": "MCTS", "runsIn": "JVM", "source": { "paths": ["search/src/main/java/sternhalma/search/Mcts.java"] } },
+    { "id": "pooledEvaluator", "label": "Pooled evaluator (batching across games)", "runsIn": "JVM", "source": { "paths": ["nn/src/main/java/sternhalma/nn/PooledEvaluator.java"] } },
+    { "id": "sampleFiles", "label": "Sample files", "runsIn": "disk", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/SampleFile.java", "selfplay/src/main/java/sternhalma/selfplay/GameShard.java"] } },
+    { "id": "replayBuffer", "label": "Replay buffer", "runsIn": "JVM", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/ReplayBuffer.java"] } },
+    { "id": "trainerCpu", "label": "Trainer CPU", "runsIn": "JVM", "source": { "paths": ["nn/src/main/java/sternhalma/nn/ReferenceTrainer.java", "nn/src/main/java/sternhalma/nn/StepTrainer.java"] } },
+    { "id": "trainerGpu", "label": "Trainer GPU", "runsIn": "TornadoVM", "source": { "paths": ["nn-tornado/src/main/java/sternhalma/tornado/TornadoTrainer.java"] } },
+    { "id": "checkpoint", "label": "Checkpoint", "runsIn": "JVM", "source": { "paths": ["nn/src/main/java/sternhalma/nn/Checkpoint.java"] } },
+    { "id": "gate", "label": "Gate", "runsIn": "JVM", "source": { "paths": ["selfplay/src/main/java/sternhalma/selfplay/Gate.java"] } },
+    { "id": "runDirectory", "label": "Run directory", "runsIn": "disk, git-ignored", "source": { "paths": ["data/"], "generated": true, "note": "git-ignored run directories" } },
+    { "id": "packer", "label": "Packing for the browser", "runsIn": "script", "source": { "paths": ["scripts/models/pack-model.py"] } },
+    { "id": "cloud", "label": "Cloud", "runsIn": "AWS spot", "source": { "paths": ["scripts/cloud/aws-spot.sh", "scripts/cloud/bootstrap.sh"] } }
+  ],
+  "edges": [
+    { "from": "teacherGames", "to": "sampleFiles", "kind": "data", "label": "samples, generation 0" },
+    { "from": "gen0", "to": "checkpoint", "kind": "data", "label": "supervised network" },
+    { "from": "sampleFiles", "to": "replayBuffer", "kind": "data", "label": "window of recent generations" },
+    { "from": "replayBuffer", "to": "trainerCpu", "kind": "data", "label": "batches" },
+    { "from": "replayBuffer", "to": "trainerGpu", "kind": "data", "label": "batches" },
+    { "from": "trainerCpu", "to": "checkpoint", "kind": "data", "label": "train/step-*.safetensors" },
+    { "from": "trainerGpu", "to": "checkpoint", "kind": "data", "label": "train/step-*.safetensors" },
+    { "from": "checkpoint", "to": "gate", "kind": "data", "label": "candidate.safetensors" },
+    { "from": "gate", "to": "loop", "kind": "control", "label": "decision.json: promoted or rejected" },
+    { "from": "selfPlayGames", "to": "mcts", "kind": "control", "label": "one search per move" },
+    { "from": "selfPlayGames", "to": "pooledEvaluator", "kind": "data", "label": "positions in batches" },
+    { "from": "pooledEvaluator", "to": "selfPlayGames", "kind": "data", "label": "priors and values" },
+    { "from": "loop", "to": "selfPlayGames", "kind": "control", "label": "self-play of one generation" },
+    { "from": "loop", "to": "runDirectory", "kind": "data", "label": "writes gen-NNNN" },
+    { "from": "gate", "to": "packer", "kind": "data", "label": "chosen candidate" }
+  ]
+}

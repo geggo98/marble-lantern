@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "scenario": "offline",
+  "title": "Offline browser mode",
+  "boxes": [
+    { "id": "page", "label": "Browser page (React)", "runsIn": "main thread", "source": { "paths": ["web/src/app/App.tsx", "web/src/app/PlayScreen.tsx"] } },
+    { "id": "board", "label": "Board (SVG)", "runsIn": "main thread", "source": { "paths": ["web/src/ui/Board.tsx", "web/src/board/cells.generated.json"] } },
+    { "id": "gameUrl", "label": "Game URL", "runsIn": "main thread", "source": { "paths": ["web/src/app/game-url.ts"] } },
+    { "id": "controller", "label": "Game controller", "runsIn": "main thread", "source": { "paths": ["web/src/game/game.ts"] } },
+    { "id": "session", "label": "Engine session / switch", "runsIn": "main thread", "source": { "paths": ["web/src/app/session.ts", "web/src/app/switchable-engine.ts"] } },
+    { "id": "workerClient", "label": "Worker client and protocol", "runsIn": "main thread", "source": { "paths": ["web/src/engines/client.ts", "web/src/engines/protocol.ts"] } },
+    { "id": "tableLoader", "label": "Table loader", "runsIn": "main thread", "source": { "paths": ["web/src/engines/tables.ts"] } },
+    { "id": "javaEngine", "label": "Java engine (Wasm GC or JS)", "runsIn": "Web Worker", "source": { "paths": ["web/src/engines/java/", "teavm-web/src/main/java/sternhalma/web/Web.java", "search/src/main/java/sternhalma/search/Strategies.java"] } },
+    { "id": "cppEngine", "label": "C++ engine", "runsIn": "Web Worker", "source": { "paths": ["web/src/engines/cpp/", "cpp/src/wasm/wasm_api.cpp", "cpp/src/search/"] } },
+    { "id": "netMcts", "label": "Net engine: MCTS", "runsIn": "Web Worker", "source": { "paths": ["web/src/engines/net/core.ts", "teavm-net/src/main/java/sternhalma/webnet/WebNet.java", "search/src/main/java/sternhalma/search/Mcts.java"] } },
+    { "id": "netCpu", "label": "Net engine: CPU forward pass", "runsIn": "Web Worker", "source": { "paths": ["web/src/engines/net/wasm-backend.ts", "cpp/src/wasm/net_api.cpp", "cpp/src/nn/"] } },
+    { "id": "netGpu", "label": "Net engine: GPU forward pass", "runsIn": "Web Worker", "source": { "paths": ["web/src/engines/net/webgpu-backend.ts", "web/src/engines/net/webgpu-shaders.ts"] } },
+    { "id": "models", "label": "Models", "runsIn": "main thread", "source": { "paths": ["web/models/models.json", "web/src/engines/net/models.ts"] } },
+    { "id": "raceTable", "label": "Race table file", "runsIn": "build output", "source": { "paths": ["tablebase/tables/rows2.bin", "scripts/offline/pack-tables.py"] } },
+    { "id": "serviceWorker", "label": "Service worker", "runsIn": "browser service worker", "source": { "paths": ["web/src/pwa/sw.ts", "web/tooling/pwa-plugin.ts"] } }
+  ],
+  "edges": [
+    { "from": "page", "to": "board", "kind": "control", "label": "renders" },
+    { "from": "page", "to": "gameUrl", "kind": "data", "label": "game in the fragment" },
+    { "from": "page", "to": "controller", "kind": "control", "label": "moves, undo" },
+    { "from": "controller", "to": "session", "kind": "control", "label": "asks for a move" },
+    { "from": "session", "to": "workerClient", "kind": "data", "label": "request with id" },
+    { "from": "workerClient", "to": "javaEngine", "kind": "data", "label": "postMessage" },
+    { "from": "workerClient", "to": "cppEngine", "kind": "data", "label": "postMessage" },
+    { "from": "workerClient", "to": "netMcts", "kind": "data", "label": "postMessage" },
+    { "from": "tableLoader", "to": "javaEngine", "kind": "data", "label": "table bytes in init" },
+    { "from": "netMcts", "to": "netCpu", "kind": "data", "label": "batch of inputs" },
+    { "from": "netMcts", "to": "netGpu", "kind": "data", "label": "batch of inputs" },
+    { "from": "models", "to": "netMcts", "kind": "data", "label": "weights" },
+    { "from": "raceTable", "to": "tableLoader", "kind": "data", "label": "gzip, length and SHA-256 checked" },
+    { "from": "serviceWorker", "to": "page", "kind": "data", "label": "offline cache" }
+  ]
+}

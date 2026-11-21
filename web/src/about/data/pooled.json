@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "note": "Self-play with many games in flight, one device thread computes the positions of all games in batches (PooledEvaluator). Games per second for 200 simulations.",
+  "selfPlay": [
+    {
+      "net": "SMALL",
+      "evaluator": "CPU, 8 threads",
+      "gamesPerSecond": { "source": { "doc": "docs/training.md", "line": 1926 }, "value": "1.35", "runtime": "148 s" }
+    },
+    {
+      "net": "SMALL",
+      "evaluator": "GPU, 2 cohorts",
+      "gamesPerSecond": { "source": { "doc": "docs/training.md", "line": 1927 }, "values": ["2.97", "3.54", "3.26"] },
+      "deviceBusyPercent": { "source": { "doc": "docs/training.md", "line": 1927 }, "values": ["78", "96", "95"] },
+      "meanBatch": { "source": { "doc": "docs/training.md", "line": 1927 }, "value": "43.7" }
+    },
+    {
+      "net": "SMALL",
+      "evaluator": "GPU, 1 cohort",
+      "gamesPerSecond": { "source": { "doc": "docs/training.md", "line": 1928 }, "value": "3.44" },
+      "meanBatch": { "source": { "doc": "docs/training.md", "line": 1928 }, "value": "85.2" }
+    },
+    {
+      "net": "LARGE",
+      "evaluator": "CPU, 8 threads",
+      "gamesPerSecond": { "source": { "doc": "docs/training.md", "line": 1930 }, "value": "0.21", "runtime": "940 s" }
+    },
+    {
+      "net": "LARGE",
+      "evaluator": "GPU, 2 cohorts",
+      "gamesPerSecond": { "source": { "doc": "docs/training.md", "line": 1931 }, "values": ["0.90", "1.03", "1.03"] },
+      "deviceBusyPercent": { "source": { "doc": "docs/training.md", "line": 1931 }, "values": ["98", "99"] },
+      "meanBatch": { "source": { "doc": "docs/training.md", "line": 1931 }, "value": "40.7" }
+    }
+  ],
+  "gpuFeed": [
+    {
+      "device": "Apple M3 Max GPU",
+      "net": "SMALL",
+      "batch": "256",
+      "evaluationsPerSecond": { "source": { "doc": "docs/training.md", "line": 1810 }, "value": "64,500", "alternate": "81,500 in a 20 s run" }
+    },
+    {
+      "device": "Tesla T4 (CUDA)",
+      "net": "SMALL",
+      "batch": "256",
+      "evaluationsPerSecond": { "source": { "doc": "docs/cloud.md", "line": 6 }, "value": "81,633" }
+    },
+    {
+      "device": "Tesla T4 (CUDA)",
+      "net": "LARGE",
+      "batch": "256",
+      "evaluationsPerSecond": { "source": { "doc": "docs/cloud.md", "line": 6 }, "value": "19,029" }
+    }
+  ],
+  "cpuBatching": [
+    {
+      "note": "Batched leaves on the CPU cost strength (100 simulations, batch 16 against batch 1).",
+      "eloCost": { "source": { "doc": "docs/training.md", "line": 1089 }, "value": "325" }
+    }
+  ]
+}
