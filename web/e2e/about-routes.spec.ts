@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openApp, playOneExchange, plyOf, watchPageErrors } from './helpers';
 
-const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'glossary'];
+const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary'];
 
 const noOverflow = async (page: Page): Promise<void> => {
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -17,7 +17,7 @@ test('the hub keeps the About text and shows one card per topic; a card opens it
   await openApp(page, 'en', '#/about');
   await expect(page.locator('h1')).toHaveText('About');
   const cards = page.locator('.ml-learn__card a.ml-learn__link');
-  await expect(cards).toHaveCount(6);
+  await expect(cards).toHaveCount(7);
   expect(await cards.evaluateAll((links) => links.map((a) => a.getAttribute('href')))).toEqual(TOPICS.map((t) => `#/about/${t}`));
   await cards.nth(1).click();
   await expect(page).toHaveURL(/#\/about\/classical$/);
@@ -32,7 +32,7 @@ test('the hub keeps the About text and shows one card per topic; a card opens it
 test('an unknown topic shows the hub with a notice', async ({ page }) => {
   await openApp(page, 'en', '#/about/nonsense');
   await expect(page.locator('[role="status"]')).toHaveText('This page does not exist. Here is the overview instead.');
-  await expect(page.locator('.ml-learn__card')).toHaveCount(6);
+  await expect(page.locator('.ml-learn__card')).toHaveCount(7);
 });
 
 test('a section link scrolls to the section and focuses its heading; the contents list replaces the entry', async ({ page }) => {

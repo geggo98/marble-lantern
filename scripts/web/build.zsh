@@ -89,6 +89,11 @@ perl -MJSON::PP -e '
     }
   }
   die "web:build: $leaks topic catalog(s) leaked into the entry chunk\n" if $leaks;
+  # every topic of ABOUT_TOPICS (but the glossary) has a catalog with a marker in both languages, so that a new topic cannot slip past the scan
+  open my $r, "<", "src/about/routes.ts" or die "src/about/routes.ts: $!"; my $routes = do { local $/; <$r> }; close $r;
+  my ($list) = $routes =~ /ABOUT_TOPICS = \[([^\]]*)\]/ or die "web:build: no ABOUT_TOPICS in routes.ts\n";
+  my @topics = grep { $_ ne "glossary" } $list =~ /\x27([a-z]+)\x27/g;
+  die "web:build: ", scalar(@topics), " topics but $markers markers (expected two per topic)\n" unless $markers == 2 * @topics;
   print STDERR "web:build: info texts stay in the lazy chunks ($markers markers, none in dist/$entry)\n";
 '
 # Check 5: the installable app. index.html links the manifest and the apple-touch-icon under the base path, and dist/sw.js

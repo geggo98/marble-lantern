@@ -141,8 +141,12 @@ Limit: an alias resolves on `:root`. A component that forces a theme on a subtre
 | `--ml-color-focus` on `--ml-fig-panel-bg` | #5b2bd9 on #ece5d6 | 5.9 | #c2adff on #0f0d0b | 9.8 | 3 |
 | `--ml-color-focus` on `--ml-fig-accent-bg` | #5b2bd9 on #d9ece8 | 6.1 | #c2adff on #12332f | 6.9 | 3 |
 | `--ml-color-focus` on `--ml-fig-board-bg` | #5b2bd9 on #e7dcc6 | 5.5 | #c2adff on #25201b | 8.2 | 3 |
+| `--ml-code-ink` on `--ml-code-bg` | #1f1b16 on #ece5d6 | 13.6 | #f2ebdf on #0f0d0b | 16.3 | 4.5 |
+| `--ml-code-comment` on `--ml-code-bg` | #5a5246 on #ece5d6 | 6.1 | #b8ad9c on #0f0d0b | 8.7 | 4.5 |
+| `--ml-code-keyword` on `--ml-code-bg` | #0b6660 on #ece5d6 | 5.4 | #62cfc2 on #0f0d0b | 10.3 | 4.5 |
+| `--ml-code-string` on `--ml-code-bg` | #8a2a6b on #ece5d6 | 6.3 | #e58fc8 on #0f0d0b | 8.3 | 4.5 |
 
-All 41 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
+All 45 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
 
 Two fills are below 3:1 on purpose, as decoration: `--ml-fig-band` and `--ml-fig-accent-bg` against the figure background. Each has an outline in `--ml-fig-accent` that carries the shape. Do not draw either without its outline.
 

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "unit": "evaluations per second, SMALL network",
+  "note": "Figure J1. Only the three rows of group mac-run come from one run (Apple M3 Max, Metal, 2026-11-07, docs/tornado.md); the others are different runs on other machines. `needle` is the text that the cited line must contain (java-speed.test.ts checks it against the repository). The TeaVM row is a range; its dot stands at the middle of the range.",
+  "rows": [
+    { "id": "java-scalar-b1", "group": "mac-run", "kind": "java", "value": 201, "needle": "201", "source": { "doc": "docs/tornado.md", "line": 435 } },
+    { "id": "java-vec-1t", "group": "mac-run", "kind": "java", "value": 3019, "needle": "3,019", "source": { "doc": "docs/tornado.md", "line": 438 } },
+    { "id": "tornado-metal-b256", "group": "mac-run", "kind": "java", "value": 111409, "needle": "111,409", "source": { "doc": "docs/tornado.md", "line": 438 } },
+    { "id": "java-vec-avx512", "group": "other", "kind": "java", "value": 9213, "needle": "9,213", "source": { "doc": "docs/cloud.md", "line": 217 } },
+    { "id": "tornado-cuda-t4", "group": "other", "kind": "java", "value": 85222, "needle": "85,222.0", "source": { "doc": "docs/cpp-comparison.md", "line": 207 } },
+    { "id": "cpp-cuda-t4", "group": "other", "kind": "cpp", "value": 85582.5, "needle": "85,582.5", "source": { "doc": "docs/cpp-comparison.md", "line": 207 } },
+    { "id": "teavm-scalar-b1", "group": "other", "kind": "java", "value": 145, "lo": 126, "hi": 163, "needle": "126 to 163", "source": { "doc": "docs/web-ui.md", "line": 834 } },
+    { "id": "cpp-wasm-simd", "group": "other", "kind": "cpp", "value": 3100, "needle": "3,100", "source": { "doc": "docs/web-ui.md", "line": 834 } }
+  ]
+}

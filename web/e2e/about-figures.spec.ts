@@ -311,3 +311,105 @@ test('Fig. 5.4 at 820: no two x tick labels touch (m14)', async ({ page }) => {
   expect(gaps.length).toBeGreaterThan(3);
   for (const g of gaps) expect(g).toBeGreaterThanOrEqual(2);
 });
+
+// ---- topic 6 (java): the speed chart J1 and the code snippets ----
+
+for (const lang of ['en', 'de'] as const) {
+  test(`Fig. 6.1 at 320: no sideways scroll, the plot fits, the switch and the chips have 44 px targets, the list is numbered like the ticks (${lang})`, async ({ page }) => {
+    await open(page, 'java', 'fig-javaspeed', PHONE, lang);
+    const m = await page.evaluate(() => {
+      const fig = document.querySelector<HTMLElement>('#fig-javaspeed')!;
+      const se = document.scrollingElement!;
+      const svg = fig.querySelector<SVGSVGElement>('svg.ml-fig-plot')!;
+      const r = svg.getBoundingClientRect();
+      const targets = [...fig.querySelectorAll<HTMLElement>('.ml-fig-seg__opt, .ml-fig-chip')].map((e) => e.getBoundingClientRect().height);
+      return {
+        page: se.scrollWidth - se.clientWidth,
+        frame: fig.scrollWidth - fig.clientWidth,
+        plotRight: r.right,
+        viewport: window.innerWidth,
+        scale: r.width / svg.viewBox.baseVal.width,
+        targets,
+        rows: fig.querySelectorAll('[data-row]').length,
+        ticks: fig.querySelectorAll('.ml-fig-plot__catlabel').length,
+        labels: fig.querySelectorAll('.ml-fig-plot__value').length,
+      };
+    });
+    expect(m.page, 'page scroll').toBeLessThanOrEqual(0);
+    expect(m.frame, 'figure frame scroll').toBeLessThanOrEqual(0);
+    expect(m.plotRight).toBeLessThanOrEqual(m.viewport);
+    expect(m.scale, 'one unit is about one pixel in the compact plot').toBeGreaterThan(0.9);
+    expect(m.scale).toBeLessThan(1.1);
+    expect(m.labels, 'no value labels on the plot at 320 px (the list carries the values)').toBe(0);
+    for (const h of m.targets) expect(h).toBeGreaterThanOrEqual(43.4);
+    expect(m.rows).toBe(m.ticks);
+    // the switch adds the two C++ rows
+    await page.locator('#fig-javaspeed .ml-fig-seg__opt').nth(1).click();
+    expect(await page.locator('#fig-javaspeed [data-row]').count()).toBe(8);
+    expect(await page.locator('#fig-javaspeed .ml-fig-plot__catlabel').count()).toBe(8);
+    expect(await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth)).toBeLessThanOrEqual(0);
+  });
+
+  test(`code snippets at 320: the block scrolls inside its frame, the page does not, the copy button is 44 px and answers (${lang})`, async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => undefined); // Firefox has no such permission; the fallback path then answers
+    await page.setViewportSize(PHONE);
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+    await openApp(page, lang, '#/about/java');
+    const snippet = page.locator('figure.ml-code[data-snippet="hgen"]'); // the widest line of the page: one 200-character line
+    await snippet.scrollIntoViewIfNeeded();
+    await expect(snippet).toBeVisible();
+    const m = await snippet.evaluate((el) => {
+      const pre = el.querySelector('pre')!;
+      const se = document.scrollingElement!;
+      const b = el.querySelector('button')!.getBoundingClientRect();
+      return {
+        page: se.scrollWidth - se.clientWidth,
+        frame: el.scrollWidth - (el as HTMLElement).clientWidth,
+        preScrolls: pre.scrollWidth > pre.clientWidth,
+        preRight: pre.getBoundingClientRect().right,
+        viewport: window.innerWidth,
+        w: b.width,
+        h: b.height,
+      };
+    });
+    expect(m.page, 'page scroll').toBeLessThanOrEqual(0);
+    expect(m.frame, 'frame scroll').toBeLessThanOrEqual(0);
+    expect(m.preScrolls, 'the long line scrolls inside the block').toBe(true);
+    expect(m.preRight).toBeLessThanOrEqual(m.viewport);
+    expect(m.w).toBeGreaterThanOrEqual(43.4);
+    expect(m.h).toBeGreaterThanOrEqual(43.4);
+    // every snippet frame of the page stays inside the viewport
+    const wide = await page.evaluate(() => [...document.querySelectorAll('figure.ml-code')].filter((f) => f.getBoundingClientRect().right > window.innerWidth + 0.5).map((f) => f.getAttribute('data-snippet')));
+    expect(wide).toEqual([]);
+    await snippet.locator('button').click();
+    await expect(snippet.locator('[role="status"]')).not.toHaveText(''); // "Copied" or the failure message, never silence
+  });
+}
+
+test('code snippets: keywords, strings and plain text differ in colour and reach 4.5 : 1 on the block in both themes', async ({ page }) => {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.setViewportSize(TABLET);
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await openApp(page, 'en', '#/about/java');
+    const snippet = page.locator('figure.ml-code[data-snippet="e1"]');
+    await snippet.scrollIntoViewIfNeeded();
+    const colours = await snippet.evaluate((el) => {
+      const rgb = (c: string): [number, number, number] => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number) as [number, number, number];
+      const lum = ([r, g, b]: [number, number, number]): number => {
+        const f = (v: number): number => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const bg = rgb(getComputedStyle(el.querySelector('pre')!).backgroundColor);
+      const of = (selector: string): number => {
+        const fg = rgb(getComputedStyle(el.querySelector(selector)!).color);
+        const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a) as [number, number];
+        return (hi + 0.05) / (lo + 0.05);
+      };
+      return { kw: of('.ml-code__kw'), string: of('.ml-code__string'), plain: of('pre code'), keywordColour: getComputedStyle(el.querySelector('.ml-code__kw')!).color, plainColour: getComputedStyle(el.querySelector('pre code')!).color };
+    });
+    expect(colours.kw, `keyword contrast, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+    expect(colours.string, `string contrast, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+    expect(colours.plain, `plain contrast, ${scheme}`).toBeGreaterThanOrEqual(4.5);
+    expect(colours.keywordColour).not.toBe(colours.plainColour);
+  }
+});

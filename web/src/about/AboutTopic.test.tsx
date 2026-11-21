@@ -203,7 +203,7 @@ describe('AboutTopic: the page', () => {
     expect(q('a[rel="prev"]')).toBeNull();
     expect(q('a[rel="next"]')?.getAttribute('href')).toBe('#/about/classical');
     await show('glossary');
-    expect(q('a[rel="prev"]')?.getAttribute('href')).toBe('#/about/tuning');
+    expect(q('a[rel="prev"]')?.getAttribute('href')).toBe('#/about/java');
     expect(q('a[rel="next"]')).toBeNull();
   });
 

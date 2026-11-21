@@ -90,9 +90,9 @@ function tableRows(): Row[] {
 const rows = tableRows();
 
 describe('contrast of the figure tokens', () => {
-  it('reads the whole table of the design notes (41 pairs; the notes say "All 41 pairs")', () => {
-    expect(rows).toHaveLength(41);
-    expect(rows.filter((r) => r.needed === 4.5)).toHaveLength(9); // the text pairs
+  it('reads the whole table of the design notes (45 pairs; the notes say "All 45 pairs")', () => {
+    expect(rows).toHaveLength(45);
+    expect(rows.filter((r) => r.needed === 4.5)).toHaveLength(13); // the text pairs
     expect(rows.filter((r) => r.needed === 3)).toHaveLength(32); // the graphic pairs
   });
 

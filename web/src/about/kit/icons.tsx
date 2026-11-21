@@ -1,6 +1,6 @@
 // The icons of the figure kit (design notes, section 6, "Other page parts"): 24 unit grid, stroke 1.8, drawn inline so that the kit
 // does not depend on the id list of the shared sprite. Decorative: the button or link that holds an icon carries the name.
-export type IconName = 'play' | 'pause' | 'reset' | 'step-back' | 'step-fwd' | 'check' | 'code' | 'data' | 'clock' | 'ext' | 'close' | 'chev' | 'down';
+export type IconName = 'play' | 'pause' | 'reset' | 'step-back' | 'step-fwd' | 'check' | 'code' | 'data' | 'clock' | 'ext' | 'close' | 'chev' | 'down' | 'copy';
 
 const PATHS: Record<IconName, React.JSX.Element> = {
   play: <path d="M8 5l11 7-11 7z" />,
@@ -14,6 +14,12 @@ const PATHS: Record<IconName, React.JSX.Element> = {
   'step-back': <path d="M17 5 8 12l9 7zM6 5v14" />,
   'step-fwd': <path d="M7 5l9 7-9 7zM18 5v14" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  copy: (
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+    </>
+  ),
   code: <path d="M9 7 4 12l5 5M15 7l5 5-5 5" />,
   data: <path d="M9 4C7 4 7 6 7 8s0 4-2 4c2 0 2 2 2 4s0 4 2 4M15 4c2 0 2 2 2 4s0 4 2 4c-2 0-2 2-2 4s0 4-2 4" />,
   clock: (

@@ -18,17 +18,23 @@ describe('parseHash: the About screen and its sub-routes', () => {
     expect(parseHash('#/about/classical/')).toEqual({ kind: 'screen', screen: 'about', topic: 'classical' });
   });
 
-  it.each(['architecture', 'classical', 'inference', 'training', 'tuning', 'glossary'])('knows the topic %s', (topic) => {
+  it.each(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary'])('knows the topic %s', (topic) => {
     expect(parseHash(`#/about/${topic}`)).toEqual({ kind: 'screen', screen: 'about', topic });
   });
 
-  it('lists exactly the six topics of the plan, in order', () => {
-    expect([...ABOUT_TOPICS]).toEqual(['architecture', 'classical', 'inference', 'training', 'tuning', 'glossary']);
+  it('lists the six topics and the glossary, in order (java sits before the glossary)', () => {
+    expect([...ABOUT_TOPICS]).toEqual(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary']);
   });
 
   it('reads the section of a topic', () => {
     expect(parseHash('#/about/classical/alpha-beta')).toEqual({ kind: 'screen', screen: 'about', topic: 'classical', section: 'alpha-beta' });
     expect(parseHash('#/about/glossary/node-budget')).toEqual({ kind: 'screen', screen: 'about', topic: 'glossary', section: 'node-budget' });
+  });
+
+  it('reads the java topic and its sections (the hilla section included)', () => {
+    expect(parseHash('#/about/java')).toEqual({ kind: 'screen', screen: 'about', topic: 'java' });
+    expect(parseHash('#/about/java/hilla')).toEqual({ kind: 'screen', screen: 'about', topic: 'java', section: 'hilla' });
+    expect(parseHash('#/about/java/vector-api')).toEqual({ kind: 'screen', screen: 'about', topic: 'java', section: 'vector-api' });
   });
 
   it('shows the hub with a notice for an unknown topic', () => {
