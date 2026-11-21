@@ -46,7 +46,8 @@ import sternhalma.nn.ResidualPriors;
 import sternhalma.nn.Tensor;
 
 /**
- * Generates and verifies the JSON data files of the About figures ({@code web/src/about/data/}, plan 6.3).
+ * Generates and verifies the JSON data files of the About figures ({@code web/src/about/data/}, plan 6.3), and one
+ * fixture of the TypeScript net tests ({@code web/src/engines/net/testdata/forward-mover1.json}).
  *
  * <p><b>Modes.</b> By default (CI) the test regenerates every file in memory and compares it with the committed
  * file: integers exactly, floating-point numbers within 1e-4. With {@code -Dexplainer.write=true} (Gradle:
@@ -340,6 +341,24 @@ class ExplainerDataTest {
         check("forward-race.json", forwardFile("race", race.position, race.history.size()));
     }
 
+    /**
+     * A forward golden with player 1 to move, so that the board is rotated for the network. It is a test fixture of the
+     * TypeScript reference forward pass ({@code web/src/engines/net/reference-forward.test.ts}), not Info data, and it
+     * carries the history so that the test can encode the position with the real net facade.
+     */
+    @Test
+    void forwardMover1() throws IOException {
+        Fixtures.Game game = Fixtures.mover1();
+        assertEquals(1, game.position.sideToMove(), "player 1 to move, so the board is rotated for the network");
+        Map<String, Object> file = forwardFile("mover1", game.position, game.history.size());
+        List<Object> history = new ArrayList<>();
+        for (int m : game.history) {
+            history.add(move(m));
+        }
+        file.put("history", history);
+        check(testDataDir(), "forward-mover1.json", file);
+    }
+
     @Test
     void mctsMid() throws IOException {
         Fixtures.Game game = Fixtures.mid();
@@ -481,16 +500,25 @@ class ExplainerDataTest {
         return repoRoot().resolve("web/src/about/data");
     }
 
+    /** Fixtures of the TypeScript tests of the net engine. */
+    private static Path testDataDir() {
+        return repoRoot().resolve("web/src/engines/net/testdata");
+    }
+
     private static Path modelsDir() {
         return repoRoot().resolve("web/models");
     }
 
     /** Writes the file (write mode) or compares the regenerated file with the committed one. */
     private static void check(String name, Map<String, Object> data) throws IOException {
+        check(dataDir(), name, data);
+    }
+
+    private static void check(Path dir, String name, Map<String, Object> data) throws IOException {
         String text = Json.write(data);
-        Path file = dataDir().resolve(name);
+        Path file = dir.resolve(name);
         if (WRITE) {
-            Files.createDirectories(dataDir());
+            Files.createDirectories(dir);
             Path tmp = file.resolveSibling(name + ".tmp");
             Files.writeString(tmp, text, StandardCharsets.UTF_8);
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -1005,6 +1033,7 @@ class ExplainerDataTest {
 
         private static Game mid;
         private static Game race;
+        private static Game mover1;
         private static final Map<String, Model> MODELS = new LinkedHashMap<>();
 
         /** 30 plies of ab:eval=distance,nodes=2000 against itself (classical algorithm, section 6.3). */
@@ -1013,6 +1042,14 @@ class ExplainerDataTest {
                 mid = play(30, false);
             }
             return mid;
+        }
+
+        /** The position one ply after {@link #mid()} in the same self-play game: player 1 to move. */
+        static Game mover1() {
+            if (mover1 == null) {
+                mover1 = play(31, false);
+            }
+            return mover1;
         }
 
         /**
