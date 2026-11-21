@@ -20,7 +20,13 @@ export interface FigureProps {
   /** Control panel: `<Manipulate>`. */
   panel?: ReactNode;
   /** The narration line. Give it as soon as the figure has steps, so that the live region exists before it changes. */
-  status?: { step?: string; text: string; all?: readonly StatusLine[] };
+  status?: {
+    step?: string;
+    text: string;
+    all?: readonly StatusLine[];
+    /** False switches the live region off (`aria-live="off"`), for example while a playback runs; the default is true (`polite`). */
+    live?: boolean;
+  };
   /** The plot, board or diagram, then legend and readouts. */
   children: ReactNode;
   /** Two columns (20rem and the rest) from the figure breakpoint. */
@@ -50,7 +56,7 @@ export function Figure({ id, labelWord, number, title, panel, status, children, 
       {panel}
       {status && (
         <div className="ml-fig__status">
-          <div className="ml-fig__status-line" role="status" aria-live="polite">
+          <div className="ml-fig__status-line" role="status" aria-live={status.live === false ? 'off' : 'polite'}>
             {status.step && <span className="ml-fig__step">{status.step}</span>}
             <span>{status.text}</span>
           </div>

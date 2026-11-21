@@ -132,6 +132,21 @@ describe('Figure', () => {
     expect(ghosts.map((g) => g.textContent)).toEqual(['short', 'Step 2 of 2a much longer sentence']);
   });
 
+  it('switches the live region off with live: false and keeps it polite by default', async () => {
+    await render(
+      <Figure id="f" title="T" status={{ text: 'now', live: false }}>
+        <p>stage</p>
+      </Figure>,
+    );
+    expect(host.querySelector('[role="status"]')?.getAttribute('aria-live')).toBe('off');
+    await render(
+      <Figure id="f" title="T" status={{ text: 'now' }}>
+        <p>stage</p>
+      </Figure>,
+    );
+    expect(host.querySelector('[role="status"]')?.getAttribute('aria-live')).toBe('polite');
+  });
+
   it('shows no ghost lines when the figure gives only the current narration', async () => {
     await render(
       <Figure id="f" title="T" status={{ text: 'now' }}>

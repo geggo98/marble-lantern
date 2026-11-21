@@ -579,6 +579,26 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       expect(q('[data-ab-announce]').textContent).toContain('231 of the 3,180');
     });
 
+    it('a jump by hand to the last step during the playback is announced by the narration only, not a second time by the hidden region', async () => {
+      vi.useFakeTimers();
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      click(byLabel('Play'));
+      await act(async () => vi.advanceTimersByTime(1300));
+      setRange(scrub(), 68);
+      expect(pos()).toContain('68 / 68');
+      expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
+      expect(q('[role="status"]').textContent).toContain('231 of the 3,180');
+      expect(q('[data-ab-announce]').textContent).toBe('');
+    });
+
+    it('the status area holds every narration of the example as hidden ghosts, so that its height does not depend on the step', async () => {
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      const ghosts = [...host.querySelectorAll('.ml-fig__status-line--ghost')].map((g) => g.textContent ?? '');
+      expect(ghosts.length).toBeGreaterThanOrEqual(5); // idle, first, best, cut, result at the least
+      expect(ghosts.some((g) => g.includes('231 of the 3,180'))).toBe(true); // the result
+      expect(ghosts.some((g) => g.includes('are skipped'))).toBe(true); // a cut-off
+    });
+
     it('stepping by hand or switching the example stops it', async () => {
       vi.useFakeTimers();
       await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);

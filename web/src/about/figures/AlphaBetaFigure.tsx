@@ -17,6 +17,7 @@ import {
   stepperReducer,
   useMeasuredWidth,
 } from '../kit';
+import type { StatusLine } from '../kit/Figure';
 import { Markup } from '../kit/markup';
 import { cellPoint } from '../../ui/board-model';
 import { useMediaQuery } from '../../ui/useMedia';
@@ -75,12 +76,17 @@ function useAbStepper(data: AbData) {
   const [state, dispatch] = useReducer(stepperReducer, undefined, () => initialStepper(stepCount(data), !reduced));
   useEffect(() => dispatch({ type: 'canPlay', value: !reduced }), [reduced]);
   const { playing, step } = state;
+  /** True when the last step came from the clock of the playback and not from a hand (the announcement tells the two apart). */
+  const ticked = useRef(false);
   useEffect(() => {
     if (!playing) return undefined;
-    const id = setTimeout(() => dispatch({ type: 'tick' }), stepDelayMs(data, step));
+    const id = setTimeout(() => {
+      ticked.current = true;
+      dispatch({ type: 'tick' });
+    }, stepDelayMs(data, step));
     return () => clearTimeout(id);
   }, [playing, step, data]);
-  return { state, dispatch };
+  return { state, dispatch, ticked };
 }
 
 export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): React.JSX.Element {
@@ -88,7 +94,7 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
   const { t, kit, n } = f;
   const [example, setExample] = useState<AbExample>('mid');
   const data = EXAMPLES[example].data;
-  const { state, dispatch } = useAbStepper(data);
+  const { state, dispatch, ticked } = useAbStepper(data);
   const step = state.step;
   const holder = useRef<HTMLDivElement>(null);
   const width = useMeasuredWidth(holder, '.ml-fig');
@@ -132,20 +138,21 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
     return () => figure.removeEventListener('keydown', onKey);
   }, [dispatch]);
 
-  // While the playback runs the narration is not announced; when it stops, the current step is announced once (spec, section 6).
+  // While the playback runs the narration is not announced (the live prop of the status is false); when it stops, the current step is announced
+  // once (spec, section 6): a pause by the pause button, or the end that the clock of the playback reached. A jump by hand during the playback
+  // (End, the scrubber) is announced by the narration itself, so the announcement below stays silent then, else it would be read twice.
   const [announce, setAnnounce] = useState('');
   const previous = useRef({ playing: false, step });
   const nar = narration(data, step, n);
   const narText = f.plain(`fig.ab.narr.${nar.key}`, nar.values);
   useEffect(() => {
-    const status = holder.current?.closest('figure')?.querySelector('[role="status"]');
-    status?.setAttribute('aria-live', state.playing ? 'off' : 'polite');
     const was = previous.current;
-    // A pause, or the end of the playback, announces the current step once; a step by hand is announced by the narration itself.
-    if (was.playing && !state.playing && (step === was.step || step === total)) setAnnounce(narText);
+    const byClock = ticked.current;
+    ticked.current = false;
+    if (was.playing && !state.playing && (step === was.step || (step === total && byClock))) setAnnounce(narText);
     else if (state.playing || was.step !== step) setAnnounce('');
     previous.current = { playing: state.playing, step };
-  }, [state.playing, step, total, narText]);
+  }, [state.playing, step, total, narText, ticked]);
 
   const move = moveAt(data, step);
   const verdict = verdictAt(data, step);
@@ -159,7 +166,20 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
   const O = overviewLayout(data, compact);
   const G = gaugeLayout(data, compact);
 
-  const status = { step: f.kit('kit.stepper.step', { k: step, n: total }), text: narText };
+  // Every narration of the example in this language (every step), so that the status area keeps the height of the longest one (kit: status.all).
+  const stepLabel = (k: number): string => f.kit('kit.stepper.step', { k, n: total });
+  const allNarrations: StatusLine[] = [];
+  const seenText = new Set<string>();
+  for (let k = 0; k <= total; k++) {
+    const nk = narration(data, k, n);
+    const line = { step: stepLabel(k), text: f.plain(`fig.ab.narr.${nk.key}`, nk.values) };
+    const key = `${line.step.length}|${line.text}`;
+    if (!seenText.has(key)) {
+      seenText.add(key);
+      allNarrations.push(line);
+    }
+  }
+  const status = { step: stepLabel(step), text: narText, all: allNarrations, live: !state.playing };
   const sideA = cellsOf(data, 0);
   const sideB = cellsOf(data, 1);
 

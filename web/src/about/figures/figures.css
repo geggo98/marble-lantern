@@ -414,3 +414,8 @@
 @container ml-fig (min-width: 40rem) { #fig-tree .ml-fig__stage--split { grid-template-columns: minmax(24rem, 3fr) minmax(0, 2fr); } }
 /* a number that must not break across lines, such as a rate 1,6 · 10⁻⁴ in Fig. 4.1 (browsers break after the superscript minus) */
 .ml-fig-nowrap { white-space: nowrap; }
+/* On a narrow figure (a phone at 320 px) the labels of the readout cells wrap onto two reserved lines instead of being cut off with an ellipsis. */
+@container ml-fig (max-width: 26rem) {
+  .ml-fig-ab2__read > div { grid-template-rows: 2.5em 1.5em; }
+  .ml-fig-ab2__read dt { white-space: normal; line-height: 1.25; text-overflow: clip; }
+}
