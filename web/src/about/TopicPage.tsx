@@ -138,7 +138,7 @@ export function TopicPage({ topic, section, onJumpSection, def }: TopicPageProps
     </nav>
   ) : (
     <nav className="ml-about__toc" aria-label={c('toc')}>
-      <details open>
+      <details>
         <summary>{c('toc')}</summary>
         {list}
       </details>

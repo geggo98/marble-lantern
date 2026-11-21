@@ -185,9 +185,14 @@ async function tabThrough(page: Page): Promise<{ stops: FocusStop[]; expected: n
     const start = document.querySelector<HTMLElement>('.ml-about__crumb') ?? document.querySelector<HTMLElement>('h1');
     if (start && start.tabIndex < 0) start.setAttribute('tabindex', '-1'); // the hub's h1 is no focus target; make it a start point only
     start?.focus();
+    // the links of a closed <details> (the "On this page" list below 60rem) are no tab stops; its summary is
+    const inClosedDetails = (e: HTMLElement): boolean => {
+      const d = e.closest('details');
+      return d !== null && !d.open && !e.closest('summary');
+    };
     const tabbable = Array.from(document.querySelectorAll<HTMLElement>('main a[href], main button, main input, main select, main summary, main [tabindex]')).filter((e) => {
       const r = e.getBoundingClientRect();
-      return e.tabIndex >= 0 && (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden' && !(e as HTMLInputElement).disabled && !e.closest('[inert]');
+      return e.tabIndex >= 0 && (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden' && !(e as HTMLInputElement).disabled && !e.closest('[inert]') && !inClosedDetails(e);
     });
     // a radio group is one tab stop, however many radios it has
     const radios = new Set<string>();
@@ -270,6 +275,9 @@ test.describe('about matrix (reduced motion)', () => {
         const o = await probeOverflow(page);
         expect(o.page, 'horizontal scroll of the page').toBeLessThanOrEqual(0);
         expect(o.frames, 'figure frames that scroll horizontally').toEqual([]);
+
+        const raw = await page.evaluate(() => /\{(sec|term|src|n):/.exec(document.body.innerText)?.[0] ?? null);
+        expect(raw, 'raw catalog markup in the rendered page').toBeNull();
 
         const names = await probeNames(page);
         expect(names.seen, 'the probe saw controls').toBeGreaterThan(0);

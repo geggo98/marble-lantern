@@ -26,7 +26,7 @@
 .ml-fig-reading__note { font-size: var(--ml-text-sm); }
 
 /* ===== Figure: the framed cell ===== */
-.ml-fig { container: ml-fig / inline-size; margin: 0; min-width: 0; border: var(--ml-border) solid var(--ml-fig-border); border-radius: var(--ml-fig-radius); background: var(--ml-fig-bg); overflow: hidden; }
+.ml-fig { container: ml-fig / inline-size; margin: 0; min-width: 0; border: var(--ml-border) solid var(--ml-fig-border); border-radius: var(--ml-fig-radius); background: var(--ml-fig-bg); overflow: clip; }
 @container ml-fig (min-width: 40rem) { .ml-fig > * { --ml-fig-pad: var(--ml-fig-pad-wide); } }
 .ml-fig__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--ml-space-3); padding: var(--ml-space-3) var(--ml-fig-pad) var(--ml-space-2); }
 .ml-fig__label { color: var(--ml-color-ink-muted); font: var(--ml-weight-medium) var(--ml-text-xs)/1.5 var(--ml-font-data); letter-spacing: 0.04em; white-space: nowrap; }
@@ -34,8 +34,8 @@
 .ml-fig__stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-3); padding: var(--ml-space-3) var(--ml-fig-pad); min-width: 0; }
 .ml-fig__stage svg { display: block; width: 100%; height: auto; }
 @container ml-fig (min-width: 40rem) { .ml-fig__stage--split { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); align-items: start; gap: var(--ml-space-4); } }
-.ml-fig__status { display: flex; align-items: baseline; gap: var(--ml-space-2); min-height: 3.5rem; margin: var(--ml-space-3) var(--ml-fig-pad) 0; padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-sm); background: var(--ml-color-info-bg); font-size: var(--ml-text-sm); }
-.ml-fig__step { flex: none; font: var(--ml-weight-bold) var(--ml-text-xs)/1.75 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-fig__status { display: block; align-items: baseline; gap: var(--ml-space-2); min-height: 3.5rem; margin: var(--ml-space-3) var(--ml-fig-pad) 0; padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-sm); background: var(--ml-color-info-bg); font-size: var(--ml-text-sm); }
+.ml-fig__step { display: block; flex: none; font: var(--ml-weight-bold) var(--ml-text-xs)/1.75 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ml-fig__caption { max-width: 44rem; padding: 0 var(--ml-fig-pad) var(--ml-space-2); color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); }
 .ml-fig__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--ml-space-2); padding: 0 var(--ml-fig-pad); border-top: var(--ml-border) solid var(--ml-color-line); }
 .ml-fig__detail { position: relative; display: grid; gap: var(--ml-space-2); margin: 0 var(--ml-fig-pad) var(--ml-space-3); padding: var(--ml-space-3); border: var(--ml-border) solid var(--ml-fig-mark); border-inline-start-width: 4px; border-radius: var(--ml-radius-sm); }
@@ -44,6 +44,19 @@
 .ml-fig__detail-close { position: absolute; top: 0; inset-inline-end: 0; }
 .ml-fig__detail-chips { display: flex; flex-wrap: wrap; gap: 0 var(--ml-space-2); }
 
+/* M3: in the compact layout the step label stands on its own line above the sentence; two columns only from the figure breakpoint */
+@container ml-fig (min-width: 40rem) { .ml-fig__status { display: flex; } .ml-fig__step { display: inline; } }
+/* M2: in the compact layout the row with the step controls stays on screen while the reader scrolls through the stage that it changes (not in a
+   landscape phone, where it would fill the screen). The panel is boxless there, so that the row sticks to the figure, not to the panel; the
+   rows keep the look of the panel. */
+@media (min-height: 30rem) {
+  @container ml-fig (max-width: 39.99rem) {
+    .ml-fig__panel:has(.ml-fig-stepper) { display: contents; }
+    .ml-fig__panel:has(.ml-fig-stepper) > * { padding: var(--ml-space-2) var(--ml-fig-pad); background: var(--ml-fig-panel-bg); border-block-start: var(--ml-border) solid var(--ml-color-line); }
+    .ml-fig__panel:has(.ml-fig-stepper) > :last-child { border-block-end: var(--ml-border) solid var(--ml-color-line); }
+    .ml-fig__panel:has(.ml-fig-stepper) > .ml-fig-ctl:has(.ml-fig-stepper) { position: sticky; top: 0; z-index: 2; border-block-end: var(--ml-border) solid var(--ml-color-line); }
+  }
+}
 /* ===== Manipulate: the control panel ===== */
 .ml-fig__panel { display: grid; gap: var(--ml-space-2); padding: var(--ml-space-2) var(--ml-fig-pad); border-block: var(--ml-border) solid var(--ml-color-line); background: var(--ml-fig-panel-bg); }
 .ml-fig-ctl { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 var(--ml-space-3); min-width: 0; }
@@ -72,6 +85,9 @@
 .ml-fig-seg__opt:has(input:checked) { background: var(--ml-color-primary); color: var(--ml-color-on-primary); font-weight: var(--ml-weight-bold); }
 .ml-fig-seg__opt:has(input:focus-visible), .ml-fig-seg__opt.is-focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
 
+/* M14: a segmented switch of three or more options that does not fit one row becomes equal rows, never 2 + 1 */
+@container ml-fig (max-width: 22rem) { .ml-fig-seg:has(> :nth-child(3)) { display: grid; grid-template-columns: minmax(0, 1fr); } }
+
 .ml-fig-presets { display: flex; flex-wrap: wrap; gap: var(--ml-space-2); }
 .ml-fig-presets .ml-btn { background: var(--ml-fig-bg); }
 .ml-fig-presets .ml-btn .ml-icon { display: none; width: 1rem; height: 1rem; stroke-width: 2.4; }
@@ -91,6 +107,8 @@
 /* legend: shared by plots, boards and diagrams */
 .ml-fig-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-1) var(--ml-space-4); color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
 .ml-fig-legend__item { display: inline-flex; align-items: center; gap: 0.375rem; }
+/* m6: a glyph and its word stay together */
+.ml-fig-legend__item:not(:has(.ml-fig-legend__ramp)) { white-space: nowrap; }
 .ml-fig-legend__item svg { flex: none; width: 2rem; height: 1rem; overflow: visible; }
 .ml-fig-legend__item svg.ml-fig-legend__ramp { width: 6rem; }
 

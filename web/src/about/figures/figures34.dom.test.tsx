@@ -169,6 +169,19 @@ describe('V9a, the layers of the network', () => {
     expect(Number(text(all('.ml-fig-readout__value')[1]))).toBeLessThan(6);
     expect(text(host)).toContain('Padding row');
   });
+  it('a native select reaches every one of the 121 cells (the board cells are far below 44 px on a phone) and moves the same state as the board', async () => {
+    await render(<NetFigure />);
+    const select = control<HTMLSelectElement>('Pick a cell');
+    expect(select.tagName).toBe('SELECT');
+    expect(select.options).toHaveLength(121); // the Sternhalma board has 121 holes
+    expect(select.value).toBe('60');
+    setValue(select, 0);
+    expect(q<SVGElement>('[data-cell][tabindex="0"]').getAttribute('data-cell')).toBe('0');
+    expect(select.value).toBe('0');
+    const readout = text(q('.ml-fig-readout'));
+    expect(readout).not.toContain('I5');
+    expect(Number(text(all('.ml-fig-readout__value')[1]))).toBeLessThan(6);
+  });
   it('the focused cell is a disc of level 5 and its neighbours discs of level 2', async () => {
     await render(<NetFigure />);
     expect(all('svg.ml-fig-board [data-level="5"]')).toHaveLength(1);

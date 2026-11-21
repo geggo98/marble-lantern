@@ -281,7 +281,7 @@ describe('AboutScreen: the hub', () => {
   it('keeps today\'s content in its order and adds one card per topic below it', async () => {
     await act(async () => root.render(<AboutScreen />));
     const order = [...host.querySelectorAll('main > *')].map((e) => e.tagName + (e.className ? `.${String(e.className).split(' ')[0]}` : ''));
-    expect(order).toEqual(['DIV', 'DIV.ml-prose', 'SECTION', 'DIV.ml-links', 'SECTION.ml-learn']);
+    expect(order).toEqual(['DIV.ml-hub__head', 'DIV.ml-prose', 'SECTION', 'DIV.ml-links', 'SECTION.ml-learn']);
     const cards = [...host.querySelectorAll<HTMLAnchorElement>('.ml-learn__card a.ml-learn__link')];
     expect(cards.map((a) => a.getAttribute('href'))).toEqual(ABOUT_TOPICS.map((t) => `#/about/${t}`));
     expect(cards[1]!.textContent).toBe('The classical algorithm');

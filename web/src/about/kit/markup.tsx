@@ -1,7 +1,7 @@
 // The inline markup of catalog strings (plan section 1.6), parsed into React nodes. Never innerHTML.
 //   {term:alpha-beta} or {term:alpha-beta|alpha-beta pruning}   a glossary term (id, optional visible text)
 //   {src:search/src/main/java/sternhalma/search/AlphaBeta.java} a source chip
-//   {sec:classical/alpha-beta|text}                             a link to a section of a topic
+//   {sec:classical/alpha-beta|text}                             a link to a section of a topic (the text may hold `code`)
 //   {n:20000}                                                   a number in the active language
 //   `code`                                                      inline code
 // Nesting is refused: a token body holds no `{`, `}` or backtick, so `{term:a|{n:1}}` is not a term. A malformed or unknown token
@@ -23,7 +23,8 @@ export type MarkupNode =
   | { type: 'sec'; topic: AboutTopic; section: string; text?: string }
   | { type: 'n'; value: number };
 
-const TOKEN = /`(?<code>[^`]+)`|\{(?<kind>[A-Za-z]+):(?<body>[^{}`]*)\}/g;
+// A section link may hold `code` in its text ("{sec:inference/mcts|how MCTS uses `c`}"); every other token body holds no backtick.
+const TOKEN = /`(?<code>[^`]+)`|\{(?<kind>sec):(?<secBody>[^{}]*)\}|\{(?<other>[A-Za-z]+):(?<body>[^{}`]*)\}/g;
 
 const warnDev = (message: string): void => {
   if (import.meta.env.DEV) console.warn(`[about markup] ${message}`);
@@ -47,7 +48,10 @@ export function parseMarkup(source: string, warn: (message: string) => void = wa
   for (const m of source.matchAll(TOKEN)) {
     text(source.slice(at, m.index));
     at = m.index + m[0].length;
-    const { code, kind, body = '' } = m.groups as { code?: string; kind?: string; body?: string };
+    const g = m.groups as { code?: string; kind?: string; secBody?: string; other?: string; body?: string };
+    const { code } = g;
+    const kind = g.kind ?? g.other;
+    const body = g.secBody ?? g.body ?? '';
     if (code !== undefined) {
       nodes.push({ type: 'code', text: code });
       continue;
@@ -76,6 +80,15 @@ export function parseMarkup(source: string, warn: (message: string) => void = wa
   return nodes;
 }
 
+/** The text of a link: plain words and `code` spans only. */
+function LinkText({ text }: { text: string }): React.JSX.Element {
+  return (
+    <>
+      {text.split('`').map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : <Fragment key={i}>{part}</Fragment>))}
+    </>
+  );
+}
+
 export function Markup({ text }: { text: string }): React.JSX.Element {
   const { n, language } = useT();
   const nodes = parseMarkup(text);
@@ -94,7 +107,7 @@ export function Markup({ text }: { text: string }): React.JSX.Element {
           case 'sec':
             return (
               <a key={i} className="ml-about-link" href={hrefForAbout(node.topic, node.section)}>
-                {node.text ?? `${node.topic}/${node.section}`}
+                {node.text === undefined ? `${node.topic}/${node.section}` : <LinkText text={node.text} />}
               </a>
             );
           case 'term':

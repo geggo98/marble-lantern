@@ -1,10 +1,11 @@
 // The benchmark screen and the about screen (design-notes.md, section 9, screens 05 and 06).
-import { useRef, useState } from 'react';
-import { Icon } from './primitives';
+import { useEffect, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
+import { Icon, prefersReducedMotion } from './primitives';
 import { REPO_URL, hrefFor, hrefForAbout } from './Chrome';
-import { AboutTopic } from '../about/AboutTopic';
 import { ABOUT_TOPICS } from '../about/routes';
 import type { AboutRoute } from '../about/routes';
+import type { TopicPageProps } from '../about/TopicPage';
 import '../about/about.css';
 import { useT } from './texts';
 import type { MemoryKind, NaCode } from '../bench/resources';
@@ -246,16 +247,64 @@ export interface AboutScreenProps extends AboutRoute {
   onJumpSection?: (section: string) => void;
 }
 
+// The shell of the topic pages (lazy topic chunks, loading line, error boundary) is a chunk of its own: it adds about 2.8 kB to the main
+// bundle if it is imported here, and it is not needed on the hub. A plain dynamic import and a state, no React.lazy, keep this loader small.
+type TopicShell = ComponentType<TopicPageProps>;
+let loadedShell: TopicShell | undefined;
+const loadShell = (): Promise<TopicShell> => import('../about/AboutTopic').then((m) => (loadedShell = m.AboutTopic));
+
+function AboutTopicLoader(props: TopicPageProps): React.JSX.Element {
+  const { t } = useT();
+  const [state, setState] = useState<{ shell: TopicShell | undefined; failed: boolean }>({ shell: loadedShell, failed: false });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (state.shell) return;
+    let live = true;
+    loadShell().then(
+      (shell) => live && setState({ shell, failed: false }),
+      () => live && setState({ shell: undefined, failed: true }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [attempt, state.shell]);
+  if (state.shell) return <state.shell {...props} />;
+  return (
+    <main className="ml-page">
+      {state.failed ? (
+        <div className="ml-alert" role="alert">
+          <Icon name="alert" />
+          <div className="ml-alert__body">
+            <p className="ml-alert__title">{t('about_learn_failed')}</p>
+            <div className="ml-alert__actions">
+              <button type="button" className="ml-btn" onClick={() => { setState({ shell: undefined, failed: false }); setAttempt(attempt + 1); }}>{t('about_learn_retry')}</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="ml-hint" role="status">{t('about_learn_loading')}</p>
+      )}
+    </main>
+  );
+}
+
 /** The hub (today's About content, then the topic cards), or a topic page when the route names one. */
 export function AboutScreen({ topic, section, notFound = false, onJumpSection }: AboutScreenProps = {}): React.JSX.Element {
   const { t } = useT();
-  if (topic !== undefined) return <AboutTopic topic={topic} section={section} onJumpSection={onJumpSection ?? (() => undefined)} />;
+  if (topic !== undefined) return <AboutTopicLoader topic={topic} section={section} onJumpSection={onJumpSection ?? (() => undefined)} />;
   return (
     <main className="ml-page">
       {notFound && <p className="ml-hint" role="status">{t('about_notfound')}</p>}
-      <div>
+      <div className="ml-hub__head">
         <h1 className="ml-page__title">{t('about_title')}</h1>
         <p className="ml-page__lead">{t('about_lead')}</p>
+        <button
+          type="button"
+          className="ml-btn ml-hub__jump"
+          onClick={() => document.getElementById('about-learn-title')?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' })}
+        >
+          {t('about_learn_title')}
+        </button>
       </div>
       <div className="ml-prose">
         <p>{t('about_what')}</p>
@@ -298,7 +347,7 @@ export function AboutScreen({ topic, section, notFound = false, onJumpSection }:
                 <a className="ml-learn__link" href={hrefForAbout(topic)}>{t(`about_learn_${topic}_title`)}</a>
               </h3>
               <p>{t(`about_learn_${topic}_teaser`)}</p>
-              <p className="ml-kicker">{t(`about_learn_${topic}_time`)}</p>
+              <p className="ml-kicker ml-learn__time">{t(`about_learn_${topic}_time`)}</p>
             </li>
           ))}
         </ul>

@@ -9,3 +9,15 @@
 .ml-learn__link:focus-visible { outline: none; }
 .ml-learn__link:focus-visible::after { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; }
 .ml-learn__card:hover { background: var(--ml-color-surface-sunken); }
+/* hub head: title, lead and a jump to the topic cards (m3, m5) */
+.ml-hub__head { display: grid; gap: var(--ml-space-2); justify-items: start; }
+.ml-hub__head .ml-page__title { margin-bottom: 0; }
+.ml-hub__jump { margin-top: var(--ml-space-2); }
+/* m4: a chevron at the end of the reading-time line marks a card as a link */
+.ml-learn__time { display: flex; align-items: center; justify-content: space-between; gap: var(--ml-space-2); }
+.ml-learn__time::after { content: ""; flex: none; width: 0.5rem; height: 0.5rem; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: rotate(45deg); }
+/* M12: below 34rem a row of the technology table stacks, term above description, so that no word breaks */
+@media (max-width: 34rem) {
+  .ml-techlist__row { grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-1); }
+  .ml-techlist__row dd { margin: 0; overflow-wrap: normal; }
+}

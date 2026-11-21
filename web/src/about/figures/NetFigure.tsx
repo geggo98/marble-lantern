@@ -1,8 +1,9 @@
 // V9a: the layers of the network (a stack of buttons with shape and parameter count) and what one cell gathers for a hex convolution
 // (a board with a cell picker). Fig. 3.1. Layout notes: web/design/about/about-notes.md, "V9a".
 import { createElement, useId, useRef, useState } from 'react';
+import { CELLS } from '../../board/cells';
 import { cellName } from '../../ui/board-model';
-import { Chip, Figure, FigureDetail, HeatBoard, Legend, LegendItem, Manipulate, Readout, Segmented } from '../kit';
+import { Chip, Figure, FigureDetail, HeatBoard, Legend, LegendItem, Manipulate, Readout, Segmented, Select } from '../kit';
 import type { HeatCell } from '../kit';
 import { Markup } from '../kit/markup';
 import { sourceUrl } from '../kit/SourceChip';
@@ -195,6 +196,13 @@ export function NetFigure(): React.JSX.Element {
             cellLabel: (c) =>
               fig.kit('kit.board.cell', { cell: cellName(c), content: `${neighboursOf(c).length} ${fig.t('fig.net.gather.neighbours')}` }),
           }}
+        />
+        {/* the board cells are about 21 px wide on a phone; this select reaches every cell with a 44 px control */}
+        <Select
+          label={fig.t('fig.net.gather.picker')}
+          value={String(cell)}
+          onChange={(v) => setCell(Number(v))}
+          options={CELLS.map((c) => ({ value: String(c.id), label: cellName(c.id) }))}
         />
         <Legend>
           <LegendItem mark={<circle cx={16} cy={8} r={6} className="ml-fig-heat__v--5" />}>{fig.t('fig.net.gather.cell')}</LegendItem>
