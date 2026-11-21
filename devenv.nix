@@ -47,6 +47,10 @@
   tasks."agent:build" = { exec = "${config.devenv.root}/gradlew --no-build-cache build -x test"; };
   tasks."agent:test" = { exec = "${config.devenv.root}/gradlew --no-build-cache test"; };
 
+  # Writes the JSON data files of the About figures (web/src/about/data/) from the real engine and the shipped
+  # models; without this task, ExplainerDataTest only verifies the committed files (plan 6.3).
+  tasks."about:data" = { exec = "${config.devenv.root}/gradlew --no-build-cache :search:test --tests sternhalma.search.ExplainerDataTest -Pexplainer.write=true --rerun"; };
+
   # Web UI tasks (plan section 4). Each script is a stub until its work package replaces it.
   tasks."tables:pack-rows1" = { exec = "${config.devenv.root}/scripts/tables/pack-rows1.zsh"; };
   tasks."tables:unpack" = { exec = "${config.devenv.root}/scripts/tables/unpack-rows1.zsh"; };

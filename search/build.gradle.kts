@@ -26,6 +26,10 @@ dependencies {
 // than the scalar one; without the module the test is skipped.
 tasks.withType<Test>().configureEach {
     jvmArgs("--add-modules", "jdk.incubator.vector")
+    // ExplainerDataTest verifies the committed JSON files of the About figures (web/src/about/data/); with
+    // -Pexplainer.write=true it writes them instead (devenv task about:data). The property is a task input, so
+    // switching it re-runs the test; the devenv task adds --rerun for a second write with the same value.
+    providers.gradleProperty("explainer.write").orNull?.let { systemProperty("explainer.write", it) }
 }
 
 // Yardstick tools of round 2 (docs/search-and-evaluation.md, "Round 2 yardstick"). Both run in the repository

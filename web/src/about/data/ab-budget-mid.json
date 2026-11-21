@@ -1,0 +1,30 @@
+{
+  "source": {
+    "generator": "ExplainerDataTest",
+    "date": "2026-11-21",
+    "how": "AlphaBetaPlayer with Strategies.BROWSER_SPEC and AlphaBeta with linear-r3 and default options on the mid-game position of eval-mid.json; no wall times (they depend on the machine)",
+    "regenerate": "devenv task about:data (gradle -Pexplainer.write=true :search:test --tests sternhalma.search.ExplainerDataTest)"
+  },
+  "meta": {
+    "position": "mid",
+    "ply": 30,
+    "browserSpec": "ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2",
+    "plainSpec": "ab:eval=linear-r3 without enhancements (SearchOptions.DEFAULT)",
+    "levels": [1000,5000,20000,100000,500000]
+  },
+  "cells": [-1,-1,0,-1,-1,-1,-1,-1,-1,0,-1,-1,-1,-1,-1,0,-1,-1,0,-1,-1,-1,-1,-1,-1,-1,1,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,0,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,1,-1,1,1,-1,-1,0,1,-1,-1],
+  "browser": [
+    {"nodes":1000,"depth":3,"score":227,"move":{"from":15,"to":40,"text":"(1,-4)->(1,-2)"}},
+    {"nodes":5000,"depth":4,"score":188,"move":{"from":9,"to":17,"text":"(4,-5)->(3,-4)"}},
+    {"nodes":20000,"depth":6,"score":211,"move":{"from":9,"to":8,"text":"(4,-5)->(3,-5)"}},
+    {"nodes":100000,"depth":8,"score":251,"move":{"from":2,"to":5,"text":"(4,-7)->(4,-6)"}},
+    {"nodes":500000,"depth":10,"score":254,"move":{"from":2,"to":5,"text":"(4,-7)->(4,-6)"}}
+  ],
+  "plain": [
+    {"nodes":1000,"depth":2,"score":203,"move":{"from":15,"to":40,"text":"(1,-4)->(1,-2)"}},
+    {"nodes":5000,"depth":3,"score":227,"move":{"from":15,"to":40,"text":"(1,-4)->(1,-2)"}},
+    {"nodes":20000,"depth":3,"score":227,"move":{"from":15,"to":40,"text":"(1,-4)->(1,-2)"}},
+    {"nodes":100000,"depth":4,"score":158,"move":{"from":15,"to":40,"text":"(1,-4)->(1,-2)"}},
+    {"nodes":500000,"depth":5,"score":200,"move":{"from":2,"to":5,"text":"(4,-7)->(4,-6)"}}
+  ]
+}
