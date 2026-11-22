@@ -1,5 +1,5 @@
-// Which games the live figures explain: the classical figures the classic game on 4 and 5 rows, the net figures on 4 rows only, because every
-// shipped network was trained on the 4-row board.
+// Which games the live figures explain: the classic game on 4 and 5 rows, for the classical and the net figures alike (the net figures use the
+// expert network of the board size, liveModelId in mcts.ts).
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_VARIANT } from '../../game/variant';
 import type { Variant } from '../../game/variant';
@@ -22,11 +22,11 @@ describe('liveBlockedReason', () => {
     expect(liveBlockedReason(input({ ...FIVE, ranking: 'full' }), 'classical')).toBeNull();
   });
 
-  it('keeps the net figures closed on 5 rows with their own reason, and open on 4 rows', () => {
+  it('opens the net figures for the classic game on 4 and on 5 rows; a finished game or a missing net engine still blocks them', () => {
     expect(liveBlockedReason(input(DEFAULT_VARIANT), 'net')).toBeNull();
-    expect(liveBlockedReason(input(FIVE), 'net')).toBe('rows5');
-    // the 5-row reason comes before "over" and "nonet": it is the cause that holds for every position of the game
-    expect(liveBlockedReason(input(FIVE, true, null), 'net')).toBe('rows5');
+    expect(liveBlockedReason(input(FIVE), 'net')).toBeNull();
+    expect(liveBlockedReason(input(FIVE, true, null), 'net')).toBe('over');
+    expect(liveBlockedReason(input(FIVE, false, null), 'net')).toBe('nonet');
   });
 
   it('gives "variant" for every other rule on either board size, before the other reasons', () => {

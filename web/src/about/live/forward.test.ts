@@ -73,6 +73,15 @@ describe('runForwardLive', () => {
     expect(d.planes).toEqual(G.planes);
   });
 
+  it('a 5-row game runs the 5-row expert with the variant of the game', async () => {
+    let setup: unknown;
+    // the start of the 5-row board: the history of the 4-row snapshot would move into an occupied 15-cell house
+    const five = { ...snapshot, history: [], ply: 0, variant: { ...DEFAULT_VARIANT, rows: 5 as const } };
+    const engines = holder({ newGame: async (s) => void (setup = s), netForward: async () => reportOf(G) });
+    await runForwardLive(engines, five, new AbortController().signal, noReport);
+    expect(setup).toMatchObject({ model: 'small-2p-adjacent-r5-expert', variant: { jump: 'adjacent', players: 2, rows: 5 } });
+  });
+
   it('a failed model is the model error and a fallback warning too; one legal move (unsupported) stays unsupported', async () => {
     const failed = holder({ netForward: async () => { throw new EngineFailure('internal', 'failed: model: model-load-failed'); } });
     await expect(runForwardLive(failed, snapshot, new AbortController().signal, noReport)).rejects.toMatchObject({ code: 'model' });

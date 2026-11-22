@@ -220,7 +220,7 @@ describe('kit catalog', () => {
 
   it('has the same keys and the same placeholders in both languages, all filled, all under kit.', () => {
     expect(Object.keys(de).sort()).toEqual(Object.keys(en).sort());
-    expect(Object.keys(en).length).toBe(86); // 59 + the 23 keys of the live mode (kit.live.*, kit.chip.example, mine, exampleOnly) + the 4 keys of the code snippet (kit.code.*)
+    expect(Object.keys(en).length).toBe(85); // 59 + the 22 keys of the live mode (kit.live.*, kit.chip.example, mine, exampleOnly) + the 4 keys of the code snippet (kit.code.*)
     expect(Object.keys(en).filter((k) => !k.startsWith('kit.'))).toEqual([]);
     for (const k of Object.keys(en)) {
       expect(de[k], k).toBeTruthy();

@@ -15,7 +15,7 @@ import { FootChips, useCompact, useFigText } from './shared';
 import { FigFoot, originText } from './common';
 import { liveBlockedReason } from '../live/classic';
 import { useLive } from '../live/context';
-import { ALL_KS, MODEL_ID, liveRootState, liveTable, runMcts } from '../live/mcts';
+import { ALL_KS, liveModelId, liveRootState, liveTable, runMcts } from '../live/mcts';
 import type { McstLive } from '../live/mcts';
 import { liveStatusText, liveValue } from '../live/status';
 import { useLiveRun } from '../live/useLiveRun';
@@ -49,7 +49,7 @@ export function McstFigure(): React.JSX.Element {
     const snapshot = input!.snapshot; // start() does nothing without a snapshot
     const engine = await engines.net(report.progress);
     report.step(0, ALL_KS.length);
-    return runMcts(engine, snapshot.history, MODEL_ID, ALL_KS, signal, (partial, done, total) => report.step(done, total, partial));
+    return runMcts(engine, snapshot.history, liveModelId(snapshot.variant), ALL_KS, signal, (partial, done, total) => report.step(done, total, partial), snapshot.variant);
   });
   const mine = liveValue(run.state) === 'mine';
   const live: McstLive | null = !mine ? null : run.state.kind === 'done' ? run.state.value : run.state.kind === 'running' ? (run.state.partial ?? null) : null;

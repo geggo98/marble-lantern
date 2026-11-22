@@ -79,6 +79,7 @@ class ExplainerDataTest {
     private static final int INFINITY = AlphaBeta.MATE + 1;
     private static final String EXPERT = "small-2p-adjacent-expert";
     private static final String SHARED = "small-shared-all";
+    private static final String EXPERT_R5 = "small-2p-adjacent-r5-expert";
     private static final int[] BUDGETS = {1_000, 5_000, 20_000, 100_000, 500_000};
     private static final String[] PLANE_NAMES = {
         "own", "next", "third", "goal", "start", "playable", "progress", "distOwn", "distNext", "reachOwn",
@@ -568,6 +569,27 @@ class ExplainerDataTest {
         check(testDataDir(), "forward-mover1.json", file);
     }
 
+    /**
+     * A forward golden on the 5-row board with the 5-row expert, player 1 to move: the fixture of the TypeScript cross test
+     * ({@code web/src/engines/net/reference-forward.test.ts}) that pins the planes of the TeaVM net facade and the TypeScript
+     * forward pass to the JVM encoder and the scalar reference on 15-cell houses. The position comes from 41 plies of a
+     * classical self-play game on 5 rows; it carries the history, so that the test can replay it in the facade.
+     */
+    @Test
+    void forwardRows5() throws IOException {
+        Fixtures.Game game = Fixtures.rows5();
+        assertEquals(1, game.position.sideToMove(), "player 1 to move, so the board is rotated for the network");
+        assertEquals(RuleSet.TriangleRows.FIVE, game.position.rules().triangleRows(), "a 5-row position");
+        Map<String, Object> file = forwardFile("rows5", game.position, game.history.size(), EXPERT_R5);
+        List<Object> history = new ArrayList<>();
+        for (int m : game.history) {
+            history.add(move(m));
+        }
+        file.put("history", history);
+        file.put("rows", 5L);
+        check(testDataDir(), "forward-r5.json", file);
+    }
+
     @Test
     void mctsMid() throws IOException {
         Fixtures.Game game = Fixtures.mid();
@@ -936,7 +958,11 @@ class ExplainerDataTest {
     // ---- forward pass -------------------------------------------------------------------------------------------
 
     private static Map<String, Object> forwardFile(String name, Position pos, int ply) throws IOException {
-        Fixtures.Model model = Fixtures.model(EXPERT);
+        return forwardFile(name, pos, ply, EXPERT);
+    }
+
+    private static Map<String, Object> forwardFile(String name, Position pos, int ply, String modelId) throws IOException {
+        Fixtures.Model model = Fixtures.model(modelId);
         Parameters params = model.parameters;
         NetworkConfig cfg = params.config();
         Network reference = new Network(params);
@@ -998,10 +1024,10 @@ class ExplainerDataTest {
             policyList.add(entry);
         }
         return obj(
-                "source", source("scalar reference Network with the shipped expert model " + EXPERT + " (F16 widened to "
+                "source", source("scalar reference Network with the shipped expert model " + modelId + " (F16 widened to "
                         + "F32, sha256 of the inflated file " + model.sha256Raw + "); layer norms are the L2 norm over the "
                         + "32 channels of a cell after the ReLU"),
-                "meta", obj("position", name, "model", EXPERT, "ply", ply, "sideToMove", pos.sideToMove(),
+                "meta", obj("position", name, "model", modelId, "ply", ply, "sideToMove", pos.sideToMove(),
                         "canonicalRotated", pos.sideToMove() == 1,
                         "boardNote", "all arrays are indexed by board cell; the network itself reads the board rotated "
                                 + "by 180 degrees when player 1 is to move (canonicalRotated)",
@@ -1243,6 +1269,7 @@ class ExplainerDataTest {
         private static Game mid;
         private static Game race;
         private static Game mover1;
+        private static Game rows5;
         private static final Map<String, Model> MODELS = new LinkedHashMap<>();
 
         /** 30 plies of ab:eval=distance,nodes=2000 against itself (classical algorithm, section 6.3). */
@@ -1261,6 +1288,14 @@ class ExplainerDataTest {
             return mover1;
         }
 
+        /** 41 plies of ab:eval=distance,nodes=2000,rows=5 against itself on the 5-row board: player 1 to move, the houses in contact. */
+        static Game rows5() {
+            if (rows5 == null) {
+                rows5 = play(RuleSet.defaults(2, RuleSet.TriangleRows.FIVE), "ab:eval=distance,nodes=2000,rows=5", 41, false);
+            }
+            return rows5;
+        }
+
         /**
          * The first position of the same self-play game in which the armies have passed each other and player 0 is
          * to move.
@@ -1273,9 +1308,12 @@ class ExplainerDataTest {
         }
 
         private static Game play(int plies, boolean untilRace) {
-            RuleSet rules = RuleSet.defaults(2);
-            Player a = PlayerSpec.parse("ab:eval=distance,nodes=2000").create();
-            Player b = PlayerSpec.parse("ab:eval=distance,nodes=2000").create();
+            return play(RuleSet.defaults(2), "ab:eval=distance,nodes=2000", plies, untilRace);
+        }
+
+        private static Game play(RuleSet rules, String spec, int plies, boolean untilRace) {
+            Player a = PlayerSpec.parse(spec).create();
+            Player b = PlayerSpec.parse(spec).create();
             Position pos = Position.initial(rules);
             List<Integer> history = new ArrayList<>();
             for (int i = 0; i < 300; i++) {

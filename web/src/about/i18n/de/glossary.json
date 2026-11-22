@@ -164,7 +164,7 @@
   "term.inference.long": "Inferenz und Training sind die zwei Betriebsarten eines Netzes. Inferenz wertet es aus: Stellungen hinein, Priors und Values heraus, Gewichte unverändert. Jede Partie in der App macht nur Inferenz. Das Training rechnet das Netz ebenfalls vorwärts, berechnet dann rückwärts Gradienten und ändert die Gewichte; das kostet pro Beispiel etwa dreimal so viel wie ein Forward Pass.",
   "term.input-plane.name": "Input Plane",
   "term.input-plane.short": "Ein Eingabekanal, den der Code aus der Stellung berechnet, zum Beispiel 1, wo die Seite am Zug eine Figur hat.",
-  "term.input-plane.long": "Der Encoder macht aus einer Stellung Input Planes mit je einem Wert pro Feld. Sieben einfache Planes enthalten die Figuren jedes Spielers, Ziel- und Startecke, die bespielbaren Felder und den Fortschritt der Partie. Das Plane-Set `classic1` fügt sechs Planes mit klassischem Wissen hinzu, etwa Distanzen und die lineare Bewertung, zusammen 13. Das gemeinsame Modell für vier Varianten liest 15.",
+  "term.input-plane.long": "Der Encoder macht aus einer Stellung Input Planes mit je einem Wert pro Feld. Sieben einfache Planes enthalten die Figuren jedes Spielers, Ziel- und Starthaus (bei 4 Reihen das Eckdreieck, bei 5 Reihen 15 Felder), die bespielbaren Felder und den Fortschritt der Partie. Das Plane-Set `classic1` fügt sechs Planes mit klassischem Wissen hinzu, etwa Distanzen und die lineare Bewertung, zusammen 13. Das gemeinsame Modell für vier Varianten liest 15.",
   "term.iterative-deepening.name": "Iterative Deepening",
   "term.iterative-deepening.short": "Suche mit Tiefe 1, dann 2, dann 3 und behalte die letzte fertige Antwort, damit die Suche bei jedem Budget anhalten kann.",
   "term.killer-move.name": "Killer Move",

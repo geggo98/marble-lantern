@@ -6,6 +6,8 @@
 import type { Engine, NetForwardReport } from '../../engines/engine';
 import { EngineFailure } from '../../engines/protocol';
 import type { EngineWarning } from '../../engines/warnings';
+import { DEFAULT_VARIANT, rowsOf } from '../../game/variant';
+import type { Variant } from '../../game/variant';
 import { LiveError } from './engines';
 import example from '../data/mcts-mid.json';
 import type { McstData, RootState } from '../figures/puct';
@@ -48,15 +50,25 @@ export type McstEngine = Pick<Engine, 'newGame' | 'choose' | 'netForward' | 'war
 
 /** The expert model of the example: the live figures use the same model as the committed data. */
 export const MODEL_ID: string = example.meta.model;
+/** The expert model of the 5-row board (web/models/models.json): a 4-row network cannot read the 15-cell houses. */
+export const ROWS5_MODEL_ID = 'small-2p-adjacent-r5-expert';
+
+/** The model of the live net figures for the reader's game: the 4-row expert of the examples, or the 5-row expert on 5 rows. */
+export function liveModelId(variant: Variant): string {
+  return rowsOf(variant) === 5 ? ROWS5_MODEL_ID : MODEL_ID;
+}
 
 const isModelProblem = (warnings: readonly EngineWarning[]): boolean => warnings.some((w) => w.code === 'fallback-random' || w.code === 'model-load-failed' || w.code === 'no-model');
 
 /**
- * newGame with the expert model; a net that cannot be used (the warnings name it: no model, load failed, fallback to random moves) is a
- * LiveError('model'). The net engine never fails newGame for this: it plays random moves and says so in the warnings.
+ * newGame with the expert model on the board of `variant` (default: the classic 4-row game); a net that cannot be used (the warnings
+ * name it: no model, load failed, fallback to random moves) is a LiveError('model'). The net engine never fails newGame for this: it
+ * plays random moves and says so in the warnings.
  */
-export async function startNet(engine: Pick<Engine, 'newGame' | 'warnings'>, modelId: string, sims: number): Promise<void> {
-  await engine.newGame({ nodes: [1, 1], model: modelId, netOptions: { sims, batch: MCTS_SETTINGS.batch } });
+export async function startNet(engine: Pick<Engine, 'newGame' | 'warnings'>, modelId: string, sims: number, variant: Variant = DEFAULT_VARIANT): Promise<void> {
+  // The variant goes into the setup only off the default, so that a 4-row start sends the setup it always sent.
+  const board = rowsOf(variant) === 4 ? {} : { variant };
+  await engine.newGame({ nodes: [1, 1], model: modelId, netOptions: { sims, batch: MCTS_SETTINGS.batch }, ...board });
   const warnings = engine.warnings ?? [];
   if (isModelProblem(warnings)) throw new LiveError(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'model', `the net cannot be used: ${warnings.map((w) => w.code).join(', ')}`);
 }
@@ -82,9 +94,10 @@ export async function runMcts(
   ks: readonly number[],
   signal?: AbortSignal,
   onStep?: (partial: McstLive, done: number, total: number) => void,
+  variant: Variant = DEFAULT_VARIANT,
 ): Promise<McstLive> {
   signal?.throwIfAborted();
-  await startNet(engine, modelId, ks[0] ?? 1);
+  await startNet(engine, modelId, ks[0] ?? 1, variant);
   if (!engine.netForward) throw new LiveError('unsupported', 'this engine has no netForward export');
   signal?.throwIfAborted();
   let forward: NetForwardReport;
@@ -98,7 +111,7 @@ export async function runMcts(
   const out: McstLive = { modelId: forward.modelId, mover, moves: [], priors: [], rootValues: forward.values, ks: [], visits: [], values: [], choice: -1 };
   for (const [i, k] of ks.entries()) {
     signal?.throwIfAborted();
-    await startNet(engine, modelId, k);
+    await startNet(engine, modelId, k, variant);
     signal?.throwIfAborted();
     const r = await engine.choose(history, signal);
     signal?.throwIfAborted();

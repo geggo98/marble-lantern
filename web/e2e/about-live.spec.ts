@@ -340,8 +340,8 @@ test.describe('part 4 (WP6): V10 and V9b live', () => {
 });
 
 // Part 5: a game on 5 rows (the default size of a new game). The classical figures explain it; their numbers are checked against the C++
-// engine run in Node.js on the same history. The net figures stay at their example with the 5-row reason, and nothing of the net engine is
-// requested, because every shipped network was trained on 4 rows.
+// engine run in Node.js on the same history. The net figures run the 5-row expert small-2p-adjacent-r5-expert (liveModelId in
+// src/about/live/mcts.ts); the 4-row expert is never requested.
 test.describe('part 5: a 5-row game', () => {
   const cppJs = fileURLToPath(new URL('../public/engines/cpp/engine-cpp.js', import.meta.url));
   /** The C ABI of the C++ engine that this test calls (cpp/README.md, "Search and the wasm API on 5-row boards"). */
@@ -390,8 +390,10 @@ test.describe('part 5: a 5-row game', () => {
     return moves;
   };
   const num = (text: string): number => Number(text.replace(/[−–]/g, '-').replace(/[,+\s]/g, ''));
-  const NET_NOTE = 'Your game has 5 rows, so this figure shows its example only: the network was trained on 4 rows.';
-  const NET_REASON = 'Your game has 5 rows. The network was trained on 4 rows only and cannot read the larger houses of 15 cells, so this figure shows the example only.';
+  const NET_NOTE = 'The first time you choose “My game” there, the browser may download the net engine and a model, about 345 kB.';
+  const R5_MODEL = '/models/small-2p-adjacent-r5-expert.safetensors.gz';
+  const R4_MODEL = '/models/small-2p-adjacent-expert.safetensors.gz';
+  const modelRequests = (urls: string[]): string[] => urls.map((u) => new URL(u).pathname).filter((u) => u.includes('/models/'));
 
   async function fiveRowGame(page: Page): Promise<number[]> {
     await openApp(page, 'en', '', 'human', 5);
@@ -401,7 +403,7 @@ test.describe('part 5: a 5-row game', () => {
     return historyOf(page);
   }
 
-  test('the card is enabled; the two net links say that their figures stay at the example', async ({ page }) => {
+  test('the card is enabled; the two net links carry the same download note as on 4 rows', async ({ page }) => {
     const errors = watchPageErrors(page);
     await fiveRowGame(page);
     await expect(page.locator('[data-explain-card]')).not.toHaveAttribute('data-disabled', '');
@@ -450,21 +452,50 @@ test.describe('part 5: a 5-row game', () => {
     errors.expectNone();
   });
 
-  test('Fig. 3.3 and Fig. 3.2 keep My game disabled with the 5-row reason, and nothing of the net engine is requested', async ({ page }) => {
+  test('Fig. 3.3: My game runs the 5-row expert on the 5-row position: 50 / 50, one row per legal move of the C++ engine, visits add up to 50', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    const urls: string[] = [];
+    page.on('request', (r) => urls.push(r.url()));
+    const history = await fiveRowGame(page);
+    const { legal } = await nodeEngine(history);
+    await page.locator('a[data-explain-link="mcts"]').click();
+    const FIG = '#fig-mcts';
+    await expect(page.locator(`${FIG} [data-live-reason]`)).toHaveCount(0);
+    await mine(page, FIG).click();
+    await expect(page.locator(`${FIG} [role=status]`)).toContainText('Computed in your browser.', { timeout: 90_000 });
+    await expect(page.locator(`${FIG} .ml-fig-stepper__pos`)).toContainText('50 / 50');
+    await expect(page.locator(`${FIG} [data-origin]`)).toHaveText('Your game, ply 4, computed in your browser');
+    const more = page.locator(`${FIG} .ml-fig-mcts__table ~ button[aria-expanded]`);
+    if ((await more.count()) > 0 && (await more.getAttribute('aria-expanded')) === 'false') await more.click();
+    const visits = (await page.locator(`${FIG} .ml-fig-mcts__table tbody tr td:nth-child(3)`).allTextContents()).map(Number);
+    expect(visits).toHaveLength(legal);
+    expect(visits.reduce((a, b) => a + b, 0)).toBe(50);
+    await expect(page.locator(FIG)).toContainText("with the model small-2p-adjacent-r5-expert");
+    expect(modelRequests(urls).some((u) => u.endsWith(R5_MODEL)), 'the 5-row expert is loaded').toBe(true);
+    expect(modelRequests(urls).filter((u) => u.endsWith(R4_MODEL)), 'the 4-row expert is not loaded').toEqual([]);
+    errors.expectNone();
+  });
+
+  test('Fig. 3.2: My game on 5 rows computes with the 5-row expert; planes 3 and 4 are the 15-cell houses and the 5-row note is shown', async ({ page }) => {
     const errors = watchPageErrors(page);
     const urls: string[] = [];
     page.on('request', (r) => urls.push(r.url()));
     await fiveRowGame(page);
-    await page.locator('a[data-explain-link="mcts"]').click();
-    await expect(page.locator('#fig-mcts [data-live-switch] input[value="mine"]')).toBeDisabled();
-    await expect(page.locator('#fig-mcts [data-live-reason]')).toHaveText(NET_REASON);
-    await page.locator('.ml-nav__link').first().click(); // Play
     await page.locator('a[data-explain-link="forward-pass"]').click();
-    await expect(page.locator('#fig-forward select.ml-fig-select').first().locator('option')).toHaveText([
-      'Start position', 'Mid-game, after 30 plies', 'Race, after 106 plies',
-    ]);
-    await expect(page.locator('#fig-forward [data-live-reason]')).toHaveText(NET_REASON);
-    expect(netRequests(urls)).toEqual([]);
+    const F = '#fig-forward';
+    const position = page.locator(`${F} select.ml-fig-select`).first();
+    const planeSelect = page.locator(`${F} select.ml-fig-select`).nth(1);
+    await expect(position.locator('option')).toHaveText(['Start position', 'Mid-game, after 30 plies', 'Race, after 106 plies', 'My game (ply 4)']);
+    await expect(planeSelect.locator('option').nth(3)).toHaveText('Goal corner'); // the examples are 4-row games
+    await position.selectOption('mine');
+    await expect(page.locator(`${F} [role=status]`)).toContainText('Computed in your browser.', { timeout: 90_000 });
+    await expect(page.locator(`${F} [data-origin]`)).toHaveText('Your game, ply 4, computed in your browser');
+    await expect(planeSelect.locator('option').nth(3)).toHaveText('Goal house (15 cells)');
+    await expect(planeSelect.locator('option').nth(4)).toHaveText('Start house (15 cells)');
+    await expect(page.locator(`${F} [data-live-note=forward-rows5]`)).toContainText('Planes 3 and 4 mark the houses of 15 cells');
+    expect(await page.locator(`${F} .ml-fig-policy li`).count()).toBe(5);
+    expect(modelRequests(urls).some((u) => u.endsWith(R5_MODEL)), 'the 5-row expert is loaded').toBe(true);
+    expect(modelRequests(urls).filter((u) => u.endsWith(R4_MODEL)), 'the 4-row expert is not loaded').toEqual([]);
     errors.expectNone();
   });
 });

@@ -1,7 +1,8 @@
 // V9b: one forward pass on a real position, layer by layer (Fig. 3.2), and the backends of the forward pass (Fig. 3.3).
 // Layout notes: web/design/about/about-notes.md, "V9b". Data: forward-<position>.json (3 files) and backends.json.
 import { useEffect, useId, useState } from 'react';
-import { MODEL_ID } from '../live/mcts';
+import { liveModelId } from '../live/mcts';
+import { DEFAULT_VARIANT, rowsOf } from '../../game/variant';
 import { cellName, isStep, notation } from '../../ui/board-model';
 import { useT } from '../../ui/texts';
 import { Figure, HeatBoard, Manipulate, MiniBoard, Segmented, Select, Stepper, stepperLabels, useStepper } from '../kit';
@@ -49,6 +50,9 @@ export function ForwardFigure(): React.JSX.Element {
   const id = STEP_IDS[step - 1] as (typeof STEP_IDS)[number];
 
   const d = live && mineSelected ? live : forwardData(position);
+  // My game on 5 rows: planes 3 and 4 mark the 15-cell houses, the figure says so in their labels and its caption.
+  const rows5 = live !== null && mineSelected && input !== null && rowsOf(input.snapshot.variant) === 5;
+  const planeLabel = (i: number): string => fig.plain(rows5 && (i === 3 || i === 4) ? `fig.forward.plane.${i}.rows5` : `fig.forward.plane.${i}`);
   const withPriors = priors === 'on';
   const top = topMoves(d, withPriors);
   const pieces = piecesOf(d);
@@ -77,7 +81,7 @@ export function ForwardFigure(): React.JSX.Element {
 
   const narrate = (stepId: string, planeNo: number): string =>
     fig.plain(`fig.forward.step.${stepId}`, {
-      plane: fig.plain(`fig.forward.plane.${planeNo}`),
+      plane: planeLabel(planeNo),
       moves: d.meta.legalMoves,
       value: fig.fmt.signed(values[mover] as number, 2),
     });
@@ -140,7 +144,7 @@ export function ForwardFigure(): React.JSX.Element {
             value={String(plane)}
             disabled={id !== 'input'}
             onChange={(v) => setPlane(Number(v))}
-            options={d.meta.planeNames.map((_, i) => ({ value: String(i), label: fig.plain(`fig.forward.plane.${i}`) }))}
+            options={d.meta.planeNames.map((_, i) => ({ value: String(i), label: planeLabel(i) }))}
           />
           <Segmented
             label={fig.t('fig.forward.priors.label')}
@@ -157,7 +161,16 @@ export function ForwardFigure(): React.JSX.Element {
       caption={
         live && mineSelected ? (
           <>
-            <Markup text={fig.t('fig.forward.live.caption', { ply, model: MODEL_ID })} /> <Markup text={fig.t('fig.forward.live.single')} />
+            <Markup text={fig.t('fig.forward.live.caption', { ply, model: liveModelId(input?.snapshot.variant ?? DEFAULT_VARIANT) })} />{' '}
+            <Markup text={fig.t('fig.forward.live.single')} />
+            {rows5 && (
+              <>
+                {' '}
+                <span data-live-note="forward-rows5">
+                  <Markup text={fig.t('fig.forward.live.rows5')} />
+                </span>
+              </>
+            )}
           </>
         ) : (
           <Markup text={fig.t('fig.forward.caption')} />

@@ -5,7 +5,10 @@ import type { ChooseResult, GameSetup, NetForwardReport } from '../../engines/en
 import { EngineFailure } from '../../engines/protocol';
 import type { EngineWarning } from '../../engines/warnings';
 import { LiveError } from './engines';
-import { ALL_KS, MODEL_ID, forwardPasses, liveRootState, runMcts } from './mcts';
+import { ALL_KS, MODEL_ID, forwardPasses, liveModelId, liveRootState, runMcts } from './mcts';
+import { DEFAULT_VARIANT } from '../../game/variant';
+import type { Variant } from '../../game/variant';
+import { listModels } from '../../engines/net/model-manifest';
 import type { McstEngine, McstLive } from './mcts';
 
 /** Three legal moves. */
@@ -73,6 +76,19 @@ describe('runMcts', () => {
     expect(live.priors).toEqual([0.5, 0.3, 0.2]);
     expect(live.rootValues).toEqual([0.4, -0.4]);
     expect(live.choice).toBe(MOVES[0]);
+  });
+
+  it('a 5-row game: every newGame carries the variant and the 5-row expert; a 4-row game sends no variant, as before', async () => {
+    const five: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+    expect(liveModelId(five)).toBe('small-2p-adjacent-r5-expert');
+    expect(liveModelId(DEFAULT_VARIANT)).toBe(MODEL_ID);
+    expect(listModels().find((m) => m.id === liveModelId(five))?.variants).toEqual([five]);
+    const r5 = scripted();
+    await runMcts(r5.engine, [], liveModelId(five), [1, 2], undefined, undefined, five);
+    expect(r5.setups.map((s) => [s.model, s.variant])).toEqual([1, 2, 3].map(() => ['small-2p-adjacent-r5-expert', five]));
+    const r4 = scripted();
+    await runMcts(r4.engine, [], MODEL_ID, [1]);
+    expect(r4.setups.every((s) => !('variant' in s))).toBe(true);
   });
 
   it('the full run is 50 steps and 1,275 forward passes', () => {

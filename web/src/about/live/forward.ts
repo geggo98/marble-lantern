@@ -1,6 +1,7 @@
 // V9b live: the adapter from the net engine's `NetForwardReport` to the figure's `ForwardData`. One `netForward` call on the net Info engine
 // gives the planes, the norm of every trunk layer, the policy and the values of the reader's position. The reference forward pass runs on
-// the expert model; a model that cannot be used is a LiveError('model'), never a random move. Nothing here touches engine code.
+// the expert model of the board size (liveModelId); a model that cannot be used is a LiveError('model'), never a random move. Nothing here
+// touches engine code.
 import { replay } from '../../game/board-state';
 import type { Variant } from '../../game/variant';
 import type { Engine, NetForwardReport } from '../../engines/engine';
@@ -10,7 +11,7 @@ import { STEP_IDS } from '../figures/forward';
 import type { ForwardData } from '../figures/forward';
 import { LiveError } from './engines';
 import type { LiveEngines } from './engines';
-import { MODEL_ID, modelError, startNet } from './mcts';
+import { liveModelId, modelError, startNet } from './mcts';
 import type { LiveSnapshot } from './types';
 import type { RunReport } from './useLiveRun';
 
@@ -58,7 +59,7 @@ export async function runForwardLive(engines: LiveEngines, snapshot: LiveSnapsho
   signal.throwIfAborted();
   if (!engine.netForward) throw new LiveError('unsupported', 'this engine has no netForward export');
   report.step(0, 1);
-  await startNet(engine, MODEL_ID, 1);
+  await startNet(engine, liveModelId(snapshot.variant), 1, snapshot.variant);
   signal.throwIfAborted();
   let result: NetForwardReport;
   try {

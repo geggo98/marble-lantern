@@ -145,7 +145,7 @@
   "term.inference.long": "Inference and training are the two modes of a network. Inference evaluates it: positions in, priors and values out, weights untouched. Every game in the app only does inference. Training runs the network forward too, then computes gradients backwards and updates the weights; that costs about three times the work of a forward pass per example.",
   "term.input-plane.name": "Input plane",
   "term.input-plane.short": "One input channel computed from the position, for example 1 where the player to move has a piece.",
-  "term.input-plane.long": "The encoder turns a position into input planes, one value per cell each. Seven plain planes hold the pieces of each player, the goal and start corner, the playable cells and the game's progress. The plane set `classic1` adds six planes with classical knowledge such as distances and the linear evaluation, 13 in all. The shared model for four variants reads 15.",
+  "term.input-plane.long": "The encoder turns a position into input planes, one value per cell each. Seven plain planes hold the pieces of each player, the goal and start house (the corner triangle on 4 rows, 15 cells on 5 rows), the playable cells and the game's progress. The plane set `classic1` adds six planes with classical knowledge such as distances and the linear evaluation, 13 in all. The shared model for four variants reads 15.",
   "term.iterative-deepening.name": "Iterative deepening",
   "term.iterative-deepening.short": "Search depth 1, then 2, then 3, keeping the last finished answer, so the search can stop at any budget.",
   "term.killer-move.name": "Killer move",

@@ -29,10 +29,13 @@ class ScriptedNet extends FakeEngineCore {
   sims = 1;
   warnings: { code: string }[] = [];
   forwardCalls = 0;
+  /** The model and the board size of every newGame. */
+  setups: string[] = [];
   override handle(request: Request): unknown {
     switch (request.type) {
       case 'newGame':
         super.handle(request);
+        this.setups.push(`${request.setup.model} rows=${request.setup.variant?.rows ?? 4}`);
         this.sims = request.setup.netOptions?.sims ?? 1;
         return { warnings: this.warnings };
       case 'choose': {
@@ -270,22 +273,39 @@ describe('V9b live', () => {
 
 describe('the net figures on a 5-row snapshot', () => {
   const FIVE: Variant = { ...DEFAULT_VARIANT, rows: 5 };
-  const REASON = 'Your game has 5 rows. The network was trained on 4 rows only and cannot read the larger houses of 15 cells, so this figure shows the example only.';
 
-  it('V10 keeps My game disabled with the 5-row reason and starts no engine', async () => {
+  it('V10 runs My game with the 5-row expert on the 5-row board', async () => {
     await render(<McstFigure />, snapshot([], false, FIVE));
     await settle();
-    expect(q<HTMLInputElement>('input[value=mine]').disabled).toBe(true);
-    expect(q('[data-live-reason]').textContent).toBe(REASON);
+    expect(q<HTMLInputElement>('input[value=mine]').disabled).toBe(false);
+    expect(all('[data-live-reason]')).toHaveLength(0);
     expect(created).toBe(0);
+    await press('mine');
+    await settle(20);
+    await settle(20);
+    expect(core.forwardCalls).toBe(1);
+    expect(core.setups.length).toBeGreaterThan(1);
+    expect(new Set(core.setups)).toEqual(new Set(['small-2p-adjacent-r5-expert rows=5']));
   });
 
-  it('V9b offers no fourth position and shows the 5-row reason', async () => {
+  it('V9b offers My game on 5 rows; its planes 3 and 4 are the 15-cell houses and the caption says so, the examples keep the corner labels', async () => {
     await render(<ForwardFigure />, snapshot([], false, FIVE));
     await settle();
     const select = q<HTMLSelectElement>('select.ml-fig-select');
-    expect([...select.options].map((o) => o.value)).toEqual(['start', 'mid', 'race']);
-    expect(q('[data-live-reason]').textContent).toBe(REASON);
-    expect(created).toBe(0);
+    expect([...select.options].map((o) => o.value)).toEqual(['start', 'mid', 'race', 'mine']);
+    const planeLabels = (): string[] => [...host.querySelectorAll<HTMLSelectElement>('select')].flatMap((sel) => [...sel.options].map((o) => o.textContent ?? ''));
+    expect(planeLabels()).toContain('Goal corner');
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
+      set.call(select, 'mine');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle(20);
+    await settle(20);
+    expect(core.forwardCalls).toBe(1);
+    expect(core.setups).toEqual(['small-2p-adjacent-r5-expert rows=5']);
+    expect(planeLabels()).toEqual(expect.arrayContaining(['Goal house (15 cells)', 'Start house (15 cells)']));
+    expect(planeLabels()).not.toContain('Goal corner');
+    expect(q('[data-live-note=forward-rows5]').textContent).toContain('Planes 3 and 4 mark the houses of 15 cells');
   });
 });
