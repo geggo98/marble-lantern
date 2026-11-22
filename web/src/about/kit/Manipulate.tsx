@@ -53,8 +53,8 @@ export interface SliderProps {
   valueText?: string;
   /** Visible readout. */
   out?: ReactNode;
-  /** The two ends, written under the track. */
-  scale?: readonly [string, string];
+  /** Labels under the track, spread evenly: the two ends, or one label per stop of a slider with a few stops. */
+  scale?: readonly string[];
   disabled?: boolean;
 }
 
@@ -79,8 +79,9 @@ export function Slider({ label, min, max, step = 1, value, onChange, valueText, 
       />
       {scale && (
         <div className="ml-fig-scale" aria-hidden="true">
-          <span>{scale[0]}</span>
-          <span>{scale[1]}</span>
+          {scale.map((s, i) => (
+            <span key={i}>{s}</span>
+          ))}
         </div>
       )}
     </Ctl>

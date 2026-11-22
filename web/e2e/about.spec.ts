@@ -342,8 +342,8 @@ test.describe('about topics (motion allowed)', () => {
       await openRoute(page, route, { width: 390, height: 844, theme: 'light', language: 'en' }, 'no-preference');
       const steppers = page.locator('.ml-fig-stepper');
       const count = await steppers.count();
-      if (topic === 'tuning' || topic === 'java' || topic === 'java-web') {
-        // The tuning and java figures have no stepper (tuning: a staircase with a filter, a curve with a phase switch, sweeps; java: a dot chart with one switch): nothing to step or play.
+      if (topic === 'tuning' || topic === 'java-web') {
+        // The tuning and java-web figures have no stepper (tuning: a staircase with a filter, a curve with a phase switch, sweeps): nothing to step or play. Topic java has one since figure J3 (SIMD, 11 steps).
         expect(count, 'tuning or java figures with a stepper').toBe(0);
         errors.expectNone();
         return;
