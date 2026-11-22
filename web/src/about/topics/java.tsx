@@ -5,6 +5,7 @@ import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
 import { JavaSpeedFigure } from '../figures/JavaSpeedFigure';
+import { J5OverheadFigure } from '../figures/J5OverheadFigure';
 import { javaCatalog } from '../figures/java-catalog';
 import type { Catalog } from '../figures/common';
 import { OUTLINE } from './outline';
@@ -34,6 +35,8 @@ const FIGURES: Record<string, () => React.ReactNode> = {
   ),
   tornadovm: () => (
     <>
+      {/* J4 goes here, before J5 */}
+      <J5OverheadFigure catalog={shared} number={[6, 5]} />
       <Snip id="b1" elideAfter />
       <Snip id="b2" />
     </>

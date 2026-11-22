@@ -1,0 +1,425 @@
+{
+ "schema": 1,
+ "note": "Figure J5 (proposed data file web/src/about/data/j5-overhead.json). Every row cites one line of a file of this repository; `needle` is the text that the line must contain (same test pattern as java-speed.test.ts). `evals` is the measured number of evaluations per second of whole forward calls at this batch size. The model derives everything else: ms per call = batch * 1000 / evals, ms per position = 1000 / evals, the work and rest shares of the call bar, the factors. Mac rows also carry the printed `ms` of the same table line as a cross-check.",
+ "machines": {
+  "mac": {
+   "status": "lower-bound",
+   "statusNote": "Apple M3 Max, TornadoVM Metal, 2026-11-07, CPU loaded by other jobs (docs/tornado.md:426)",
+   "kernels": {
+    "SMALL": 11,
+    "LARGE": 15
+   },
+   "series": {
+    "SMALL": [
+     {
+      "batch": 1,
+      "ms": 0.51,
+      "evals": 1968,
+      "needle": "| SMALL | 1 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 435
+      }
+     },
+     {
+      "batch": 16,
+      "ms": 0.62,
+      "evals": 25980,
+      "needle": "| SMALL | 16 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 436
+      }
+     },
+     {
+      "batch": 64,
+      "ms": 0.88,
+      "evals": 72671,
+      "needle": "| SMALL | 64 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 437
+      }
+     },
+     {
+      "batch": 256,
+      "ms": 2.3,
+      "evals": 111409,
+      "needle": "| SMALL | 256 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 438
+      }
+     },
+     {
+      "batch": 1024,
+      "ms": 8.64,
+      "evals": 118539,
+      "needle": "| SMALL | 1024 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 439
+      }
+     }
+    ],
+    "LARGE": [
+     {
+      "batch": 1,
+      "ms": 1.0,
+      "evals": 1005,
+      "needle": "| LARGE | 1 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 440
+      }
+     },
+     {
+      "batch": 16,
+      "ms": 1.27,
+      "evals": 12637,
+      "needle": "| LARGE | 16 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 441
+      }
+     },
+     {
+      "batch": 64,
+      "ms": 3.38,
+      "evals": 18930,
+      "needle": "| LARGE | 64 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 442
+      }
+     },
+     {
+      "batch": 256,
+      "ms": 12.15,
+      "evals": 21073,
+      "needle": "| LARGE | 256 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 443
+      }
+     },
+     {
+      "batch": 1024,
+      "ms": 47.94,
+      "evals": 21362,
+      "needle": "| LARGE | 1024 |",
+      "source": {
+       "doc": "docs/tornado.md",
+       "line": 444
+      }
+     }
+    ]
+   },
+   "cpu": {
+    "what": "one CPU thread, Vector API, evaluations per second at batch 1 (same table, same run)",
+    "SMALL": {
+     "evals": 2949,
+     "needle": "2,949",
+     "source": {
+      "doc": "docs/tornado.md",
+      "line": 435
+     }
+    },
+    "LARGE": {
+     "evals": 544,
+     "needle": "544",
+     "source": {
+      "doc": "docs/tornado.md",
+      "line": 440
+     }
+    }
+   },
+   "split": {
+    "program": "cpp:metal-copy (hand-written C++ twin of the same kernels; rows are 'unsettled', GPU clock drift up to 29 %)",
+    "kind": "gpu-outside",
+    "LARGE": [
+     {
+      "batch": 1,
+      "wall": 0.786,
+      "gpu": 0.529,
+      "write": 0.003,
+      "read": 0.002,
+      "source": {
+       "doc": "cpp/results/mac-nn-2026-11-15.txt",
+       "line": 136,
+       "line2": 155
+      }
+     },
+     {
+      "batch": 64,
+      "wall": 2.59,
+      "gpu": 2.29,
+      "write": 0.003,
+      "read": 0.003,
+      "source": {
+       "doc": "cpp/results/mac-nn-2026-11-15.txt",
+       "line": 137,
+       "line2": 156
+      }
+     },
+     {
+      "batch": 256,
+      "wall": 7.868,
+      "gpu": 7.406,
+      "write": 0.005,
+      "read": 0.003,
+      "source": {
+       "doc": "cpp/results/mac-nn-2026-11-15.txt",
+       "line": 138,
+       "line2": 157
+      }
+     },
+     {
+      "batch": 1024,
+      "wall": 31.043,
+      "gpu": 30.48,
+      "write": 0.013,
+      "read": 0.005,
+      "source": {
+       "doc": "cpp/results/mac-nn-2026-11-15.txt",
+       "line": 140,
+       "line2": 159
+      }
+     }
+    ]
+   }
+  },
+  "t4": {
+   "status": "valid",
+   "statusNote": "NVIDIA Tesla T4 on AWS g4dn.xlarge, TornadoVM CUDA, 2026-11-15, run 1; GPU rows 'valid' (docs/cpp-comparison.md:202)",
+   "kernels": {
+    "SMALL": 11,
+    "LARGE": 15
+   },
+   "series": {
+    "SMALL": [
+     {
+      "batch": 1,
+      "evals": 4701.0,
+      "needle": "java:tornado\tSMALL u5\t1\tevals_per_s\t4701.0",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 74
+      }
+     },
+     {
+      "batch": 16,
+      "evals": 31351.1,
+      "needle": "java:tornado\tSMALL u5\t16\tevals_per_s\t31351.1",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 75
+      }
+     },
+     {
+      "batch": 64,
+      "evals": 73026.6,
+      "needle": "java:tornado\tSMALL u5\t64\tevals_per_s\t73026.6",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 76
+      }
+     },
+     {
+      "batch": 256,
+      "evals": 85222.0,
+      "needle": "java:tornado\tSMALL u5\t256\tevals_per_s\t85222.0",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 77
+      }
+     },
+     {
+      "batch": 1024,
+      "evals": 86665.2,
+      "needle": "java:tornado\tSMALL u5\t1024\tevals_per_s\t86665.2",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 79
+      }
+     }
+    ],
+    "LARGE": [
+     {
+      "batch": 1,
+      "evals": 1115.8,
+      "needle": "java:tornado\tLARGE u5\t1\tevals_per_s\t1115.8",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 80
+      }
+     },
+     {
+      "batch": 16,
+      "evals": 9608.0,
+      "needle": "java:tornado\tLARGE u5\t16\tevals_per_s\t9608.0",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 81
+      }
+     },
+     {
+      "batch": 64,
+      "evals": 16249.4,
+      "needle": "java:tornado\tLARGE u5\t64\tevals_per_s\t16249.4",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 82
+      }
+     },
+     {
+      "batch": 256,
+      "evals": 19023.2,
+      "needle": "java:tornado\tLARGE u5\t256\tevals_per_s\t19023.2",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 83
+      }
+     },
+     {
+      "batch": 1024,
+      "evals": 19411.0,
+      "needle": "java:tornado\tLARGE u5\t1024\tevals_per_s\t19411.0",
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+       "line": 85
+      }
+     }
+    ]
+   },
+   "cpu": {
+    "what": "Java Vector API, 16 lanes, one thread on the same instance, evaluations per second at batch 1; the rows are 'unsettled'",
+    "SMALL": {
+     "evals": 5049.6,
+     "range": [
+      3824.2,
+      5898.7
+     ],
+     "needle": "java:vector\tSMALL u5\t1\tevals_per_s\t5049.6",
+     "source": {
+      "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+      "line": 86
+     }
+    },
+    "LARGE": {
+     "evals": 903.5,
+     "range": [
+      888.1,
+      904.3
+     ],
+     "needle": "java:vector\tLARGE u5\t1\tevals_per_s\t903.5",
+     "source": {
+      "doc": "cpp/results/aws-t4-2026-11-15.tsv",
+      "line": 92
+     }
+    }
+   },
+   "split": {
+    "program": "C++ cuda-pinned (hand-written C++ twin of the same kernels, cudaEvent times; rows are 'valid')",
+    "kind": "copy-kernel-copy",
+    "SMALL": [
+     {
+      "batch": 1,
+      "h2d": 0.005,
+      "kernel": 0.353,
+      "d2h": 0.007,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 119
+      }
+     },
+     {
+      "batch": 256,
+      "h2d": 0.269,
+      "kernel": 2.43,
+      "d2h": 0.044,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 122
+      }
+     },
+     {
+      "batch": 1024,
+      "h2d": 1.047,
+      "kernel": 9.241,
+      "d2h": 0.159,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 125
+      }
+     }
+    ],
+    "LARGE": [
+     {
+      "batch": 1,
+      "h2d": 0.005,
+      "kernel": 1.837,
+      "d2h": 0.006,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 132
+      }
+     },
+     {
+      "batch": 256,
+      "h2d": 0.27,
+      "kernel": 13.232,
+      "d2h": 0.044,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 135
+      }
+     },
+     {
+      "batch": 1024,
+      "h2d": 1.047,
+      "kernel": 51.993,
+      "d2h": 0.159,
+      "source": {
+       "doc": "cpp/results/aws-t4-2026-11-15.txt",
+       "line": 138
+      }
+     }
+    ]
+   }
+  }
+ },
+ "where": {
+  "pool": {
+   "games": 512,
+   "carriers": 4,
+   "cohorts": 2,
+   "batch": 256,
+   "quietMicros": 250,
+   "maxWaitMs": 20,
+   "sources": [
+    "nn/src/main/java/sternhalma/nn/PooledEvaluator.java:15-38",
+    "docs/cloud.md:253",
+    "docs/training.md:1777"
+   ]
+  },
+  "tree": {
+   "batchBelow800": 4,
+   "batchAt800": 8,
+   "lossBatch16Sims200": [
+    0.2,
+    0.26
+   ],
+   "sources": [
+    "search/src/main/java/sternhalma/search/Mcts.java:38-48",
+    "docs/web-ui.md:840-849"
+   ]
+  },
+  "one": {
+   "batch": 1,
+   "sources": [
+    "nn/src/main/java/sternhalma/nn/PooledEvaluator.java:17"
+   ]
+  }
+ }
+}
