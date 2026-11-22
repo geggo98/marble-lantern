@@ -448,6 +448,10 @@ The job follows the [long-running-job conventions](architecture.md#long-running-
 - **Summary:** counts of SUCCESS, SKIP, ERROR and CLEANUP per phase, and what a further run would do, for example `gen 3: 2000 games skip, 4000 steps ok, 0 error, 1 cleanup; next: gating`.
 - **Exit codes:** 0 done or nothing to do, 1 error, 75 running already, 130 or 143 aborted.
 
+#### Energy measurement
+
+To state afterwards how many kWh a network or a phase of a run cost, `scripts/energy/` records the energy counters of the Mac's battery controller during a run (`sampler.py`), marks phases (`mark.py start|end <phase>`) and sums the energy per phase (`report.py`). It measures the whole machine at the wall socket, with a resolution of about one minute, and cannot split CPU from GPU. What it measures, how to read it and its limits: `scripts/energy/README.md`.
+
 #### Run monitor
 
 **Project decision (owner):** every training run produces regular (a) checkpoints, (b) ETA estimates and (c) playing-strength estimates, not necessarily at the same cadence. The overhead of this is measured, and the cadences are adjusted to it; after every run the report is checked and the starting values below are changed if it asks for it.
