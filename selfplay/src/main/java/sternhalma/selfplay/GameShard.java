@@ -64,12 +64,12 @@ public final class GameShard {
         return tensors(RuleSet.defaults(2), games);
     }
 
-    /** The tensors of games under {@code rules}; the value tensors have one column per player. */
+    /**
+     * The tensors of games under {@code rules}; the value tensors have one column per player. Both board sizes have the
+     * same 121 cells and per-move tensors, so a 5-row shard differs only in its {@code rules} metadata
+     * ({@code triangleRows=FIVE}) and its {@code move_limit} (250 or 375).
+     */
     static Map<String, Tensor> tensors(RuleSet rules, List<GameRecord> games) {
-        if (rules.triangleRows() != RuleSet.TriangleRows.FOUR) {
-            throw new IllegalArgumentException("triangleRows=" + rules.triangleRows()
-                    + " is not supported: the sample format and the network are for the 4-row board");
-        }
         int pl = rules.players();
         int g = games.size();
         int totalMoves = 0;

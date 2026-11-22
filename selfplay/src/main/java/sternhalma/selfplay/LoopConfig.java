@@ -5,8 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import sternhalma.engine.RuleSet;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.nn.LearningRateSchedule;
-import sternhalma.search.Strategies;
+import sternhalma.search.PlayerSpec;
 
 /**
  * What a training-loop run is, fixed in {@code run.json} and hashed into every checkpoint and candidate (docs/training.md,
@@ -57,13 +59,17 @@ import sternhalma.search.Strategies;
  * @param lrFinal          the rate falls with a cosine from {@code lr} to this over the planned steps of every generation (0:
  *                         constant after the warm-up, the default). {@code run.json} names it only when set, so the hash of
  *                         every run from before the option is unchanged
+ * @param rows             the board size of every game of the run (self-play, gate, baseline, strength). {@code FIVE}
+ *                         needs {@code race=0} and no S1 (the race table is for 10 pieces) and an initial network
+ *                         whose {@code triangle_rows} lists 5. {@code run.json} names it only for {@code FIVE}, so the
+ *                         hash of every 4-row run is unchanged
  */
 record LoopConfig(String initSha256, long seed, int games, int shardGames, int sims, int mctsBatch, double cpuct,
         double noise, double alpha, double temperature, int temperaturePlies, int openingMin, int openingMax, int race,
         boolean s1, double lr, int warmup, int batch, int microbatch, double reuse, int window, boolean augment,
         double valueCoefficient, double holdout, String teacherSha256, int teacherFiles, int gatePairs, int pairShard,
         int gateOpening, int baselineRung, int baselinePairs, long baselineSeed, double baselineSigmas,
-        String ladderSpec, String trainer, double promoteZ, double lrFinal) {
+        String ladderSpec, String trainer, double promoteZ, double lrFinal, TriangleRows rows) {
 
     static final String FORMAT = "sternhalma-loop";
     /** Mixed into the held-out split, so it is not the same function as any other hash of a game id. */
@@ -83,8 +89,35 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         if (!trainer.equals("cpu") && !trainer.equals("gpu")) {
             throw new IllegalArgumentException("--trainer must be cpu or gpu, got " + trainer);
         }
+        java.util.Objects.requireNonNull(rows, "rows");
+        if (rows == TriangleRows.FIVE && (race != 0 || s1)) {
+            throw new IllegalArgumentException("--rows 5 needs --race 0 and --s1 0: race play and S1 use the race table"
+                    + " of 10 pieces");
+        }
+        if (PlayerSpec.parse(ladderSpec).rows() != rows) {
+            throw new IllegalArgumentException("the ladder spec plays rows=" + PlayerSpec.parse(ladderSpec).rows().rows()
+                    + ", the run rows=" + rows.rows() + ": " + ladderSpec);
+        }
         new LoopGame.Settings(0, sims, mctsBatch, cpuct, noise, alpha, temperature, temperaturePlies, openingMin,
-                openingMax, race, adjudication()); // validates
+                openingMax, race, adjudication(), rows); // validates
+    }
+
+    /** A 4-row run (every run before the 5-row board). */
+    LoopConfig(String initSha256, long seed, int games, int shardGames, int sims, int mctsBatch, double cpuct,
+            double noise, double alpha, double temperature, int temperaturePlies, int openingMin, int openingMax, int race,
+            boolean s1, double lr, int warmup, int batch, int microbatch, double reuse, int window, boolean augment,
+            double valueCoefficient, double holdout, String teacherSha256, int teacherFiles, int gatePairs, int pairShard,
+            int gateOpening, int baselineRung, int baselinePairs, long baselineSeed, double baselineSigmas,
+            String ladderSpec, String trainer, double promoteZ, double lrFinal) {
+        this(initSha256, seed, games, shardGames, sims, mctsBatch, cpuct, noise, alpha, temperature, temperaturePlies,
+                openingMin, openingMax, race, s1, lr, warmup, batch, microbatch, reuse, window, augment, valueCoefficient,
+                holdout, teacherSha256, teacherFiles, gatePairs, pairShard, gateOpening, baselineRung, baselinePairs,
+                baselineSeed, baselineSigmas, ladderSpec, trainer, promoteZ, lrFinal, TriangleRows.FOUR);
+    }
+
+    /** The rules of every game of the run: the two-player defaults of the board size (move limit 200 or 250). */
+    RuleSet rules() {
+        return RuleSet.defaults(2, rows);
     }
 
     Adjudication.Config adjudication() {
@@ -103,7 +136,7 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
 
     LoopGame.Settings settings(int generation) {
         return new LoopGame.Settings(selfPlaySeed(generation), sims, mctsBatch, cpuct, noise, alpha, temperature,
-                temperaturePlies, openingMin, openingMax, race, adjudication());
+                temperaturePlies, openingMin, openingMax, race, adjudication(), rows);
     }
 
     LearningRateSchedule schedule() {
@@ -182,6 +215,9 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
         if (lrFinal != 0) {
             f.put("lr_final", lrFinal);
         }
+        if (rows != TriangleRows.FOUR) {
+            f.put("rows", rows.rows());
+        }
         return RunMonitor.json(f);
     }
 
@@ -210,22 +246,30 @@ record LoopConfig(String initSha256, long seed, int games, int shardGames, int s
                 Integer.parseInt(m.get("baseline_pairs")), Long.parseLong(m.get("baseline_seed")),
                 Double.parseDouble(m.get("baseline_sigmas")), m.get("ladder_spec"), m.getOrDefault("trainer", "cpu"),
                 m.containsKey("promote_z") ? Double.parseDouble(m.get("promote_z")) : 0,
-                m.containsKey("lr_final") ? Double.parseDouble(m.get("lr_final")) : 0);
+                m.containsKey("lr_final") ? Double.parseDouble(m.get("lr_final")) : 0,
+                SelfPlay.rows(m.getOrDefault("rows", "4")));
     }
 
-    /** The defaults of the options that the config takes; {@code lr} 3e-4 (docs/training.md, block 2h). */
+    /**
+     * The defaults of the options that the config takes; {@code lr} 3e-4 (docs/training.md, block 2h). With
+     * {@code --rows 5} the defaults of {@code --race} and {@code --s1} are 0 and the ladder spec is
+     * {@code BROWSER_ROWS5_SPEC} ({@code BEST_SPEC} uses race play, which the engine refuses on 5 rows).
+     */
     static LoopConfig of(Map<String, String> o, String initSha256, String teacherSha256, int teacherFiles) {
+        TriangleRows rows = SelfPlay.rows(o.getOrDefault("rows", "4"));
+        boolean four = rows == TriangleRows.FOUR;
         return new LoopConfig(initSha256, lng(o, "seed", 1), integer(o, "games", 600), integer(o, "shard-games", 25),
                 integer(o, "sims", 100), integer(o, "mcts-batch", 1), dbl(o, "cpuct", 1.0), dbl(o, "noise", 0.25),
                 dbl(o, "alpha", 0.3), dbl(o, "temp", 1.0), integer(o, "temp-plies", 14), integer(o, "opening-min", 4),
-                integer(o, "opening-max", 10), integer(o, "race", 1), flag(o, "s1", true), dbl(o, "lr", 3e-4),
+                integer(o, "opening-max", 10), integer(o, "race", four ? 1 : 0), flag(o, "s1", four),
+                dbl(o, "lr", 3e-4),
                 integer(o, "warmup", 100), integer(o, "batch", 256), integer(o, "microbatch", 32), dbl(o, "reuse", 4),
                 integer(o, "window", 500_000), flag(o, "augment", true), dbl(o, "value-coefficient", 1.0),
                 dbl(o, "holdout", 0.1), teacherSha256, teacherFiles, integer(o, "gate-pairs", 100),
                 integer(o, "pair-shard", 10), integer(o, "gate-opening", 4), integer(o, "baseline-rung", 1600),
                 integer(o, "baseline-pairs", 50), lng(o, "baseline-seed", 4001), dbl(o, "baseline-sigmas", 2.0),
-                o.getOrDefault("ladder-spec", Strategies.BEST_SPEC), o.getOrDefault("trainer", "cpu"),
-                dbl(o, "promote-z", 1.28), dbl(o, "lr-final", 0));
+                o.getOrDefault("ladder-spec", StrengthEstimate.defaultBase(sternhalma.engine.RuleSet.JumpRule.ADJACENT,
+                        rows)), o.getOrDefault("trainer", "cpu"), dbl(o, "promote-z", 1.28), dbl(o, "lr-final", 0), rows);
     }
 
     static long lng(Map<String, String> o, String key, long def) {

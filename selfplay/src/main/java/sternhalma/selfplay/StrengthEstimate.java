@@ -177,7 +177,8 @@ final class StrengthEstimate {
             throw new IllegalArgumentException("need pairs >= 2, threads >= 1 and a ladder");
         }
         requireJump(base, jump);
-        RuleSet rules = RuleSet.defaults(2).withJumpRule(jump);
+        // the board size of the games is the one the ladder spec names (rows=5 for the 5-row ladder)
+        RuleSet rules = RuleSet.defaults(2, PlayerSpec.parse(base).rows()).withJumpRule(jump);
         List<Rung> result = new ArrayList<>();
         AtomicInteger done = new AtomicInteger();
         try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
@@ -323,6 +324,18 @@ final class StrengthEstimate {
      */
     static String defaultBase(JumpRule jump) {
         return jump == JumpRule.LONG ? Strategies.BROWSER_LONG_SPEC : Strategies.BEST_SPEC;
+    }
+
+    /**
+     * The ladder opponent of a jump rule and a board size: {@link #defaultBase(JumpRule)} on 4 rows, and on 5 rows
+     * {@code BROWSER_ROWS5_SPEC} or {@code BROWSER_ROWS5_LONG_SPEC}: {@code BEST_SPEC} uses race play and a race
+     * evaluator, which {@code PlayerSpec} refuses together with {@code rows=5}.
+     */
+    static String defaultBase(JumpRule jump, sternhalma.engine.RuleSet.TriangleRows rows) {
+        if (rows == sternhalma.engine.RuleSet.TriangleRows.FOUR) {
+            return defaultBase(jump);
+        }
+        return jump == JumpRule.LONG ? Strategies.BROWSER_ROWS5_LONG_SPEC : Strategies.BROWSER_ROWS5_SPEC;
     }
 
     /**

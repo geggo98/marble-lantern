@@ -100,7 +100,8 @@ final class VariantPilot {
             pool.shutdownNow();
         }
         double wall = (System.nanoTime() - t0) / 1e6;
-        String variant = rules.players() + "p " + rules.jumpRule().name().toLowerCase(Locale.ROOT);
+        String variant = rules.players() + "p " + rules.jumpRule().name().toLowerCase(Locale.ROOT)
+                + (rules.triangleRows() == sternhalma.engine.RuleSet.TriangleRows.FOUR ? "" : " rows " + rules.triangleRows().rows());
         return new Stats(variant, games, plies, samples, atLimit, playedOut, adjudicated, cpu / 1e6 / games,
                 wall / games);
     }

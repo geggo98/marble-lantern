@@ -41,20 +41,19 @@ import sternhalma.nn.StepTrainer;
 import sternhalma.nn.TrainingObserver;
 import sternhalma.nn.TrainingRun;
 import sternhalma.tornado.GpuTrainers;
-import sternhalma.search.Strategies;
 
 /**
  * Generation 0: supervised training of a network on teacher samples, resumable, with checkpoints, ETA and strength
  * estimates (docs/training.md, "Bootstrap" and "As implemented (block 2e)").
  *
  * <pre>
- *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes|classic1v]|tiny] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
+ *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes|classic1v]|tiny] [--rows 4|5] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
  *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--strata equal|natural] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
  *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
  *                     [--elo-pairs 50] [--elo-seed 1] [--elo-threads 1] [--monitor 1|0]
  *   Gen0 run --status RUN
- *   Gen0 strength RUN [--checkpoint FILE] [--ladder 200] [--ladder-spec SPEC] [--elo-pairs 50] [--elo-seed 1]
+ *   Gen0 strength RUN [--checkpoint FILE] [--rows 4|5] [--ladder 200] [--ladder-spec SPEC] [--elo-pairs 50] [--elo-seed 1]
  *                     [--elo-threads 4] [--progress-seconds 10] [--player raw|mcts:...]
  *   Gen0 proxies RUN --data DIR [--checkpoint FILE] [--samples 2500] [--threads 4]
  *   Gen0 monitor-report RUN
@@ -62,7 +61,9 @@ import sternhalma.search.Strategies;
  *
  * <p>DATA is a directory of {@code samples-*.safetensors} from {@code selfplay run --teacher-depth D}, or a
  * directory without such files whose subdirectories have them (one subdirectory per variant, for
- * {@code --planes classic1v}; docs/training.md, "Mixed-variant training (shared net)"). The games are
+ * {@code --planes classic1v}; docs/training.md, "Mixed-variant training (shared net)"). With {@code --rows 5} the
+ * network is for the 5-row board (metadata {@code triangle_rows=5}), every data file must be a 5-row shard, and the
+ * default {@code --ladder-spec} is {@code BROWSER_ROWS5_SPEC}; the shared net ({@code classic1v}) stays 4-row. The games are
  * split by game id into training and held-out games ({@link #heldOut}); the held-out samples are used by the proxies
  * only. The run directory:
  * <pre>
@@ -106,7 +107,23 @@ public final class Gen0 {
      */
     record Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
             double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
-            String planes, String trainer, String strata) {
+            String planes, String trainer, String strata, String rows) {
+
+        Config {
+            SelfPlay.rows(rows); // validates
+            if (!rows.equals("4") && PlaneSet.ofId(planes).variants()) {
+                throw new IllegalArgumentException("--rows 5 is for a two-player network; the shared net classic1v"
+                        + " is trained on the four 4-row variants");
+            }
+        }
+
+        /** A 4-row configuration (every run before the 5-row board). */
+        Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
+                double valueCoefficient, boolean augment, double holdout, String dataSha256, int dataFiles,
+                String planes, String trainer, String strata) {
+            this(preset, seed, steps, batch, microbatch, lr, warmup, valueCoefficient, augment, holdout, dataSha256,
+                    dataFiles, planes, trainer, strata, "4");
+        }
 
         /** A configuration with equal strata (every run before the mixed-variant training). */
         Config(String preset, long seed, long steps, int batch, int microbatch, double lr, int warmup,
@@ -139,6 +156,10 @@ public final class Gen0 {
             return ReplayBuffer.Strata.ofId(strata);
         }
 
+        sternhalma.engine.RuleSet.TriangleRows boardSize() {
+            return SelfPlay.rows(rows);
+        }
+
         /** Only the plane set classic1v has a shared net over several variants: its value head has three outputs. */
         int players() {
             return planeSet().variants() ? 3 : 2;
@@ -150,7 +171,7 @@ public final class Gen0 {
                 case "tiny" -> NetworkConfig.tiny(players());
                 default -> throw new IllegalArgumentException("--preset must be small or tiny, got " + preset);
             };
-            return size.withPlanes(planeSet());
+            return size.withPlanes(planeSet()).withRows(java.util.Set.of(boardSize()));
         }
 
         LearningRateSchedule schedule() {
@@ -168,6 +189,9 @@ public final class Gen0 {
             }
             if (planeSet().variants()) {
                 f.put("strata", strata); // only for the shared net, so that the run.json of older runs stays valid
+            }
+            if (!rows.equals("4")) {
+                f.put("rows", Integer.parseInt(rows)); // only for 5 rows, so that the run.json of older runs stays valid
             }
             f.put("seed", seed);
             f.put("steps", steps);
@@ -304,7 +328,8 @@ public final class Gen0 {
     static Cadence cadence(Map<String, String> o) {
         Cadence c = new Cadence(lng(o, "checkpoint-steps", 200), dbl(o, "checkpoint-seconds", 120), integer(o, "keep", 2),
                 dbl(o, "progress-seconds", 10), integer(o, "eval-samples", DEFAULT_EVAL_SAMPLES), integer(o, "proxy-every", 1), dbl(o, "proxy-seconds", 120),
-                integer(o, "elo-every", 0), dbl(o, "elo-seconds", 500), str(o, "ladder-spec", Strategies.BEST_SPEC), ladder(o),
+                integer(o, "elo-every", 0), dbl(o, "elo-seconds", 500), str(o, "ladder-spec", StrengthEstimate.defaultBase(
+                        sternhalma.engine.RuleSet.JumpRule.ADJACENT, SelfPlay.rows(str(o, "rows", "4")))), ladder(o),
                 integer(o, "elo-pairs", 50), lng(o, "elo-seed", 1), integer(o, "elo-threads", 1),
                 flag(o, "monitor", true), integer(o, "threads", Math.min(4, Runtime.getRuntime().availableProcessors())));
         if (c.checkpointSteps < 1 || !(c.checkpointSeconds > 0) || c.keep < 1 || !(c.progressSeconds > 0)
@@ -366,16 +391,23 @@ public final class Gen0 {
      */
     static Split split(List<Path> files, double holdout, boolean augment, PlaneSet planes,
             ReplayBuffer.Strata strata) throws IOException {
-        ReplayBuffer train = buffer(augment, planes, strata);
-        ReplayBuffer held = buffer(false, planes, strata);
+        return split(files, holdout, augment, planes, strata, java.util.Set.of(sternhalma.engine.RuleSet.TriangleRows.FOUR));
+    }
+
+    /** As above for a network of the given board sizes: a data file of another size is a wrong configuration. */
+    static Split split(List<Path> files, double holdout, boolean augment, PlaneSet planes, ReplayBuffer.Strata strata,
+            java.util.Set<sternhalma.engine.RuleSet.TriangleRows> rows) throws IOException {
+        ReplayBuffer train = buffer(augment, planes, strata, rows);
+        ReplayBuffer held = buffer(false, planes, strata, rows);
         ReplayBuffer.Loaded loaded = train.addGeneration(GENERATION, files, (m, id) -> !heldOut(m, id, holdout));
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         return new Split(train, held, loaded.skipped());
     }
 
-    private static ReplayBuffer buffer(boolean augment, PlaneSet planes, ReplayBuffer.Strata strata) {
+    private static ReplayBuffer buffer(boolean augment, PlaneSet planes, ReplayBuffer.Strata strata,
+            java.util.Set<sternhalma.engine.RuleSet.TriangleRows> rows) {
         return planes.variants() ? ReplayBuffer.mixed(Integer.MAX_VALUE, augment, planes, strata)
-                : new ReplayBuffer(2, Integer.MAX_VALUE, augment, planes);
+                : new ReplayBuffer(2, Integer.MAX_VALUE, augment, planes, rows);
     }
 
     /**
@@ -531,7 +563,7 @@ public final class Gen0 {
                 integer(opts, "batch", 64), integer(opts, "microbatch", 16), dbl(opts, "lr", 1e-3),
                 integer(opts, "warmup", 200), dbl(opts, "value-coefficient", 1.0), flag(opts, "augment", true),
                 dbl(opts, "holdout", 0.1), dataFingerprint(files), files.size(), str(opts, "planes", "plain"),
-                trainerKind(opts, err), str(opts, "strata", "equal"));
+                trainerKind(opts, err), str(opts, "strata", "equal"), str(opts, "rows", "4"));
         cfg.strataKind();
         cfg.network();
         cfg.schedule();
@@ -596,7 +628,8 @@ public final class Gen0 {
         // phase 2: load the data and split it
         Split split;
         try {
-            split = split(files, cfg.holdout(), cfg.augment(), cfg.planeSet(), cfg.strataKind());
+            split = split(files, cfg.holdout(), cfg.augment(), cfg.planeSet(), cfg.strataKind(),
+                    cfg.network().rows());
         } catch (IllegalArgumentException e) {
             err.println("gen0: the data does not fit: " + e.getMessage());
             return EXIT_ERROR;
@@ -1068,7 +1101,7 @@ public final class Gen0 {
         }
         double holdout = Double.parseDouble(cfg.get("holdout"));
         PlaneSet heldPlanes = net.parameters().config().planes();
-        ReplayBuffer held = buffer(false, heldPlanes, ReplayBuffer.Strata.NATURAL);
+        ReplayBuffer held = buffer(false, heldPlanes, ReplayBuffer.Strata.NATURAL, net.parameters().config().rows());
         held.addGeneration(GENERATION, files, (m, id) -> heldOut(m, id, holdout));
         if (held.size() == 0) {
             err.println("gen0 proxies: the split leaves no held-out sample");
