@@ -47,9 +47,11 @@
 .ml-src:hover { background: var(--ml-color-surface-sunken); }
 /* glossary term: a button with a dotted underline and a popover under it */
 .ml-term { position: relative; display: inline; }
+/* the button and the closing punctuation after it ("SMALL,") never break apart */
+.ml-term__glue { white-space: nowrap; }
 .ml-term__btn { all: unset; padding: 0.625rem 1.125rem; margin: -0.625rem -1.125rem; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; color: inherit; }
 .ml-term__btn:focus-visible { outline: 3px solid var(--ml-color-focus); outline-offset: 2px; border-radius: var(--ml-radius-sm); }
-.ml-term__pop { position: absolute; z-index: 5; inset-inline-start: 0; top: 100%; display: grid; gap: var(--ml-space-1); width: max-content; max-width: min(20rem, 80vw); margin-top: var(--ml-space-1); padding: var(--ml-space-3); border-radius: var(--ml-radius-md); border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); font-size: var(--ml-text-sm); }
+.ml-term__pop { position: absolute; z-index: 5; inset-inline-start: 0; top: 100%; display: grid; gap: var(--ml-space-1); width: max-content; max-width: min(20rem, calc(100vw - 1rem)); white-space: normal; overflow-wrap: anywhere; box-sizing: border-box; margin-top: var(--ml-space-1); padding: var(--ml-space-3); border-radius: var(--ml-radius-md); border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); font-size: var(--ml-text-sm); }
 .ml-term__en, .ml-term__short { color: var(--ml-color-ink-muted); }
 .ml-term__hint { color: var(--ml-color-ink-muted); font-style: italic; }
 .ml-tag--internal { margin-inline-start: var(--ml-space-2); vertical-align: middle; }
