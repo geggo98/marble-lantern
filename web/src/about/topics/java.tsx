@@ -5,6 +5,7 @@ import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
 import { JavaSpeedFigure } from '../figures/JavaSpeedFigure';
+import { SimdFigure } from '../figures/SimdFigure';
 import { javaCatalog } from '../figures/java-catalog';
 import type { Catalog } from '../figures/common';
 import { OUTLINE } from './outline';
@@ -28,6 +29,7 @@ const FIGURES: Record<string, () => React.ReactNode> = {
   ),
   'vector-api': () => (
     <>
+      <SimdFigure catalog={shared} number={[6, 3]} />
       <Snip id="d1" elideAfter />
       <Snip id="d2" />
     </>

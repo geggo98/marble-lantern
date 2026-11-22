@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "unit": "see each entry",
+  "note": "Figure J3 (SIMD with the Vector API). Every number of the figure that is not computed comes from here. `needle` is the text that the cited line must contain (java-simd.test.ts checks it against the repository). The multiples of scalar Java were measured on the Apple M3 Max with 4 lanes only. No measurement splits the multiple into lanes and the rest.",
+  "entries": [
+    { "id": "lanes-neon", "value": 4, "needle": "4 float lanes", "source": { "doc": "docs/network.md", "line": 495 } },
+    { "id": "lanes-avx2", "value": 8, "needle": "8 with AVX2", "source": { "doc": "docs/cpp-comparison.md", "line": 35 } },
+    { "id": "lanes-avx512", "value": 16, "needle": "16 float lanes", "source": { "doc": "cpp/results/aws-t4-2026-11-15.txt", "line": 253 } },
+    { "id": "tile-registers", "value": 2, "needle": "TILE = 2 * LANES", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 50 } },
+    { "id": "cell-block", "value": 4, "needle": "CELL_BLOCK = 4", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 52 } },
+    { "id": "channels-small", "value": 32, "needle": "| SMALL | 32 |", "source": { "doc": "docs/network.md", "line": 198 } },
+    { "id": "stencil", "value": 7, "needle": "STENCIL = 1 + Geometry.DIRECTIONS", "source": { "doc": "nn/src/main/java/sternhalma/nn/HexGrid.java", "line": 24 } },
+    { "id": "directions", "value": 6, "needle": "DIRECTIONS = 6", "source": { "doc": "engine/src/main/java/sternhalma/engine/Geometry.java", "line": 12 } },
+    { "id": "measured-dot", "value": 15.3, "needle": "15.3", "source": { "doc": "docs/network.md", "line": 487 } },
+    { "id": "measured-lo", "value": 14.5, "needle": "14.5", "source": { "doc": "docs/network.md", "line": 489 } },
+    { "id": "measured-hi", "value": 16.6, "needle": "16.6", "source": { "doc": "docs/network.md", "line": 491 } },
+    { "id": "measured-text-lo", "value": 15, "needle": "15 to 17 times", "source": { "doc": "docs/network.md", "line": 480 } },
+    { "id": "measured-text-hi", "value": 17, "needle": "15 to 17 times", "source": { "doc": "docs/network.md", "line": 480 } },
+    { "id": "loop-loads", "value": 2, "needle": "FloatVector w1 = FloatVector.fromArray", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 307 } },
+    { "id": "loop-broadcasts", "value": 4, "needle": "FloatVector v3 = FloatVector.broadcast", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 311 } },
+    { "id": "loop-fmas", "value": 8, "needle": "a31 = w1.fma(v3, a31)", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 319 } },
+    { "id": "stores", "value": 4, "needle": "store(out, residual, (cell + 3) * stride + o, a30, a31)", "source": { "doc": "nn/src/main/java/sternhalma/nn/VectorNetwork.java", "line": 325 } }
+  ]
+}

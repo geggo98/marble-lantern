@@ -1,0 +1,88 @@
+/* Figure J3 (SIMD with the Vector API): the product grid, the code strip and the number line. The kit supplies the frame, the panel, the stepper, the
+   legend and the readout; everything below belongs to this figure. No new colour token: the pairs are those of the V5 spec (--ml-fig-mark, -axis,
+   -dim, -accent on --ml-fig-bg and --ml-fig-accent-bg). Inside the band of the first tile nothing uses --ml-fig-dim (2.9 : 1 there in the dark theme). */
+
+/* Kit changes, scoped to this figure: the check mark of a preset keeps its space (the row of presets must not change from one line to two when a
+   preset is pressed), and in the compact layout the label of the stepper row is visually hidden. */
+.ml-fig:has(.ml-fig-simd) .ml-fig-presets .ml-btn .ml-icon { display: block; visibility: hidden; }
+.ml-fig:has(.ml-fig-simd) .ml-fig-presets .ml-btn[aria-pressed="true"] .ml-icon { visibility: visible; }
+.ml-fig:has(.ml-fig-simd) .ml-fig-presets .ml-btn { padding-inline: var(--ml-space-2); }
+/* The readout of the slider ("16 × 32 = 512 bit") and its label share one line at 320 px; in the smaller type both fit, so the row keeps its height
+   when the readout grows or shrinks. The label does not wrap. */
+.ml-fig:has(.ml-fig-simd) .ml-fig-ctl:has(input[type="range"]) > .ml-fig-ctl__out { font-size: var(--ml-text-xs); white-space: nowrap; }
+.ml-fig:has(.ml-fig-simd) .ml-fig-ctl:has(input[type="range"]) > .ml-fig-ctl__label { white-space: nowrap; }
+@container ml-fig (max-width: 39.99rem) {
+  .ml-fig:has(.ml-fig-simd) .ml-fig-ctl:has(.ml-fig-stepper) > .ml-fig-ctl__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+
+.ml-fig-simd { display: grid; gap: var(--ml-space-3); min-width: 0; }
+
+/* code strip: one ghost <pre> per kind in the same grid cell holds the height of the tallest */
+.ml-fig-simd__code { display: grid; min-width: 0; border: var(--ml-border) solid var(--ml-fig-border); border-radius: var(--ml-radius-sm); background: var(--ml-code-bg); }
+.ml-fig-simd__code pre { grid-area: 1 / 1; margin: 0; padding: var(--ml-space-2) var(--ml-space-3); min-width: 0; color: var(--ml-code-ink); font: var(--ml-text-xs)/1.5 var(--ml-font-data); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ml-fig-simd__code pre[aria-hidden] { visibility: hidden; }
+.ml-fig-simd__code .ln { color: var(--ml-code-comment); user-select: none; }
+.ml-fig-simd__code .kw { color: var(--ml-code-keyword); font-weight: 600; }
+.ml-fig-simd__code .op { background: var(--ml-fig-accent-bg); box-shadow: 0 0 0 1px var(--ml-fig-accent); border-radius: 3px; padding: 0 2px; font-weight: 700; }
+
+/* product grid */
+.ml-fig-simd__grid, .ml-fig-simd__meas svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ml-fig-simd text { font: 12.5px var(--ml-font-data); fill: var(--ml-fig-axis); font-variant-numeric: tabular-nums; }
+.ml-fig-simd .lane { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; }
+.ml-fig-simd .lane[data-state="pending"] { stroke: var(--ml-fig-axis); }
+.ml-fig-simd .lane[data-state="done"] { fill: var(--ml-fig-axis); stroke: var(--ml-fig-axis); }
+.ml-fig-simd .lane[data-state="current"] { fill: var(--ml-fig-accent); stroke: var(--ml-fig-accent); }
+.ml-fig-simd .wt { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; }
+.ml-fig-simd .wt[data-state="empty"] { stroke: var(--ml-fig-axis); }
+.ml-fig-simd .wt[data-state="loaded"] { stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-simd .wt[data-state="current"] { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 2; }
+.ml-fig-simd .dot { fill: var(--ml-fig-mark); }
+.ml-fig-simd .dot[data-state="current"] { fill: var(--ml-fig-accent); }
+.ml-fig-simd .vbox { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; }
+.ml-fig-simd .vbox[data-state="loaded"] { stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-simd .vbox[data-state="current"] { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 2; }
+.ml-fig-simd text.name { fill: var(--ml-fig-axis); }
+.ml-fig-simd text.name[data-state="loaded"], .ml-fig-simd text.name[data-state="current"] { fill: var(--ml-fig-mark); font-weight: 700; }
+.ml-fig-simd text.name[data-state="current"] { fill: var(--ml-fig-accent); }
+.ml-fig-simd .tile { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1.5; }
+.ml-fig-simd .tile[data-current] { stroke: var(--ml-fig-mark); stroke-width: 2; }
+.ml-fig-simd .tileband { fill: var(--ml-fig-accent-bg); }
+.ml-fig-simd .ring { fill: none; stroke: var(--ml-fig-accent); stroke-width: 2.5; }
+.ml-fig-simd .ptr { fill: var(--ml-fig-accent); }
+/* a step changes fills and outlines with a fade; nothing moves */
+@media (prefers-reduced-motion: no-preference) { .ml-fig-simd .lane, .ml-fig-simd .wt, .ml-fig-simd .vbox { transition: fill var(--ml-dur-base, 200ms), stroke var(--ml-dur-base, 200ms); } }
+
+/* legend marks: the kit gives them 2rem by 1rem */
+.ml-fig-simd .ml-fig-legend__item svg { width: 2rem; height: 1rem; }
+
+/* readout: the changing numbers stand in a line of their own */
+.ml-fig-simd .ml-fig-readout dt { min-height: 2.6em; }
+.ml-fig-simd__sub { display: block; font: var(--ml-text-xs)/1.4 var(--ml-font-data); color: var(--ml-color-ink-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ml-fig-simd .ml-fig-readout__value { white-space: nowrap; }
+
+/* number line and its three text rows */
+.ml-fig-simd__lower { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-simd__meas { display: grid; gap: var(--ml-space-2); min-width: 0; }
+.ml-fig-simd .axis { stroke: var(--ml-fig-frame); stroke-width: 1; }
+.ml-fig-simd .mdot { fill: var(--ml-fig-mark); }
+.ml-fig-simd .whisk { stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-simd .link { fill: none; stroke: var(--ml-fig-axis); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.ml-fig-simd .home { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-simd text.big { fill: var(--ml-fig-mark); font-weight: 700; }
+.ml-fig-simd text.cur { fill: var(--ml-fig-accent); font-weight: 700; }
+.ml-fig-simd__facts { display: grid; gap: var(--ml-space-2); margin: 0; padding: 0; list-style: none; font-size: var(--ml-text-sm); }
+.ml-fig-simd__facts li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: var(--ml-space-2); align-items: start; }
+.ml-fig-simd .ml-fig-simd__facts svg { width: 2rem; height: 1.25rem; overflow: visible; }
+.ml-fig-simd__slot { display: grid; }
+.ml-fig-simd__slot > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-simd__slot > [aria-hidden] { visibility: hidden; }
+@container ml-fig (max-width: 39.99rem) {
+  .ml-fig-simd .ml-fig-readout { grid-template-columns: minmax(0, 1fr); }
+  .ml-fig-simd .ml-fig-readout__cell { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--ml-space-3); align-items: center; }
+  .ml-fig-simd .ml-fig-readout__cell dt { grid-row: 1 / 3; min-height: 0; }
+  .ml-fig-simd .ml-fig-readout__cell dd { text-align: end; }
+}
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-simd .ml-fig-readout { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ml-fig-simd__meas { grid-template-columns: 20rem minmax(0, 1fr); gap: var(--ml-space-4); align-items: start; }
+}
