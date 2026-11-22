@@ -1,0 +1,96 @@
+/* Figure J2 (plain Java): the two lanes (.ml-fig-cmp), the memory map (.ml-fig-mem) and the parts local to the figure (.ml-fig-jp__*). Ported from the
+   mock design/j2-classical/mock.html. No new colour: the tokens of the kit (--ml-fig-*). Every distinction has a second cue besides colour: dashed or
+   solid frame, hollow or full mark, border width, strike-through. */
+
+/* ---- Compare: two lanes, stacked below the figure breakpoint, side by side from it ---- */
+.ml-fig-cmp { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-3); align-items: start; }
+@container ml-fig (min-width: 40rem) { .ml-fig-cmp { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ml-fig-cmp__lane { display: grid; gap: var(--ml-space-2); min-width: 0; padding: var(--ml-space-2); border: var(--ml-border) dashed var(--ml-fig-dim); border-radius: var(--ml-radius-sm); }
+.ml-fig-cmp__lane--ours { border-style: solid; border-color: var(--ml-fig-mark); border-inline-start-width: 4px; }
+.ml-fig-cmp__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px var(--ml-space-2); }
+.ml-fig-cmp__title { margin: 0; font: var(--ml-weight-bold) var(--ml-text-sm)/1.3 var(--ml-font-ui); }
+.ml-fig-cmp__tag { padding: 1px 6px; border: var(--ml-border) dashed var(--ml-fig-axis); border-radius: 4px; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.4 var(--ml-font-data); }
+.ml-fig-cmp__lane--ours .ml-fig-cmp__tag { border-style: solid; border-color: var(--ml-fig-mark); background: var(--ml-fig-mark); color: var(--ml-color-surface); }
+.ml-fig-cmp__code { margin: 0; font: var(--ml-text-xs)/1.4 var(--ml-font-data); color: var(--ml-color-ink-muted); overflow-wrap: anywhere; }
+.ml-fig-cmp .ml-fig-readout { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ml-fig-cmp .ml-fig-readout__cell { align-content: start; min-width: 0; padding: 6px var(--ml-space-2); }
+.ml-fig-cmp .ml-fig-readout dt { font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); line-height: 1.3; overflow-wrap: anywhere; }
+.ml-fig-cmp .ml-fig-readout__value { font-size: var(--ml-text-md); }
+
+/* ---- MemoryMap: one mark per 4-byte word, one row per cache line ---- */
+.ml-fig-mem .w-val { fill: var(--ml-fig-axis); }
+.ml-fig-mem .w-hdr { fill: var(--ml-fig-dim); }
+.ml-fig-mem .w-ref { fill: none; stroke: var(--ml-fig-axis); stroke-width: 1; }
+.ml-fig-mem .w-refdot { fill: var(--ml-fig-axis); }
+.ml-fig-mem .w-pad { fill: var(--ml-fig-dim); }
+.ml-fig-mem .w-free { fill: none; stroke: var(--ml-fig-dim); stroke-width: 1; stroke-dasharray: 1.5 1.5; }
+.ml-fig-mem .is-sel.w-val, .ml-fig-mem .is-sel.w-hdr, .ml-fig-mem .is-sel.w-pad, .ml-fig-mem .is-sel.w-refdot { fill: var(--ml-fig-accent); }
+.ml-fig-mem .is-sel.w-ref { stroke: var(--ml-fig-accent); stroke-width: 2; }
+.ml-fig-mem .sel-box { fill: none; stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-mem .hop { fill: none; stroke: var(--ml-fig-accent); stroke-width: 1.5; stroke-dasharray: 4 2; }
+.ml-fig-mem .hop-end { fill: var(--ml-fig-accent); }
+.ml-fig-mem .more { fill: var(--ml-fig-dim); }
+
+/* ---- the control row: the slider and the stepper share one grid cell; the unused one is inert and hidden ---- */
+.ml-fig-jp__ctls { display: grid; }
+.ml-fig-jp__ctls > * { grid-area: 1 / 1; align-self: start; min-width: 0; }
+.ml-fig-jp__ctls > [inert] { visibility: hidden; }
+
+/* ---- view move: one move as a strip of fields; widths are in proportion to the bytes or bits ---- */
+.ml-fig-jp__strip { display: flex; align-items: stretch; gap: 2px; min-width: 0; font: var(--ml-text-xs)/1.2 var(--ml-font-data); font-variant-numeric: tabular-nums; }
+.ml-fig-jp__f { display: grid; place-items: center; min-width: 0; min-height: 34px; padding: 2px 0; border: 1px solid var(--ml-fig-axis); text-align: center; overflow: hidden; }
+.ml-fig-jp__f small { display: block; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-fig-jp__f--hdr { border-style: dashed; border-color: var(--ml-fig-dim); color: var(--ml-color-ink-muted); background: repeating-linear-gradient(135deg, transparent 0 5px, var(--ml-color-line) 5px 6px); }
+.ml-fig-jp__f--pad { border-style: dotted; border-color: var(--ml-fig-dim); color: var(--ml-color-ink-muted); }
+.ml-fig-jp__f--val { border: 2px solid var(--ml-fig-accent); background: var(--ml-fig-accent-bg); font-weight: 700; }
+.ml-fig-jp__f--ref { border-radius: 999px; }
+.ml-fig-jp__arrow { align-self: center; flex: none; color: var(--ml-fig-accent); font-weight: 700; }
+.ml-fig-jp__eq { margin: 0; font: var(--ml-text-xs)/1.5 var(--ml-font-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ml-fig-jp__eq b { color: var(--ml-fig-accent); }
+
+/* ---- view undo: parallel arrays, one row per array and one column per ply ---- */
+.ml-fig-jp__arr { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; font: var(--ml-text-xs)/1.2 var(--ml-font-data); font-variant-numeric: tabular-nums; }
+.ml-fig-jp__arr th { font-weight: 400; color: var(--ml-color-ink-muted); text-align: start; overflow-wrap: anywhere; }
+.ml-fig-jp__arr thead th { text-align: center; height: 30px; vertical-align: bottom; }
+.ml-fig-jp__arr thead th.is-ply { color: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-jp__arr thead th.is-ply::before { content: "▼"; display: block; color: var(--ml-fig-accent); line-height: 1; }
+.ml-fig-jp__arr th:first-child { width: 38%; }
+.ml-fig-jp__arr td { height: 30px; padding: 0; text-align: center; border: 1px dotted var(--ml-fig-dim); color: var(--ml-color-ink-muted); }
+.ml-fig-jp__arr td.is-live { border: 1px solid var(--ml-fig-axis); color: var(--ml-color-ink); }
+.ml-fig-jp__arr td.is-stale { border: 1px dashed var(--ml-fig-dim); text-decoration: line-through; }
+.ml-fig-jp__arr td.is-write { border: 2px solid var(--ml-fig-accent); background: var(--ml-fig-accent-bg); color: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-jp__arr td.is-read { border: 2px solid var(--ml-fig-accent); color: var(--ml-color-ink); font-weight: 700; }
+/* the objects on the stack, and the objects that the stack has dropped */
+.ml-fig-jp__heap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ml-space-2); }
+.ml-fig-jp__pile { display: grid; gap: 2px; align-content: start; margin: 0; padding: 0; list-style: none; }
+.ml-fig-jp__pilehead { display: flex; align-items: end; min-height: 2.6em; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); line-height: 1.3; }
+.ml-fig-jp__obj { display: grid; place-items: center; height: 36px; border: 1px dotted var(--ml-color-line-strong); font: var(--ml-text-xs)/1.2 var(--ml-font-data); color: var(--ml-color-ink-muted); text-align: center; }
+.ml-fig-jp__obj.is-live { border: 1px solid var(--ml-fig-axis); color: var(--ml-color-ink); }
+.ml-fig-jp__obj.is-new { border: 2px solid var(--ml-fig-accent); background: var(--ml-fig-accent-bg); color: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-jp__obj.is-dead { border: 1px dashed var(--ml-fig-dim); text-decoration: line-through; }
+.ml-fig-jp__obj.is-dead.is-new { border: 2px dashed var(--ml-fig-accent); background: none; }
+
+/* ---- view eval: the pieces with their distance, the saved frames ---- */
+.ml-fig-jp__side { display: grid; grid-template-columns: 3rem repeat(10, minmax(0, 1fr)); gap: 2px; align-items: center; font: var(--ml-text-xs)/1.2 var(--ml-font-data); font-variant-numeric: tabular-nums; }
+.ml-fig-jp__side > span:first-child { color: var(--ml-color-ink-muted); }
+.ml-fig-jp__pc { display: grid; place-items: center; height: 28px; border: 1px solid var(--ml-fig-dim); border-radius: 999px; color: var(--ml-color-ink-muted); }
+.ml-fig-jp__pc.is-read { border: 2px solid var(--ml-fig-accent); color: var(--ml-color-ink); }
+.ml-fig-jp__pc.is-changed { border: 2px solid var(--ml-fig-accent); background: var(--ml-fig-accent-bg); color: var(--ml-color-ink); font-weight: 700; border-radius: 4px; }
+.ml-fig-jp__frames { display: grid; grid-template-columns: 3rem repeat(3, minmax(0, 1fr)); gap: 2px; align-items: center; font: var(--ml-text-xs)/1.2 var(--ml-font-data); }
+.ml-fig-jp__frames > span:first-child { color: var(--ml-color-ink-muted); overflow-wrap: anywhere; }
+.ml-fig-jp__frame { display: grid; place-items: center; height: 30px; border: 1px dotted var(--ml-fig-dim); color: var(--ml-color-ink-muted); }
+.ml-fig-jp__frame.is-live { border: 1px solid var(--ml-fig-axis); color: var(--ml-color-ink); }
+.ml-fig-jp__frame.is-write { border: 2px solid var(--ml-fig-accent); background: var(--ml-fig-accent-bg); color: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-jp__frame.is-read { border: 2px solid var(--ml-fig-accent); color: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-jp__frame.is-stale { border: 1px dashed var(--ml-fig-dim); text-decoration: line-through; }
+
+/* ---- the two measured tiles: large number when measured, small muted words when not ---- */
+.ml-fig-jp__measured .ml-fig-readout__cell[data-kind="none"] .ml-fig-readout__value { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-fig-jp__measured small { display: block; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); line-height: 1.3; }
+.ml-fig-jp__measured dt { font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); line-height: 1.3; }
+.ml-fig-jp__measured .ml-fig-readout__cell { align-content: start; }
+.ml-fig-jp { display: grid; gap: var(--ml-space-3); min-width: 0; }
+.ml-fig-jp .ml-fig-legend { margin: 0; padding: 0; }
+.ml-fig-jp__arrtype { display: block; }
+/* the line "from | (to << 8) = value = hex" has 3 to 5 digits per number and wraps at a phone width for some moves: it always has the room of two lines */
+.ml-fig-jp__eq--code { min-height: 3em; }

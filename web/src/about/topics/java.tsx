@@ -5,6 +5,7 @@ import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
 import { JavaSpeedFigure } from '../figures/JavaSpeedFigure';
+import { JavaPlainFigure } from '../figures/JavaPlainFigure';
 import { javaCatalog } from '../figures/java-catalog';
 import type { Catalog } from '../figures/common';
 import { OUTLINE } from './outline';
@@ -21,6 +22,7 @@ const FIGURES: Record<string, () => React.ReactNode> = {
   // J4 `fig.gpu` and J5 `fig.j5` in tornadovm. Each figure goes above or between the snippets of its section.
   'plain-java': () => (
     <>
+      <JavaPlainFigure catalog={shared} number={[6, 2]} />
       <Snip id="a1" />
       <Snip id="a2" elideAfter />
       <Snip id="a3" elideAfter />
