@@ -1,0 +1,105 @@
+/* Figure J5 (GPU overhead and batching, topic java). Design: design spec of figure J5, sections 3, 7, 8 and 9. Everything here is local to the
+   figure: the bar with its legend rows (.ml-fig-share), the ticks under the slider, the verdict, the table, the phases and the cards. Colours
+   are the tokens of the figure kit; no new token. */
+.ml-fig-j5 { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-4); min-width: 0; }
+.ml-fig-j5__block { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-2); min-width: 0; }
+.ml-fig-j5__h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--ml-space-2); margin: 0; font: var(--ml-weight-medium) var(--ml-text-sm)/1.3 var(--ml-font-ui); }
+.ml-fig-j5__h .ml-tag { margin-inline-start: auto; }
+.ml-fig-j5__out { display: inline-block; min-width: 9ch; white-space: nowrap; }
+.ml-fig-j5__cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-4); min-width: 0; }
+
+/* One grid cell that holds all variants of a part; the hidden ones give the size, so that no state changes the height. (Not .ml-fig-stack:
+   figures.css uses that name for the layer stack of the architecture figure.) */
+.ml-fig-j5__stack { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.ml-fig-j5__stack > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-j5__stack > [data-off] { visibility: hidden; }
+
+/* tick labels under the slider: one label centred under each stop, aligned with the thumb as .ml-strength__ticks of ui.css */
+.ml-fig-ticks { display: flex; justify-content: space-between; margin-top: -0.5rem; padding-inline: 0.875rem; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.2 var(--ml-font-data); }
+.ml-fig-ticks span { display: flex; justify-content: center; width: 0; white-space: nowrap; }
+.ml-fig-ticks [aria-current="true"] { color: var(--ml-color-ink); font-weight: var(--ml-weight-bold); }
+
+/* the proportion bar: two or three patterned segments, a total, one legend row per segment */
+.ml-fig-share { container: ml-share / inline-size; display: grid; gap: var(--ml-space-2); min-width: 0; }
+.ml-fig-share__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ml-space-2); font-size: var(--ml-text-sm); }
+.ml-fig-share__total { font: var(--ml-weight-medium) var(--ml-text-lg)/1.2 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-fig-share__bar { display: flex; height: 1.75rem; border: 1.5px solid var(--ml-fig-mark); border-radius: 3px; overflow: hidden; background: var(--ml-fig-bg); }
+.ml-fig-share__seg { flex: 0 0 auto; min-width: 3px; height: 100%; transition: width var(--ml-dur-base, 0.2s) ease; }
+.ml-fig-share__seg + .ml-fig-share__seg { border-inline-start: 1.5px solid var(--ml-fig-mark); }
+.ml-fig-share__seg[data-zero] { min-width: 0; border: 0; }
+.ml-fig-share__seg[data-fill="solid"], .ml-fig-share__key[data-fill="solid"] { background: var(--ml-fig-mark); }
+.ml-fig-share__seg[data-fill="hatch"], .ml-fig-share__key[data-fill="hatch"] { background: repeating-linear-gradient(135deg, var(--ml-fig-accent) 0 2px, var(--ml-fig-accent-bg) 2px 7px); }
+.ml-fig-share__seg[data-fill="dots"], .ml-fig-share__key[data-fill="dots"] { background: radial-gradient(circle at 2px 2px, var(--ml-fig-alt) 1.2px, var(--ml-fig-bg) 1.4px) 0 0 / 5px 5px; }
+.ml-fig-share__seg[data-fill="none"], .ml-fig-share__key[data-fill="none"] { background: var(--ml-fig-bg); }
+.ml-fig-share__list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: var(--ml-text-sm); }
+/* A legend row is two lines (label, then value) while the bar is narrow, so that a long label or a long value never changes its height; one
+   line (key, label, value) from 26rem of bar width. Both have a fixed height; the padding rows of a bar with fewer rows have it too. */
+.ml-fig-share__row { display: grid; grid-template-columns: 1rem minmax(0, 1fr); grid-auto-flow: row; align-content: center; gap: 0 var(--ml-space-2); min-height: 2.5rem; line-height: 1.3; }
+.ml-fig-share__row > .ml-fig-share__key { grid-row: 1; }
+.ml-fig-share__row > .ml-fig-share__val { grid-column: 2; text-align: start; }
+@container ml-share (min-width: 26rem) {
+  .ml-fig-share__row { grid-template-columns: 1rem minmax(0, 1fr) auto; align-items: baseline; min-height: 1.5rem; }
+  .ml-fig-share__row > .ml-fig-share__val { grid-column: 3; text-align: end; }
+}
+.ml-fig-share__key { align-self: center; width: 1rem; height: 0.75rem; border: 1.5px solid var(--ml-fig-mark); border-radius: 2px; }
+.ml-fig-share__key[data-fill="none"] { border-style: dashed; }
+.ml-fig-share__val { font: var(--ml-text-sm)/1.3 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: end; }
+.ml-fig-share__val b { font-weight: var(--ml-weight-bold); }
+.ml-fig-share__empty { display: grid; place-items: center; padding: var(--ml-space-2); border: 1px dashed var(--ml-fig-dim); border-radius: 3px; color: var(--ml-color-ink-muted); font-size: var(--ml-text-sm); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .ml-fig-share__seg { transition: none; } }
+
+.ml-fig-j5__verdict { padding: var(--ml-space-2) var(--ml-space-3); border-inline-start: 4px solid var(--ml-fig-accent); background: var(--ml-fig-panel-bg); font-size: var(--ml-text-sm); }
+.ml-fig-j5__verdict p { margin: 0; }
+.ml-fig-j5__verdict b { display: block; }
+
+/* table of the measured batches */
+.ml-fig-j5__table { width: 100%; border-collapse: collapse; font: var(--ml-text-xs)/1.3 var(--ml-font-data); font-variant-numeric: tabular-nums; }
+.ml-fig-j5__table caption { text-align: start; padding-bottom: var(--ml-space-1); font: var(--ml-text-sm)/1.3 var(--ml-font-ui); color: var(--ml-color-ink-muted); }
+.ml-fig-j5__table th, .ml-fig-j5__table td { padding: 0.3rem 0.25rem; border-top: 1px solid var(--ml-color-line); text-align: end; white-space: nowrap; }
+.ml-fig-j5__table thead th { border-top: 0; font-weight: var(--ml-weight-medium); color: var(--ml-color-ink-muted); white-space: normal; vertical-align: bottom; }
+.ml-fig-j5__table th:first-child { text-align: start; }
+.ml-fig-j5__table tr[data-current] > * { background: var(--ml-fig-accent-bg); font-weight: var(--ml-weight-bold); }
+.ml-fig-j5__table tr[data-current] > th::before { content: "▸ "; }
+.ml-fig-j5__table tr:not([data-current]) > th[scope="row"]::before { content: "▸ "; visibility: hidden; }
+.ml-fig-j5__table tr[data-unmeasured] > * { color: var(--ml-color-ink-muted); }
+
+/* plot additions */
+.ml-fig-j5__plot svg { display: block; width: 100%; height: auto; }
+.ml-fig-j5__ring { fill: none; stroke: var(--ml-fig-accent); stroke-width: 2.5; }
+.ml-fig-plot__catlabel[data-current] { fill: var(--ml-color-ink); font-weight: 700; }
+.ml-fig-j5__legendmark { display: inline-block; vertical-align: middle; }
+
+/* the phases of one call */
+.ml-fig-j5__phases { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; counter-reset: ph; }
+.ml-fig-j5__phase { display: grid; grid-template-columns: 1.5rem 1rem minmax(0, 1fr); align-items: center; gap: 0 var(--ml-space-2); min-height: 2rem; padding: 2px var(--ml-space-2); border: 1px solid var(--ml-fig-dim); border-radius: 4px; background: var(--ml-fig-bg); font-size: var(--ml-text-sm); }
+.ml-fig-j5__phase::before { counter-increment: ph; content: counter(ph); font: var(--ml-weight-bold) var(--ml-text-xs)/1 var(--ml-font-data); color: var(--ml-color-ink-muted); text-align: center; }
+.ml-fig-j5__group { display: grid; gap: 4px; padding: var(--ml-space-2); border: 1.5px solid var(--ml-fig-mark); border-radius: 6px; background: var(--ml-fig-panel-bg); }
+.ml-fig-j5__group ol, .ml-fig-j5__loop ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.ml-fig-j5__grouplabel { font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-fig-j5__loop { display: grid; gap: 4px; padding-inline-start: var(--ml-space-2); border-inline-start: 3px double var(--ml-fig-mark); }
+.ml-fig-j5__looplabel { font: var(--ml-weight-bold) var(--ml-text-xs)/1.3 var(--ml-font-data); }
+.ml-fig-j5__note { margin: 0; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-fig-j5__keys { display: flex; flex-wrap: wrap; gap: var(--ml-space-1) var(--ml-space-3); font-size: var(--ml-text-xs); }
+.ml-fig-j5__keys > span { display: inline-flex; align-items: center; gap: var(--ml-space-1); }
+
+/* where the project batches */
+.ml-fig-j5__where { display: grid; gap: var(--ml-space-2); margin: 0; padding: 0; list-style: none; }
+.ml-fig-j5__use { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 2px var(--ml-space-2); align-content: start; padding: var(--ml-space-2); border: 1px solid var(--ml-fig-dim); border-radius: 6px; font-size: var(--ml-text-sm); }
+.ml-fig-j5__use[data-active] { border: 2px solid var(--ml-fig-accent); padding: calc(var(--ml-space-2) - 1px); background: var(--ml-fig-accent-bg); }
+.ml-fig-j5__use svg { grid-row: 1 / span 3; width: 2.5rem; height: 2.5rem; fill: none; stroke: var(--ml-fig-mark); stroke-width: 1.5; }
+.ml-fig-j5__use svg .f { fill: var(--ml-fig-mark); stroke: none; }
+.ml-fig-j5__use b { font-weight: var(--ml-weight-bold); }
+.ml-fig-j5__use p { margin: 0; }
+.ml-fig-j5__uselink { grid-column: 1 / -1; min-width: 0; }
+.ml-fig-j5__uselink a { display: inline-flex; align-items: center; min-height: 44px; color: inherit; }
+.ml-fig-j5__uselink .ml-tag { white-space: normal; min-height: 1.375rem; height: auto; line-height: 1.3; }
+
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-j5__cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .ml-fig-j5__where { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ml-fig-j5__table { font-size: var(--ml-text-sm); }
+}
+@media (forced-colors: active) {
+  .ml-fig-share__seg[data-fill="solid"], .ml-fig-share__key[data-fill="solid"] { background: CanvasText; }
+  .ml-fig-share__seg, .ml-fig-share__key { forced-color-adjust: none; }
+}
