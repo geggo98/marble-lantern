@@ -62,16 +62,33 @@ public final class LoopGame {
      * @param openingMax     maximum random opening plies
      * @param race           race play: 0 off, 1 or 2 as in {@code MctsOptions}
      * @param adjudication   the layers (production: S1 only)
+     * @param rows           the board size of the games; {@code FIVE} has no S1 (the race table is for 10 pieces)
      */
     public record Settings(long seed, int sims, int batch, double cpuct, double noise, double alpha,
             double temperature, int temperaturePlies, int openingMin, int openingMax, int race,
-            Adjudication.Config adjudication) {
+            Adjudication.Config adjudication, RuleSet.TriangleRows rows) {
 
         public Settings {
             if (!(temperature > 0) || temperaturePlies < 0) {
                 throw new IllegalArgumentException("temperature must be positive and temperaturePlies >= 0");
             }
+            java.util.Objects.requireNonNull(rows, "rows");
+            if (rows == RuleSet.TriangleRows.FIVE && adjudication.s1()) {
+                throw new IllegalArgumentException("S1 needs the race table of 10 pieces: no S1 on 5 rows");
+            }
             options(sims, batch, cpuct, noise, alpha, race); // validates the search options
+        }
+
+        /** The settings of 4-row games. */
+        public Settings(long seed, int sims, int batch, double cpuct, double noise, double alpha, double temperature,
+                int temperaturePlies, int openingMin, int openingMax, int race, Adjudication.Config adjudication) {
+            this(seed, sims, batch, cpuct, noise, alpha, temperature, temperaturePlies, openingMin, openingMax, race,
+                    adjudication, RuleSet.TriangleRows.FOUR);
+        }
+
+        /** The rules of the games: the two-player defaults of the board size. */
+        public RuleSet rules() {
+            return RuleSet.defaults(2, rows);
         }
 
         MctsOptions options() {
@@ -88,7 +105,8 @@ public final class LoopGame {
         public String describe() {
             return String.format(Locale.ROOT, "mcts-selfplay;seed=%d;sims=%d;batch=%d;cpuct=%s;noise=%s;alpha=%s;"
                     + "temp=%s;temp-plies=%d;opening=uniform,%d-%d;race=%d;adjudication=%s", seed, sims, batch, cpuct,
-                    noise, alpha, temperature, temperaturePlies, openingMin, openingMax, race, adjudication.describe());
+                    noise, alpha, temperature, temperaturePlies, openingMin, openingMax, race, adjudication.describe())
+                    + (rows == RuleSet.TriangleRows.FOUR ? "" : ";rows=" + rows.rows());
         }
     }
 
@@ -97,7 +115,7 @@ public final class LoopGame {
     private final Settings settings;
     private final ForwardPass network;
     private final MctsOptions options;
-    private final RuleSet rules = RuleSet.defaults(2);
+    private final RuleSet rules;
     private final Adjudication adjudication;
     private final OpeningSampler openings;
 
@@ -106,6 +124,7 @@ public final class LoopGame {
         this.settings = settings;
         this.network = network;
         this.options = settings.options();
+        this.rules = settings.rules();
         Adjudication.Config a = settings.adjudication();
         this.adjudication = new Adjudication(a, rules.players(), a.s1() ? RaceTable.rows2() : null, null);
         this.openings = new OpeningSampler(OpeningSampler.Mode.UNIFORM, settings.openingMin(), settings.openingMax(),
@@ -242,7 +261,7 @@ public final class LoopGame {
         int labelPly = cut == null ? pos.ply() : cut.ply();
         double[] labelValues = cut == null ? outcome.values().clone() : SelfPlayGame.win(cut.winner());
         SelfPlayGame.Labeler labeler = (s, p, z) -> new SelfPlayGame.PlyLabel(policy[s], z, full[s], weighted[s]);
-        GameRecord.Samples samples = SelfPlayGame.samples(start, played, opening.length, labelPly, labelValues,
+        GameRecord.Samples samples = SelfPlayGame.samples(rules, start, played, opening.length, labelPly, labelValues,
                 label != Layer.NONE, 0.0, labeler);
         return new GameRecord(id, opening.length, played, Arrays.copyOf(scores, n), label, labelPly, labelValues,
                 playedOut, playedOut ? pos.ply() : -1, playedOut ? outcome.values().clone() : null, tracker.s1(),

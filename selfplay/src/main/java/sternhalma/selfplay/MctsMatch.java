@@ -48,13 +48,18 @@ import sternhalma.tornado.GpuEvaluators;
  * <pre>
  *   MctsMatch --out DIR --subject mcts:sims=100,... [--net FILE] --vs ab:100 [--vs raw] [--vs mcts:...]
  *             [--pairs 100] [--seed 3001] [--threads 4] [--opening-plies 4] [--progress-seconds 10]
- *             [--jump adjacent|long] [--ladder-spec SPEC] [--evaluator cpu|gpu [--compute-threads 8] [--eval-cohorts 2]] [--subject-seed-offset 0]
+ *             [--jump adjacent|long] [--rows 4|5] [--ladder-spec SPEC] [--evaluator cpu|gpu [--compute-threads 8] [--eval-cohorts 2]] [--subject-seed-offset 0]
  * </pre>
  *
  * <p>{@code --jump long} plays the long hop (2 players; docs/rules.md, "Jump rule"): the openings are drawn under that rule,
  * the default {@code --ladder-spec} is {@code BROWSER_LONG_SPEC} (no race table exists for the long hop), and a ladder spec of
  * the other rule is refused. The subject may be any network the {@code nn.Evaluator} accepts, including a {@code classic1v}
  * network (3-wide value head; a two-player position uses its first two outputs).
+ *
+ * <p>{@code --rows 5} plays the 5-row board (15 pieces, move limit 250): the openings are drawn on it, the default
+ * {@code --ladder-spec} is {@code BROWSER_ROWS5_SPEC} ({@code BEST_SPEC} uses race play, which the engine refuses on 5
+ * rows), a ladder spec of the other size is refused, and the board size goes into the hash of the pairs file, so 4-row
+ * and 5-row results never share a file. The subject's network must list 5 in its {@code triangle_rows}.
  *
  * <p>{@code --evaluator gpu} gives the <em>subject's</em> network the device (docs/training.md, "As implemented (block G1)"):
  * {@code --threads} pairs run at the same time as virtual threads (the games in flight), {@code --compute-threads} carriers
@@ -181,8 +186,18 @@ final class MctsMatch {
         }
         Parameters own = opts.containsKey("net") ? Parameters.load(Path.of(opts.get("net"))) : null;
         JumpRule jump = SelfPlay.jump(opts.getOrDefault("jump", "adjacent"));
-        String ladderSpec = opts.getOrDefault("ladder-spec", StrengthEstimate.defaultBase(jump));
+        RuleSet.TriangleRows rows = SelfPlay.rows(opts.getOrDefault("rows", "4"));
+        String ladderSpec = opts.getOrDefault("ladder-spec", StrengthEstimate.defaultBase(jump, rows));
         StrengthEstimate.requireJump(ladderSpec, jump);
+        if (PlayerSpec.parse(ladderSpec).rows() != rows) {
+            throw new IllegalArgumentException("the ladder spec plays rows=" + PlayerSpec.parse(ladderSpec).rows().rows()
+                    + " but the games use rows=" + rows.rows() + ": " + ladderSpec);
+        }
+        if (own != null && !own.config().supports(rows)) {
+            throw new IllegalArgumentException("the network " + opts.get("net") + " is for "
+                    + sternhalma.nn.NetworkConfig.ROWS_KEY + "=" + sternhalma.nn.NetworkConfig.rowsText(own.config().rows())
+                    + " but the games use rows=" + rows.rows());
+        }
         String evaluator = opts.getOrDefault("evaluator", "cpu");
         long seedOffset = Long.parseLong(opts.getOrDefault("subject-seed-offset", "0"));
         int computeThreads = Integer.parseInt(opts.getOrDefault("compute-threads", "8"));
@@ -246,7 +261,8 @@ final class MctsMatch {
                     String opponent = opponents.get(k);
                     Path file = dir.resolve("pairs-" + Gen0.sha256Hex((subject + "|" + opponent + "|" + seed + "|"
                             + openingPlies + "|" + ladderSpec + "|" + (own == null ? "" : "own")
-                            + (evaluator.equals("gpu") ? "|gpu" : "") + (jump == JumpRule.LONG ? "|long" : "") + (seedOffset != 0 ? "|offset" + seedOffset : ""))
+                            + (evaluator.equals("gpu") ? "|gpu" : "") + (jump == JumpRule.LONG ? "|long" : "")
+                            + (rows == RuleSet.TriangleRows.FOUR ? "" : "|rows" + rows.rows()) + (seedOffset != 0 ? "|offset" + seedOffset : ""))
                             .getBytes(StandardCharsets.UTF_8))
                             .substring(0, 12) + ".jsonl");
                     Map<Integer, PairLine> done = read(file);
@@ -259,7 +275,8 @@ final class MctsMatch {
                         err.printf(Locale.ROOT, "mctsmatch: %s vs %s: %d pairs to play, %d finished before (%s)%n", subject,
                                 opponent, todo, pairs - todo, file);
                         ok += play(file, finalSubject, opponentFactories.get(k), subject, opponent, pairs, seed,
-                                openingPlies, threads, done, stop, err, progressSeconds, finalScope, jump);
+                                openingPlies, threads, done, stop, err, progressSeconds, finalScope,
+                                RuleSet.defaults(2, rows).withJumpRule(jump));
                         done = read(file);
                     }
                     if (stop.get()) {
@@ -348,8 +365,7 @@ final class MctsMatch {
     private static int play(Path file, LongFunction<Player> subjectFactory, LongFunction<Player> opponentFactory,
             String subject, String opponent, int pairs, long seed, int openingPlies, int threads,
             Map<Integer, PairLine> done, AtomicBoolean stop, PrintStream err, double progressSeconds, Scope scope,
-            JumpRule jump) throws IOException {
-        RuleSet rules = RuleSet.defaults(2).withJumpRule(jump);
+            RuleSet rules) throws IOException {
         int todo = pairs - done.size();
         AtomicInteger finished = new AtomicInteger();
         long t0 = System.nanoTime();

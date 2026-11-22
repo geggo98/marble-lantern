@@ -69,8 +69,8 @@ Batches add a leading dimension and nothing else. Positions in a batch are indep
 | 0 | own | 1 if c holds a piece of relative player 0 (the mover), else 0 |
 | 1 | next | 1 if c holds a piece of relative player 1, else 0 |
 | 2 | third | 1 if c holds a piece of relative player 2, else 0; always 0 with two players |
-| 3 | goal | 1 if c is in the goal corner of the mover, else 0 |
-| 4 | start | 1 if c is in the start corner of the mover, else 0 |
+| 3 | goal | 1 if c is in the goal house of the mover (`Layout.inGoal`), else 0 |
+| 4 | start | 1 if c is in the start house of the mover (`Layout.inStart`), else 0 |
 | 5 | playable | 1 if `allowed(mover, c)`, else 0 |
 | 6 | progress | min(ply, moveLimit) / moveLimit, the same value in every cell row |
 
@@ -80,6 +80,7 @@ Details (**project decision**):
 - `ply` is `Position.ply()` and `moveLimit` is `Position.rules().moveLimit()`. `Position.ply()` counts plies since the position was set up. A position built with `Position.put` therefore starts at ply 0, even if it shows a mid-game board. A caller that needs the real game ply must set the position up by playing moves.
 - "Playable" means the cells that `Layout` lets the mover stand on: the central hexagon, the own start corner and the own goal corner. It does not depend on occupancy.
 - The encoder overwrites all 122 · 7 = 854 floats of its output slice. It does not rely on a zeroed buffer.
+- **Board sizes** (**project decision (owner)**, 2026-11-22, decisions D1 and D2 of the 5-row network plan): on the 4-row board a house is the 10-cell corner, so planes 3 and 4 are the corners, and every 4-row encoding is the one from before the 5-row board (`EncoderGoldenTest`). On the 5-row board ([rules](rules.md#board-size-triangle-rows)) a house is the corner plus the hexagon row in front of it, 15 cells. Plane 5 is the same for both sizes, because a 5-row house adds only hexagon cells. Of the classical planes, 7 and 8 use the distances of the 5-row layout (largest 12, below the divisor 16), plane 11 counts the 15 pieces of the layout, and plane 12 is 0 on 5 rows: the linear weights were fitted on 10 pieces, so the value prior `k · eval` switches itself off there, as for three players. A network reads a position only of a size that its metadata key `triangle_rows` lists ([Metadata keys](#metadata-keys)); `Evaluator.encode` refuses any other with `IllegalArgumentException`.
 
 **Project reasoning:** in canonical orientation, planes 3, 4 and 5 are the same for every position of a player count, and they are also the same for two and three players. The goal is always the bottom corner R_POS, the start is always the top corner R_NEG, and the playable cells are always the hexagon plus these two corners. The planes still help: together with the zero padding they tell the network where the board edge and the forbidden side corners are. They cost 3 of 49 input weights per output channel of the first layer. See [Open questions](#open-questions).
 
@@ -423,6 +424,7 @@ With classical planes `conv_in.weight` is [C, 91] (7 · 13 columns), with `class
 | `value_hidden` | H | `32` |
 | `input_planes` | `7` in version 1; the width of the plane set in version 2 (`13` for both classical sets); `15` in version 3 | `7` |
 | `planes` | only in versions 2 and 3: `plain`, `classic1` or `classic1-planes` in version 2, `classic1v` in version 3 | `classic1` |
+| `triangle_rows` | optional, any version: the board sizes the network was trained for, `4`, `5` or `4,5`. Written only when it is not `4`, so every 4-row file keeps its bytes; a file without it is a 4-row network. No new format version: the tensors do not depend on it, and the C++ reader ignores it (`nn_test`, `config_metadata_ignores_the_optional_key_triangle_rows`) | `5` |
 
 `Parameters.load` rejects a file whose `format` or `format_version` is unknown, whose config keys are missing or not integers, whose sizes are outside the [size limits](#size-limits), or whose tensor names or shapes differ from `Parameters.shapes` of that config. Extra metadata keys (for example a training step or a seed) are allowed and kept. Version 1 is written for a plain network (so older readers still read it) and read as plane set `plain`; a version 1 file with a `planes` key, a version 2 file without one, with an unknown name or with `classic1v`, a version 3 file with another plane set or with `players` other than 3, and an `input_planes` that does not belong to the plane set are rejected. Version 3 is written for `classic1v` only; see [Format version 3 (variants)](#format-version-3-variants).
 

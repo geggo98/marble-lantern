@@ -10,6 +10,7 @@ import sternhalma.engine.Outcome;
 import sternhalma.engine.Position;
 import sternhalma.engine.RuleSet;
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.nn.Orientation;
 import sternhalma.search.AlphaBetaPlayer;
 import sternhalma.search.Evaluators;
@@ -46,17 +47,23 @@ public final class SelfPlayGame {
      *                        the played move (1 - epsilon) and {@code Outcome.values}, and neither adjudication nor a
      *                        teacher exists
      * @param jumpRule        the jump rule of the games; the spec must name the same rule; {@code LONG} excludes S1
+     * @param rows            the board size of the games (move limit 250 or 375 on 5 rows); the spec must name the same
+     *                        size; {@code FIVE} excludes S1, whose race table exists for 10 pieces only
      */
     public record Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
             OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
             int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher, int players,
-            JumpRule jumpRule) {
+            JumpRule jumpRule, TriangleRows rows) {
 
         public Settings {
             if (players != 2 && players != 3) {
                 throw new IllegalArgumentException("players must be 2 or 3, got " + players);
             }
             java.util.Objects.requireNonNull(jumpRule, "jumpRule");
+            java.util.Objects.requireNonNull(rows, "rows");
+            if (rows == TriangleRows.FIVE && adjudication.s1()) {
+                throw new IllegalArgumentException("S1 needs the race table of 10 pieces: use --s1 0 with --rows 5");
+            }
             if (players == 3 && (adjudication.any() || teacher != null)) {
                 throw new IllegalArgumentException("three-player games have no adjudication and no teacher");
             }
@@ -70,6 +77,15 @@ public final class SelfPlayGame {
                 throw new IllegalArgumentException(
                         "layer 3 reads adjacent-jump features: use --eval-threshold 0 with --jump long");
             }
+        }
+
+        /** The settings of a 4-row game. */
+        public Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
+                OpeningSampler.Mode openingMode, int openingMin, int openingMax, double openingTemperature,
+                int openingDepth, double epsilon, boolean samples, boolean reuse, Teacher.Config teacher, int players,
+                JumpRule jumpRule) {
+            this(spec, seed, adjudication, controlFraction, openingMode, openingMin, openingMax, openingTemperature,
+                    openingDepth, epsilon, samples, reuse, teacher, players, jumpRule, TriangleRows.FOUR);
         }
 
         public Settings(String spec, long seed, Adjudication.Config adjudication, double controlFraction,
@@ -86,9 +102,9 @@ public final class SelfPlayGame {
                     openingDepth, epsilon, samples, reuse, null);
         }
 
-        /** The rules of the games: the defaults of the player count with the jump rule. */
+        /** The rules of the games: the defaults of the player count and the board size with the jump rule. */
         public RuleSet rules() {
-            return RuleSet.defaults(players).withJumpRule(jumpRule);
+            return RuleSet.defaults(players, rows).withJumpRule(jumpRule);
         }
 
         public String describe() {
@@ -98,7 +114,8 @@ public final class SelfPlayGame {
                     + ";epsilon=" + epsilon + ";samples=" + (samples ? 1 : 0)
                     + (teacher == null ? "" : ";teacher=" + teacher.describe())
                     + (players == 2 ? "" : ";players=" + players)
-                    + (jumpRule == JumpRule.ADJACENT ? "" : ";jump=" + jumpRule.name().toLowerCase(java.util.Locale.ROOT));
+                    + (jumpRule == JumpRule.ADJACENT ? "" : ";jump=" + jumpRule.name().toLowerCase(java.util.Locale.ROOT))
+                    + (rows == TriangleRows.FOUR ? "" : ";rows=" + rows.rows());
         }
     }
 
@@ -119,14 +136,21 @@ public final class SelfPlayGame {
         this.settings = settings;
         this.rules = settings.rules();
         JumpRule specJump;
+        TriangleRows specRows;
         if (settings.players() == 3) {
             this.spec = null;
             this.spec3 = ThreePlayerSpec.parse(settings.spec());
             specJump = spec3.jumpRule();
+            specRows = spec3.rows();
         } else {
             this.spec = PlayerSpec.parse(settings.spec());
             this.spec3 = null;
             specJump = spec.jumpRule();
+            specRows = spec.rows();
+        }
+        if (specRows != settings.rows()) {
+            throw new IllegalArgumentException("the spec plays rows=" + specRows.rows() + ", the settings say rows="
+                    + settings.rows().rows());
         }
         if (specJump != settings.jumpRule()) {
             throw new IllegalArgumentException("the spec plays jump=" + specJump.name().toLowerCase(java.util.Locale.ROOT)

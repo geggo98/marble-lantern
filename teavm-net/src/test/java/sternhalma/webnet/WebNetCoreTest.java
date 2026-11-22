@@ -264,18 +264,69 @@ class WebNetCoreTest {
         return false;
     }
 
-    /** The net engines play the 4-row board only: a game on 5 rows is refused with a named code, before anything starts. */
+    /**
+     * A net game on 5 rows needs a network whose metadata key triangle_rows lists 5 (plan "neural networks for the 5-row
+     * board", section 7.3). A network without the key is a 4-row network: setWeightsInfo then fails with {@code
+     * unsupported}, the code the page maps to a text, and no search starts. The same holds the other way round.
+     */
     @Test
-    void createOnFiveRowsFailsWithAnUnsupportedBoardAndKeepsThePreviousGame() {
+    void aFiveRowGameNeedsANetworkThatListsFiveRows() {
         WebNetCore core = new WebNetCore();
-        NetFailure failure = assertThrows(NetFailure.class,
-                () -> core.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE, 8, 1, 1, ""));
+        core.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE, 8, 1, 1, "");
+        NetFailure failure = assertThrows(NetFailure.class, () -> core.setWeightsInfo("classic1", 2));
         assertEquals("unsupported", failure.code());
-        assertTrue(failure.getMessage().contains("5-row"), failure.getMessage());
-        assertTrue(WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "5").startsWith("error unsupported "));
+        assertTrue(failure.getMessage().contains("5-row") && failure.getMessage().contains("triangle_rows=4"),
+                failure.getMessage());
+        assertEquals("no-weights-info", assertThrows(NetFailure.class, () -> core.begin(new int[0])).code(),
+                "the refused weights info was not taken, so no search can start");
+
+        assertEquals("ok", WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "5"));
+        assertTrue(WebNet.setWeightsInfo("classic1", 2).startsWith("error unsupported "));
+        assertEquals("ok " + PlaneSet.CLASSIC1.inputSize() + " 2", WebNet.setWeightsInfoRows("classic1", 2, "5"));
+        assertEquals("ok " + PlaneSet.CLASSIC1.inputSize() + " 2", WebNet.setWeightsInfoRows("classic1", 2, "4,5"));
+        assertTrue(WebNet.setWeightsInfoRows("classic1", 2, "5,4").startsWith("error bad-weights-info "));
         assertTrue(WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "7").startsWith("error internal "));
-        assertEquals("ok", WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", ""));
+
+        // a 5-only network refuses a 4-row game, also when the game changes after the weights info
         assertEquals("ok", WebNet.create("adjacent", "2", 8, 1, 1, "", "closed", "4"));
+        assertTrue(WebNet.setWeightsInfoRows("classic1", 2, "5").startsWith("error unsupported "));
+        assertTrue(WebNet.setWeightsInfoRows("classic1", 2, "").startsWith("ok "), "empty means 4");
+        WebNetCore switched = new WebNetCore();
+        switched.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE, 8, 1, 1, "");
+        switched.setWeightsInfo("classic1", 2, "5");
+        switched.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FOUR, 8, 1, 1, "");
+        assertEquals("unsupported", assertThrows(NetFailure.class, () -> switched.begin(new int[0])).code());
+    }
+
+    /** With a 5-row network the facade searches 5-row positions like the synchronous search, inputs included. */
+    @Test
+    void playsLikeTheSynchronousSearchOnFiveRows() {
+        NetworkConfig config = NetworkConfig.tiny(2).withPlanes(PlaneSet.CLASSIC1)
+                .withRows(java.util.EnumSet.of(RuleSet.TriangleRows.FIVE));
+        Network network = new Network(Parameters.init(config, 17));
+        WebNetCore core = new WebNetCore();
+        core.create(RuleSet.JumpRule.ADJACENT, 2, RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE, 40, 1, 5, "");
+        core.setWeightsInfo("classic1", 2, "5");
+        Mcts reference = new Mcts(network, WebNetCore.defaultOptions().withSims(40).withBatch(1), 5);
+        Position position = Position.initial(RuleSet.defaults(2, RuleSet.TriangleRows.FIVE));
+        int[] history = new int[0];
+        for (int ply = 0; ply < 6; ply++) {
+            MctsResult expected = reference.search(position);
+            int n = core.begin(history);
+            float[] first = core.inputs();
+            float[] encoded = new float[PlaneSet.CLASSIC1.inputSize()];
+            Encoder.encode(PlaneSet.CLASSIC1, position, encoded, 0);
+            assertArrayEquals(encoded, java.util.Arrays.copyOf(first, encoded.length), "root input, ply " + ply);
+            while (n > 0) {
+                n = forwardAndApply(core, network, n)[0];
+            }
+            WebNetCore.Best actual = core.best();
+            assertEquals(expected.move(), actual.move(), "ply " + ply);
+            assertArrayEquals(expected.visits(), actual.visits(), "ply " + ply + " visits");
+            position.make(expected.move());
+            history = java.util.Arrays.copyOf(history, history.length + 1);
+            history[history.length - 1] = expected.move();
+        }
     }
 
     /** Rules-only calls need no net: legal moves and the outcome follow the board size. */

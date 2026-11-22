@@ -13,7 +13,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
-import sternhalma.engine.RuleSet;
 import sternhalma.nn.Networks;
 import sternhalma.nn.Parameters;
 import sternhalma.nn.PooledEvaluator;
@@ -372,7 +371,7 @@ final class LoopGamesJob extends Job<GameRecord> {
         m.put("format", GameShard.FORMAT);
         m.put("format_version", Integer.toString(GameShard.FORMAT_VERSION));
         m.put("players", "2");
-        m.put("rules", RuleSet.defaults(2).toString());
+        m.put("rules", settings.rules().toString());
         m.put("generation", Integer.toString(generation));
         m.put("network_sha256", networkSha256);
         m.put("search", settings.describe());
@@ -383,6 +382,6 @@ final class LoopGamesJob extends Job<GameRecord> {
         m.put("shard", Integer.toString(shard));
         m.put("first_game", Integer.toString(first));
         m.put("games", Integer.toString(results.size()));
-        SampleFile.write(file, GameShard.tensors(results), m);
+        SampleFile.write(file, GameShard.tensors(settings.rules(), results), m);
     }
 }

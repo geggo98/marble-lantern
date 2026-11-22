@@ -22,10 +22,17 @@ final class Playouts {
 
     /** The same under the given jump rule. */
     static List<Position> positions(int players, RuleSet.JumpRule jumpRule, int games, int maxPlies, long seed) {
+        return positions(players, jumpRule, RuleSet.TriangleRows.FOUR, games, maxPlies, seed);
+    }
+
+    /** The same on a board of the given size. */
+    static List<Position> positions(int players, RuleSet.JumpRule jumpRule, RuleSet.TriangleRows rows, int games,
+            int maxPlies, long seed) {
         List<Position> result = new ArrayList<>();
         Random random = new Random(seed);
         for (int g = 0; g < games; g++) {
-            Position position = Position.initial(RuleSet.defaults(players).withMoveLimit(1000).withJumpRule(jumpRule));
+            Position position = Position.initial(
+                    RuleSet.defaults(players, rows).withMoveLimit(1000).withJumpRule(jumpRule));
             result.add(position.copy());
             for (int ply = 0; ply < maxPlies && position.outcome() == null; ply++) {
                 int[] moves = position.legalMoves();

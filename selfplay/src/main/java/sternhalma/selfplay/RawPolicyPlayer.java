@@ -34,6 +34,11 @@ public final class RawPolicyPlayer implements Player {
         if (legal.length == 0) {
             throw new IllegalArgumentException("the position has no legal move");
         }
+        if (!network.config().supports(position.rules().triangleRows())) {
+            throw new IllegalArgumentException("the network is for triangle_rows="
+                    + sternhalma.nn.NetworkConfig.rowsText(network.config().rows()) + ", the position has "
+                    + position.rules().triangleRows().rows() + " rows");
+        }
         PlaneSet planes = network.config().planes();
         float[] input = new float[planes.inputSize()];
         Encoder.encode(planes, position, input, 0);

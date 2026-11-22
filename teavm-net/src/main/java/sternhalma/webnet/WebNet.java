@@ -38,8 +38,9 @@ public final class WebNet {
      * {@code "closed"} (also null or empty), {@code "pass-through"} or {@code "open"}; {@link #legalMoves} and
      * {@link #outcome} take it the same way. Always pass it: the TeaVM export fails on an omitted String argument.
      * The last argument of {@link #create}, {@link #legalMoves} and {@link #outcome} is {@code rows}, the board size
-     * ({@code "4"}, also null or empty, or {@code "5"}). The two calls that need no net play either size;
-     * {@link #create} fails with {@code unsupported} on {@code "5"}, so no search can start on 5 rows.
+     * ({@code "4"}, also null or empty, or {@code "5"}). The two calls that need no net play either size. A search
+     * needs a network that lists the size: {@link #setWeightsInfo} (a 4-row network) fails with {@code unsupported}
+     * after {@code create} on {@code "5"}; {@link #setWeightsInfoRows} names the sizes of the network.
      */
     @JSExport
     public static String create(String jump, String players, int sims, int batch, int seed, String options, String camps, String rows) {
@@ -57,6 +58,22 @@ public final class WebNet {
     public static String setWeightsInfo(String planes, int valueWidth) {
         try {
             CORE.setWeightsInfo(planes, valueWidth);
+            return "ok " + CORE.inputSize() + " " + CORE.valueWidth();
+        } catch (RuntimeException e) {
+            return error(e);
+        }
+    }
+
+    /**
+     * {@code ok <inputSize> <valueWidth>}; {@link #setWeightsInfo} with the value of the network's metadata key
+     * {@code triangle_rows} ({@code "4"}, {@code "5"}, {@code "4,5"}; empty for a file without the key, which means 4).
+     * A new export instead of a third argument of {@code setWeightsInfo}: an omitted String argument fails in the TeaVM
+     * export, so old callers keep the two-argument call.
+     */
+    @JSExport
+    public static String setWeightsInfoRows(String planes, int valueWidth, String rows) {
+        try {
+            CORE.setWeightsInfo(planes, valueWidth, rows);
             return "ok " + CORE.inputSize() + " " + CORE.valueWidth();
         } catch (RuntimeException e) {
             return error(e);

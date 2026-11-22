@@ -327,7 +327,12 @@ final class Gate {
     /** {@link #pairWorkers(long, int, LongFunction, LongFunction)} for the games of a jump rule. */
     static Supplier<Job.Worker<PairLine>> pairWorkers(long seed, int openingPlies, LongFunction<Player> subject,
             LongFunction<Player> opponent, RuleSet.JumpRule jump) {
-        RuleSet rules = RuleSet.defaults(2).withJumpRule(jump);
+        return pairWorkers(seed, openingPlies, subject, opponent, RuleSet.defaults(2).withJumpRule(jump));
+    }
+
+    /** {@link #pairWorkers(long, int, LongFunction, LongFunction)} for the games of the given rules (e.g. 5 rows). */
+    static Supplier<Job.Worker<PairLine>> pairWorkers(long seed, int openingPlies, LongFunction<Player> subject,
+            LongFunction<Player> opponent, RuleSet rules) {
         return () -> pair -> MctsMatch.playPair(StrengthEstimate.opening(rules, seed, pair, openingPlies), pair, subject,
                 opponent, (seed * 1_000_003L + pair) * 2);
     }

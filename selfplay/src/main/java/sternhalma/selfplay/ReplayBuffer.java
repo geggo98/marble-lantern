@@ -34,7 +34,7 @@ import sternhalma.selfplay.SampleFile.Contents;
  * <p><b>Files.</b> A file is read with {@link SampleFile} and validated completely (format, shapes, offsets, cell
  * range, targets, weights); a file that fails is skipped. {@link #addGeneration(int, Path)} follows the job
  * conventions: it renames a failed file to {@code <name>.corrupt}, which the caller counts as CLEANUP. A file of
- * another player count is not corrupt but a wrong configuration and raises {@link IllegalArgumentException}. Move
+ * another player count or of a board size the buffer was not made for is not corrupt but a wrong configuration and raises {@link IllegalArgumentException}. Move
  * targets are normalised to sum 1 at load time, as {@link TrainingBatch.Builder} does.
  *
  * <p><b>Batches.</b> {@link #batch} draws with replacement and with the seeded sampler of {@link BatchSampler}, so
@@ -59,7 +59,8 @@ public final class ReplayBuffer implements BatchSource {
     }
 
     /** The samples of one file, validated, in compact form. */
-    private record Block(int generation, int size, int players, RuleSet.JumpRule jumpRule, byte[] cells, short[] ply,
+    private record Block(int generation, int size, int players, RuleSet.JumpRule jumpRule, RuleSet.TriangleRows rows,
+            byte[] cells, short[] ply,
             short[] moveLimit, int[] moveOffsets, byte[] moveFrom, byte[] moveTo, float[] moveTarget, float[] value,
             float[] policyWeight, float[] valueWeight, double[] entropy, byte[] winner) {
 
@@ -105,6 +106,8 @@ public final class ReplayBuffer implements BatchSource {
     private final int window;
     private final boolean augment;
     private final PlaneSet planes;
+    /** The board sizes whose files the buffer accepts. */
+    private final java.util.Set<RuleSet.TriangleRows> rows;
     private final List<Block> blocks = new ArrayList<>();
     private int[] starts = {0};
     /** Global sample indices of each variant, ascending; filled after every addition. */
@@ -125,7 +128,17 @@ public final class ReplayBuffer implements BatchSource {
      *               sample at batch build time, never stored
      */
     public ReplayBuffer(int players, int window, boolean augment, PlaneSet planes) {
-        this(players, false, Strata.NATURAL, window, augment, planes);
+        this(players, window, augment, planes, java.util.Set.of(RuleSet.TriangleRows.FOUR));
+    }
+
+    /**
+     * A buffer of the given board sizes (the {@code NetworkConfig.rows()} of the network it trains). A file of another
+     * size is a wrong configuration and raises {@link IllegalArgumentException}, as a file of another player count does.
+     * Each block keeps its size, so the sample expander rebuilds its positions on the right board.
+     */
+    public ReplayBuffer(int players, int window, boolean augment, PlaneSet planes,
+            java.util.Set<RuleSet.TriangleRows> rows) {
+        this(players, false, Strata.NATURAL, window, augment, planes, rows);
     }
 
     /**
@@ -142,10 +155,14 @@ public final class ReplayBuffer implements BatchSource {
         if (!planes.variants()) {
             throw new IllegalArgumentException("a mixed buffer needs the plane set classic1v, got " + planes.id());
         }
-        return new ReplayBuffer(3, true, Objects.requireNonNull(strata, "strata"), window, augment, planes);
+        // 4 rows only: the Variant enum and the strata know the four 4-row variants (5-row variants: phase 2 of the
+        // 5-row network plan)
+        return new ReplayBuffer(3, true, Objects.requireNonNull(strata, "strata"), window, augment, planes,
+                java.util.Set.of(RuleSet.TriangleRows.FOUR));
     }
 
-    private ReplayBuffer(int players, boolean mixed, Strata strata, int window, boolean augment, PlaneSet planes) {
+    private ReplayBuffer(int players, boolean mixed, Strata strata, int window, boolean augment, PlaneSet planes,
+            java.util.Set<RuleSet.TriangleRows> rows) {
         if (players != 2 && players != 3) {
             throw new IllegalArgumentException("players must be 2 or 3, got " + players);
         }
@@ -158,6 +175,10 @@ public final class ReplayBuffer implements BatchSource {
         this.window = window;
         this.augment = augment && (players == 2 || mixed);
         this.planes = java.util.Objects.requireNonNull(planes, "planes");
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("rows must name at least one board size");
+        }
+        this.rows = java.util.Set.copyOf(rows);
     }
 
     /** Which games of a file a buffer takes (see {@link #addGeneration(int, List, GameFilter)}). */
@@ -458,7 +479,7 @@ public final class ReplayBuffer implements BatchSource {
             if (mirror[i] && b.players != 2) {
                 throw new IllegalArgumentException("the mirror is defined for two players only");
             }
-            SampleExpander.expand(planes, b.players, b.jumpRule, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s],
+            SampleExpander.expand(planes, b.players, b.jumpRule, b.rows, b.cells, s * HexGrid.CELLS, b.ply[s], b.moveLimit[s],
                     mirror[i], input, i * inputSize);
             int first = b.moveOffsets[s];
             int count = b.moveOffsets[s + 1] - first;
@@ -495,23 +516,31 @@ public final class ReplayBuffer implements BatchSource {
             throw new IllegalArgumentException("file has " + declared + " players, the buffer "
                     + (mixed ? "2 or 3" : Integer.toString(players)));
         }
+        RuleSet.TriangleRows fileRows;
+        try {
+            fileRows = GameShard.rules(meta).triangleRows();
+        } catch (IllegalArgumentException e) {
+            throw new IOException("invalid sample file: " + e.getMessage(), e);
+        }
+        if (!rows.contains(fileRows)) {
+            // a wrong configuration, like a wrong player count: the network of the buffer is not for this board size
+            throw new IllegalArgumentException("file is for the " + fileRows.rows() + "-row board, the buffer for "
+                    + sternhalma.nn.NetworkConfig.rowsText(rows) + " rows");
+        }
         try {
             RuleSet rules = GameShard.rules(meta);
-            if (rules.triangleRows() != RuleSet.TriangleRows.FOUR) {
-                // the encoder and the sample expander are for the 4-row board (10 pieces, 10-cell corners)
-                throw new IllegalArgumentException("triangleRows=" + rules.triangleRows() + " is not trainable");
-            }
             if (rules.foreignCamps() != RuleSet.ForeignCamps.CLOSED) {
                 // the sample expander rebuilds positions under closed foreign corners (SampleExpander)
                 throw new IllegalArgumentException("foreignCamps=" + rules.foreignCamps() + " is not trainable");
             }
-            return validated(generation, c, filePlayers, rules.jumpRule());
+            return validated(generation, c, filePlayers, rules.jumpRule(), rules.triangleRows());
         } catch (IllegalArgumentException | IllegalStateException | NullPointerException e) {
             throw new IOException("invalid sample file: " + e.getMessage(), e);
         }
     }
 
-    private Block validated(int generation, Contents c, int players, RuleSet.JumpRule jumpRule) throws IOException {
+    private Block validated(int generation, Contents c, int players, RuleSet.JumpRule jumpRule,
+            RuleSet.TriangleRows rows) throws IOException {
         short[] ply = c.tensor("ply").i16();
         int n = ply.length;
         byte[] cells = c.tensor("cells").u8();
@@ -592,7 +621,7 @@ public final class ReplayBuffer implements BatchSource {
             }
             entropy[s] = ReferenceLoss.entropy(normalised, first, end);
         }
-        return new Block(generation, n, players, jumpRule, cells, ply, limit, offsets, from, to, normalised, value, wp,
+        return new Block(generation, n, players, jumpRule, rows, cells, ply, limit, offsets, from, to, normalised, value, wp,
                 wv, entropy, null);
     }
 
@@ -652,7 +681,7 @@ public final class ReplayBuffer implements BatchSource {
             }
             winner[s] = (byte) (tie ? -1 : best);
         }
-        Block withResult = new Block(block.generation, block.size, block.players, block.jumpRule, block.cells,
+        Block withResult = new Block(block.generation, block.size, block.players, block.jumpRule, block.rows, block.cells,
                 block.ply, block.moveLimit, block.moveOffsets, block.moveFrom, block.moveTo, block.moveTarget,
                 block.value, block.policyWeight, block.valueWeight, block.entropy, winner);
         if (kept == block.size) {
@@ -707,7 +736,7 @@ public final class ReplayBuffer implements BatchSource {
             }
             k++;
         }
-        return new Block(b.generation, kept, b.players, b.jumpRule, cells, ply, limit, offsets, from, to, target,
+        return new Block(b.generation, kept, b.players, b.jumpRule, b.rows, cells, ply, limit, offsets, from, to, target,
                 value, wp, wv, entropy, winner);
     }
 

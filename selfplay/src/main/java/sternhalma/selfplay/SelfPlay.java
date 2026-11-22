@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import sternhalma.engine.RuleSet.JumpRule;
+import sternhalma.engine.RuleSet.TriangleRows;
 import sternhalma.search.PlayerSpec;
 import sternhalma.search.Strategies;
 
@@ -26,7 +27,7 @@ import sternhalma.search.Strategies;
  *                [--opening uniform|softmax] [--opening-min 4] [--opening-max 10] [--opening-temp 30]
  *                [--opening-depth 1|2] [--tt auto|spec] [--epsilon 0.05] [--samples 1|0] [--reuse 1|0]
  *                [--teacher-depth D [--teacher-tau T] [--teacher-alpha START,END,PLIES]] [--progress SECONDS]
- *                [--players 2|3] [--jump adjacent|long] [--nodes N]
+ *                [--players 2|3] [--jump adjacent|long] [--rows 4|5] [--nodes N]
  *   SelfPlay run --status --out DIR
  *   SelfPlay pilot [--games 20] [--threads T] (the options of run; writes nothing, prints length, move-limit share and cost)
  *   SelfPlay report DIR... [--sweep 300,500,700] [--check-s1 1]
@@ -136,8 +137,24 @@ public final class SelfPlay {
         };
     }
 
+    /**
+     * The board size of {@code --rows}: {@code 4} (the default) or {@code 5}.
+     *
+     * @throws IllegalArgumentException for any other text
+     */
+    static TriangleRows rows(String v) {
+        return switch (v) {
+            case "4" -> TriangleRows.FOUR;
+            case "5" -> TriangleRows.FIVE;
+            default -> throw new IllegalArgumentException("--rows must be 4 or 5, got " + v);
+        };
+    }
+
     /** Nodes per move of the two-player long-hop mover when neither --spec nor --nodes says otherwise. */
     static final long LONG_NODES = 5000;
+
+    /** Nodes per move of the two-player 5-row mover when neither --spec nor --nodes says otherwise. */
+    static final long ROWS5_NODES = 5000;
 
     /**
      * The mover spec of a variant. Two players, adjacent jump: {@code --spec} is required, as always. Otherwise the
@@ -147,7 +164,28 @@ public final class SelfPlay {
      * ({@link #effectiveSpec}); an {@code ab3:} spec keeps its own {@code tt}.
      */
     static String variantSpec(Map<String, String> opts, int players, JumpRule jump) {
+        return variantSpec(opts, players, jump, TriangleRows.FOUR);
+    }
+
+    /**
+     * {@link #variantSpec(Map, int, JumpRule)} on a board of the given size. On 5 rows the default is the
+     * {@code BROWSER_ROWS5_*} spec of the variant (two players with {@code nodes=5000} unless {@code --nodes} says
+     * otherwise, the adjacent jump included: {@code BEST_SPEC} uses race play, which the engine refuses on 5 rows), and
+     * {@code rows=5} is added to a given spec that lacks a rows key.
+     */
+    static String variantSpec(Map<String, String> opts, int players, JumpRule jump, TriangleRows rows) {
         String spec = opts.get("spec");
+        if (spec == null && rows == TriangleRows.FIVE) {
+            if (players == 3) {
+                spec = jump == JumpRule.LONG ? Strategies.BROWSER_3P_ROWS5_LONG_SPEC : Strategies.BROWSER_3P_ROWS5_SPEC;
+            } else {
+                spec = (jump == JumpRule.LONG ? Strategies.BROWSER_ROWS5_LONG_SPEC : Strategies.BROWSER_ROWS5_SPEC)
+                        + (opts.containsKey("nodes") ? "" : ",nodes=" + ROWS5_NODES);
+            }
+        }
+        if (rows == TriangleRows.FIVE && !spec.matches(".*[:,]rows=.*")) {
+            spec += ",rows=5";
+        }
         if (spec == null) {
             if (players == 3) {
                 spec = jump == JumpRule.LONG ? Strategies.BROWSER_3P_LONG_SPEC : Strategies.BROWSER_3P_SPEC;
@@ -186,11 +224,13 @@ public final class SelfPlay {
     static SelfPlayGame.Settings settings(Map<String, String> opts) {
         int players = intOpt(opts, "players", 2);
         JumpRule jump = jump(opts.getOrDefault("jump", "adjacent"));
+        TriangleRows rows = rows(opts.getOrDefault("rows", "4"));
         boolean long2 = players == 2 && jump == JumpRule.LONG;
-        String spec = variantSpec(opts, players, jump);
+        String spec = variantSpec(opts, players, jump, rows);
         Adjudication.Config d = Adjudication.Config.PRODUCTION;
-        // 2p long: no S1 (the race table counts single jumps), the score-margin layer on; 3p: no adjudication at all
-        boolean variantOff = players == 3 || long2;
+        // 2p long: no S1 (the race table counts single jumps), the score-margin layer on; 3p: no adjudication at all;
+        // 5 rows: no S1 (the race table is for 10 pieces), the other layers as for 4 rows
+        boolean variantOff = players == 3 || long2 || rows == TriangleRows.FIVE;
         Adjudication.Config adj = new Adjudication.Config(intOpt(opts, "s1", variantOff ? 0 : 1) == 1,
                 intOpt(opts, "margin", long2 ? 500 : d.margin()), intOpt(opts, "margin-moves", d.marginMoves()),
                 doubleOpt(opts, "eval-threshold", d.evalThreshold()), intOpt(opts, "eval-plies", d.evalPlies()));
@@ -200,7 +240,7 @@ public final class SelfPlay {
                 control(opts.getOrDefault("control", "0.1")), mode, intOpt(opts, "opening-min", 4),
                 intOpt(opts, "opening-max", 10), doubleOpt(opts, "opening-temp", 30), intOpt(opts, "opening-depth", 1),
                 doubleOpt(opts, "epsilon", 0.05), intOpt(opts, "samples", 1) == 1, intOpt(opts, "reuse", 1) == 1,
-                teacher(opts, long2), players, jump);
+                teacher(opts, long2), players, jump, rows);
     }
 
     /**

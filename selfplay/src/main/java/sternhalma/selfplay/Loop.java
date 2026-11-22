@@ -52,7 +52,7 @@ import sternhalma.search.PlayerSpec;
  * <pre>
  *   Loop run RUN [--init NETWORK] [--generations 3] [--games 600] [--shard-games 25] [--sims 100] [--mcts-batch 1]
  *                [--cpuct 1.0] [--noise 0.25] [--alpha 0.3] [--temp 1.0] [--temp-plies 14] [--opening-min 4]
- *                [--opening-max 10] [--race 1] [--s1 1] [--seed 1]
+ *                [--opening-max 10] [--race 1] [--s1 1] [--seed 1] [--rows 4|5]
  *                [--lr 3e-4] [--lr-final 0] [--warmup 100] [--batch 256] [--microbatch 32] [--reuse 4] [--window 500000] [--trainer cpu|gpu]
  *                [--augment 1] [--value-coefficient 1] [--holdout 0.1] [--teacher DIR [--teacher-files N]]
  *                [--gate-pairs 100] [--pair-shard 10] [--gate-opening 4] [--baseline-rung 1600]
@@ -631,6 +631,12 @@ public final class Loop {
                     stderr.println("loop: the loop plays two players; the init network has " + p.config().players());
                     return EXIT_ERROR;
                 }
+                if (!p.config().supports(cfg.rows())) {
+                    stderr.println("loop: the run plays rows=" + cfg.rows().rows() + "; the init network is for "
+                            + sternhalma.nn.NetworkConfig.ROWS_KEY + "="
+                            + sternhalma.nn.NetworkConfig.rowsText(p.config().rows()));
+                    return EXIT_ERROR;
+                }
                 Path tmp = candidate.resolveSibling("candidate.safetensors.init.tmp");
                 Files.copy(Path.of(opts.get("init")), tmp, StandardCopyOption.REPLACE_EXISTING);
                 Files.move(tmp, candidate, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -797,8 +803,10 @@ public final class Loop {
 
         /** The replay window up to generation {@code g} (training games) and the held-out games of {@code g}. */
         private Data load(int g) throws IOException {
-            ReplayBuffer train = new ReplayBuffer(2, cfg.window(), cfg.augment(), best(0).parameters().config().planes());
-            ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, best(0).parameters().config().planes());
+            ReplayBuffer train = new ReplayBuffer(2, cfg.window(), cfg.augment(), best(0).parameters().config().planes(),
+                    java.util.Set.of(cfg.rows()));
+            ReplayBuffer held = new ReplayBuffer(2, Integer.MAX_VALUE, false, best(0).parameters().config().planes(),
+                    java.util.Set.of(cfg.rows()));
             if (cfg.teacherFiles() > 0) {
                 List<Path> all = shards(Path.of(opts.get("teacher")));
                 List<Path> files = all.subList(0, cfg.teacherFiles());
@@ -1089,7 +1097,8 @@ public final class Loop {
          */
         private Prepared pairJob(Path dir, String prefix, String label, String identity, int pairs, long seed, int openingPlies,
                 Side subject, Side opponent, String eloPhase, int g) {
-            Supplier<Job.Worker<MctsMatch.PairLine>> cpuPlay = Gate.pairWorkers(seed, openingPlies, subject.cpu(), opponent.cpu());
+            Supplier<Job.Worker<MctsMatch.PairLine>> cpuPlay = Gate.pairWorkers(seed, openingPlies, subject.cpu(), opponent.cpu(),
+                    cfg.rules());
             LoopGamesJob.Device device = null;
             Supplier<Job.Worker<MctsMatch.PairLine>> devicePlay = null;
             int inFlight = cad.threads();
@@ -1118,7 +1127,7 @@ public final class Loop {
                             : NetPlayers.onDevice(cfg.evalPlayer(), () -> opened.pool().models().get(subjectModel));
                     LongFunction<Player> o = opponentModel < 0 ? opponent.cpu()
                             : NetPlayers.onDevice(cfg.evalPlayer(), () -> opened.pool().models().get(opponentModel));
-                    devicePlay = Gate.pairWorkers(seed, openingPlies, s, o);
+                    devicePlay = Gate.pairWorkers(seed, openingPlies, s, o, cfg.rules());
                 } else if (!evaluatorWarned) {
                     evaluatorWarned = true;
                     stderr.println("loop: --evaluator gpu: " + why + "; playing the games on the CPU instead");
