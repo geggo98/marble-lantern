@@ -86,6 +86,8 @@
   "fig.ab.legend.current": "Current root move",
   "fig.ab.scrub.label": "Step of the search",
   "fig.ab.scrub.value": "Step {k} of {n}: {move}, {verdict}",
+  "fig.ab.scrub.result": "Result: {move}",
+  "fig.ab.status.result": "Result:",
   "fig.ab.focus.label": "Close view of the current root move",
   "fig.ab.over.title": "All root moves in search order",
   "fig.ab.over.desc": "Overview of the alpha-beta search at depth 2: {n} root moves in search order, each with its value for the side to move above and a column of its replies below. Searched in full: {full}. Cut off after one reply: {cut}. In all, the search visits {visited} of the {total} nodes of the full tree.",

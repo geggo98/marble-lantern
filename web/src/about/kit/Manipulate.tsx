@@ -277,6 +277,8 @@ export interface StepperLabels {
   forward: string;
   /** Spoken prefix of the position "3 / 6" (`kit.stepper.position`). */
   position: string;
+  /** Replaces the visible position "3 / 6" when the figure counts something else than its steps (V5: root moves, the result step reads "Result"). */
+  positionText?: string;
 }
 
 export interface StepperProps {
@@ -318,7 +320,7 @@ export function Stepper({ state, dispatch, labels }: StepperProps): React.JSX.El
         </button>
         <span className="ml-fig-stepper__pos">
           <span className="ml-visually-hidden">{labels.position} </span>
-          {step} / {count}
+          {labels.positionText ?? `${step} / ${count}`}
         </span>
         <div className="ml-fig-stepper__track" aria-hidden="true">
           {count <= 12 ? (

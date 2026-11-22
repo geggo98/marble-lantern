@@ -168,7 +168,8 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
   const G = gaugeLayout(data, compact);
 
   // Every narration of the example in this language (every step), so that the status area keeps the height of the longest one (kit: status.all).
-  const stepLabel = (k: number): string => f.kit('kit.stepper.step', { k, n: total });
+  // The steps count the root moves (1 to N) plus the result step; the numbers shown are those of the root moves, so the result step is named, not numbered N + 1.
+  const stepLabel = (k: number): string => (k > moves ? t('fig.ab.status.result') : f.kit('kit.stepper.step', { k, n: moves }));
   const allNarrations: StatusLine[] = [];
   const seenText = new Set<string>();
   for (let k = 0; k <= total; k++) {
@@ -201,7 +202,7 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
               { value: 'start', label: t('fig.ab.example.start') },
             ]}
           />
-          <Stepper state={state} dispatch={dispatch} labels={stepperLabels(f.kitT, t('fig.ab.stepper'))} />
+          <Stepper state={state} dispatch={dispatch} labels={{ ...stepperLabels(f.kitT, t('fig.ab.stepper')), positionText: step > moves ? verdictText('result') : `${step} / ${moves}` }} />
         </Manipulate>
       }
       caption={<Markup text={t(`fig.ab.caption.${example}`)} />}
@@ -261,7 +262,7 @@ export function AlphaBetaFigure({ catalog, number }: AlphaBetaFigureProps): Reac
             step={1}
             value={step}
             aria-label={t('fig.ab.scrub.label')}
-            aria-valuetext={t('fig.ab.scrub.value', { k: step, n: total, move: shown ? rootName(shown) : '–', verdict: verdict ? verdictText(verdict) : '–' })}
+            aria-valuetext={step > moves ? t('fig.ab.scrub.result', { move: shown ? rootName(shown) : '–' }) : t('fig.ab.scrub.value', { k: step, n: moves, move: shown ? rootName(shown) : '–', verdict: verdict ? verdictText(verdict) : '–' })}
             onChange={(e) => dispatch({ type: 'set', step: Number(e.currentTarget.value) })}
           />
           <div className="ml-fig-ab2__count">

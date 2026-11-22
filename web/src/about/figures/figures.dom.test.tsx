@@ -408,12 +408,40 @@ describe('V5 (alpha-beta, one step per root move)', () => {
   it('opens on the mid-game example at step 0: 0 of 3,180, alpha minus infinity, beta plus infinity', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
     expect(radio('Mid-game, ply 24').checked).toBe(true);
-    expect(pos()).toContain('0 / 68');
+    expect(pos()).toBe('0 / 67');
     expect(counter()).toBe('0 of 3,180');
     expect([readout('alpha'), readout('move'), readout('beta')]).toEqual(['−∞', '–', '+∞']);
-    expect(status()).toContain('Step 0 of 68');
+    expect(status()).toContain('Step 0 of 67');
     expect(host.querySelectorAll('[data-chain]')).toHaveLength(0);
     expect(overview('.ml-ab2-todo')).toBe(67); // nothing reached yet: a tick per root move
+  });
+
+  it('the numbers agree at every step: stepper position, close-view rank, status line and scrubber never name another count of root moves', async () => {
+    for (const example of ['Mid-game', 'Start position']) {
+      await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
+      click(radio(example));
+      const moves = Number(/\/ (\d+)$/.exec(q('[data-focus="rank"]').textContent!)![1]); // the root moves: 67 and 14
+      expect(moves).toBe(example === 'Mid-game' ? 67 : 14);
+      for (let step = 0; step <= moves + 1; step++) {
+        setRange(scrub(), step);
+        const position = q('.ml-fig-stepper__pos').textContent!.replace(/^Step\s*/, '');
+        const rank = q('[data-focus="rank"]').textContent!;
+        const live = q('.ml-fig__status-line:not(.ml-fig__status-line--ghost) .ml-fig__step').textContent!; // the visible step label, not the hidden ghosts
+        const where = `${example}, step ${step}`;
+        if (step <= moves) {
+          expect([where, position, live]).toEqual([where, `${step} / ${moves}`, `Step ${step} of ${moves}:`]);
+          if (step > 0) expect([where, rank]).toEqual([where, position]);
+        } else {
+          expect([where, position]).toEqual([where, 'Result']);
+          expect([where, live]).toEqual([where, 'Result:']);
+          expect([where, scrub().getAttribute('aria-valuetext')]).toEqual([where, expect.stringMatching(/^Result: /)]);
+        }
+        expect(`${where} ${position}`).not.toMatch(new RegExp(`/ ${moves + 1}$`));
+        expect(`${where} ${live}`).not.toContain(`of ${moves + 1}`);
+      }
+      act(() => root.unmount());
+      root = createRoot(host);
+    }
   });
 
   it('the first three steps show the three events: full search, cut-off, new best (spec, section 3)', async () => {
@@ -466,7 +494,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
   it('after the last step: 231 of 3,180, the overview holds 2 discs and 65 caps, 65 hollow columns, and the result narration', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
     key(q('.ml-fig-stepper'), 'End');
-    expect(pos()).toContain('68 / 68');
+    expect(pos()).toBe('Result');
     expect(counter()).toBe('231 of 3,180');
     expect(verdict()).toBe('Result');
     expect(overview('.ml-ab2-exact')).toBe(2);
@@ -481,11 +509,11 @@ describe('V5 (alpha-beta, one step per root move)', () => {
   it('Home goes to step 1, End to the result; the scrubber and the stepper stay in step', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
     key(q('.ml-fig-stepper'), 'Home');
-    expect(pos()).toContain('1 / 68');
+    expect(pos()).toBe('1 / 67');
     expect(scrub().value).toBe('1');
     setRange(scrub(), 3);
-    expect(pos()).toContain('3 / 68');
-    expect(scrub().getAttribute('aria-valuetext')).toBe('Step 3 of 68: H5»L6, New best');
+    expect(pos()).toBe('3 / 67');
+    expect(scrub().getAttribute('aria-valuetext')).toBe('Step 3 of 67: H5»L6, New best');
     expect(scrub().max).toBe('68');
     expect(overview('.ml-ab2-cur')).toBe(1);
   });
@@ -498,19 +526,19 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       key(stepper, 'PageDown');
       seen.push(pos().replace(/\s/g, ''));
     }
-    expect(seen).toEqual(['1/68', '2/68', '3/68', '4/68', '67/68', '68/68']);
+    expect(seen).toEqual(['1/67', '2/67', '3/67', '4/67', '67/67', 'Result']);
     key(stepper, 'PageUp');
-    expect(pos()).toContain('67 / 68');
+    expect(pos()).toBe('67 / 67');
     // Page Down outside the stepper does nothing
     key(q('input.ml-fig-ab2__scrub'), 'PageDown');
-    expect(pos()).toContain('67 / 68');
+    expect(pos()).toBe('67 / 67');
   });
 
   it('switching to the start position goes to step 0 and shows 14 root moves, 41 of 210 at the end', async () => {
     await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
     setRange(scrub(), 10);
     click(radio('Start position'));
-    expect(pos()).toContain('0 / 15');
+    expect(pos()).toBe('0 / 14');
     expect(counter()).toBe('0 of 210');
     expect(overview('.ml-ab2-todo')).toBe(14);
     expect(scrub().max).toBe('15');
@@ -563,7 +591,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
     forward();
     click(q('a[href]'));
     expect(radio('Start position').checked).toBe(true);
-    expect(pos()).toContain('0 / 15');
+    expect(pos()).toBe('0 / 14');
     expect(q('[data-ab-link] a').textContent).toBe('Open the alpha-beta figure with the start position: 14 root moves, 14 replies each');
   });
 
@@ -577,12 +605,12 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       click(byLabel('Play'));
       expect(q('[role="status"]').getAttribute('aria-live')).toBe('off');
       await act(async () => vi.advanceTimersByTime(249));
-      expect(pos()).toContain('10 / 68');
+      expect(pos()).toBe('10 / 67');
       await act(async () => vi.advanceTimersByTime(1));
-      expect(pos()).toContain('11 / 68');
+      expect(pos()).toBe('11 / 67');
       await act(async () => vi.advanceTimersByTime(250));
       await act(async () => vi.advanceTimersByTime(250));
-      expect(pos()).toContain('13 / 68');
+      expect(pos()).toBe('13 / 67');
       // pause: the narration of the current step is announced once, by the hidden region
       expect(q('[data-ab-announce]').textContent).toBe('');
       click(byLabel('Pause'));
@@ -596,11 +624,11 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       setRange(scrub(), 66);
       click(byLabel('Play'));
       await act(async () => vi.advanceTimersByTime(250));
-      expect(pos()).toContain('67 / 68'); // step 66 is an ordinary step
+      expect(pos()).toBe('67 / 67'); // step 66 is an ordinary step
       await act(async () => vi.advanceTimersByTime(1199));
-      expect(pos()).toContain('67 / 68'); // step 67 is the last root move: notable
+      expect(pos()).toBe('67 / 67'); // step 67 is the last root move: notable
       await act(async () => vi.advanceTimersByTime(1));
-      expect(pos()).toContain('68 / 68');
+      expect(pos()).toBe('Result');
       expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
       expect(q('[data-ab-announce]').textContent).toContain('231 of the 3,180');
     });
@@ -611,7 +639,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       click(byLabel('Play'));
       await act(async () => vi.advanceTimersByTime(1300));
       setRange(scrub(), 68);
-      expect(pos()).toContain('68 / 68');
+      expect(pos()).toBe('Result');
       expect(q('[role="status"]').getAttribute('aria-live')).toBe('polite');
       expect(q('[role="status"]').textContent).toContain('231 of the 3,180');
       expect(q('[data-ab-announce]').textContent).toBe('');
@@ -631,11 +659,11 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       click(byLabel('Play'));
       click(radio('Start position'));
       await act(async () => vi.advanceTimersByTime(5000));
-      expect(pos()).toContain('0 / 15');
+      expect(pos()).toBe('0 / 14');
       click(byLabel('Play'));
       setRange(scrub(), 5);
       await act(async () => vi.advanceTimersByTime(5000));
-      expect(pos()).toContain('5 / 15');
+      expect(pos()).toBe('5 / 14');
     });
   });
 
@@ -645,7 +673,7 @@ describe('V5 (alpha-beta, one step per root move)', () => {
       await render(<AlphaBetaFigure catalog={classic} number={[2, 1]} />);
       expect(host.querySelector('[aria-label="Play"]')).toBeNull();
       forward();
-      expect(pos()).toContain('1 / 68');
+      expect(pos()).toBe('1 / 67');
     } finally {
       vi.unstubAllGlobals();
     }

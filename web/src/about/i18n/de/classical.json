@@ -86,6 +86,8 @@
   "fig.ab.legend.current": "Aktueller Wurzelzug",
   "fig.ab.scrub.label": "Schritt der Suche",
   "fig.ab.scrub.value": "Schritt {k} von {n}: {move}, {verdict}",
+  "fig.ab.scrub.result": "Ergebnis: {move}",
+  "fig.ab.status.result": "Ergebnis:",
   "fig.ab.focus.label": "Nahansicht des aktuellen Wurzelzugs",
   "fig.ab.over.title": "Alle Wurzelzüge in Suchreihenfolge",
   "fig.ab.over.desc": "Übersicht der Alpha-Beta-Suche bei Tiefe 2: {n} Wurzelzüge in Suchreihenfolge, jeder oben mit seinem Wert für die Seite am Zug und unten mit einer Spalte seiner Antworten. Vollständig durchsucht: {full}. Nach einer Antwort abgeschnitten: {cut}. Insgesamt besucht die Suche {visited} der {total} Knoten des vollen Baums.",

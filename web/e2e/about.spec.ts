@@ -351,6 +351,7 @@ test.describe('about topics (motion allowed)', () => {
       }
       const ends = await stepAll(page);
       for (const text of ends) {
+        if (/Result$/.test(text)) continue; // V5 counts root moves (k / N) and names its last step, the result, instead of numbering it N + 1
         const m = /(\d+) \/ (\d+)$/.exec(text);
         expect(m, `position text "${text}"`).not.toBeNull();
         expect(m![1], `stepper ends at its last step ("${text}")`).toBe(m![2]);
