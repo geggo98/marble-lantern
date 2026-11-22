@@ -1,0 +1,96 @@
+/* Figure J6 (Hilla data flow): the kit parts CallLanes (.ml-fig-lanes) and WireCard (.ml-fig-wire). Colours are tokens only; every distinction has a second cue
+   (dash, dots, fold, bar, pill shape, bold, italics). Compact below 40rem of figure width, wide from there. */
+.ml-fig-hilla { display: grid; gap: var(--ml-space-3); min-width: 0; }
+
+.ml-fig-lanes { --row: 4.5rem; --gapv: 1.375rem; --band: 1.75rem; display: grid; grid-template-columns: minmax(0, 1fr) var(--band) minmax(0, 1fr); }
+.ml-fig-lanes__lane { display: grid; grid-template-rows: 1.5rem var(--row) var(--gapv) var(--row) var(--gapv) var(--row); padding: 0 4px 6px; border: 1px solid var(--ml-color-line); border-radius: var(--ml-radius-md); background: var(--ml-fig-panel-bg); min-width: 0; }
+.ml-fig-lanes__lanelabel { align-self: center; font: var(--ml-weight-bold) 0.6875rem/1 var(--ml-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ml-color-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-fig-lanes__lane[data-here="true"] .ml-fig-lanes__lanelabel { color: var(--ml-color-ink); }
+.ml-fig-lanes__lane[data-here="true"] .ml-fig-lanes__lanelabel::before { content: "\25B8\00a0"; }
+.ml-fig-lanes__lane[data-here="true"] { border-color: var(--ml-fig-mark); }
+ol.ml-fig-lanes__boxes { display: contents; list-style: none; margin: 0; padding: 0; }
+.ml-fig-lanes__box { position: relative; display: grid; align-content: center; gap: 1px; min-width: 0; padding: 3px 4px; border: 1.5px solid var(--ml-fig-mark); border-radius: var(--ml-radius-sm); background: var(--ml-fig-bg); transition: background var(--ml-dur-base), border-color var(--ml-dur-base); }
+.ml-fig-lanes__box[data-kind="lib"] { border-style: dashed; }
+.ml-fig-lanes__box[data-kind="gen"] { border-style: dotted; border-width: 2px; padding: 2.5px 3.5px; }
+/* generated: a folded corner as the second cue besides the dotted outline */
+.ml-fig-lanes__box[data-kind="gen"]::after { content: ""; position: absolute; top: -2px; inset-inline-end: -2px; width: 12px; height: 12px; background: linear-gradient(225deg, var(--ml-fig-panel-bg) 50%, var(--ml-fig-mark) 50%); }
+.ml-fig-lanes__id { font: var(--ml-weight-medium) var(--ml-text-xs)/1.25 var(--ml-font-data); overflow-wrap: anywhere; }
+.ml-fig-lanes__role { font-size: var(--ml-text-xs); line-height: 1.25; color: var(--ml-color-ink-muted); overflow-wrap: anywhere; }
+.ml-fig-lanes__box[data-state="active"] { border-color: var(--ml-fig-accent); border-width: 3px; padding: 1.5px 2.5px; background: var(--ml-fig-accent-bg); }
+.ml-fig-lanes__box[data-state="active"] .ml-fig-lanes__id { font-weight: var(--ml-weight-bold); }
+.ml-fig-lanes__box[data-state="active"] .ml-fig-lanes__role { color: var(--ml-color-ink); }
+.ml-fig-lanes__box[data-state="dim"] { border-color: var(--ml-fig-dim); }
+.ml-fig-lanes__box[data-state="dim"] .ml-fig-lanes__id { color: var(--ml-color-ink-muted); font-weight: 400; }
+/* waiting tag on the call site while the Promise is pending */
+.ml-fig-lanes__wait { align-self: center; justify-self: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 5px; border: 1px solid var(--ml-fig-mark); border-radius: 9px; background: var(--ml-fig-bg); font: var(--ml-weight-medium) 0.6875rem/1.4 var(--ml-font-ui); white-space: nowrap; z-index: 1; }
+.ml-fig-lanes__wait[data-wait="none"] { visibility: hidden; }
+.ml-fig-lanes__wait[data-wait="pending"] { border-style: dashed; }
+.ml-fig-lanes__wait[data-wait="pending"]::before { content: "\2026\00a0"; }
+.ml-fig-lanes__wait[data-wait="done"]::before { content: "\2713\00a0"; }
+
+/* arrows: a CSS line and an SVG head of fixed size, so nothing distorts at any width */
+.ml-fig-arr { display: flex; align-items: center; min-width: 0; color: var(--ml-fig-mark); position: relative; }
+.ml-fig-arr__line { flex: 1; border-top: 2px solid currentColor; min-width: 4px; }
+.ml-fig__stage .ml-fig-arr svg { flex: none; width: 9px; height: 9px; overflow: visible; }
+.ml-fig-arr--v { flex-direction: column; height: 100%; }
+.ml-fig-arr--v .ml-fig-arr__line { border-top: 0; border-inline-start: 2px solid currentColor; min-height: 4px; min-width: 0; }
+.ml-fig-arr--rev { flex-direction: row-reverse; } .ml-fig-arr--v.ml-fig-arr--rev { flex-direction: column-reverse; }
+.ml-fig-arr--control .ml-fig-arr__line { border-top: 1.5px dashed currentColor; }
+.ml-fig-arr[data-state="active"] { color: var(--ml-fig-accent); }
+.ml-fig-arr[data-state="active"] .ml-fig-arr__line { border-top-width: 3.5px; }
+.ml-fig-arr--v[data-state="active"] .ml-fig-arr__line { border-top-width: 0; border-inline-start-width: 3.5px; }
+.ml-fig__stage .ml-fig-arr[data-state="active"] svg { width: 11px; height: 11px; }
+.ml-fig-arr[data-state="dim"] { color: var(--ml-fig-dim); }
+.ml-fig-arr__dot { display: none; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--ml-fig-accent); top: calc(50% - 4.5px); left: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .ml-fig-arr[data-state="active"]:not(.ml-fig-arr--v) .ml-fig-arr__dot { display: block; animation: lanes-dot var(--ml-dur-think) linear infinite; }
+  .ml-fig-arr--rev[data-state="active"]:not(.ml-fig-arr--v) .ml-fig-arr__dot { animation-direction: reverse; }
+}
+@keyframes lanes-dot { from { left: 0; } to { left: calc(100% - 9px); } }
+.ml-fig-lanes__vgap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 5.25rem) minmax(0, 1fr); justify-items: center; padding: 1px 0; }
+
+/* the boundary band between the lanes */
+.ml-fig-lanes__band { display: grid; grid-template-rows: 1.5rem var(--row) var(--gapv) var(--row) var(--gapv) var(--row); min-width: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, var(--ml-fig-dim) 6px 7px); }
+.ml-fig-lanes__bandlabel { align-self: center; justify-self: center; font: var(--ml-weight-bold) 0.6875rem/1 var(--ml-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ml-color-ink-muted); background: var(--ml-fig-bg); padding: 2px 3px; visibility: hidden; max-width: 100%; overflow: hidden; }
+.ml-fig-lanes__cell { display: grid; align-content: center; gap: 3px; min-width: 0; }
+.ml-fig-lanes__edgelabel { display: none; justify-self: center; padding: 0 4px; background: var(--ml-fig-bg); font: var(--ml-text-xs)/1.3 var(--ml-font-data); color: var(--ml-color-ink); white-space: nowrap; }
+.ml-fig-lanes__cell[data-state="active"] .ml-fig-lanes__edgelabel { font-weight: var(--ml-weight-bold); background: var(--ml-fig-accent-bg); outline: 1px solid var(--ml-fig-accent); }
+.ml-fig-lanes__cell[data-state="dim"] .ml-fig-lanes__edgelabel { color: var(--ml-color-ink-muted); }
+/* the barred call: an arrow that ends at a bar with a cross */
+.ml-fig-nopath { display: flex; align-items: center; color: var(--ml-fig-mark); }
+.ml-fig-nopath .ml-fig-arr { flex: 1; }
+.ml-fig__stage .ml-fig-nopath__bar { flex: none; width: 13px; height: 18px; overflow: visible; }
+.ml-fig-nopath__rest { display: none; flex: 1; border-top: 1.5px dotted var(--ml-fig-dim); }
+.ml-fig-lanes__cell[data-state="active"] .ml-fig-nopath { color: var(--ml-fig-accent); }
+.ml-fig-lanes__cell[data-state="dim"] .ml-fig-nopath { color: var(--ml-fig-dim); }
+
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-lanes { --row: 4.25rem; --gapv: 1.5rem; --band: 9rem; }
+  .ml-fig-lanes__lane { padding: 0 12px 12px; }
+  .ml-fig-lanes__box, .ml-fig-lanes__box[data-kind="gen"] { padding: 6px 10px; } .ml-fig-lanes__box[data-state="active"] { padding: 4.5px 8.5px; }
+  .ml-fig-lanes__vgap { grid-template-columns: minmax(0, 1fr) minmax(0, 7rem) minmax(0, 1fr); }
+  .ml-fig-lanes__id { font-size: var(--ml-text-sm); }
+  .ml-fig-lanes__bandlabel { visibility: visible; } .ml-fig-lanes__edgelabel { display: block; }
+  .ml-fig__stage .ml-fig-nopath__bar { width: 16px; height: 22px; } .ml-fig-nopath__rest { display: block; }
+  .ml-fig__stage .ml-fig-lanes__cell[data-state="active"] .ml-fig-nopath__bar { width: 20px; height: 28px; }
+}
+
+/* ---- NEW kit part: WireCard (.ml-fig-wire) ---- */
+.ml-fig-wire { border: 1px solid var(--ml-fig-mark); border-inline-start-width: 4px; border-radius: var(--ml-radius-sm); min-width: 0; }
+.ml-fig-wire__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 10px; border-bottom: 1px solid var(--ml-color-line); min-height: 2.25rem; }
+.ml-fig-wire__title { margin: 0; font-size: var(--ml-text-xs); font-weight: var(--ml-weight-bold); }
+.ml-fig-wire__tag { padding: 1px 7px; border: 1px solid var(--ml-fig-mark); border-radius: 9px; font: var(--ml-weight-medium) 0.6875rem/1.5 var(--ml-font-ui); white-space: nowrap; }
+.ml-fig-wire__tag--form { border-style: dashed; }
+.ml-fig-wire__tags { display: grid; margin-inline-start: auto; }
+.ml-fig-wire__tags > * { grid-area: 1 / 1; display: flex; gap: 6px; justify-content: flex-end; }
+.ml-fig-wire__body { display: grid; padding: 8px 10px; }
+.ml-fig-wire__body > * { grid-area: 1 / 1; margin: 0; min-width: 0; }
+.ml-fig-wire__ghost { visibility: hidden; pointer-events: none; user-select: none; }
+.ml-fig-wire pre { font: var(--ml-text-xs)/1.5 var(--ml-font-data); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.ml-fig-wire pre .f { color: var(--ml-color-ink-muted); }           /* file name line: data, not copy */
+.ml-fig-wire pre .k { color: var(--ml-fig-accent); font-weight: var(--ml-weight-bold); } /* the part that changed form in this step */
+.ml-fig-wire pre .h { color: var(--ml-fig-alt); font-style: italic; }  /* hole: a value the mock does not have; italic is the second cue */
+.ml-fig-wire__hint { font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+@container ml-fig (min-width: 40rem) { .ml-fig-wire pre { font-size: var(--ml-text-sm); } }
+@media (forced-colors: active) { .ml-fig-lanes__band { background: none; border-block: 1px dashed CanvasText; } }

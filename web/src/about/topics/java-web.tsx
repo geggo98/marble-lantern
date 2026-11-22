@@ -5,6 +5,7 @@
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
+import { HillaFigure } from '../figures/HillaFigure';
 import { javaWebCatalog } from '../figures/java-web-catalog';
 import type { Catalog } from '../figures/common';
 import { OUTLINE } from './outline';
@@ -17,7 +18,7 @@ const Snip = (props: { id: string; elideAfter?: boolean }): React.JSX.Element =>
 const FIGURES: Record<string, () => React.ReactNode> = {
   hilla: () => (
     <>
-      {/* J6 goes here */}
+      <HillaFigure catalog={shared} number={[7, 1]} />
       <Snip id="h1" elideAfter />
       <Snip id="hgen" />
       <Snip id="h3" />
