@@ -39,6 +39,7 @@ public final class WebNetCore {
     private RuleSet.JumpRule jump = RuleSet.JumpRule.ADJACENT;
     private RuleSet.ForeignCamps camps = RuleSet.ForeignCamps.CLOSED;
     private int players = 2;
+    private TriangleRows rows = TriangleRows.FOUR;
     private MctsOptions options = defaultOptions();
     private long seed;
     private NetworkConfig netConfig;
@@ -100,11 +101,13 @@ public final class WebNetCore {
     }
 
     /**
-     * The refusal of a net game on 5 rows: every net was trained on the 4-row start, and its input planes mark the
-     * 10-cell corners. Code {@code unsupported}, the code the page already maps to a text.
+     * The refusal of a game whose board size the network does not list in its metadata key {@code triangle_rows}
+     * (missing: 4 rows): its input planes would mark the houses of the other size. Code {@code unsupported}, the code
+     * the page already maps to a text.
      */
-    static NetFailure fiveRowsRefused() {
-        return new NetFailure("unsupported", "net engines play the 4-row board only; the 5-row board has 15-cell houses");
+    static NetFailure rowsRefused(TriangleRows game, NetworkConfig config) {
+        return new NetFailure("unsupported", "the network plays triangle_rows=" + NetworkConfig.rowsText(config.rows())
+                + "; this game is on the " + game.rows() + "-row board (" + game.pieces() + "-cell houses)");
     }
 
     /** The player count of a facade argument: null, empty or {@code "2"} is 2, {@code "3"} is 3. */
@@ -139,15 +142,13 @@ public final class WebNetCore {
     }
 
     /**
-     * {@link #create(RuleSet.JumpRule, int, RuleSet.ForeignCamps, int, int, long, String)} with a board size. Only
-     * {@link TriangleRows#FOUR} can be created: on {@link TriangleRows#FIVE} it fails with {@code unsupported}, and the
-     * previous game stays as it was.
+     * {@link #create(RuleSet.JumpRule, int, RuleSet.ForeignCamps, int, int, long, String)} with a board size. Both sizes
+     * can be created; the network must list the size ({@link #setWeightsInfo(String, int, String)}), else
+     * {@code setWeightsInfo} and {@link #begin} fail with {@code unsupported}.
      */
-    public void create(RuleSet.JumpRule jumpRule, int playerCount, RuleSet.ForeignCamps foreignCamps, TriangleRows rows,
+    public void create(RuleSet.JumpRule jumpRule, int playerCount, RuleSet.ForeignCamps foreignCamps, TriangleRows boardRows,
             int sims, int batch, long newSeed, String optionText) {
-        if (rows != TriangleRows.FOUR) {
-            throw fiveRowsRefused();
-        }
+        java.util.Objects.requireNonNull(boardRows, "rows");
         MctsOptions o;
         try {
             o = parseOptions(defaultOptions().withSims(sims).withBatch(batch), optionText);
@@ -156,6 +157,7 @@ public final class WebNetCore {
         }
         jump = jumpRule;
         camps = foreignCamps;
+        rows = boardRows;
         players = playerCount;
         options = o;
         seed = newSeed;
@@ -214,6 +216,22 @@ public final class WebNetCore {
      * or 3 for a three-player net and for {@code classic1v}). Drops the tree.
      */
     public void setWeightsInfo(String planesId, int valueWidth) {
+        setWeightsInfo(planesId, valueWidth, "");
+    }
+
+    /**
+     * {@link #setWeightsInfo(String, int)} with the board sizes of the network: the value of its metadata key
+     * {@code triangle_rows} ({@code "4"}, {@code "5"} or {@code "4,5"}; null or empty is {@code "4"}, as for a file
+     * without the key). Fails with {@code unsupported} if the game of the last {@link #create} is on a size the network
+     * does not list, with {@code bad-weights-info} for another text.
+     */
+    public void setWeightsInfo(String planesId, int valueWidth, String rowsText) {
+        java.util.Set<TriangleRows> netRows;
+        try {
+            netRows = NetworkConfig.parseRows(rowsText == null || rowsText.isEmpty() ? null : rowsText);
+        } catch (IllegalArgumentException e) {
+            throw new NetFailure("bad-weights-info", String.valueOf(e.getMessage()));
+        }
         PlaneSet planes;
         try {
             planes = PlaneSet.ofId(planesId);
@@ -223,7 +241,11 @@ public final class WebNetCore {
         if (valueWidth != 2 && valueWidth != 3 || planes.variants() && valueWidth != 3) {
             throw new NetFailure("bad-weights-info", "value width " + valueWidth + " does not fit planes " + planesId);
         }
-        netConfig = new NetworkConfig(1, 0, valueWidth, 1).withPlanes(planes);
+        NetworkConfig candidate = new NetworkConfig(1, 0, valueWidth, 1).withPlanes(planes).withRows(netRows);
+        if (!candidate.supports(rows)) {
+            throw rowsRefused(rows, candidate);
+        }
+        netConfig = candidate;
         dropSearch();
     }
 
@@ -276,6 +298,9 @@ public final class WebNetCore {
             NetworkConfig config = config();
             if (!config.planes().variants() && config.players() != players) {
                 throw new NetFailure("bad-weights-info", "the network has " + config.players() + " players, the game " + players);
+            }
+            if (!config.supports(rows)) {
+                throw rowsRefused(rows, config);
             }
             if ((options.s1() || options.race() > 0) && rows2 == null) {
                 throw new NetFailure("no-table", "S1 and race play need the table: call setTable first");
@@ -338,7 +363,7 @@ public final class WebNetCore {
      */
     public int begin(int[] history) {
         Mcts m = mcts();
-        Position p = replay(history, jump, players, camps, TriangleRows.FOUR);
+        Position p = replay(history, jump, players, camps, rows);
         int[] legal = p.outcome() != null ? new int[0] : p.legalMoves();
         if (legal.length == 0) {
             throw new NetFailure("illegal-history", "the game is over after " + history.length + " plies");
