@@ -21,6 +21,7 @@ const SIZES = [
   { width: 390, height: 844 },
   { width: 844, height: 390 },
   { width: 820, height: 1180 },
+  { width: 1280, height: 800 },
 ] as const;
 
 test.describe('about final screenshots', () => {
