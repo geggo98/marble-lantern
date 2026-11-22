@@ -130,7 +130,7 @@ describe('figure J2: view move', () => {
 
   it('names both memory maps with the numbers of the readout', async () => {
     await render();
-    const labels = all('svg.ml-fig-mem').map((s) => s.getAttribute('aria-label'));
+    const labels = all('svg.ml-fig-mem').map((s) => s.querySelector(':scope > desc')?.textContent);
     expect(labels[0]).toContain('67 references and 67 objects, 1,896 bytes, at least 15 cache lines');
     expect(labels[1]).toContain('67 moves in 284 bytes, at least 3 cache lines');
     expect(all('svg.ml-fig-mem').map((s) => s.getAttribute('role'))).toEqual(['img', 'img']);

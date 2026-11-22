@@ -49,7 +49,7 @@ const CELL = 8;
  * The memory map: an SVG with one mark per word, rows of one cache line (32 words of 4 bytes at 128 bytes). The marks carry no text; the accessible
  * name is `label`, and the readout under the map carries every number. View box 256 units wide, so it scales with the lane.
  */
-export function MemoryMap({ data, label }: { data: MemoryMapData; label: string }): React.JSX.Element {
+export function MemoryMap({ data, label, title }: { data: MemoryMapData; label: string; title: string }): React.JSX.Element {
   const per = WORDS_PER_LINE;
   const rows = mapRows(data);
   const W = per * CELL;
@@ -99,7 +99,9 @@ export function MemoryMap({ data, label }: { data: MemoryMapData; label: string 
   }
   const dotsY = (rows - 1) * (CELL + 1) + 5;
   return (
-    <svg className="ml-fig-mem" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} data-rows={rows} data-words={data.words.length}>
+    <svg className="ml-fig-mem" viewBox={`0 0 ${W} ${H}`} role="img" data-rows={rows} data-words={data.words.length}>
+      <title>{title}</title>
+      <desc>{label}</desc>
       {data.words.map(mark)}
       {outlines}
       {hop}

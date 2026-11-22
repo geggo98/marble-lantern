@@ -259,6 +259,7 @@ async function stepAll(page: Page): Promise<string[]> {
   const n = await steppers.count();
   for (let i = 0; i < n; i++) {
     const s = steppers.nth(i);
+    if (!(await s.isVisible())) continue; // J2 keeps its stepper hidden in the move view (the slider takes its place)
     const fwd = s.locator('button').nth((await s.locator('button').count()) - 1);
     for (let k = 0; k < 400 && (await fwd.getAttribute('aria-disabled')) !== 'true'; k++) await fwd.click();
     ends.push(((await s.locator('.ml-fig-stepper__pos').textContent()) ?? '').replace(/\s+/g, ' ').trim());
@@ -342,9 +343,9 @@ test.describe('about topics (motion allowed)', () => {
       await openRoute(page, route, { width: 390, height: 844, theme: 'light', language: 'en' }, 'no-preference');
       const steppers = page.locator('.ml-fig-stepper');
       const count = await steppers.count();
-      if (topic === 'tuning' || topic === 'java-web') {
-        // The tuning and java-web figures have no stepper (tuning: a staircase with a filter, a curve with a phase switch, sweeps): nothing to step or play. Topic java has one since figure J3 (SIMD, 11 steps).
-        expect(count, 'tuning or java figures with a stepper').toBe(0);
+      if (topic === 'tuning') {
+        // The tuning figures have no stepper ( a staircase with a filter, a curve with a phase switch, sweeps): nothing to step or play. Topic java has one since figure J3 (SIMD, 11 steps).
+        expect(count, 'tuning figures with a stepper').toBe(0);
         errors.expectNone();
         return;
       }
@@ -364,7 +365,7 @@ test.describe('about topics (motion allowed)', () => {
       expect(o.frames, 'figure frames that scroll at the last steps').toEqual([]);
 
       // one animation: reset the first stepper, press play, a step must come by itself and the button must offer "pause"
-      const first = steppers.first();
+      const first = page.locator('.ml-fig:not(#fig-javaplain) .ml-fig-stepper').first(); // J2 counts from 1 (root = step 1 of 7) and hides its stepper in the move view
       const buttons = first.locator('button');
       await buttons.nth(0).click(); // reset
       await expect(first.locator('.ml-fig-stepper__pos')).toContainText(/0 \/ \d+$/);

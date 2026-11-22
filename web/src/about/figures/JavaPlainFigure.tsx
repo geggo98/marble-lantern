@@ -118,7 +118,7 @@ function moveBodies({ f, pick }: { f: FigText; pick: number }): Bodies {
         <p className="ml-fig-jp__eq">
           {t('fig.javaplain.move.objects.sum')} {SIZES.reference} + {SIZES.moveObject} = <b>{SIZES.reference + SIZES.moveObject} B</b>
         </p>
-        <MemoryMap data={objMap} label={f.plain('fig.javaplain.mem.objects.desc', { n: N, bytes: n(oc.bytes), lines: oc.lines })} />
+        <MemoryMap data={objMap} title={t('fig.javaplain.lane.objects')} label={f.plain('fig.javaplain.mem.objects.desc', { n: N, bytes: n(oc.bytes), lines: oc.lines })} />
         <PlainReadout
           cells={[
             { key: 'fig.javaplain.read.alloc', label: t('fig.javaplain.read.alloc'), value: n(oc.allocations) },
@@ -142,7 +142,7 @@ function moveBodies({ f, pick }: { f: FigText; pick: number }): Bodies {
         <p className="ml-fig-jp__eq">
           {t('fig.javaplain.move.primitives.sum')} <b>4 B</b>
         </p>
-        <MemoryMap data={primMap} label={f.plain('fig.javaplain.mem.primitives.desc', { n: N, bytes: n(pc.bytes), lines: pc.lines })} />
+        <MemoryMap data={primMap} title={t('fig.javaplain.lane.primitives')} label={f.plain('fig.javaplain.mem.primitives.desc', { n: N, bytes: n(pc.bytes), lines: pc.lines })} />
         <PlainReadout
           cells={[
             { key: 'fig.javaplain.read.alloc', label: t('fig.javaplain.read.alloc'), value: n(pc.allocations) },
