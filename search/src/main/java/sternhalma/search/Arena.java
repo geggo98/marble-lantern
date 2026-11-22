@@ -116,7 +116,12 @@ public final class Arena {
         if (a.jumpRule() != b.jumpRule()) {
             throw new IllegalArgumentException("the two sides play different jump rules: " + a.jumpRule() + " and " + b.jumpRule());
         }
-        RuleSet rules = RuleSet.defaults(2).withJumpRule(a.jumpRule());
+        if (a.rows() != b.rows()) {
+            throw new IllegalArgumentException("the two sides play different board sizes: rows=" + a.rows().rows()
+                    + " and rows=" + b.rows().rows());
+        }
+        // the board size of the specs (rows=5: 15 pieces, move limit 250); a 4-row spec keeps the 4-row defaults
+        RuleSet rules = RuleSet.defaults(2, a.rows()).withJumpRule(a.jumpRule());
         List<Future<GameData[]>> futures = new ArrayList<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads))) {
             for (int pair = 0; pair < pairs; pair++) {
