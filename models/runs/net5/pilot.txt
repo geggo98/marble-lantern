@@ -1,0 +1,1 @@
+2p adjacent rows 5: 20 games; plies mean 129.9 median 128 min 120 max 144; move limit 0% of 20 played out; adjudicated 0%; samples/game 129.9; 1828 ms/game CPU, 181 ms/game wall, 14.08 ms/sample CPU

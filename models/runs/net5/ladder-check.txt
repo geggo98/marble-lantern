@@ -1,0 +1,8 @@
+A=ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=6400
+B=ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=1600
+pairs=100 games=200  A wins=162 draws=0 B wins=38  avg plies=127.9
+score(A)=0.8100 +- 0.0254  Elo(A-B)=+251.9 +- 57.3 (95%)
+A: 6184 nodes/move, 681864 nodes/s wall, 698099 nodes/CPU-s, 8.86 CPU-ms/move, 9.07 wall-ms/move
+B: 1571 nodes/move, 628347 nodes/s wall, 642417 nodes/CPU-s, 2.45 CPU-ms/move, 2.50 wall-ms/move
+equal cost: nodes(A) = nodes(B) x nps(A)/nps(B) = 1600 x 1.087 = 1739 (CPU time under this run's load; use the Bench ratio for claims)
+RESULT elo=251.9 ci=57.3 score=0.8100 pairs=100 cpu_ms_a=8.858 cpu_ms_b=2.445

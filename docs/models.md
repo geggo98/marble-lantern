@@ -19,10 +19,14 @@
 - **Plane set, format version:** which input planes a network reads. `classic1` (format version 2) is the two-player set; `classic1v` (format version 3) adds the planes that tell the variants apart ([network](network.md#format-version-3-variants)).
 - **SMALL:** the network size preset with 32 channels and 4 residual blocks ([network](network.md)).
 - **F32, F16:** 32-bit and 16-bit floating-point numbers. The browser backends compute in F32; the files store F16.
-- **`BEST_SPEC`, `ab:N`:** `BEST_SPEC` is the strongest classical alpha-beta player of the project. `ab:N` is the classical opponent with a budget of N search nodes per move ([training, two players](training.md#two-players-mctsmatch)). With the neighbour jump that opponent is `BEST_SPEC`. With the long hop it is `BROWSER_LONG_SPEC`, a classical alpha-beta without race table and race play, which is weaker at equal nodes; Elo against it cannot be compared with Elo against `BEST_SPEC`.
+- **`BEST_SPEC`, `ab:N`:** `BEST_SPEC` is the strongest classical alpha-beta player of the project (`search/src/main/java/sternhalma/search/Strategies.java`, which also defines `BROWSER_LONG_SPEC` and `BROWSER_ROWS5_SPEC`). `ab:N` is the classical opponent with a budget of N search nodes per move ([training, two players](training.md#two-players-mctsmatch)). With the neighbour jump that opponent is `BEST_SPEC`. With the long hop it is `BROWSER_LONG_SPEC`, a classical alpha-beta without race table and race play, which is weaker at equal nodes; Elo against it cannot be compared with Elo against `BEST_SPEC`.
 - **`ab3`:** the classical three-player alpha-beta. In a three-player match the network holds one seat and the other two seats each hold `ab3` with the same node budget, written "2 × `ab3`" ([training, three players](training.md#three-players-threeseatmatch)).
 - **Opening pair:** two games from the same opening, with the sides swapped, so that an advantage of the opening cancels out.
 - **Teacher:** a classical alpha-beta player whose games serve as training data ([training, bootstrap](training.md#bootstrap-generation-0-from-a-classical-teacher)).
+- **Gen0:** generation 0, a network trained by imitation of a teacher's games, before any self-play (same link).
+- **Loop, generation, gate, promoted:** the self-play training loop runs in generations. Each generation trains a candidate network on the games of the current best one; a gate match against the best decides whether the candidate is promoted to the new best ([training, as implemented (block 2h)](training.md#as-implemented-block-2h)).
+- **Ladder, rung:** the classical opponent at several node budgets (for example `ab:1600`, `ab:6400`, `ab:25600`, `ab:102400`); each budget is a rung. A ladder is saturated when the network wins almost every game at every rung, so the scores no longer separate strengths.
+- **Engine sheet:** the dialog "Engine and strength" of the web UI, where the person picks an engine and, for a net engine, a model ([web UI, choosing a net engine](web-ui.md#choosing-a-net-engine)).
 - **Simulations:** steps of the Monte Carlo tree search (MCTS) per move; each step evaluates one position with the network.
 - **Elo, score:** a two-player score is the share of points of the network; 0.5 is even. Elo is the strength difference derived from it; ± is the 95 % interval. A three-player score is the share of games the network won; one third is even.
 
@@ -113,7 +117,7 @@ Limit: if models grow to several MB each or change often, reconsider. The F32 ar
 
 1. The download has exactly `packedBytes` bytes and its SHA-256 is `sha256Packed`.
 2. The inflated file has exactly `rawBytesF16` bytes and its SHA-256 is `sha256Raw`.
-3. The safetensors header is readable, and its metadata (format version, plane set, planes, players, number of weights) matches the manifest entry. The board sizes of the metadata key `triangle_rows` (missing: 4) must equal the sizes of the entry's variants (`ModelInfo.rows`).
+3. The safetensors header is readable, and its metadata (format version, plane set, planes, players, number of weights) matches the manifest entry. The board sizes of the metadata key `triangle_rows` (missing: 4) must equal the sizes of the entry's variants (`ModelInfo.rows` in `web/src/engines/net/model-manifest.ts`).
 
 Each failure throws a `ModelError` with a code: `model-http`, `model-truncated`, `model-trailing`, `model-corrupt`, `model-checksum`, `model-header` or `model-mismatch` (`web/src/engines/net/model-manifest.ts`). The engine reports it as the warning `model-load-failed` with the reason `verify-failed` (codes `model-checksum` and `model-mismatch`) or `load-failed` (all other codes), and plays random legal moves ([web UI, warnings and fallbacks](web-ui.md#warnings-and-fallbacks)).
 

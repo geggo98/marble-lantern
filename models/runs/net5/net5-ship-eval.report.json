@@ -1,0 +1,40 @@
+{
+  "name": "net5-ship-eval",
+  "metric": "wall",
+  "baseline_w": 41.00956922069713,
+  "baseline_source": "lowest 10-minute mean power in the file (window from 2026-11-22T19:20:46Z)",
+  "file_start": "2026-11-22T19:20:46Z",
+  "file_end": "2026-11-22T19:39:47Z",
+  "phases": [
+    {
+      "phase": "ladder",
+      "start": "2026-11-22T19:19:57Z",
+      "start_epoch": 1795375197.6,
+      "segments": 1,
+      "duration_s": 1195.8000001907349,
+      "covered_s": 1140.0499999523163,
+      "mean_w": 40.955299506120696,
+      "peak_w": 44.44224,
+      "kwh": 0.012969747,
+      "kwh_above_baseline": -1.718616336118632e-05,
+      "notes": []
+    }
+  ],
+  "phases_total": {
+    "phases": [
+      "ladder"
+    ],
+    "kwh": 0.012969747,
+    "kwh_above_baseline": -1.718616336118632e-05,
+    "covered_s": 1140.0499999523163
+  },
+  "run_total": {
+    "kwh": 0.012969747,
+    "kwh_above_baseline": -1.718616336118632e-05,
+    "covered_s": 1140.0499999523163,
+    "mean_w": 40.955299506120696,
+    "peak_w": 44.44224
+  },
+  "gaps": [],
+  "warnings": []
+}

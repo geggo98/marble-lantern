@@ -10,6 +10,7 @@ Origin: the owner decided on 2026-11-22 that every trained network goes into the
 
 - `nets/<run>/<name>.safetensors.gz`: one network, as the trainer wrote it (F32 safetensors, [network format](../docs/network.md)), compressed with gzip. `<run>` is the run directory under `data/` on the training machine; `<name>` is the path below it with `/` replaced by `-`, for example `data/loop3/gen-0013/candidate.safetensors` becomes `nets/loop3/gen-0013.safetensors.gz`.
 - `index.json`, `index.md`: one row per source file, written by `scripts/models/archive-nets.py`. Do not edit them by hand.
+- `runs/<run>/`: copies of the run records that `docs/training.md` cites but that live only in the git-ignored `data/` (driver scripts, match summaries, loop decisions, energy reports). Plain git, not LFS; they are a few KB. So far: [`runs/net5/`](runs/net5/README.md).
 
 Columns of the index:
 
@@ -18,12 +19,12 @@ Columns of the index:
 | file | the stored file in `nets/` |
 | source | the path of the original file on the training machine |
 | run | the run, linked to its section in [docs/training.md](../docs/training.md) |
-| preset, planes | channels x residual blocks, and the plane set (`plain`, `classic1`, `classic1v`) |
+| preset, planes | channels x residual blocks (SMALL is 32x4, LARGE 64x6), and the plane set, the set of input planes the network reads (`plain`, `classic1`, `classic1v`; [network](../docs/network.md), [models, terms](../docs/models.md#terms)) |
 | rows | the board sizes of the metadata key `triangle_rows`: `4`, `5` or `4,5`; a file without the key is a 4-row network |
-| variants | what the plane set can play, written `jump:players[:rows]`, for example `adjacent:2:5` |
+| variants | what the plane set can play, written `jump:players[:rows]`: jump rule `adjacent` (neighbour jump) or `long` (long hop), 2 or 3 players, 5 for the 5-row board; for example `adjacent:2:5` ([models, terms](../docs/models.md#terms)) |
 | stored / raw bytes | size of the gzip file and of the safetensors file |
 | SHA-256 (raw) | hash of the uncompressed safetensors file; `sha256Stored` in `index.json` is the hash of the gzip file |
-| gate | for a loop generation: promoted or rejected, and its gate score against the best network before it |
+| gate | for a generation of the self-play loop: whether its candidate network was promoted to the new best or rejected, and its score in the gate match against the best network before it ([training, as implemented (block 2h)](../docs/training.md#as-implemented-block-2h)) |
 | strength | the measured figures that the documentation reports for this network; "not measured beyond the gate" or "not measured" otherwise |
 | kWh | wall energy of the whole machine for the training phases that made the network; only the 5-row run was measured ([training, five-row expert net](../docs/training.md#five-row-expert-net)), every other row says "not measured" |
 
@@ -56,5 +57,5 @@ Limit: when a compressor clearly beats gzip on these files, reconsider.
 
 **Rule: Git LFS here, plain git in `web/models/`.**
 Origin: `.gitattributes`; the plain-git rule of the browser models is in [docs/models.md](../docs/models.md) ("Rule: plain git, not Git LFS").
-Rationale: the archive is 38.6 MB and grows by about 0.25 MB per SMALL and 1.3 MB per LARGE network. A clone that does not need the files skips them (`GIT_LFS_SKIP_SMUDGE=1`). The web build reads only `web/models/`, three files of about 115 KB, so the site and its CI need no LFS.
-Limit: if a single network grows to hundreds of MB, as the race tables did, store it outside the repository instead.
+Rationale: the archive is 38.6 MB and grows by about 0.25 MB per SMALL (32x4) and 1.3 MB per LARGE (64x6) network. A clone that does not need the files skips them (`GIT_LFS_SKIP_SMUDGE=1`). The web build reads only `web/models/`, three files of about 115 KB, so the site and its CI need no LFS.
+Limit: if a single network grows to hundreds of MB, as the race tables of the endgame did (`tablebase/tables/`, [offline mode](../docs/offline-mode.md)), store it outside the repository instead.

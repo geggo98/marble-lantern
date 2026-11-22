@@ -1,0 +1,5 @@
+# net data/net5/loop-small/gen-0009/candidate.safetensors NetworkConfig[channels=32, blocks=4, players=2, valueHidden=32, planes=classic1, rows=[FIVE]], 2000 positions of 20200 (ply 20..120, seed 11, 2 players, ADJACENT, 5 rows)
+variant=packed | F16 range: 61734 weights, 0 overflow, 35 below the smallest normal, worst relative rounding of a normal weight 4.85e-04
+  policy logits: max abs err 8.076e-03, mean abs err 2.571e-03 | values: max abs err 1.028e-03, mean abs err 1.394e-04 | worst error as a fraction of the 1e-4+1e-3|ref| bound: 5.77
+  arg-max legal move agrees in 2000 of 2000 positions (100.00%); 0 of the 0 disagreements are near ties (F32 prior gap < 0.01)
+  KL(F32 || F16) over the legal moves: mean 3.494e-07, median 2.809e-07, p99 1.414e-06, max 2.247e-06 | absolute value of player 0: mean abs diff 1.394e-04, max 1.028e-03

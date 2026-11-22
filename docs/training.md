@@ -2642,16 +2642,16 @@ If the owner wants to continue, the next experiments would be, in this order: a 
 
 ## Five-row expert net
 
-**TL;DR:** The first network for the 5-row board (15 pieces per player in a 15-cell house, [rules](rules.md#board-size-triangle-rows)) was trained on 2026-11-22 in one unattended run of 5 hours 8 minutes on the Apple M3 Max: teacher games of the classical 5-row player, Gen0, then 10 generations of MCTS self-play. It is a SMALL `classic1` network for 2 players with the neighbour jump and closed foreign corners. Generation 9, the last promoted one, ships in the browser as `small-2p-adjacent-r5-expert`. At 200 simulations it scores 0.950 to 0.996 against the classical 5-row player at 1,600 to 102,400 nodes (+512 ± 81 Elo at 102,400), and 0.991 against its own Gen0. The whole run took 0.21 kWh at the wall, 0.14 kWh above the idle power of the machine.
+**TL;DR:** The first network for the 5-row board (15 pieces per player in a 15-cell house, [rules](rules.md#board-size-triangle-rows)) was trained on 2026-11-22 in one unattended run of 5 hours 8 minutes on the Apple M3 Max: teacher games of the classical 5-row player, Gen0, then 10 generations of MCTS self-play. It is a SMALL `classic1` network (32 channels, 4 residual blocks, the two-player plane set, [network](network.md)) for 2 players with the neighbour jump and closed foreign corners ([rules](rules.md#foreign-corners)). Generation 9, the last promoted one, ships in the browser as `small-2p-adjacent-r5-expert`. At 200 simulations it scores 0.950 to 0.996 against the classical 5-row player at 1,600 to 102,400 nodes (+512 ± 81 Elo at 102,400), and 0.991 against its own Gen0. The whole run took 0.21 kWh at the wall, 0.14 kWh above the idle power of the machine.
 
-All numbers are measured on 2026-11-22. The run data are under `data/net5/` (git-ignored; the networks themselves are archived in [`models/`](../models/README.md)).
+All numbers are measured on 2026-11-22. The run directory `data/net5/` is git-ignored and exists only on the training machine. The networks are archived in [`models/`](../models/README.md), and the records this section cites (driver script, match summaries, loop decisions and run configuration, F16 study, energy reports) are copied to [`models/runs/net5/`](../models/runs/net5/README.md).
 
 Terms used in this section:
 
 - **5-row ladder, `ab:N`:** the classical 5-row player `BROWSER_ROWS5_SPEC` (`search/src/main/java/sternhalma/search/Strategies.java`) at N search nodes per move. It plays without race play, because the race tables exist for 10 pieces only. Its Elo cannot be compared with 4-row Elo against `BEST_SPEC`.
 - **E1, E2, E3:** the acceptance checks of this run. E1: Gen0 scores at least 0.6 against `ab:6400`. E2: the best loop network beats Gen0 with z > 1.96 in a direct match. E3: the best loop network against the 5-row ladder.
 - **Plane 12 on 5 rows:** the classical evaluation plane is 0 on the 5-row board, because the weights of the linear evaluation were fitted on 10 pieces ([network, input planes](network.md#input-planes), "Board sizes"); the value prior `k · eval` therefore adds nothing there.
-- Gen0, Loop, gate, baseline clause, window, opening pair, score: as in [Bootstrap](#bootstrap-generation-0-from-a-classical-teacher), [As implemented (block 2h)](#as-implemented-block-2h) and [Two players: `MctsMatch`](#two-players-mctsmatch).
+- Gen0, Loop, gate, baseline clause, window, opening pair, score: as in [Bootstrap](#bootstrap-generation-0-from-a-classical-teacher), [As implemented (block 2h)](#as-implemented-block-2h) and [Two players: `MctsMatch`](#two-players-mctsmatch). Teacher depth and `--teacher-alpha`: [Teacher samples (round 2, E10)](#teacher-samples-round-2-e10). `--lr-final` and `--reuse`: [Loop run 2 and hyperparameter sweep 1](#loop-run-2-and-hyperparameter-sweep-1-measured). Held-out proxies (policy KL, top-1, value loss, winner): [Gen0 options and held-out proxies](#gen0-options-and-held-out-proxies).
 
 ### What was run
 
@@ -2666,7 +2666,7 @@ Terms used in this section:
 | E2 | generation 9 against Gen0, 400 pairs, seed 3002 | score 0.991 ± 0.003, +822 ± 155 Elo |
 | E3 | generation 9, same settings as E1, plus the rung `ab:102400` | see the ladder table below |
 
-Command lines: the driver `data/net5/driver.zsh` (steps pilot to E2) and `data/net5/driver.log`; E3 ran `scripts/mctsmatch.sh --net <generation 9> --subject mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0 --vs ab:1600 --vs ab:6400 --vs ab:25600 --vs ab:102400 --pairs 200 --seed 3001 --threads 14 --rows 5`.
+Command lines: the driver script ([`models/runs/net5/driver.zsh`](../models/runs/net5/driver.zsh), steps pilot to E2); E3 ran `scripts/mctsmatch.sh --net <generation 9> --subject mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0 --vs ab:1600 --vs ab:6400 --vs ab:25600 --vs ab:102400 --pairs 200 --seed 3001 --threads 14 --rows 5`.
 
 ### Gate decisions
 
@@ -2683,7 +2683,7 @@ Command lines: the driver `data/net5/driver.zsh` (steps pilot to E2) and `data/n
 | 9 | 0.555 ± 0.021 | promoted | 0.990 |
 | 10 | 0.515 ± 0.021 | rejected (z 0.72, needs above 1.28) | not evaluated |
 
-Source: `data/net5/loop-small/gen-NNNN/decision.json` and the "gen N decision" lines of the loop logs in `data/net5/logs/`. The stop rule (from generation 6, stop after two rejections in a row; at the latest after generation 10) did not trigger before generation 10. The gate scores fall from 0.76 to about 0.55, as in [loop run 3](#loop-run-3-measured-2026-11-14) on 4 rows.
+Source: the `decision.json` of each generation, collected in [`models/runs/net5/decisions.jsonl`](../models/runs/net5/decisions.jsonl), and the "gen N decision" lines of the loop logs (on the training machine only). The stop rule (from generation 6, stop after two rejections in a row; at the latest after generation 10) did not trigger before generation 10. The gate scores fall from 0.76 to about 0.55, as in [loop run 3](#loop-run-3-measured-2026-11-14) on 4 rows.
 
 ### Strength against the 5-row ladder
 
@@ -2696,11 +2696,11 @@ MCTS at 200 simulations, `race=0`, 200 opening pairs per rung, seed 3001. ± is 
 | `ab:25600` | 0.680, +131 ± 33 Elo | 0.971, +611 ± 112 Elo |
 | `ab:102400` | not measured | 0.950, +512 ± 81 Elo |
 
-Source: `data/net5/e1.txt` and the E3 output (games per rung: 398-1-1, 396-0-4, 388-1-11 and 380-0-20 for generation 9). E1 passes (0.817 ≥ 0.6 against `ab:6400`), and E2 passes (z far above 1.96).
+Source: [`models/runs/net5/e1.txt`](../models/runs/net5/e1.txt) and [`e3.txt`](../models/runs/net5/e3.txt) (games per rung: 398-1-1, 396-0-4, 388-1-11 and 380-0-20 for generation 9). E1 passes (0.817 ≥ 0.6 against `ab:6400`), and E2 passes (z far above 1.96).
 
 **The ladder is saturated for generation 9.** At scores of 0.95 to 0.996 the Elo intervals are wide, and the differences between rungs say little. The direct match E2 (0.991 over 400 pairs) is the better measure of the loop's gain. It is inflated, because both sides are networks of the same lineage and self-play rewards exploiting a predecessor (the same effect as in [loop run 4](#loop-run-4-measured-2026-11-14), where the gates added up to about twice the gain of the direct match). The 5-row classical player is also weaker than `BEST_SPEC` is on 4 rows: it has no race play, and its evaluation was fitted on 10 pieces.
 
-**F16 check before shipping.** `HalfPrecisionStudy` on 2,000 positions of seeded random 5-row playouts (seed 11, ply 20 to 120), F32 network against the widened packed file: the best move agrees in 2,000 of 2,000 positions (100 %), the mean KL divergence of the move priors is 3.5 × 10⁻⁷, the largest value difference is 1.0 × 10⁻³. The packed file is 115,132 bytes ([models](models.md)).
+**F16 check before shipping.** `HalfPrecisionStudy` (`nn/src/test/java/sternhalma/nn/HalfPrecisionStudy.java`, [models](models.md#packing-f16-and-gzip); output in [`models/runs/net5/half-precision-r5.txt`](../models/runs/net5/half-precision-r5.txt)) on 2,000 positions of seeded random 5-row playouts (seed 11, ply 20 to 120), F32 network against the widened packed file: the best move agrees in 2,000 of 2,000 positions (100 %), the mean KL divergence of the move priors is 3.5 × 10⁻⁷, the largest value difference is 1.0 × 10⁻³. The packed file is 115,132 bytes ([models](models.md)).
 
 ### Energy
 
@@ -2729,7 +2729,7 @@ The run was measured with the energy tools ([Energy measurement](#energy-measure
 | **whole run** (5:07:55 with data) | | 41.2 | **0.2115** | **0.1415** |
 | E3 (separate run `net5-ship-eval`, see below) | 0:19:56 | 41.0 | 0.0130 | about 0.0087 |
 
-Source: `data/energy/net5.report.md` (written by `scripts/energy/report.py`) and `data/energy/net5-ship-eval.csv`. The loop generations together took 0.170 kWh (0.115 above baseline) in 4 h 0 min.
+Source: [`models/runs/net5/net5.report.md`](../models/runs/net5/net5.report.md) (written by `scripts/energy/report.py`) and [`net5-ship-eval.report.md`](../models/runs/net5/net5-ship-eval.report.md); the raw sampler files stay on the training machine. The loop generations together took 0.170 kWh (0.115 above baseline) in 4 h 0 min.
 
 **Energy per network** (training phases only, without the checks pilot, ladder, E1 and E2): the Gen0 network took 0.021 kWh (teacher data and Gen0; 0.013 above baseline); the shipped generation 9 took 0.177 kWh (teacher data, Gen0 and loop generations 1 to 9; 0.119 above baseline). Every loop generation costs about 0.013 to 0.020 kWh; [`models/index.md`](../models/index.md) lists the figure per network.
 
@@ -2740,7 +2740,7 @@ Source: `data/energy/net5.report.md` (written by `scripts/energy/report.py`) and
 - The figures are for the whole machine, display included, and the machine was shared with other work: a phase's kWh is an upper bound for the training itself. Origin: the sampler reads the whole system's counters (`scripts/energy/README.md`, "What the numbers mean").
 - The counters refresh about once a minute, so the 4- and 12-second phases (pilot, ladder check) are indications only; phases of 10 minutes or more have errors below 5 % (same source, "Resolution").
 - Nothing splits CPU from GPU: the Gen0 figure (GPU trainer) and the teacher figure (CPU search) are both whole-system figures.
-- E3 ran in a separate sampler run (`net5-ship-eval`) without an idle phase of its own. Its "above baseline" figure subtracts the 13.64 W of the main run, computed by hand; the report of that run used its own lowest 10-minute mean, which is the load itself. The sampler started after the rung `ab:1600` had finished (about 4.5 minutes, not covered), and other agent work (builds and tests) ran on the machine during E3, so its figure is an upper bound.
+- E3 ran in a separate sampler run (`net5-ship-eval`) without an idle phase of its own. Its "above baseline" figure subtracts the 13.64 W of the main run, computed by hand; the report of that run used its own lowest 10-minute mean, which is the load itself. The sampler started after the rung `ab:1600` had finished (about 4.5 minutes, not covered), and other work (builds and tests) ran on the machine during E3, so its figure is an upper bound.
 - The baseline of 13.64 W was taken with the display on and the desktop idle; a different desktop state gives a different idle power and changes every "above baseline" figure by up to the difference times the duration.
 
 ### Files
