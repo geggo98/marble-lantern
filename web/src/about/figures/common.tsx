@@ -2,7 +2,7 @@
 // the foot of a figure with its source chips and its data chip.
 import { Chip } from '../kit';
 import './figures.css';
-import { parseMarkup } from '../kit/markup';
+import { Markup, parseMarkup } from '../kit/markup';
 import { sourceUrl } from '../kit/SourceChip';
 import { kitCatalog } from '../i18n/kit';
 import type { AboutCatalog, AboutT } from '../i18n/catalog';
@@ -119,4 +119,16 @@ export const figLabel = (kit: Lookup, topicNo: number, figNo: number): string =>
 export function useReducedMotion(): boolean {
   // The kit's own hook (useStepper) reads the same media query; the figures only need the answer for static marks.
   return typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+}
+
+/**
+ * The note of a classical figure in My-game mode on 5 rows: the engine plays that board with the 4-row weights and without the race table,
+ * and none of it was recalibrated for 15 pieces (docs/search-and-evaluation.md, "Five-row boards"). Nothing when `show` is false.
+ */
+export function LiveRows5Note({ kit, show }: { kit: Lookup; show: boolean }): React.JSX.Element | null {
+  return show ? (
+    <p className="ml-fig-live__note" data-live-note="rows5">
+      <Markup text={kit('kit.live.rows5')} />
+    </p>
+  ) : null;
 }

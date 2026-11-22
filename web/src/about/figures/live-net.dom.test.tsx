@@ -267,3 +267,25 @@ describe('V9b live', () => {
     expect(q('[data-live-reason]').textContent).toBe('The game is over, so there is no move left to explain.');
   });
 });
+
+describe('the net figures on a 5-row snapshot', () => {
+  const FIVE: Variant = { ...DEFAULT_VARIANT, rows: 5 };
+  const REASON = 'Your game has 5 rows. The network was trained on 4 rows only and cannot read the larger houses of 15 cells, so this figure shows the example only.';
+
+  it('V10 keeps My game disabled with the 5-row reason and starts no engine', async () => {
+    await render(<McstFigure />, snapshot([], false, FIVE));
+    await settle();
+    expect(q<HTMLInputElement>('input[value=mine]').disabled).toBe(true);
+    expect(q('[data-live-reason]').textContent).toBe(REASON);
+    expect(created).toBe(0);
+  });
+
+  it('V9b offers no fourth position and shows the 5-row reason', async () => {
+    await render(<ForwardFigure />, snapshot([], false, FIVE));
+    await settle();
+    const select = q<HTMLSelectElement>('select.ml-fig-select');
+    expect([...select.options].map((o) => o.value)).toEqual(['start', 'mid', 'race']);
+    expect(q('[data-live-reason]').textContent).toBe(REASON);
+    expect(created).toBe(0);
+  });
+});

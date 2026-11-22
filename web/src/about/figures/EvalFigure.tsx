@@ -27,7 +27,8 @@ import { liveBlockedReason } from '../live/classic';
 import { useLive } from '../live/context';
 import { runEvalLive } from '../live/eval';
 import { useLiveRun } from '../live/useLiveRun';
-import { FigFoot, figLabel, useFigText } from './common';
+import { rowsOf } from '../../game/variant';
+import { FigFoot, LiveRows5Note, figLabel, useFigText } from './common';
 import type { Catalog, DataOrigin } from './common';
 import { barShare, contributionOf, overlayOf, scoreOf, weightOf, winProbability } from './eval-model';
 import type { EvalData, Setting } from './eval-model';
@@ -261,6 +262,7 @@ export function EvalFigure({ catalog, number }: EvalFigureProps): React.JSX.Elem
         <>
           <Markup text={t('fig.eval.caption')} />
           {live && <> <Markup text={t('fig.eval.live.evaluator', { evaluator: '`linear-r3`' })} /></>}
+          <LiveRows5Note kit={kit} show={mine && input !== null && rowsOf(input.snapshot.variant) === 5} />
         </>
       }
       foot={<FigFoot kit={kit} paths={['search/src/main/java/sternhalma/search/LinearEvaluator.java', 'search/src/main/java/sternhalma/search/LinearWeights.java']} data="eval-mid.json" origin={origin} />}

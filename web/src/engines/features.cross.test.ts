@@ -8,6 +8,7 @@ import { gunzipSync } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import evalMid from '../about/data/eval-mid.json';
+import { goalHouses } from '../board/cells';
 import { DEFAULT_VARIANT } from '../game/variant';
 import type { Variant } from '../game/variant';
 import type { ChooseResult, FeatureReport } from './engine';
@@ -120,6 +121,29 @@ describe.skipIf(!present)('features gives identical reports in C++ Wasm, TeaVM W
     }
   }, 180_000);
 
+  it('on 5 rows, along a game of the 5-row player: identical in the three engines, with the distances of the 15-cell houses', async () => {
+    const all = await handlers();
+    const five: Variant = { ...DEFAULT_VARIANT, rows: 5 };
+    const first = all[0]!.handler;
+    await send(first, { type: 'newGame', setup: { nodes: [1000, 1000], variant: five } });
+    const history: number[] = [];
+    for (let ply = 0; ply < 80; ply++) history.push(((await send(first, { type: 'choose', history: [...history], variant: five })) as ChooseResult).move);
+    for (const ply of [0, 1, 10, 31, 60, 80]) {
+      const h = history.slice(0, ply);
+      const [a, ...rest] = await Promise.all(all.map(({ handler }) => features(handler, h, five)));
+      for (const [i, other] of rest.entries()) expect(other, `${all[i + 1]!.name} against ${all[0]!.name} at ply ${ply}`).toStrictEqual(a);
+      expect(a!.sideToMove).toBe(ply % 2);
+    }
+    // the 5-row layout: the 5 cells that the 15-cell goal house of player 1 adds to the corner have distance 0 there, and more on 4 rows
+    const [r4, r5] = [await features(first, []), await features(first, [], five)];
+    const added = goalHouses(2, 5)[1]!.filter((cell) => !goalHouses(2, 4)[1]!.includes(cell));
+    expect(added).toHaveLength(5);
+    for (const cell of added) {
+      expect(r5.distance[1][cell], `cell ${cell} on 5 rows`).toBe(0);
+      expect(r4.distance[1][cell], `cell ${cell} on 4 rows`).toBeGreaterThan(0);
+    }
+  }, 180_000);
+
   it('between the moves of a game, leaves every choose result as it was', async () => {
     const all = await handlers();
     const play = async (h: Handler, withFeatures: boolean): Promise<ChooseResult[]> => {
@@ -141,13 +165,15 @@ describe.skipIf(!present)('features gives identical reports in C++ Wasm, TeaVM W
     }
   }, 180_000);
 
-  it('rejects a non-classic game with unsupported and an illegal history with illegal-history', async () => {
+  it('rejects a game other than the classic one on 4 or 5 rows with unsupported and an illegal history with illegal-history', async () => {
     const others: Variant[] = [
       { ...DEFAULT_VARIANT, jump: 'long' },
       { ...DEFAULT_VARIANT, players: 3 },
       { ...DEFAULT_VARIANT, camps: 'open' },
       { ...DEFAULT_VARIANT, camps: 'pass-through' },
-      { ...DEFAULT_VARIANT, rows: 5 },
+      { ...DEFAULT_VARIANT, rows: 5, jump: 'long' },
+      { ...DEFAULT_VARIANT, rows: 5, players: 3 },
+      { ...DEFAULT_VARIANT, rows: 5, camps: 'open' },
     ];
     for (const { name, handler } of await handlers()) {
       for (const variant of others) {

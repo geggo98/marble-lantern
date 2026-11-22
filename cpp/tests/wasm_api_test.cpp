@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <set>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,6 +15,8 @@
 #include "check.hpp"
 #include "geometry.hpp"
 #include "layout.hpp"
+#include "linear_eval.hpp"
+#include "position.hpp"
 #include "rules.hpp"
 
 extern "C" {
@@ -501,13 +504,41 @@ SH_TEST(features_after_an_odd_ply_are_for_player_one_and_every_distance_is_the_l
 
 SH_TEST(features_are_for_the_classic_game_only) {
     for (const std::array<int, 5> g : {std::array<int, 5>{1, 2, 0, 0, 4}, std::array<int, 5>{0, 3, 0, 0, 4}, std::array<int, 5>{0, 2, 0, 1, 4},
-                                       std::array<int, 5>{0, 2, 0, 2, 4}, std::array<int, 5>{0, 2, 0, 0, 5}}) {
+                                       std::array<int, 5>{0, 2, 0, 2, 4}, std::array<int, 5>{1, 2, 0, 0, 5}, std::array<int, 5>{0, 3, 0, 0, 5},
+                                       std::array<int, 5>{0, 2, 0, 2, 5}}) {
         CHECK_EQ(shw_game_new5(g[0], g[1], g[2], g[3], g[4]), 0);
         CHECK_EQ(features_now().rc, -1);
         CHECK(std::string(shw_error()).find("classic") != std::string::npos);
     }
     CHECK_EQ(shw_game_new5(0, 2, 1, 0, 4), 0);  // the ranking rule changes nothing for two players
     CHECK_EQ(features_now().rc, 0);
+    CHECK_EQ(shw_game_new5(0, 2, 0, 0, 5), 0);  // the 5-row classic game is explained as well
+    CHECK_EQ(features_now().rc, 0);
+}
+
+// The 5-row classic game: the features, the linear-r3 score and the distances equal those of the engine's own 5-row position, along the first
+// legal move of every ply (a deterministic line through the opening into the middle game).
+SH_TEST(features_on_five_rows_equal_those_of_the_five_row_position) {
+    CHECK_EQ(shw_game_new5(0, 2, 0, 0, 5), 0);
+    sh::Position pos = sh::Position::initial(sh::RuleSet::defaults(2, sh::RuleSet::TriangleRows::Five));
+    const auto evaluator = sh::LinearEvaluator::linear_r3();
+    std::array<int, sh::kMaxMoves> moves{};
+    for (int ply = 0; ply < 60 && !pos.outcome(); ++ply) {
+        const Features f = features_now();
+        CHECK_EQ(f.rc, 0);
+        std::array<double, 13> expected{};
+        sh::LinearEvaluator::features(pos, std::span<double, 13>(expected), sh::LinearEvaluator::GainMode::Both);
+        for (std::size_t i = 0; i < 13; ++i) CHECK_EQ(f.values[i], expected[i]);
+        CHECK_EQ(f.score_side[0], evaluator->evaluate(pos));
+        CHECK_EQ(f.score_side[1], pos.side_to_move());
+        for (int p = 0; p < 2; ++p)
+            for (int cell = 0; cell < 121; ++cell) CHECK_EQ(f.distance[static_cast<std::size_t>(p * 121 + cell)], pos.layout().distance(p, cell));
+        const int count = pos.generate(moves);
+        CHECK(count > 0);
+        const int move = moves[static_cast<std::size_t>(ply % count)];
+        CHECK_EQ(shw_play(move), 0);
+        pos.make(move);
+    }
 }
 
 // The guard against shared state: features between the moves of a game leave every choose result (move, score, depth, nodes) as without them.

@@ -167,6 +167,39 @@ describe('V7 live', () => {
   });
 });
 
+describe('the classical figures on a 5-row snapshot', () => {
+  const FIVE: Variant = { ...DEFAULT_VARIANT, rows: 5 };
+  /** A one-ply 5-row history: the first legal move of the 5-row start, from the fake engine's own move generator. */
+  const firstFive = (): number[] => [(core.handle({ id: 0, type: 'legalMoves', history: [], variant: FIVE } as Request) as number[])[0]!];
+
+  it('Fig. 2.2 runs the five levels on the 5-row game and says what was not recalibrated for 15 pieces', async () => {
+    const history = firstFive();
+    await render(<BudgetFigure catalog={catalog} number={[2, 2]} />, snapshot(history, false, FIVE));
+    expect(q<HTMLInputElement>('input[value=mine]').disabled).toBe(false);
+    expect(all('[data-live-note=rows5]'), 'no note before the press').toHaveLength(0);
+    await press('mine');
+    await settle();
+    await settle();
+    expect(dots(1)).toHaveLength(5);
+    expect(q('[data-live-note=rows5]').textContent).toContain('Your game has 5 rows');
+    expect(q('[data-live-note=rows5]').textContent).toContain('not recalibrated for 15 pieces');
+    await press('example');
+    expect(all('[data-live-note=rows5]'), 'the example is a 4-row game').toHaveLength(0);
+  });
+
+  it('Fig. 2.1b scores every legal move of the 5-row start: 18 moves, 30 pieces on the board', async () => {
+    await render(<RootScoresFigure catalog={catalog} number={[2, 1]} />, snapshot([], false, FIVE));
+    await press('mine');
+    await settle(50);
+    await settle(50);
+    expect(q('[data-roots]').getAttribute('data-roots')).toBe('ready');
+    // docs/rules.md: the 5-row board has 18 legal first moves (14 on 4 rows)
+    expect(all('tbody tr')).toHaveLength(18);
+    expect(all('[data-level]').length + all('use[data-seat]').length).toBe(30);
+    expect(q('[data-live-note=rows5]').textContent).toContain('Your game has 5 rows');
+  });
+});
+
 describe('root-scores board (Fig. 2.1b)', () => {
   it('shows the example: label 2.1b, one disc per movable piece, three arrows, one table row per legal move', async () => {
     await render(<RootScoresFigure catalog={catalog} number={[2, 1]} />, null);

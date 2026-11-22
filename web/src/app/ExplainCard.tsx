@@ -1,6 +1,8 @@
 // The card "Explain this position": five links into the Info part. Pressing one stores a snapshot of the game in the app (onExplain), then the
 // link navigates as an ordinary hash link. It starts no engine and downloads nothing: the figures start their engines when the reader presses
-// their own live switch. Disabled, with the reason as text, before a game runs, when the game is over, and for a variant that is not classic.
+// their own live switch. Disabled, with the reason as text, before a game runs, when the game is over, and for a variant that is not the
+// classic game (two players, adjacent jumps, closed foreign corners) on 4 or 5 rows. On 5 rows the two net links carry the note that their
+// figures show the example only, because the networks were trained on 4 rows (liveBlockedReason in about/live/classic.ts).
 import type { MouseEvent } from 'react';
 import { hrefForAbout } from '../ui/Chrome';
 import { useT } from '../ui/texts';
@@ -30,7 +32,16 @@ const REASON: Record<ExplainBlock, TextKey> = {
   variant: 'explain_disabled_variant',
 };
 
-export function ExplainCard({ blocked, onExplain }: { blocked: ExplainBlock | null; onExplain: (target: ExplainTarget) => void }): React.JSX.Element {
+export function ExplainCard({
+  blocked,
+  fiveRows = false,
+  onExplain,
+}: {
+  blocked: ExplainBlock | null;
+  /** The game is on 5 rows: the net figures stay at their example. */
+  fiveRows?: boolean;
+  onExplain: (target: ExplainTarget) => void;
+}): React.JSX.Element {
   const { t } = useT();
   return (
     <section className="ml-card ml-explain" aria-labelledby="ml-explain-title" data-explain-card="" data-disabled={blocked ? '' : undefined}>
@@ -52,7 +63,11 @@ export function ExplainCard({ blocked, onExplain }: { blocked: ExplainBlock | nu
                 {t(label)}
               </a>
             )}
-            {net && !blocked && <span className="ml-explain__note">{t('explain_net_note')}</span>}
+            {net && !blocked && (
+              <span className="ml-explain__note" data-explain-note={fiveRows ? 'rows5' : 'net'}>
+                {t(fiveRows ? 'explain_net_rows5' : 'explain_net_note')}
+              </span>
+            )}
           </li>
         ))}
       </ul>

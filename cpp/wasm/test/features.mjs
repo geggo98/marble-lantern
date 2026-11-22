@@ -1,6 +1,7 @@
 // shw_features on the WebAssembly build: the linear-r3 features of the eval-mid.json position (golden of ExplainerDataTest, from the JVM
-// evaluator) with the score 179, the refusal of a non-classic game, and that features calls leave the game players alone (the benchmark game
-// of game.mjs, with a features call before every move, still has the fingerprint of the plan).
+// evaluator) with the score 179, the refusal of a game that is not two players, adjacent jumps and closed corners (4 or 5 rows), and that
+// features calls leave the game players alone (the benchmark game of game.mjs, with a features call before every move, still has the
+// fingerprint of the plan).
 // usage: node features.mjs --engine DIR --tables DIR
 import { readFileSync } from 'node:fs';
 import { BENCH, createModule, loadRows2, parseArgs, readTable } from './lib.mjs';
@@ -39,11 +40,16 @@ for (const s of golden.sides) {
 }
 
 // not the classic game: -1 with a text
-for (const [jump, players, camps, rows] of [[1, 2, 0, 4], [0, 3, 0, 4], [0, 2, 2, 4], [0, 2, 1, 4], [0, 2, 0, 5]]) {
+for (const [jump, players, camps, rows] of [[1, 2, 0, 4], [0, 3, 0, 4], [0, 2, 2, 4], [0, 2, 1, 4], [1, 2, 0, 5], [0, 3, 0, 5], [0, 2, 2, 5]]) {
   if (m._shw_game_new5(jump, players, 0, camps, rows) !== 0) fail('shw_game_new5');
   if (m._shw_features(base, scoreSide, dist) !== -1) fail(`a non-classic game (${jump} ${players} ${camps} ${rows}) is not -1`);
   if (!m.UTF8ToString(m._shw_error()).includes('classic')) fail('no text for the non-classic game');
 }
+
+// the 5-row classic game is explained as well (the values are compared with Java in web/src/engines/features.cross.test.ts)
+if (m._shw_game_new5(0, 2, 0, 0, 5) !== 0) fail('shw_game_new5 on 5 rows');
+if (m._shw_features(base, scoreSide, dist) !== 0) fail(`features on 5 rows: ${m.UTF8ToString(m._shw_error())}`);
+if (read().side !== 0) fail('side to move on the 5-row start');
 
 // the benchmark game with a features call before every move: the fingerprint of the plan
 const players = [m._shw_player_new(BENCH.nodes), m._shw_player_new(BENCH.nodes)];

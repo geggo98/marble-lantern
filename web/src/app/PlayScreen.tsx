@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { GameController } from '../game/game';
 import { goalCells, initialOwners, playState } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { isDefault, moveLimit, variantKey } from '../game/variant';
+import { isDefault, moveLimit, rowsOf, variantKey } from '../game/variant';
 import type { Player } from '../game/variant';
 import { isNetEngine } from '../engines/engine';
 import type { EngineId } from '../engines/engine';
@@ -26,7 +26,7 @@ import type { DistanceEstimate } from '../result/distance';
 import { useDistanceEstimate } from '../result/useDistance';
 import { ExplainCard } from './ExplainCard';
 import type { ExplainBlock } from './ExplainCard';
-import { isClassic } from '../about/live/classic';
+import { isClassicAnySize } from '../about/live/classic';
 import type { ExplainTarget } from '../about/live/types';
 import { CopyLink, REPO_URL, ThemeSwitch } from '../ui/Chrome';
 import { LanguageToggle } from '../ui/LanguageToggle';
@@ -356,7 +356,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
       ? (goalCells(variant)[state.outcome.winner] ?? []).filter((c) => state.owner[c] === (state.outcome as { winner: Player }).winner)
       : [];
 
-  const explainBlock: ExplainBlock | null = !model.explain.playing ? 'nogame' : state.outcome ? 'over' : !isClassic(variant) ? 'variant' : null;
+  const explainBlock: ExplainBlock | null = !model.explain.playing ? 'nogame' : state.outcome ? 'over' : !isClassicAnySize(variant) ? 'variant' : null;
 
   const controls = (part: 'all' | 'secondary'): React.JSX.Element => (
     <Controls
@@ -393,7 +393,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         }}
       />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
-      <ExplainCard blocked={explainBlock} onExplain={model.explain.onExplain} />
+      <ExplainCard blocked={explainBlock} fiveRows={rowsOf(variant) === 5} onExplain={model.explain.onExplain} />
       <InstallEntry {...(model.pwa ? { pwa: model.pwa } : {})} />
       <EngineCard
         info={s.current?.info ?? null}

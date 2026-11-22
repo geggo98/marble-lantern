@@ -9,7 +9,7 @@ import { cellPoint } from '../../ui/board-model';
 import { BAND_ORDER } from '../../guides/bands';
 import type { Band } from '../../guides/bands';
 import raw from '../data/root-scores-mid.json';
-import { FigFoot, figLabel, useFigText } from './common';
+import { FigFoot, LiveRows5Note, figLabel, useFigText } from './common';
 import type { Catalog } from './common';
 import { HeatLegend } from './HeatLegend';
 import { liveBlockedReason } from '../live/classic';
@@ -18,6 +18,7 @@ import { pieceBands, runRootScores } from '../live/root-scores';
 import type { RootScoresData } from '../live/root-scores';
 import { liveStatusText, liveValue } from '../live/status';
 import { useLiveRun } from '../live/useLiveRun';
+import { rowsOf } from '../../game/variant';
 import './root-scores.css';
 
 const EXAMPLE = raw as unknown as RootScoresData;
@@ -89,7 +90,12 @@ export function RootScoresFigure({ catalog, number }: RootScoresFigureProps): Re
           />
         </Manipulate>
       }
-      caption={<Markup text={description} />}
+      caption={
+        <>
+          <Markup text={description} />
+          <LiveRows5Note kit={kit} show={mine && input !== null && rowsOf(input.snapshot.variant) === 5} />
+        </>
+      }
       foot={
         <FigFoot
           kit={kit}

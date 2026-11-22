@@ -649,17 +649,18 @@ public final class WebCore {
 
     /**
      * The static evaluation of the position after {@code history} by {@code linear-r3}, term by term: the explanation of
-     * the evaluation for the Info pages. Classic games only (two players, adjacent jumps, 4 rows, closed foreign corners;
-     * the ranking rule changes nothing for two players), else {@code unsupported}. No search and no table. The position
+     * the evaluation for the Info pages. Two players, adjacent jumps and closed foreign corners, on 4 or 5 rows (the
+     * ranking rule changes nothing for two players), else {@code unsupported}. On 5 rows these are the features of the
+     * 15-piece layout, with {@code dsumPhase} on the 10-piece scale: the evaluation that {@code BROWSER_ROWS5_SPEC}
+     * plays with. No search and no table. The position
      * is replayed into a state of its own and the evaluator is a fresh one, so no game player, analysis player or
      * transposition table is touched. A finished game is evaluated like any position.
      */
     public Features features(int[] history, RuleSet.JumpRule jump, int playerCount, RuleSet.Ranking ranking,
             RuleSet.ForeignCamps camps, TriangleRows rows) {
-        if (playerCount != 2 || jump != RuleSet.JumpRule.ADJACENT || camps != RuleSet.ForeignCamps.CLOSED
-                || rows != TriangleRows.FOUR) {
+        if (playerCount != 2 || jump != RuleSet.JumpRule.ADJACENT || camps != RuleSet.ForeignCamps.CLOSED) {
             throw new WebFailure("unsupported", "the evaluation features exist for the classic game only (two players, "
-                    + "adjacent jumps, 4 rows, closed corners), not " + playerCount + " players, " + jump + ", " + rows
+                    + "adjacent jumps, closed corners, 4 or 5 rows), not " + playerCount + " players, " + jump + ", " + rows
                     + ", " + camps);
         }
         Position position = replay(history, jump, playerCount, ranking, camps, rows);
