@@ -1,0 +1,109 @@
+{
+  "name": "net5-cpu-power",
+  "metric": "wall",
+  "baseline_w": 12.585539388165646,
+  "baseline_source": "marker phase 'baseline' (0:09:48 covered, from 2026-11-22T22:14:35Z)",
+  "file_start": "2026-11-22T22:14:46Z",
+  "file_end": "2026-11-22T23:12:46Z",
+  "phases": [
+    {
+      "phase": "baseline",
+      "start": "2026-11-22T22:14:35Z",
+      "start_epoch": 1795385675.2,
+      "segments": 1,
+      "duration_s": 600.0,
+      "covered_s": 588.2999999523163,
+      "mean_w": 12.585539388165646,
+      "peak_w": 13.996559999999999,
+      "kwh": 0.002056686894849368,
+      "kwh_above_baseline": 4.336808689942018e-19,
+      "notes": []
+    },
+    {
+      "phase": "cpu-small",
+      "start": "2026-11-22T22:25:35Z",
+      "start_epoch": 1795386335.3,
+      "segments": 1,
+      "duration_s": 660.1000001430511,
+      "covered_s": 660.1000001430511,
+      "mean_w": 46.12200336650304,
+      "peak_w": 59.359559999999995,
+      "kwh": 0.008456981785785127,
+      "kwh_above_baseline": 0.006149283299138316,
+      "notes": []
+    },
+    {
+      "phase": "cpu-large",
+      "start": "2026-11-22T22:37:35Z",
+      "start_epoch": 1795387055.5,
+      "segments": 1,
+      "duration_s": 661.2999999523163,
+      "covered_s": 661.2999999523163,
+      "mean_w": 42.70736723459303,
+      "peak_w": 53.42364,
+      "kwh": 0.007845106097277756,
+      "kwh_above_baseline": 0.005533212431501696,
+      "notes": []
+    },
+    {
+      "phase": "gpu-small",
+      "start": "2026-11-22T22:49:36Z",
+      "start_epoch": 1795387776.9,
+      "segments": 1,
+      "duration_s": 330.09999990463257,
+      "covered_s": 330.09999990463257,
+      "mean_w": 48.48019345920187,
+      "peak_w": 57.79752,
+      "kwh": 0.004445364404516419,
+      "kwh_above_baseline": 0.0032913403626182993,
+      "notes": []
+    },
+    {
+      "phase": "gpu-large",
+      "start": "2026-11-22T22:56:07Z",
+      "start_epoch": 1795388167.1,
+      "segments": 1,
+      "duration_s": 330.2000000476837,
+      "covered_s": 330.2000000476837,
+      "mean_w": 41.82663058955993,
+      "peak_w": 51.021719999999995,
+      "kwh": 0.003836431506296428,
+      "kwh_above_baseline": 0.0026820578655818664,
+      "notes": []
+    },
+    {
+      "phase": "baseline-after",
+      "start": "2026-11-22T23:02:37Z",
+      "start_epoch": 1795388557.3,
+      "segments": 1,
+      "duration_s": 600.1000001430511,
+      "covered_s": 600.1000001430511,
+      "mean_w": 10.99264642247381,
+      "peak_w": 12.293759999999999,
+      "kwh": 0.0018324130888052901,
+      "kwh_above_baseline": -0.00026552640803875977,
+      "notes": []
+    }
+  ],
+  "phases_total": {
+    "phases": [
+      "cpu-small",
+      "cpu-large",
+      "gpu-small",
+      "gpu-large",
+      "baseline-after"
+    ],
+    "kwh": 0.02641629688268102,
+    "kwh_above_baseline": 0.01739036755080142,
+    "covered_s": 2581.800000190735
+  },
+  "run_total": {
+    "kwh": 0.030086413,
+    "kwh_above_baseline": 0.017920391591439877,
+    "covered_s": 3480.0,
+    "mean_w": 31.123875517241377,
+    "peak_w": 59.359559999999995
+  },
+  "gaps": [],
+  "warnings": []
+}

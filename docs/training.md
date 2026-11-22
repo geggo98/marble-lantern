@@ -450,7 +450,7 @@ The job follows the [long-running-job conventions](architecture.md#long-running-
 
 #### Energy measurement
 
-To state afterwards how many kWh a network or a phase of a run cost, `scripts/energy/` records the energy counters of the Mac's battery controller during a run (`sampler.py`), marks phases (`mark.py start|end <phase>`) and sums the energy per phase (`report.py`). It measures the whole machine at the wall socket, with a resolution of about one minute, and cannot split CPU from GPU. What it measures, how to read it and its limits: `scripts/energy/README.md`. The first measured run is the [five-row expert net](#energy); its per-phase table and the energy per network are there.
+To state afterwards how many kWh a network or a phase of a run cost, `scripts/energy/` records the energy counters of the Mac's battery controller during a run (`sampler.py`), marks phases (`mark.py start|end <phase>`) and sums the energy per phase (`report.py`). It measures the whole machine at the wall socket, with a resolution of about one minute, and cannot split CPU from GPU. What it measures, how to read it and its limits: `scripts/energy/README.md`. The first measured run is the [five-row expert net](#energy); its per-phase table and the energy per network are there. Because the counters cannot split CPU from GPU, a separate experiment ran the Gen0 trainer alone, once on the CPU and once on the GPU, and compared the power of the whole machine: [CPU against GPU training](#cpu-against-gpu-training-measured-power-and-estimated-energy).
 
 #### Run monitor
 
@@ -2742,6 +2742,73 @@ Source: [`models/runs/net5/net5.report.md`](../models/runs/net5/net5.report.md) 
 - Nothing splits CPU from GPU: the Gen0 figure (GPU trainer) and the teacher figure (CPU search) are both whole-system figures.
 - E3 ran in a separate sampler run (`net5-ship-eval`) without an idle phase of its own. Its "above baseline" figure subtracts the 13.64 W of the main run, computed by hand; the report of that run used its own lowest 10-minute mean, which is the load itself. The sampler started after the rung `ab:1600` had finished (about 4.5 minutes, not covered), and other work (builds and tests) ran on the machine during E3, so its figure is an upper bound.
 - The baseline of 13.64 W was taken with the display on and the desktop idle; a different desktop state gives a different idle power and changes every "above baseline" figure by up to the difference times the duration.
+
+### CPU against GPU training: measured power and estimated energy
+
+**TL;DR:** The owner asked what the training of the 5-row networks would cost without the GPU. An experiment on 2026-11-22 ran the Gen0 trainer alone for 5.5 to 11 minutes per configuration, on the CPU and on the GPU, for SMALL and LARGE, and measured the wall power of the whole machine. On the CPU a training step takes 36 times (SMALL) and 51 times (LARGE) as long as on the GPU, at about the same power of 42 to 49 W. Scaled to the step count of a whole run, the training steps would cost about 1.2 kWh for SMALL and 7.3 kWh for LARGE on the CPU, against 0.035 and 0.14 kWh on the GPU. Each estimate has an uncertainty of about ±22 to 23 %.
+
+The experiment is a measurement of power and step time. The kWh of whole runs are an estimate built on it. The records are in [`models/runs/net5-cpu-power/`](../models/runs/net5-cpu-power/README.md).
+
+**Conditions.** 2026-11-22, 23:14 to 2026-11-23, 00:13 CET, on the M3 Max of the [five-row expert net](#five-row-expert-net). The power adapter was connected and the battery stood at 80 % without charging (709 of 709 polls). The display stayed on. Other programs ran: the load average of the idle baseline was 2.1 to 6.5 (mean 3.4), from the `loadavg1` column of the sampler file `data/energy/net5-cpu-power.csv` (on the training machine only; columns: [`scripts/energy/README.md`](../scripts/energy/README.md), "Files"). A `powermetrics` process of the root user (the macOS tool that samples CPU and GPU power; it adds a little load of its own) was already running; this was seen while the experiment ran, and no file records it.
+
+**Procedure.** The script [`experiment.zsh`](../models/runs/net5-cpu-power/experiment.zsh) started the energy sampler (run name `net5-cpu-power`) and then ran six phases with 60 idle seconds between them, so that no phase edge (the start or end marker that `mark.py` writes) falls on a load change ([`scripts/energy/README.md`](../scripts/energy/README.md), "Measured check"). Each training phase started a fresh Gen0 run on the 5-row teacher data of the expert run (`--planes classic1 --rows 5 --batch 256 --seed 1`), stopped it with SIGTERM when the phase time was over, and threw the training output away. SMALL used the configuration of the expert run's Gen0 (`--lr 1e-3`), LARGE (64 channels, 6 residual blocks) the configuration of the LARGE run below (`--lr 3e-4`). The CPU phases passed `--threads 14`. Gen0 on main accepts only `--preset small|tiny`; the LARGE phases ran from a checkout with one added switch case ([`gen0-large.patch`](../models/runs/net5-cpu-power/gen0-large.patch)).
+
+| Phase | Trainer, network | Duration | Mean W | Peak W | kWh | kWh above baseline | Step time | Steps/s |
+|---|---|---|---|---|---|---|---|---|
+| baseline (idle) | | 0:10:00 | 12.6 | 14.0 | 0.0021 | 0 | | |
+| cpu-small | CPU, SMALL | 0:11:00 | 46.1 | 59.4 | 0.0085 | 0.0061 | 353.8 ms (sd 37.7 ms) | 2.83 |
+| cpu-large | CPU, LARGE | 0:11:01 | 42.7 | 53.4 | 0.0078 | 0.0055 | 2,200.7 ms (sd 551 ms) | 0.45 |
+| gpu-small | GPU, SMALL | 0:05:30 | 48.5 | 57.8 | 0.0044 | 0.0033 | 9.79 ms (sd 2.8 ms) | 102 |
+| gpu-large | GPU, LARGE | 0:05:30 | 41.8 | 51.0 | 0.0038 | 0.0027 | 42.86 ms (sd 63 ms) | 23.3 |
+| baseline-after (idle) | | 0:10:00 | 11.0 | 12.3 | 0.0018 | -0.0003 | | |
+
+Source: [`net5-cpu-power.report.md`](../models/runs/net5-cpu-power/net5-cpu-power.report.md) (written by `scripts/energy/report.py`; "above baseline" subtracts the 12.59 W of the first idle phase) for the power columns. The step times come from [`cpupower-analyze.py`](../models/runs/net5-cpu-power/cpupower-analyze.py) over the progress lines of the Gen0 logs (`<phase>/gen0.log` in the same directory). It skips the first 30 s (JVM start, data load, first proxies) and divides the elapsed time by the steps after that point. sd is the spread of the time per step between two progress lines, which are about 10 s apart.
+
+**The CPU phases slowed down while they ran.** The counters refresh about once a minute; taking only the minutes between two refreshes that lie fully inside a phase, the mean power fell from 55.1 W in the first half of cpu-small to 39.7 W in the second half, and the step time rose from 327 to 386 ms. In cpu-large the power fell from 49.2 to 38.1 W, and the step time rose from 2,046 to 2,379 ms. The likely cause is thermal or power throttling of the CPU under sustained load; the records do not show the clock rates. The energy per step changed less than the power: from 18.0 to 15.3 J per step in cpu-small (±8 % around the mean), and from 101 to 91 J in cpu-large (±5 %). The GPU phases changed by 493 to 542 mJ per step in gpu-small (±5 %) and 1.92 to 1.95 J in gpu-large (±1 %); all four pairs are in the output of `cpupower-analyze.py`. The halves use only the full counter minutes, so they are not comparable with the mean W times the step time of the table.
+
+**Step counts of a whole training run.**
+
+- SMALL, measured: 40,000 Gen0 steps plus 222,254 loop training steps (the sum of the `units` field, the steps done, over the `train` phase lines of `data/net5/loop-small/metrics.jsonl`; git-ignored, on the training machine only) = 262,254 steps.
+- LARGE, estimated: 60,000 Gen0 steps (the driver `data/net5/driver-large.zsh` of the LARGE run below; git-ignored, on the training machine only) plus 22,000 steps per loop generation. The 22,000 is the mean of the SMALL loop (22,225); it assumes that LARGE generations have the same number of games, the same window and the same reuse factor, and therefore the same number of steps. For 10 generations that is 280,000 steps; for 6 generations, 192,000 steps. Six is the earliest end the stop rule allows: it is checked from generation 6 on, so rejections in generations 5 and 6 end the run after generation 6 ([Gate decisions](#gate-decisions)).
+
+**Estimate.** Energy = steps × measured step time × mean power of the phase. "Above baseline" uses the mean power minus 12.59 W.
+
+| Network | Trainer | Steps | Training time | kWh (range) | kWh above baseline (range) |
+|---|---|---|---|---|---|
+| SMALL | CPU, 14 threads | 262,254 | 25.8 h | 1.19 (0.92 to 1.46) | 0.86 (0.67 to 1.06) |
+| SMALL | GPU | 262,254 | 0.71 h | 0.035 (0.027 to 0.043) | 0.026 (0.020 to 0.032) |
+| LARGE, 10 generations | CPU, 14 threads | 280,000 | 171 h (7.1 days) | 7.31 (5.7 to 8.9) | 5.16 (4.0 to 6.3) |
+| LARGE, 10 generations | GPU | 280,000 | 3.3 h | 0.139 (0.108 to 0.171) | 0.098 (0.075 to 0.120) |
+
+For LARGE with 6 generations the CPU estimate is 117 h and 5.0 kWh; across 6 to 10 generations and the uncertainty below, the range is 3.9 to 8.9 kWh. The CPU costs 34 times (SMALL) and 52 times (LARGE) the energy of the GPU, almost the ratio of the step times, because the CPU and the GPU phase of the same network differ in mean power by 5 % or less (46.1 against 48.5 W for SMALL, 42.7 against 41.8 W for LARGE). For scale: the training steps of SMALL alone would take 1.19 kWh on the CPU, about 5.6 times the 0.21 kWh of the whole measured SMALL run with teacher data, self-play and checks ([Energy](#energy)).
+
+**Check against the measured SMALL run.** The GPU step time predicts 262,254 × 9.79 ms = 2,567 s of training. The real run trained for 2,618 s (Gen0 440 s of training, the phase marked 444 s, plus 2,178 s in the `train` phase lines of the same `metrics.jsonl`), so the time estimate is 2 % low. The energy estimate for Gen0 alone is 40,000 × 9.79 ms × 48.5 W = 0.0053 kWh, against 0.0045 kWh measured in the real run: 17 % high. Two errors partly cancel there. The time is 11 % low (392 s predicted, 440 s real), and the power is 33 % high: the experiment's gpu-small phase drew 48.5 W, the real Gen0 36.5 W. The GPU phases followed 22 minutes of CPU load with only 60 idle seconds before them, and the machine was still hot.
+
+**Uncertainty.** Each estimate combines these components in quadrature (as independent relative errors):
+
+| Component | cpu-small | cpu-large | gpu-small | gpu-large | Origin |
+|---|---|---|---|---|---|
+| counter resolution | ±7 % | ±7 % | ±14 % | ±14 % | about ±45 s of one-minute counter steps at the phase edges, out of 11 or 5.5 minutes |
+| drift within the phase | ±8 % | ±5 % | ±5 % | ±1 % | energy per step of the first half against the second half (paragraph above) |
+| extrapolation to a whole run (estimated) | ±10 % | ±10 % | ±5 % | ±5 % | the thermal state of a run of hours and LARGE's step count are not measured; the GPU path is checked to 2 % in time |
+| validation | ±17 % | ±17 % | ±17 % | ±17 % | the energy check of Gen0 above |
+| **combined** | **±22 %** | **±22 %** | **±23 %** | **±23 %** | square root of the sum of squares (22.4, 21.5, 23.1 and 22.6 %) |
+
+The spread of the step times between progress lines gives a standard error of the mean of 1.4 % (cpu-small), 3.4 % (cpu-large) and 5.1 % (gpu-small); the drift and validation components are larger. In gpu-large the spread is wide (sd 63 ms against a mean of 42.86 ms, 27 intervals), most likely because the held-out proxy evaluations (3 in the phase) of Gen0 pause the training inside some 10-second intervals and a GPU step is short. The table's step time divides the elapsed time after the first 30 s by the steps done in it, so it contains these pauses at the rate a real Gen0 has them; the two halves of gpu-large give 45.8 and 40.2 ms per step (±7 %). The "above baseline" column carries a further ±5 %: the two idle phases differ by 1.6 W (12.6 W before, 11.0 W after), which is about 5 % of the 34 W above baseline of cpu-small.
+
+What is measured: the power and the step time of each configuration for 5.5 to 11 minutes, the two baselines, and the step count of SMALL. What is estimated: the step count of the LARGE loop, the extrapolation from minutes to hours or days, and the assumption that the power stays at the measured mean in a long run.
+
+**Limits.**
+
+- "CPU only" covers the training steps only. A real run without the GPU would also need the network on the CPU for the self-play and the gates of the loop (`--evaluator`, header of `scripts/loop.sh`), which costs more time and energy. That part is not estimated.
+- The CPU trainer gives different networks than the GPU trainer (header of `scripts/loop.sh`). The estimate is a cost of training, not a promise of the same network.
+- `--threads 14` is a best case for the CPU: 14 of the 16 cores, two left for the system. The Gen0 step of the expert run (`models/runs/net5/driver.zsh`) passed no `--threads`, and Gen0 then uses 4 threads (`Math.min(4, availableProcessors)` in `selfplay/src/main/java/sternhalma/selfplay/Gen0.java`); a CPU Gen0 with that default would take longer than estimated here. The loop steps of the driver pass `--threads 14`.
+- The GPU phases overstate the power by about 33 % (48.5 W in gpu-small against 36.5 W in the real Gen0; the energy check above comes out 17 % high), because of the heat of the CPU phases before them. The LARGE GPU step time is probably too long for the same reason: the experiment measured 23.3 steps/s, while the progress lines of the running LARGE Gen0 ([LARGE 5-row run](#large-5-row-run-in-progress); its log is on the training machine only) reported a mean of 26 to 32 steps/s in its first 4 minutes. Both effects make the GPU figures upper bounds.
+- All figures are the wall power of the whole machine with the display on and other programs running, as in [Energy](#energy). The counters cannot split CPU from GPU; the comparison works only because each phase ran one trainer and nothing else of the project.
+
+### LARGE 5-row run (in progress)
+
+A LARGE network (64 channels, 6 residual blocks) for the same 5-row variant started on 2026-11-23 with the driver `data/net5/driver-large.zsh` (git-ignored, on the training machine only; it will be copied with the run's records), from the same patched checkout as the LARGE phases above, because main has no `--preset large` for Gen0 yet, under energy measurement (run name `net5-large`). The plan: a 10-minute idle baseline; Gen0 LARGE on the GPU on the teacher data of the expert run, 60,000 steps of batch 256 at `--lr 3e-4` (16.2 passes over the 949,818 training samples); the check E1 (at least 0.6 against `ab:6400`); the loop with up to 10 generations (`--lr 1e-4 --lr-final 1e-5`, otherwise the settings of the SMALL loop, with the stop rule); and the final comparison: E2 (best LARGE against its Gen0), a direct match of the best LARGE against the shipped SMALL generation 9 (400 pairs), and E3 against the 5-row ladder up to `ab:102400`. The results and the energy table of the run follow after it has finished.
 
 ### Files
 

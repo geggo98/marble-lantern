@@ -1,0 +1,31 @@
+exp: display: PreventUserIdleDisplaySleep=1 (1 = the display stays on)  (elapsed 0 s)
+exp: baseline: 600 s; about 59 min left in the experiment  (elapsed 0 s)
+exp: cpu-small: 660 s; about 48 min left in the experiment  (elapsed 660 s)
+exp: cpu-small: Gen0 exit 143 (143 = stopped by this script, as planned): gen 0 finish: aborted at step 1878; run again to continue; whole run: 38122 steps left, ETA 3h42m27s at 2.86 steps/s (this run)  (elapsed 1321 s)
+exp: cpu-large: 660 s; about 36 min left in the experiment  (elapsed 1381 s)
+exp: cpu-large: Gen0 exit 143 (143 = stopped by this script, as planned): gen 0 finish: aborted at step 302; run again to continue; whole run: 59698 steps left, ETA 36h10m01s at 0.46 steps/s (this run)  (elapsed 2042 s)
+exp: gpu-small: 330 s; about 24 min left in the experiment  (elapsed 2102 s)
+exp: gpu-small: Gen0 exit 143 (143 = stopped by this script, as planned): gen 0 finish: aborted at step 33397; run again to continue; whole run: 6603 steps left, ETA 1m05s at 102.15 steps/s (this run)  (elapsed 2432 s)
+exp: gpu-large: 330 s; about 17 min left in the experiment  (elapsed 2492 s)
+exp: gpu-large: Gen0 exit 143 (143 = stopped by this script, as planned): gen 0 finish: aborted at step 6990; run again to continue; whole run: 53010 steps left, ETA 41m20s at 21.38 steps/s (this run)  (elapsed 2822 s)
+exp: baseline-after: 600 s; about 11 min left in the experiment  (elapsed 2882 s)
+exp: done: 6 ok, 0 skip, 0 error; nothing more to do  (elapsed 3543 s)
+# Energy report: net5-cpu-power
+
+Metric: wall (README: what it contains). Data from 2026-11-22T22:14:46Z to 2026-11-22T23:12:46Z.
+
+Baseline: 12.59 W, from marker phase 'baseline' (0:09:48 covered, from 2026-11-22T22:14:35Z).
+
+| phase | start (UTC) | duration | covered | mean W | peak W | kWh | kWh above baseline | notes |
+|---|---|---|---|---|---|---|---|---|
+| baseline | 2026-11-22T22:14:35Z | 0:10:00 | 0:09:48 | 12.6 | 14.0 | 0.0021 | 0.0000 |  |
+| cpu-small | 2026-11-22T22:25:35Z | 0:11:00 | 0:11:00 | 46.1 | 59.4 | 0.0085 | 0.0061 |  |
+| cpu-large | 2026-11-22T22:37:35Z | 0:11:01 | 0:11:01 | 42.7 | 53.4 | 0.0078 | 0.0055 |  |
+| gpu-small | 2026-11-22T22:49:36Z | 0:05:30 | 0:05:30 | 48.5 | 57.8 | 0.0044 | 0.0033 |  |
+| gpu-large | 2026-11-22T22:56:07Z | 0:05:30 | 0:05:30 | 41.8 | 51.0 | 0.0038 | 0.0027 |  |
+| baseline-after | 2026-11-22T23:02:37Z | 0:10:00 | 0:10:00 | 11.0 | 12.3 | 0.0018 | -0.0003 |  |
+| **sum of phases** (without baseline) | | | 0:43:02 | | | **0.0264** | **0.0174** | |
+| **whole file** (run net5-cpu-power) | 2026-11-22T22:14:46Z | | 0:58:00 | 31.1 | 59.4 | **0.0301** | **0.0179** | |
+
+Peak W is the highest one-minute mean. Duration is from the markers; covered is the time with data.
+energy net5-cpu-power: stopped (pid 16356)
