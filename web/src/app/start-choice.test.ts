@@ -110,22 +110,27 @@ describe('the board size of the choice (RuleSet.TriangleRows)', () => {
     expect(parseChoice(null).rows).toBe(5);
     expect(parseChoice('{"jump":"long"}').rows).toBe(5);
     expect(parseChoice('{}').rows).toBe(5);
-    for (const bad of ['6', '"5"', '"4"', 'null', '0', 'true']) expect(parseChoice(`{"v":2,"rows":${bad}}`).rows, bad).toBe(5);
-    expect(parseChoice('{"v":2,"rows":5}').rows).toBe(5);
-    expect(parseChoice('{"v":2,"rows":4}').rows).toBe(4);
+    for (const bad of ['6', '"5"', '"4"', 'null', '0', 'true']) expect(parseChoice(`{"v":3,"rows":${bad}}`).rows, bad).toBe(5);
+    expect(parseChoice('{"v":3,"rows":5}').rows).toBe(5);
+    expect(parseChoice('{"v":3,"rows":4}').rows).toBe(4);
   });
 
   it('migration (owner wish 2026-11-20): a stored 4 without the version marker was only preselected and reads as 5; the other fields stay', () => {
     const old = '{"jump":"long","camps":"open","rows":4,"ranking":"full","mode":"engines","humanSeat":1,"engineSeat":0}';
     expect(parseChoice(old)).toEqual({ jump: 'long', camps: 'open', rows: 5, ranking: 'full', mode: 'engines', humanSeat: 1, engineSeat: 0 });
     // a marker of another version does not vouch for the 4
-    for (const v of ['1', '3', '"2"', 'null']) expect(parseChoice(`{"v":${v},"rows":4}`).rows, v).toBe(5);
+    for (const v of ['1', '2', '4', '"3"', 'null']) expect(parseChoice(`{"v":${v},"rows":4}`).rows, v).toBe(5);
+  });
+
+  it('migration (2026-11-22): a 4 stored with version 2 may stem from the link-dialog carry-over bug and reads as 5; the other fields stay', () => {
+    expect(parseChoice('{"jump":"adjacent","camps":"closed","rows":4,"v":2}').rows).toBe(5);
+    expect(parseChoice('{"jump":"long","rows":4,"v":2}')).toMatchObject({ jump: 'long', rows: 5 });
   });
 
   it('every save writes the version marker, so that the next Start of a person who chose 4 keeps it', () => {
     const data: Record<string, string> = {};
     saveChoice({ ...DEFAULT_CHOICE, rows: 4 }, { setItem: (k, v) => { data[k] = v; } });
-    expect(JSON.parse(data[CHOICE_KEY]!)).toMatchObject({ v: 2, rows: 4 });
+    expect(JSON.parse(data[CHOICE_KEY]!)).toMatchObject({ v: 3, rows: 4 });
     expect(loadChoice({ getItem: (k) => data[k] ?? null }).rows).toBe(4);
   });
 

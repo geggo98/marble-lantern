@@ -107,7 +107,7 @@ const live = (): { id: number; history: number[]; ply: number; over: boolean; va
 const link = (section: string): HTMLAnchorElement | null => q<HTMLAnchorElement>(`a[data-explain-link="${section}"]`);
 
 beforeEach(() => {
-  localStorage.setItem('ml.start-choice', '{"v":2,"rows":4}');
+  localStorage.setItem('ml.start-choice', '{"v":3,"rows":4}');
   stubTopics();
 });
 afterEach(async () => {

@@ -55,7 +55,16 @@ export interface StartDialogProps {
   onCancel?: (() => void) | undefined;
 }
 
-export function StartDialog({ model, onCancel }: StartDialogProps): React.JSX.Element {
+/**
+ * The choice is state of the begin dialog and is read once, from `model.initial`. The key makes the dialog of another kind (link, broken) and the begin
+ * dialog different instances: App turns the first into the second without unmounting, and the state would keep the link fallback (4 rows), which
+ * "Start" then saved as a choice.
+ */
+export function StartDialog(props: StartDialogProps): React.JSX.Element {
+  return <StartDialogBody key={props.model.kind} {...props} />;
+}
+
+function StartDialogBody({ model, onCancel }: StartDialogProps): React.JSX.Element {
   const { t } = useT();
   const { ref, onKeyDown } = useDialog<HTMLElement>({ onEscape: onCancel, focusKey: model.kind });
 

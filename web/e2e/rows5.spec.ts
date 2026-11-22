@@ -102,3 +102,68 @@ test('an old 4-row link without t= shows the 4-row board behind the dialog for a
   expect(new URL(page.url()).hash).not.toContain('t=');
   errors.expectNone();
 });
+
+// Regression (2026-11-22): after a PWA update the page reloads on a game link; the link dialog was mounted first, and "New game" turned it into the
+// begin dialog without a fresh state, so the link fallback (4 rows) was shown and stored as an explicit choice.
+test('"New game" in the link dialog of a 4-row link opens the begin dialog on 5 rows, and starting stores and plays 5 rows', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '', 'ask', 'fresh');
+  await page.locator('[data-choice="rows-4"]').check();
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  await playHumanMove(page);
+  await expect.poll(() => plyOf(page)).toBe(2);
+  await waitForHumanTurn(page);
+  const link = new URL(page.url()).hash;
+  expect(link).not.toContain('t=');
+  await page.evaluate((key) => localStorage.removeItem(key), CHOICE_KEY); // no stored choice: the default is 5 rows
+  await page.goto(link);
+  await page.reload();
+  await expect(page.locator('[data-testid="link-rows"]')).toBeVisible();
+  await page.locator('[data-choice="link-new"]').click();
+  await expect(page.locator('[data-choice="begin-yes"]')).toBeVisible();
+  await expect(page.locator('[data-choice="rows-5"]')).toBeChecked();
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  expect(await pieceCount(page)).toBe(30);
+  expect(new URL(page.url()).hash).toContain('t=5');
+  expect(await storedRows(page)).toBe(5);
+  errors.expectNone();
+});
+
+test('"New game" in the dialog of a broken link opens the begin dialog on 5 rows', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '#g=v1.!!!&h=0&l=2', 'ask', 'fresh');
+  await expect(page.locator('[data-choice="broken-new"]')).toBeVisible();
+  await page.locator('[data-choice="broken-new"]').click();
+  await expect(page.locator('[data-choice="rows-5"]')).toBeChecked();
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  expect(await storedRows(page)).toBe(5);
+  errors.expectNone();
+});
+
+test('owner reproduction: a 5-row link, "New game" in its dialog and a reload of that address never turn the stored 5 rows into 4', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await openApp(page, 'en', '', 'ask', 'fresh');
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  await playHumanMove(page);
+  await expect.poll(() => plyOf(page)).toBe(2);
+  await waitForHumanTurn(page);
+  const link = new URL(page.url()).hash;
+  expect(link).toContain('&t=5');
+  await page.goto(link);
+  await page.reload(); // like after an app update: the address keeps the link, the link dialog opens
+  await page.locator('[data-choice="link-new"]').click();
+  await expect(page.locator('[data-choice="rows-5"]')).toBeChecked();
+  await page.reload(); // the fragment still names the link
+  await expect(page.locator('[data-testid="link-rows"]')).toBeVisible();
+  await page.locator('[data-choice="link-new"]').click();
+  await expect(page.locator('[data-choice="rows-5"]')).toBeChecked();
+  expect(await storedRows(page)).toBe(5);
+  await page.locator('[data-choice="begin-yes"]').click();
+  await waitForHumanTurn(page);
+  expect(await storedRows(page)).toBe(5);
+  errors.expectNone();
+});

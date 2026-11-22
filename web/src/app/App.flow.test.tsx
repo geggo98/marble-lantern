@@ -139,7 +139,7 @@ describe('the start dialog', () => {
   });
 
   it('"Yes" lets the human begin: the human is side 0, nothing is on the board, the address shows the game', async () => {
-    localStorage.setItem('ml.start-choice', '{"v":2,"rows":4}'); // a person who chose 4 rows on purpose (with the version marker)
+    localStorage.setItem('ml.start-choice', '{"v":3,"rows":4}'); // a person who chose 4 rows on purpose (with the version marker)
     const nav = new FakeNavigation('');
     await mount(nav);
     await click(choice('begin-yes'));
@@ -266,7 +266,7 @@ describe('a game link', () => {
     await click(choice('begin-yes'));
     await until(() => plies() === 0 && status() === 'Your move', 'new game');
     expect(nav.pushes).toHaveLength(1);
-    expect(nav.hash).toBe('#g=v1.&h=0&l=2');
+    expect(nav.hash).toBe('#g=v1.&h=0&l=2&t=5'); // the begin dialog preselects the default 5 rows (it once kept the 4 rows of the link dialog)
     await act(async () => nav.back());
     await until(() => plies() === 3, 'Back to the linked position');
   });

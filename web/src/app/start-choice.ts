@@ -34,8 +34,11 @@ export const CHOICE_KEY = 'ml.start-choice';
 /**
  * Version of the stored choice. Version 2 (2026-11-20) marks a choice in which `rows` was chosen with the 5-row default in view: only then an
  * explicit 4 is a decision. A choice without the marker was written while 4 was preselected, so its 4 only records the old default.
+ * Version 3 (2026-11-22): a version-2 4 may stem from a bug, not from a decision. After "New game" in the dialog of a game link the begin
+ * dialog kept the link fallback (4 rows) and "Start" saved it with v:2. Version 2 therefore no longer vouches for a 4; only a 4 saved from
+ * version 3 on is an explicit choice.
  */
-export const CHOICE_VERSION = 2;
+export const CHOICE_VERSION = 3;
 
 const isSeat = (v: unknown): v is Player => v === 0 || v === 1 || v === 2;
 

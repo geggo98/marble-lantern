@@ -153,6 +153,33 @@ describe('the begin dialog', () => {
     expect(choice('human-seat-2').checked).toBe(true);
   });
 
+  it('regression: the begin dialog that replaces a link dialog (same instance) starts from model.initial, not from the link fallback (4 rows)', async () => {
+    const link: StartDialogModel = { kind: 'link', ply: 3, sideToMove: 0, onContinueAs: vi.fn(), onNew: vi.fn() };
+    await act(async () => {
+      root.render(<StartDialog model={link} />);
+    });
+    const onStart = vi.fn();
+    const begin: StartDialogModel = { kind: 'begin', initial: { ...DEFAULT_CHOICE, rows: 5, jump: 'long' }, onStart };
+    await act(async () => {
+      root.render(<StartDialog model={begin} />);
+    });
+    expect(choice('rows-5').checked).toBe(true);
+    expect(choice('jump-long').checked).toBe(true);
+    await click(q('[data-choice="begin-yes"]')!);
+    expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ rows: 5, jump: 'long' }), true);
+  });
+
+  it('regression: the same for a broken-link dialog that is replaced by the begin dialog', async () => {
+    const broken: StartDialogModel = { kind: 'broken', reason: 'link', onNew: vi.fn() };
+    await act(async () => {
+      root.render(<StartDialog model={broken} />);
+    });
+    await act(async () => {
+      root.render(<StartDialog model={{ kind: 'begin', initial: DEFAULT_CHOICE, onStart: vi.fn() }} />);
+    });
+    expect(choice('rows-5').checked).toBe(true);
+  });
+
   it('Escape closes it only when a game is running', async () => {
     await open(vi.fn());
     await act(async () => {

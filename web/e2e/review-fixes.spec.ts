@@ -202,7 +202,7 @@ test.describe('the stored size (version marker)', () => {
     await page.locator('[data-choice="begin-yes"]').click();
     await waitForHumanTurn(page);
     const stored = JSON.parse((await page.evaluate((key) => localStorage.getItem(key), CHOICE_KEY))!) as Record<string, unknown>;
-    expect(stored).toMatchObject({ v: 2, rows: 4, jump: 'long' });
+    expect(stored).toMatchObject({ v: 3, rows: 4, jump: 'long' });
     await page.evaluate(() => history.replaceState(null, '', location.pathname)); // no game in the address: the begin dialog again
     await page.reload();
     await expect(page.locator('[data-choice="rows-4"]')).toBeChecked();

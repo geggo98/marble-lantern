@@ -303,7 +303,7 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
   });
 
   it('a stored choice with an explicit 4 stays a 4-row new game, without t= in the address', async () => {
-    localStorage.setItem('ml.start-choice', '{"v":2,"jump":"adjacent","mode":"two","rows":4}');
+    localStorage.setItem('ml.start-choice', '{"v":3,"jump":"adjacent","mode":"two","rows":4}');
     const nav = new FakeNavigation('');
     await mount(nav);
     expect(pieces()).toBe(20);
@@ -323,7 +323,7 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
     expect(q<HTMLInputElement>('[data-choice="jump-long"]')!.checked).toBe(true);
     await click(q('[data-choice="begin-yes"]')!);
     await until(() => dialog() === null && status() === 'Your move', 'the human may move');
-    expect(JSON.parse(localStorage.getItem('ml.start-choice')!)).toMatchObject({ v: 2, rows: 5, jump: 'long' });
+    expect(JSON.parse(localStorage.getItem('ml.start-choice')!)).toMatchObject({ v: 3, rows: 5, jump: 'long' });
   });
 
   it('the size chosen in the dialog is stored and starts the game', async () => {
@@ -333,7 +333,7 @@ describe('the board size (4 or 5 rows) through the dialog and links', () => {
     await click(q('[data-choice="begin-yes"]')!);
     await until(() => dialog() === null && status() === 'Your move', 'the human may move');
     expect(pieces()).toBe(20);
-    expect(JSON.parse(localStorage.getItem('ml.start-choice')!)).toMatchObject({ rows: 4, v: 2 });
+    expect(JSON.parse(localStorage.getItem('ml.start-choice')!)).toMatchObject({ rows: 4, v: 3 });
   });
 
   it('a 5-row link names its size in the dialog and continues on 5 rows (also with the other side)', async () => {
