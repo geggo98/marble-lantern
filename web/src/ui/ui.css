@@ -205,6 +205,7 @@ a { color: inherit; text-underline-offset: 0.2em; }
   .ml-board { margin-inline: auto; width: 100%; max-width: calc((100dvh - 15.5rem) * 468 / 532); min-width: 22rem; }
 }
 .ml-board__svg.is-inert { cursor: progress; }
+.ml-board__svg.is-inert.is-over { cursor: default; }
 /* Move guides, level "with evaluation": a selected piece dims the rest of the board so that the rated targets stand out (docs/web-ui.md, "Dimming").
    Opacity only: the hit circles and the focus ring are untouched. The selected piece, its ring, the targets with their glyphs and the plate stay at full strength. */
 .ml-board__sockets, .ml-pieces use, .ml-guides .ml-guide { transition: opacity 0.2s ease; }

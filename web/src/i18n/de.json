@@ -234,6 +234,7 @@
   "advantage_mate": "{who}: gewinnt garantiert in {plies} Halbzügen",
   "advantage_race": "{who}: vorn im Wettlauf",
   "advantage_slight": "{who}: leicht vorn",
+  "advantage_over": "{who}: gewonnen",
   "advantage_updating": "wird aktualisiert",
   "advantage_you": "Du",
   "advantage_pending": "Noch keine Bewertung",

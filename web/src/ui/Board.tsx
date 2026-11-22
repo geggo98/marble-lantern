@@ -46,6 +46,8 @@ export interface BoardProps {
   interactive: boolean;
   /** Draw it inert and with the progress cursor (loading, thinking, game over). */
   inert: boolean;
+  /** The game is over: the board stays inert but shows the normal cursor, not the progress cursor (nothing is being computed). */
+  over?: boolean;
   /** The side drawn as amber ("A"); the other side is blue with a ring ("B"). */
   aSide: Side;
   /** The human plays the top start corner: turn the board by 180 degrees. */
@@ -86,7 +88,7 @@ interface Press {
 }
 
 export function Board(props: BoardProps): React.JSX.Element {
-  const { owner, legal, interactive, inert, aSide, rotated, plies, last, halo, onMove } = props;
+  const { owner, legal, interactive, inert, over, aSide, rotated, plies, last, halo, onMove } = props;
   const trailPhase = useTrailPhase(plies, props.trailSeconds ?? 0);
   const styleOf = (seat: number): SideStyle => props.seatStyle?.(seat) ?? (seat === aSide ? 'a' : 'b');
   const { t } = useT();
@@ -411,7 +413,7 @@ export function Board(props: BoardProps): React.JSX.Element {
     <div className="ml-board">
       <svg
         ref={svgRef}
-        className={inert ? 'ml-board__svg is-inert' : 'ml-board__svg'}
+        className={inert ? (over ? 'ml-board__svg is-inert is-over' : 'ml-board__svg is-inert') : 'ml-board__svg'}
         {...(dimmed ? { 'data-dim': '' } : {})}
         viewBox={`${VIEW_BOX.x} ${VIEW_BOX.y} ${VIEW_BOX.width} ${VIEW_BOX.height}`}
         role="group"

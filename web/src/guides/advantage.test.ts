@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SCORE } from '../engines/analysis';
-import { describeAdvantage } from './advantage';
+import { advantageOfOutcome, describeAdvantage } from './advantage';
 
 describe('describeAdvantage', () => {
   it('says nobody is ahead below 30 points', () => {
@@ -27,5 +27,16 @@ describe('describeAdvantage', () => {
     expect(describeAdvantage(0).value).toBe(0);
     expect(describeAdvantage(100).value).toBeCloseTo(Math.tanh(100 / 160), 10);
     expect(describeAdvantage(-SCORE.mate).value).toBeCloseTo(-1, 10);
+  });
+});
+
+describe('advantageOfOutcome', () => {
+  it('fills the track for the winner, whatever the last analysed position said', () => {
+    expect(advantageOfOutcome({ kind: 'win', winner: 1 }, 1)).toEqual({ value: 1, lead: 'you', level: 'over' });
+    expect(advantageOfOutcome({ kind: 'win', winner: 0 }, 1)).toEqual({ value: -1, lead: 'engine', level: 'over' });
+  });
+  it('shows nobody ahead after a draw or the move limit', () => {
+    expect(advantageOfOutcome({ kind: 'move-limit' }, 1)).toMatchObject({ lead: 'none', level: 'even' });
+    expect(advantageOfOutcome({ kind: 'draw' }, 1)).toMatchObject({ lead: 'none', level: 'even' });
   });
 });
