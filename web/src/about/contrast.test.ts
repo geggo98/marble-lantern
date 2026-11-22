@@ -122,3 +122,34 @@ describe('contrast of the figure tokens', () => {
     }
   });
 });
+
+// Figure J7 (call boundary, figures/BoundaryFigure.tsx, design spec section 8): the pairs of its lanes, walls, tags and table. The J7 design adds
+// no token, so these are pairs of existing tokens. Some are in the table of the notes already; this block states every pair the figure relies on,
+// with the threshold of its use (text 4.5, lines and marks 3), so that a change of a token that breaks the figure fails here.
+describe('contrast of the pairs of figure J7', () => {
+  const pairs: [string, string, number, string][] = [
+    ['--ml-fig-mark', '--ml-fig-bg', 3, 'lane outline, wall A outside the region'],
+    ['--ml-fig-mark', '--ml-fig-panel-bg', 3, 'wall B convert and slot'],
+    ['--ml-color-ink', '--ml-fig-panel-bg', 4.5, 'wall names in the region'],
+    ['--ml-fig-dim', '--ml-fig-panel-bg', 3, 'wall B none (dotted)'],
+    ['--ml-fig-dim', '--ml-fig-bg', 3, 'outline of a dim lane'],
+    ['--ml-fig-accent', '--ml-fig-panel-bg', 3, 'active wall B, badge ring'],
+    ['--ml-fig-accent', '--ml-fig-bg', 3, 'active wall A, badge arrow, accent bars'],
+    ['--ml-fig-accent', '--ml-fig-accent-bg', 3, 'outline of an active lane'],
+    ['--ml-color-ink', '--ml-fig-accent-bg', 4.5, 'text in an active lane and in the selected column'],
+    ['--ml-color-ink-muted', '--ml-fig-panel-bg', 4.5, 'region label, wall tags'],
+    ['--ml-color-ink-muted', '--ml-fig-bg', 4.5, 'file names and notes in a lane, row headers'],
+    ['--ml-color-on-primary', '--ml-color-primary', 4.5, 'the tag "numbers"'],
+  ];
+  describe.each(pairs)('%s on %s (needs %s: %s)', (fg, bg, needed) => {
+    for (const [theme, tokens] of [
+      ['light', light],
+      ['dark', dark],
+    ] as const) {
+      it(`${theme}`, () => {
+        const ratio = contrast(resolve(tokens, fg), resolve(tokens, bg));
+        expect(ratio, `computed ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(needed);
+      });
+    }
+  });
+});

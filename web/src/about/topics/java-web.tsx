@@ -6,6 +6,7 @@ import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
 import { HillaFigure } from '../figures/HillaFigure';
+import { BoundaryFigure } from '../figures/BoundaryFigure';
 import { javaWebCatalog } from '../figures/java-web-catalog';
 import type { Catalog } from '../figures/common';
 import { OUTLINE } from './outline';
@@ -26,7 +27,7 @@ const FIGURES: Record<string, () => React.ReactNode> = {
   ),
   teavm: () => (
     <>
-      {/* J7 goes here */}
+      <BoundaryFigure />
       <Snip id="e2" />
     </>
   ),
