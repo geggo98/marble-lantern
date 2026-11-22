@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { Variant } from '../../game/variant';
 import {
-  halfToFloat, listModels, loadModel, modelsFor, parseModelManifest, widenSafetensors,
+  halfToFloat, listModels, loadModel, modelsFor, parseModelManifest, rowsText, widenSafetensors,
 } from './models';
 import type { ModelErrorCode, ModelInfo } from './models';
 
@@ -27,12 +27,38 @@ async function codeOf(p: Promise<unknown> | (() => unknown)): Promise<ModelError
 describe('parseModelManifest', () => {
   const real = JSON.parse(realManifestText) as { v: number; models: Array<Record<string, unknown>> };
   const clone = () => JSON.parse(realManifestText) as typeof real;
+  /** Index of an entry in the real manifest (pack-model.py sorts the entries by id). */
+  const at = (id: string): number => real.models.findIndex((m) => m.id === id);
+  const SHARED = at('small-shared-all');
+  const R5 = at('small-2p-adjacent-r5-expert');
 
   it('reads the real manifest', () => {
     const models = parseModelManifest(realManifestText);
-    expect(models.map((m) => m.id)).toEqual(['small-2p-adjacent-expert', 'small-shared-all']);
-    expect(models[0]).toMatchObject({ planes: 13, planeSet: 'classic1', formatVersion: 2, players: 2, params: 61734 });
-    expect(models[1]).toMatchObject({ planes: 15, planeSet: 'classic1v', formatVersion: 3, players: 3 });
+    expect(models.map((m) => m.id)).toEqual(['small-2p-adjacent-expert', 'small-2p-adjacent-r5-expert', 'small-shared-all']);
+    expect(models[0]).toMatchObject({ planes: 13, planeSet: 'classic1', formatVersion: 2, players: 2, params: 61734, rows: '4' });
+    expect(models[1]).toMatchObject({ planes: 13, planeSet: 'classic1', formatVersion: 2, players: 2, params: 61734, rows: '5' });
+    expect(models[1]!.variants).toEqual([{ jump: 'adjacent', players: 2, rows: 5 }]);
+    expect(models[2]).toMatchObject({ planes: 15, planeSet: 'classic1v', formatVersion: 3, players: 3, rows: '4' });
+  });
+
+  it('keeps the 4-row entries in the shape {jump, players} that an app built before the rows field reads', () => {
+    for (const m of real.models.filter((e) => e.id !== 'small-2p-adjacent-r5-expert')) {
+      for (const variant of m.variants as object[]) expect(Object.keys(variant).sort()).toEqual(['jump', 'players']);
+    }
+  });
+
+  it('reads rows: 4 like a variant without rows, and rows: 5 as the 5-row board', () => {
+    const m = clone();
+    m.models[SHARED]!.variants = [{ jump: 'long', players: 2, rows: 4 }, { jump: 'long', players: 3, rows: 5 }];
+    const shared = parseModelManifest(JSON.stringify(m))[SHARED]!;
+    expect(shared.variants).toEqual([{ jump: 'long', players: 2 }, { jump: 'long', players: 3, rows: 5 }]);
+    expect(shared.rows).toBe('4,5');
+  });
+
+  it('rowsText lists each board size once, ascending', () => {
+    expect(rowsText([{ jump: 'adjacent', players: 2 }])).toBe('4');
+    expect(rowsText([{ jump: 'adjacent', players: 2, rows: 5 }, { jump: 'long', players: 2, rows: 5 }])).toBe('5');
+    expect(rowsText([{ jump: 'adjacent', players: 2, rows: 5 }, { jump: 'adjacent', players: 2 }])).toBe('4,5');
   });
 
   it('puts lengths and hashes before the descriptive fields', () => {
@@ -63,9 +89,15 @@ describe('parseModelManifest', () => {
     ['value width 4', (m) => { m.models[0]!.players = 4; }],
     ['no variants', (m) => { m.models[0]!.variants = []; }],
     ['unknown jump rule', (m) => { m.models[0]!.variants = [{ jump: 'far', players: 2 }]; }],
-    ['variant with 4 players', (m) => { m.models[1]!.variants = [{ jump: 'long', players: 4 }]; }],
-    ['variant with extra key', (m) => { m.models[1]!.variants = [{ jump: 'long', players: 2, x: 1 }]; }],
-    ['duplicate variant', (m) => { m.models[1]!.variants = [{ jump: 'long', players: 2 }, { jump: 'long', players: 2 }]; }],
+    ['variant with 4 players', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 4 }]; }],
+    ['variant with extra key', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 2, x: 1 }]; }],
+    ['variant with rows and an extra key', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 2, rows: 5, x: 1 }]; }],
+    ['variant without players', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', rows: 5 }]; }],
+    ['variant with 6 rows', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 2, rows: 6 }]; }],
+    ['variant with rows as text', (m) => { m.models[R5]!.variants = [{ jump: 'adjacent', players: 2, rows: '5' }]; }],
+    ['variant with rows null', (m) => { m.models[R5]!.variants = [{ jump: 'adjacent', players: 2, rows: null }]; }],
+    ['duplicate variant', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 2 }, { jump: 'long', players: 2 }]; }],
+    ['duplicate variant, rows 4 written out', (m) => { m.models[SHARED]!.variants = [{ jump: 'long', players: 2 }, { jump: 'long', players: 2, rows: 4 }]; }],
     ['3p variant on a 2-output model', (m) => { m.models[0]!.variants = [{ jump: 'adjacent', players: 3 }]; }],
     ['duplicate id', (m) => { m.models[1] = { ...m.models[0]! }; }],
     ['strength is not an object', (m) => { m.models[0]!.strength = 5; }],
@@ -98,10 +130,18 @@ describe('modelsFor', () => {
     expect(listModels().find((m) => m.id === 'small-shared-all')?.variants).toHaveLength(4);
   });
 
+  it('the 5-row expert plays only the 5-row classic game, and no 4-row model plays a 5-row game', () => {
+    const r5: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+    expect(ids(r5)).toEqual(['small-2p-adjacent-r5-expert']);
+    expect(ids(v('adjacent', 2))).not.toContain('small-2p-adjacent-r5-expert');
+    for (const other of [{ ...r5, jump: 'long' as const }, { ...r5, players: 3 as const }]) expect(ids(other)).toEqual([]);
+  });
+
   it('the variants list is authoritative, not the plane set', () => {
+    const shared = (JSON.parse(realManifestText).models as Array<{ id: string }>).find((m) => m.id === 'small-shared-all');
     const models = parseModelManifest({
       v: 1,
-      models: [{ ...(JSON.parse(realManifestText).models[1] as object), variants: [{ jump: 'long', players: 3 }] }],
+      models: [{ ...shared, variants: [{ jump: 'long', players: 3 }] }],
     });
     expect(modelsFor(v('long', 3), models)).toHaveLength(1);
     expect(modelsFor(v('adjacent', 2), models)).toHaveLength(0);
@@ -167,6 +207,7 @@ function entryFor(raw: Uint8Array, gz: Uint8Array): ModelInfo {
     id: 'test-net', labelKey: 'l', descriptionKey: 'd', variants: [{ jump: 'adjacent', players: 2 }], planes: 15,
     planeSet: 'classic1v', formatVersion: 3, players: 3, params: 7, rawBytes: raw.length, packedBytes: gz.length,
     sha256Raw: sha(raw), sha256Packed: sha(gz), file: 'test-net.safetensors.gz', sourceSha256: 'f'.repeat(64), createdFrom: 'test',
+    rows: '4',
   };
 }
 
@@ -254,6 +295,8 @@ describe('loadModel (synthetic net)', () => {
     ['dtype', { weights_dtype: 'F32' }],
     ['source hash', { source_sha256: 'e'.repeat(64) }],
     ['format', { format: 'other' }],
+    ['board size (triangle_rows 5 on a 4-row entry)', { triangle_rows: '5' }],
+    ['board size (triangle_rows 4,5 on a 4-row entry)', { triangle_rows: '4,5' }],
   ];
   for (const [name, over] of mismatches) {
     it(`header ${name} contradicting the manifest is model-mismatch`, async () => {
@@ -262,6 +305,14 @@ describe('loadModel (synthetic net)', () => {
       expect(await codeOf(load(gz, entryFor(raw, gz)))).toBe('model-mismatch');
     });
   }
+
+  it('a header without triangle_rows is a 4-row network: model-mismatch for an entry that lists 5 rows, accepted with triangle_rows 5', async () => {
+    const five = { ...info, variants: [{ jump: 'adjacent' as const, players: 2 as const, rows: 5 as const }], rows: '5' };
+    expect(await codeOf(load(gzGood, five))).toBe('model-mismatch');
+    const raw = f16File({ ...goodMeta, triangle_rows: '5' });
+    const gz = new Uint8Array(gzipSync(raw));
+    expect(await codeOf(load(gz, { ...entryFor(raw, gz), variants: five.variants, rows: '5' }))).toBe('no error');
+  });
 
   it('a weight count that differs from the manifest is model-mismatch', async () => {
     expect(await codeOf(load(gzGood, { ...info, params: 8 }))).toBe('model-mismatch');
@@ -280,6 +331,7 @@ describe('loadModel (synthetic net)', () => {
 const pythonWidened: Record<string, string> = {
   'small-2p-adjacent-expert': '415d45f53c97e4b12d2431888734be5d0346efe584379e6a9edb2aeab940edf6',
   'small-shared-all': '1579ae068858ebe4b725c19cb43908e331b50f0564bc46fcbf25a378fc84d265',
+  'small-2p-adjacent-r5-expert': '776793fde74125655a536ca701a68edeb11b3c56f31292a5e561730e2960052e',
 };
 
 describe('loadModel (real files)', () => {

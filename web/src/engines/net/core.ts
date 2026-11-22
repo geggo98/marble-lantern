@@ -423,7 +423,10 @@ export class NetCore {
       try {
         const f = (r: unknown): string[] => fields(r);
         f(this.d.webnet.create(v.jump, String(v.players), s.sims, batch, this.seedOfGame, '', campsOf(v), rowsArg(v)));
-        f(this.d.webnet.setWeightsInfo(info.planeSet, held.backend.valueWidth));
+        // setWeightsInfoRows names the board sizes of the network; a 4-row network keeps the two-argument call, which also serves an
+        // engine-net file built before the export existed.
+        if (info.rows !== '4' && this.d.webnet.setWeightsInfoRows) f(this.d.webnet.setWeightsInfoRows(info.planeSet, held.backend.valueWidth, info.rows));
+        else f(this.d.webnet.setWeightsInfo(info.planeSet, held.backend.valueWidth));
       } catch (e) {
         if (e instanceof FacadeError && e.code === 'bad-weights-info') {
           return random(...warnings, { code: 'model-variant-mismatch', modelId: info.id, variant: v, reason: 'variant-not-supported', detail: e.message });

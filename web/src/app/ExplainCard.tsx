@@ -1,8 +1,8 @@
 // The card "Explain this position": five links into the Info part. Pressing one stores a snapshot of the game in the app (onExplain), then the
 // link navigates as an ordinary hash link. It starts no engine and downloads nothing: the figures start their engines when the reader presses
 // their own live switch. Disabled, with the reason as text, before a game runs, when the game is over, and for a variant that is not the
-// classic game (two players, adjacent jumps, closed foreign corners) on 4 or 5 rows. On 5 rows the two net links carry the note that their
-// figures show the example only, because the networks were trained on 4 rows (liveBlockedReason in about/live/classic.ts).
+// classic game (two players, adjacent jumps, closed foreign corners) on 4 or 5 rows. The net figures use the expert network of the board
+// size (liveModelId in about/live/mcts.ts), so the two net links carry the same download note on both sizes.
 import type { MouseEvent } from 'react';
 import { hrefForAbout } from '../ui/Chrome';
 import { useT } from '../ui/texts';
@@ -34,12 +34,9 @@ const REASON: Record<ExplainBlock, TextKey> = {
 
 export function ExplainCard({
   blocked,
-  fiveRows = false,
   onExplain,
 }: {
   blocked: ExplainBlock | null;
-  /** The game is on 5 rows: the net figures stay at their example. */
-  fiveRows?: boolean;
   onExplain: (target: ExplainTarget) => void;
 }): React.JSX.Element {
   const { t } = useT();
@@ -64,8 +61,8 @@ export function ExplainCard({
               </a>
             )}
             {net && !blocked && (
-              <span className="ml-explain__note" data-explain-note={fiveRows ? 'rows5' : 'net'}>
-                {t(fiveRows ? 'explain_net_rows5' : 'explain_net_note')}
+              <span className="ml-explain__note" data-explain-note="net">
+                {t('explain_net_note')}
               </span>
             )}
           </li>

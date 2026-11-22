@@ -14,6 +14,7 @@ const ADJ2 = DEFAULT_VARIANT as Variant;
 const ADJ3: Variant = { jump: 'adjacent', players: 3 };
 const EXPERT = 'small-2p-adjacent-expert';
 const SHARED = 'small-shared-all';
+const R5 = 'small-2p-adjacent-r5-expert';
 const all: NetAvailability = { wasm: true, webgpu: true };
 const sel = (engine: EngineId, modelId: string | null, sims: NetSelection['sims'] = 200): NetSelection => ({ engine, modelId, sims });
 /** A selection with no model chosen (the app picks one). */
@@ -68,19 +69,35 @@ describe('evaluateSelection', () => {
     expect(evaluateSelection(sel('cpp-wasm', null), { jump: 'adjacent', players: 2, camps: 'open' }, all).usable).toBe(true);
   });
 
-  // every shipped model was trained on the 4-row start with 10 pieces (docs/web-ui.md, "Choosing a net engine")
-  it('no model fits the 5-row board: no-model when nothing is chosen, a mismatch for a chosen model, in all four variants', () => {
-    for (const jump of ['adjacent', 'long'] as const) {
-      for (const players of [2, 3] as const) {
-        const variant: Variant = { jump, players, rows: 5 };
-        expect(bestModel(variant)).toBeNull();
-        expect(codes(evaluateSelection(auto('net-wasm'), variant, all).warnings), `${jump} ${players}`).toEqual(['no-model', 'fallback-random']);
-        expect(codes(evaluateSelection(sel('net-wasm', SHARED), variant, all).warnings)).toEqual(['model-variant-mismatch', 'fallback-random']);
-        // the same game on 4 rows has a model, so the 5-row refusal is about the board
-        expect(evaluateSelection(sel('net-wasm', SHARED), { jump, players }, all).usable).toBe(true);
-      }
+  // The 5-row expert is the only network for the 5-row board; it plays 2 players with the neighbour jump (docs/web-ui.md, "Choosing a net engine").
+  it('the 5-row classic game gets the 5-row expert, also in place of a chosen 4-row model; no model fits the other three 5-row variants', () => {
+    const r5: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+    expect(bestModel(r5)?.id).toBe(R5);
+    const picked = evaluateSelection(auto('net-wasm'), r5, all);
+    expect(picked).toMatchObject({ modelId: R5, autoModel: true, usable: true });
+    expect(picked.warnings).toEqual([]);
+    for (const chosen of [EXPERT, SHARED]) {
+      expect(evaluateSelection(sel('net-wasm', chosen), r5, all), chosen).toMatchObject({ modelId: R5, autoModel: true, usable: true });
     }
-    expect(evaluateSelection(sel('cpp-wasm', null), { jump: 'adjacent', players: 2, rows: 5 }, all).usable).toBe(true);
+    // and the other way round: the 5-row expert never plays a 4-row game
+    expect(evaluateSelection(sel('net-wasm', R5), ADJ2, all)).toMatchObject({ modelId: EXPERT, autoModel: true });
+    for (const variant of [{ ...r5, jump: 'long' as const }, { ...r5, players: 3 as const }, { ...r5, jump: 'long' as const, players: 3 as const }]) {
+      expect(bestModel(variant)).toBeNull();
+      expect(codes(evaluateSelection(auto('net-wasm'), variant, all).warnings), `${variant.jump} ${variant.players}`).toEqual(['no-model', 'fallback-random']);
+      expect(codes(evaluateSelection(sel('net-wasm', SHARED), variant, all).warnings)).toEqual(['model-variant-mismatch', 'fallback-random']);
+      // the same game on 4 rows has a model, so the refusal is about the board
+      expect(evaluateSelection(sel('net-wasm', SHARED), { jump: variant.jump, players: variant.players }, all).usable).toBe(true);
+    }
+    expect(evaluateSelection(sel('cpp-wasm', null), r5, all).usable).toBe(true);
+  });
+
+  it('a 5-row strength figure never ranks a model for a 4-row game, and a 4-row figure never for a 5-row game', () => {
+    const base = listModels().find((m) => m.id === EXPERT)!;
+    const both: Variant[] = [ADJ2, { jump: 'adjacent', players: 2, rows: 5 }];
+    const a = { ...base, id: 'a-four', variants: both, rows: '4,5', strength: { mcts200_vs_ab100000_adjacent: { elo: 1 } } };
+    const b = { ...base, id: 'b-five', variants: both, rows: '4,5', strength: { mcts200_vs_ab100000_adjacent_r5: { elo: 1 } } };
+    expect(bestModel(ADJ2, [a, b])?.id).toBe('a-four');
+    expect(bestModel(both[1]!, [a, b])?.id).toBe('b-five');
   });
 
   it('an unknown model id: model-load-failed', () => {

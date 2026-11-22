@@ -45,6 +45,21 @@ for (const engine of ['net-wasm', 'net-webgpu'] as const satisfies readonly Engi
   });
 }
 
+test('net-wasm on 5 rows (the default board) with no model chosen plays the 5-row expert on the CPU, without warnings', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  const models: string[] = [];
+  page.on('request', (r) => { const path = new URL(r.url()).pathname; if (path.includes('/models/')) models.push(path.split('/').pop()!); });
+  await openApp(page, 'en', '', 'human', 5);
+  await waitForHumanTurn(page);
+  await pickEngine(page, 'net-wasm'); // nothing chosen: the app picks the best model for the variant
+  await playOneExchange(page);
+  await expect(page.locator('.ml-telemetry__value').first()).not.toHaveText(/^\s*0\s*$/);
+  await expect(page.locator('.ml-telemetry')).toHaveAttribute('data-net-backend', 'wasm');
+  await expect(page.locator('.ml-engine')).toHaveAttribute('data-net-warnings', '');
+  expect(models).toEqual(['small-2p-adjacent-r5-expert.safetensors.gz']);
+  errors.expectNone();
+});
+
 test('net-wasm without a model still answers: it plays a random legal move', async ({ page }) => {
   const errors = watchPageErrors(page);
   await openApp(page, 'en');

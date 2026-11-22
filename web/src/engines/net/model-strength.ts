@@ -2,13 +2,18 @@
 // print. Only what was measured, each with the player count and jump rule it belongs to and the opponent and simulations it was
 // measured at: a 2-player Elo difference of a search with N simulations against the classical alpha-beta engine at M nodes, or a
 // 3-player score against two such engines. Unknown fields are ignored; a model without figures gives an empty list.
-import type { JumpRule } from '../../game/variant';
+// A key that ends in `_r5` was measured on the 5-row board against the classical 5-row player (BROWSER_ROWS5_SPEC): its Elo is on
+// another scale than a 4-row figure and is only ever shown or compared for 5-row games. A key without the suffix is a 4-row figure;
+// an app built before the suffix existed ignores the `_r5` keys, because its patterns end at the jump rule.
+import type { BoardRows, JumpRule } from '../../game/variant';
 import type { ModelInfo } from './model-manifest';
 
 export interface StrengthFact {
   /** The player count of the games the figure was measured in. */
   players: 2 | 3;
   jump: JumpRule;
+  /** The board size the figure was measured on (key suffix `_r5`; 4 without it). */
+  rows: BoardRows;
   /** Simulations per move of the net player. */
   sims: number;
   /** Node budget of the classical opponent(s). */
@@ -29,11 +34,13 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function allStrengthFacts(info: Pick<ModelInfo, 'strength'>): StrengthFact[] {
   const all: StrengthFact[] = [];
   for (const [key, value] of Object.entries(info.strength ?? {})) {
-    const single = /^mcts(\d+)_vs_ab(\d+)_(adjacent|long)$/.exec(key);
+    // mcts200_vs_ab25600_adjacent, mcts200_vs_ab25600_adjacent_r5
+    const single = /^mcts(\d+)_vs_ab(\d+)_(adjacent|long)(_r5)?$/.exec(key);
     if (single && isObject(value) && typeof value.elo === 'number') {
       all.push({
         players: 2,
         jump: single[3] as JumpRule,
+        rows: single[4] ? 5 : 4,
         sims: Number(single[1]),
         opponent: Number(single[2]),
         opponents: 1,
@@ -42,12 +49,13 @@ export function allStrengthFacts(info: Pick<ModelInfo, 'strength'>): StrengthFac
       });
       continue;
     }
-    const table = /^mcts(\d+)_(adjacent|long)_elo$/.exec(key);
+    // mcts200_adjacent_elo, mcts200_adjacent_r5_elo
+    const table = /^mcts(\d+)_(adjacent|long)(_r5)?_elo$/.exec(key);
     if (table && isObject(value)) {
       for (const [vs, elo] of Object.entries(value)) {
         const opponent = /^vs_ab(\d+)$/.exec(vs);
         if (opponent && typeof elo === 'number') {
-          all.push({ players: 2, jump: table[2] as JumpRule, sims: Number(table[1]), opponent: Number(opponent[1]), opponents: 1, elo });
+          all.push({ players: 2, jump: table[2] as JumpRule, rows: table[3] ? 5 : 4, sims: Number(table[1]), opponent: Number(opponent[1]), opponents: 1, elo });
         }
       }
       continue;
@@ -58,7 +66,7 @@ export function allStrengthFacts(info: Pick<ModelInfo, 'strength'>): StrengthFac
       for (const jump of ['adjacent', 'long'] as const) {
         const score = value[jump];
         if (typeof score === 'number') {
-          all.push({ players: 3, jump, sims: Number(three.groups.sims), opponent: Number(three.groups.nodes), opponents: Number(three.groups.count), score });
+          all.push({ players: 3, jump, rows: 4, sims: Number(three.groups.sims), opponent: Number(three.groups.nodes), opponents: Number(three.groups.count), score });
         }
       }
     }
@@ -67,15 +75,15 @@ export function allStrengthFacts(info: Pick<ModelInfo, 'strength'>): StrengthFac
 }
 
 /**
- * The facts to print for a game with `players` players: per jump rule (adjacent first) the measurement against the strongest
- * opponent (the largest node budget). When several were measured against that opponent, the one whose simulations equal the selected
- * preset wins, else the one with the most simulations. Figures of another player count are never returned.
+ * The facts to print for a game with `players` players on `rows` rows: per jump rule (adjacent first) the measurement against the
+ * strongest opponent (the largest node budget). When several were measured against that opponent, the one whose simulations equal the
+ * selected preset wins, else the one with the most simulations. Figures of another player count or board size are never returned.
  */
-export function strengthFacts(info: Pick<ModelInfo, 'strength'>, players: 2 | 3, selectedSims?: number): StrengthFact[] {
+export function strengthFacts(info: Pick<ModelInfo, 'strength'>, players: 2 | 3, selectedSims?: number, rows: BoardRows = 4): StrengthFact[] {
   const best = new Map<JumpRule, StrengthFact>();
   const rank = (f: StrengthFact): number => f.opponent * 1e6 + (f.sims === selectedSims ? 1e5 : 0) + f.sims;
   for (const f of allStrengthFacts(info)) {
-    if (f.players !== players) continue;
+    if (f.players !== players || f.rows !== rows) continue;
     const old = best.get(f.jump);
     if (!old || rank(f) > rank(old)) best.set(f.jump, f);
   }

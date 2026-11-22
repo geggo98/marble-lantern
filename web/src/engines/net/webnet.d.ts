@@ -32,7 +32,7 @@ export interface WebNetModule {
   /**
    * setWeightsInfo with the value of the metadata key triangle_rows of the weights ("4", "5", "4,5"; "" for a file
    * without the key, which means 4). Fails with "error unsupported" when the game of the last create is on a board
-   * size the network does not list. Not called by the page yet (5-row network plan, web integration).
+   * size the network does not list. NetCore calls it for a model whose manifest variants include 5 rows (ModelInfo.rows).
    */
   setWeightsInfoRows?(planes: string, valueWidth: number, rows: string): string;
   /** The inflated rows2.bin, as an Int8Array over the same memory. Only for the options s1 and race. Returns "ok <states>". */

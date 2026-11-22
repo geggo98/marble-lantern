@@ -194,6 +194,8 @@ export async function loadModel(
     ['input_planes', String(info.planes), h.metadata.input_planes ?? ''],
     ['planes', info.planeSet, h.metadata.planes ?? ''],
     ['players', String(info.players), h.metadata.players ?? ''],
+    // A file without the key is a 4-row network (NetworkConfig.rows of the Java side).
+    ['triangle_rows', info.rows, h.metadata.triangle_rows ?? '4'],
     ['weights_dtype', 'F16', h.metadata.weights_dtype ?? ''],
     ['source_sha256', info.sourceSha256, h.metadata.source_sha256 ?? ''],
   ];

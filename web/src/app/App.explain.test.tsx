@@ -175,19 +175,19 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: humanVsTwoEngines(1, 2) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 or 5 rows. On 5 rows the two network figures show their example only, because the network was trained on 4 rows.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 or 5 rows.');
     expect(all('a[data-explain-link]')).toHaveLength(0);
   });
 
-  it('five rows: enabled, the snapshot carries the 5-row variant, and the two net links say that their figures stay at the example', async () => {
+  it('five rows: enabled, the snapshot carries the 5-row variant, and the two net links carry the download note as on 4 rows', async () => {
     await mount({ initialSetup: withBoardRows(humanVsEngine(1, 2), 5) });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(false);
     expect(q('[data-explain-reason]')).toBeNull();
     expect(all('a[data-explain-link]')).toHaveLength(5);
     const notes = all('[data-explain-note]');
-    expect(notes.map((n) => n.getAttribute('data-explain-note'))).toEqual(['rows5', 'rows5']);
-    expect(notes[0]!.textContent).toBe('Your game has 5 rows, so this figure shows its example only: the network was trained on 4 rows.');
+    expect(notes.map((n) => n.getAttribute('data-explain-note'))).toEqual(['net', 'net']);
+    expect(notes[0]!.textContent).toContain('download the net engine and a model');
     await click(link('evaluation')!);
     await until(() => live() !== null, 'the topic page of the link');
     expect(live()!.variant).toEqual({ jump: 'adjacent', players: 2, rows: 5 });
@@ -206,7 +206,7 @@ describe('the card "Explain this position"', () => {
     await mount({ initialSetup: { ...setup, variant: { ...setup.variant!, jump: 'long' } } });
     await until(() => plies() >= 1, 'the game runs');
     expect(q('[data-explain-card]')?.hasAttribute('data-disabled')).toBe(true);
-    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 or 5 rows. On 5 rows the two network figures show their example only, because the network was trained on 4 rows.');
+    expect(q('[data-explain-reason]')?.textContent).toBe('Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 or 5 rows.');
   });
 
   it('a finished game: disabled with the over reason', async () => {

@@ -4,6 +4,7 @@ import type { ModelInfo } from '../engines/net/model-manifest';
 import { strengthFacts } from '../engines/net/model-strength';
 import { SIMS_PRESETS } from '../engines/warnings';
 import type { Sims } from '../engines/warnings';
+import { rowsOf } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { variantText } from './net-warnings';
 import { useT } from './texts';
@@ -49,7 +50,7 @@ export function ModelGroup(props: {
       <legend className="ml-kicker">{t('net.group.model')}</legend>
       {radio(null, t('net.model.none'), <span className="ml-choice__desc">{t('net.model.none.hint')}</span>)}
       {props.models.map((m) => {
-        const facts = strengthFacts(m, props.variant.players, props.sims);
+        const facts = strengthFacts(m, props.variant.players, props.sims, rowsOf(props.variant));
         const players = t('net.variant.players', { players: n(props.variant.players) });
         return radio(
           m.id,
@@ -65,11 +66,16 @@ export function ModelGroup(props: {
                 const text =
                   f.score !== undefined
                     ? t('net.model.strength.score', { ...common, score: `${n(Math.round(f.score * 100))} %`, count: n(f.opponents) })
-                    : f.ci95 === undefined
-                      ? t('net.model.strength.noci', { ...common, elo: signed(f.elo ?? 0, n) })
-                      : t('net.model.strength', { ...common, elo: signed(f.elo ?? 0, n), ci: `±${n(f.ci95)}` });
+                    : f.rows === 5
+                      ? // a 5-row figure is against the classical 5-row player, on its own Elo scale: the text says so
+                        f.ci95 === undefined
+                        ? t('net.model.strength.rows5.noci', { ...common, elo: signed(f.elo ?? 0, n) })
+                        : t('net.model.strength.rows5', { ...common, elo: signed(f.elo ?? 0, n), ci: `±${n(f.ci95)}` })
+                      : f.ci95 === undefined
+                        ? t('net.model.strength.noci', { ...common, elo: signed(f.elo ?? 0, n) })
+                        : t('net.model.strength', { ...common, elo: signed(f.elo ?? 0, n), ci: `±${n(f.ci95)}` });
                 return (
-                  <span key={f.jump} className="ml-choice__desc" data-strength-fact={f.jump} data-players={f.players}>
+                  <span key={f.jump} className="ml-choice__desc" data-strength-fact={f.jump} data-players={f.players} data-rows={f.rows}>
                     {text}
                   </span>
                 );

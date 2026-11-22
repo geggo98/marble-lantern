@@ -32,6 +32,42 @@
       "descriptionKey": "model.small-2p-adjacent-expert.description"
     },
     {
+      "id": "small-2p-adjacent-r5-expert",
+      "rawBytesF16": 126020,
+      "packedBytes": 115132,
+      "sha256Raw": "3811109cac9dcfc155f62d1c430ffd9e184821637138f04b9ec5766e8ac0b4ab",
+      "sha256Packed": "4b57c238a003a78f8983b6c6e2a1578defe665c77a4054afb4c92271154d87e9",
+      "file": "small-2p-adjacent-r5-expert.safetensors.gz",
+      "formatVersion": 2,
+      "planeSet": "classic1",
+      "planes": 13,
+      "players": 2,
+      "params": 61734,
+      "variants": [
+        {
+          "jump": "adjacent",
+          "players": 2,
+          "rows": 5
+        }
+      ],
+      "sourceSha256": "c236ae0eac7a6a51a7bba334e283e48b0f9f929ed62ba93fac5280e1a925ff44",
+      "createdFrom": "net5 loop-small gen-0009 candidate, classic1 SMALL 32x4, 5 rows",
+      "strength": {
+        "mcts200_vs_ab102400_adjacent_r5": {
+          "elo": 512,
+          "ci95": 81,
+          "note": "5 rows, 200 simulations, 200 pairs, against BROWSER_ROWS5_SPEC (no race play); not comparable with 4-row Elo (docs/training.md, Five-row expert net)"
+        },
+        "mcts200_adjacent_r5_elo": {
+          "vs_ab1600": 970,
+          "vs_ab6400": 798,
+          "vs_ab25600": 611
+        }
+      },
+      "labelKey": "model.small-2p-adjacent-r5-expert.label",
+      "descriptionKey": "model.small-2p-adjacent-r5-expert.description"
+    },
+    {
       "id": "small-shared-all",
       "rawBytesF16": 126910,
       "packedBytes": 115866,

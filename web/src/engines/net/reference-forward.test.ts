@@ -7,6 +7,9 @@
 //    and its planes must equal the golden planes; then the heads must equal the C++ scalar backend on 20 positions of a game.
 //    Without the files these tests skip and say so, unless REQUIRE_ENGINE_ASSETS=1 is set: then they fail.
 // 3. The time of one forward pass of the SMALL net in node, printed to stderr (for the live Info figures).
+// 4. The 5-row board: testdata/forward-r5.json (ExplainerDataTest.forwardRows5, the JVM Encoder and scalar reference with the 5-row
+//    expert, player 1 to move). Without the engine the heads must match the golden; with it the facade, created on 5 rows with
+//    setWeightsInfoRows, must encode the same planes (15-cell houses, plane 12 at 0) and the C++ scalar backend must give the same heads.
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -29,7 +32,10 @@ const CELLS = 121;
 const ROWS = 122;
 const PLANES = 13;
 
-const weights = widenSafetensors(new Uint8Array(gunzipSync(readFileSync(join(repo, 'web/models', `${EXPERT}.safetensors.gz`)))));
+const widened = (id: string): Uint8Array => widenSafetensors(new Uint8Array(gunzipSync(readFileSync(join(repo, 'web/models', `${id}.safetensors.gz`)))));
+const weights = widened(EXPERT);
+const EXPERT_R5 = 'small-2p-adjacent-r5-expert';
+const weightsR5 = widened(EXPERT_R5);
 
 interface Golden {
   meta: { position: string; model: string; ply: number; sideToMove: 0 | 1; canonicalRotated: boolean; legalMoves: number };
@@ -47,6 +53,7 @@ const GOLDENS: Array<{ name: string; golden: Golden }> = [
   ...['start', 'mid', 'race'].map((p) => ({ name: `forward-${p}.json`, golden: readGolden(join(repo, `web/src/about/data/forward-${p}.json`)) })),
   { name: 'testdata/forward-mover1.json', golden: readGolden(join(import.meta.dirname, 'testdata/forward-mover1.json')) },
 ];
+const R5 = readGolden(join(import.meta.dirname, 'testdata/forward-r5.json'));
 /** eval-mid.json carries the history of the mid position (forward-mid.json does not). */
 const MID_HISTORY = (JSON.parse(readFileSync(join(repo, 'web/src/about/data/eval-mid.json'), 'utf8')) as { history: { from: number; to: number }[] }).history;
 const code = (m: { from: number; to: number }): number => m.from | (m.to << 8);
@@ -137,6 +144,18 @@ describe('referenceForward against the Java forward goldens (expert model)', () 
     });
   }
 
+  it('testdata/forward-r5.json (5 rows, 5-row expert, player 1 to move): layer norms, logits, priors and values within the tolerance', () => {
+    expect(R5.meta).toMatchObject({ model: EXPERT_R5, sideToMove: 1, canonicalRotated: true });
+    // the 15-cell houses and the eval plane at 0 are in the golden itself, so this test also pins what the JVM encoder wrote
+    for (const pl of [3, 4]) expect(R5.planes[pl]!.filter((v) => v === 1), `plane ${pl}`).toHaveLength(15);
+    expect(R5.planes[12]!.every((v) => v === 0), 'plane 12 is 0 on 5 rows').toBe(true);
+    checkAgainstGolden(referenceForward(weightsR5, inputOf(R5)), R5, 'testdata/forward-r5.json');
+  });
+
+  it('the 4-row expert on the 5-row golden does not reproduce it (the check can tell the two models apart)', () => {
+    expect(() => checkAgainstGolden(referenceForward(weights, inputOf(R5)), R5, 'wrong model')).toThrow();
+  });
+
   it('rejects an input of the wrong length and a padding row that is not zero', () => {
     expect(() => referenceForward(weights, new Float32Array(ROWS * PLANES - 1))).toThrow(/expected 122 x 13 = 1586 input floats, got 1585/);
     const dirty = inputOf(GOLDENS[0]!.golden);
@@ -154,15 +173,19 @@ it('has the net engine assets (required when REQUIRE_ENGINE_ASSETS=1)', () => {
   if (required) expect(built, 'run scripts/web/build-teavm-net.zsh and scripts/web/build-wasm.zsh first').toBe(true);
 });
 
-/** Encodes the position after `history` with the real facade: the first pending position of a search is the root. */
-async function encoder(): Promise<(history: readonly number[]) => Float32Array> {
+/**
+ * Encodes the position after `history` with the real facade: the first pending position of a search is the root. `rows` 5 creates the
+ * game on the 5-row board and names the network's board sizes with setWeightsInfoRows, as NetCore does for a 5-row model.
+ */
+async function encoder(rows: 4 | 5 = 4): Promise<(history: readonly number[]) => Float32Array> {
   const web = await loadWebNetInNode(publicDir, 'js');
   const ok = (r: string): string => {
     if (!r.startsWith('ok')) throw new Error(`facade: ${r}`);
     return r;
   };
-  ok(web.create('adjacent', '2', 1, 1, 1, '', 'closed', '4'));
-  ok(web.setWeightsInfo('classic1', 2));
+  ok(web.create('adjacent', '2', 1, 1, 1, '', 'closed', String(rows)));
+  if (rows === 5) ok(web.setWeightsInfoRows!('classic1', 2, '5'));
+  else ok(web.setWeightsInfo('classic1', 2));
   return (history) => {
     const n = Number(ok(web.begin(history.join(','))).split(' ')[1]);
     if (n !== 1) throw new Error(`facade: begin gave ${n} pending positions, expected 1`);
@@ -195,6 +218,38 @@ describe.skipIf(!built)('referenceForward with the real net facade and the C++ s
       checkAgainstGolden(referenceForward(weights, input), golden, `${name} (facade input)`);
     }
   });
+
+  it('5 rows: the facade encodes testdata/forward-r5.json to its planes (the JVM encoder), and the 5-row heads match the golden and C++', async () => {
+    const encode = await encoder(5);
+    const history = R5.history!.map(code);
+    expect(history.length).toBe(R5.meta.ply);
+    const input = encode(history);
+    for (let pl = 0; pl < PLANES; pl++) {
+      const plane = new Array<number>(CELLS);
+      for (let c = 0; c < CELLS; c++) plane[toAbsolute(c, 1)] = round4(input[c * PLANES + pl]!);
+      expect(plane, `forward-r5.json: plane ${pl}`).toEqual(R5.planes[pl]);
+    }
+    for (let pl = 0; pl < PLANES; pl++) expect(input[CELLS * PLANES + pl], `forward-r5.json: padding row, plane ${pl}`).toBe(0);
+    checkAgainstGolden(referenceForward(weightsR5, input), R5, 'forward-r5.json (facade input)');
+    // a 4-row facade refuses the 5-row network's game, as WebNetCore.rowsRefused says
+    const web = await loadWebNetInNode(publicDir, 'js');
+    expect(web.create('adjacent', '2', 1, 1, 1, '', 'closed', '5')).toMatch(/^ok/);
+    expect(web.setWeightsInfo('classic1', 2)).toMatch(/^error unsupported/);
+    // the C++ scalar backend on 10 positions of the same 5-row game, both movers
+    const factory = (): Promise<NetModuleFactory> =>
+      import(/* @vite-ignore */ pathToFileURL(join(netDir, 'engine-net-nn-scalar.js')).href).then((m: { default: NetModuleFactory }) => m.default);
+    const backend = await WasmNetBackend.create({ flavours: ['scalar'], factory, maxBatch: 1 });
+    await backend.load(weightsR5);
+    for (let ply = 31; ply <= 40; ply++) {
+      const x = encode(history.slice(0, ply));
+      const ref = referenceForward(weightsR5, x);
+      const cpp = await backend.evaluate(x, 1);
+      expectClose(Array.from({ length: CELLS }, (_, c) => ref.policy[c * 2]!), cpp.policyFrom, 1e-5, `5 rows, ply ${ply}: from logits`);
+      expectClose(Array.from({ length: CELLS }, (_, c) => ref.policy[c * 2 + 1]!), cpp.policyTo, 1e-5, `5 rows, ply ${ply}: to logits`);
+      expectClose(ref.values, cpp.values, 1e-5, `5 rows, ply ${ply}: values`);
+    }
+    backend.dispose();
+  }, 60_000);
 
   it('equals the C++ scalar backend within 1e-5 on 20 positions of a game, and records the time of one pass', async () => {
     const encode = await encoder();

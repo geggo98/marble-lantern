@@ -2,6 +2,7 @@
 // resolveModel picks the model that plays when nothing (or a model that cannot play the variant) was chosen, and evaluateSelection tells
 // the UI BEFORE a game starts whether a net will play and which warnings the engine will report, with the same rules as the engine core
 // (core.ts, IC4). The last selection and the last chosen model are kept in localStorage as a per-viewer convenience.
+import { rowsOf } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import type { EngineId } from '../engine';
 import { isNetEngine } from '../engine';
@@ -35,7 +36,7 @@ export const DEFAULT_SELECTION: Readonly<NetSelection> = Object.freeze({ engine:
 function strengthKey(info: ModelInfo, variant: Variant): [number, number] | null {
   let best: [number, number] | null = null;
   for (const f of allStrengthFacts(info)) {
-    if (f.players !== variant.players || f.jump !== variant.jump) continue;
+    if (f.players !== variant.players || f.jump !== variant.jump || f.rows !== rowsOf(variant)) continue;
     const value = f.players === 2 ? (f.elo ?? 0) : (f.score ?? 0);
     if (!best || f.opponent > best[0] || (f.opponent === best[0] && value > best[1])) best = [f.opponent, value];
   }

@@ -2,7 +2,7 @@
 // bundle imports this file for the model list, the loader (models.ts) belongs to the worker. Re-exported by models.ts.
 import manifestJson from '../../../models/models.json';
 import type { Variant } from '../../game/variant';
-import { sameVariant } from '../../game/variant';
+import { rowsOf, sameVariant, withRows } from '../../game/variant';
 
 export type ModelErrorCode =
   | 'manifest-truncated' // the manifest text is not valid JSON
@@ -34,8 +34,16 @@ export interface ModelInfo {
   id: string;
   labelKey: string;
   descriptionKey: string;
-  /** The variants the model may be used for. Authoritative. */
+  /**
+   * The variants the model may be used for. Authoritative. A manifest variant is `{jump, players}` (4 rows) or
+   * `{jump, players, rows: 5}`; here a 5-row variant carries `rows: 5` and a 4-row one no `rows` (withRows).
+   */
   variants: Variant[];
+  /**
+   * The board sizes of the variants as the network's metadata key `triangle_rows` writes them: "4", "5" or "4,5". The loader
+   * checks the header against it, and the net engine passes it to the facade (setWeightsInfoRows).
+   */
+  rows: string;
   /** Number of input planes. */
   planes: number;
   planeSet: PlaneSet;
@@ -98,14 +106,18 @@ function parseEntry(value: unknown, at: string): ModelInfo {
   if (!Array.isArray(value.variants) || value.variants.length === 0) invalid(`${at}.variants must be a non-empty array`);
   const variants: Variant[] = [];
   for (const [i, raw] of (value.variants as unknown[]).entries()) {
-    if (!isObject(raw) || Object.keys(raw).length !== 2) {
-      return invalid(`${at}.variants[${i}] must be {jump, players}`);
+    // `rows` is optional and was added for the 5-row networks. An app built before it rejects a manifest with the field, but every
+    // app reads only the manifest compiled into its own bundle (listModels), so an open tab of an older version never sees it.
+    const keys = isObject(raw) ? Object.keys(raw) : [];
+    if (!isObject(raw) || !keys.includes('jump') || !keys.includes('players') || keys.some((k) => k !== 'jump' && k !== 'players' && k !== 'rows')) {
+      return invalid(`${at}.variants[${i}] must be {jump, players} or {jump, players, rows}`);
     }
-    const { jump, players: p } = raw;
+    const { jump, players: p, rows } = raw;
     if ((jump !== 'adjacent' && jump !== 'long') || (p !== 2 && p !== 3)) {
       return invalid(`${at}.variants[${i}] has an unknown jump rule or player count`);
     }
-    const variant: Variant = { jump, players: p };
+    if ('rows' in raw && rows !== 4 && rows !== 5) invalid(`${at}.variants[${i}].rows must be 4 or 5`);
+    const variant: Variant = withRows({ jump, players: p }, rows === 5 ? 5 : 4);
     if (variants.some((v) => sameVariant(v, variant))) invalid(`${at}.variants[${i}] is a duplicate`);
     if (p > players) invalid(`${at}.variants[${i}]: a model with ${players} value outputs cannot play ${p} players`);
     variants.push(variant);
@@ -116,6 +128,7 @@ function parseEntry(value: unknown, at: string): ModelInfo {
     labelKey: text(value.labelKey, `${at}.labelKey`),
     descriptionKey: text(value.descriptionKey, `${at}.descriptionKey`),
     variants,
+    rows: rowsText(variants),
     planes,
     planeSet,
     formatVersion: posInt(value.formatVersion, `${at}.formatVersion`),
@@ -130,6 +143,11 @@ function parseEntry(value: unknown, at: string): ModelInfo {
     createdFrom: text(value.createdFrom, `${at}.createdFrom`),
     strength: value.strength as Record<string, unknown> | undefined,
   };
+}
+
+/** The value of the metadata key `triangle_rows` that a list of variants needs: "4", "5" or "4,5". */
+export function rowsText(variants: readonly Variant[]): string {
+  return [...new Set(variants.map(rowsOf))].sort((a, b) => a - b).join(',');
 }
 
 /** Strict parse of the manifest (text or an already parsed value). Throws ModelError. */

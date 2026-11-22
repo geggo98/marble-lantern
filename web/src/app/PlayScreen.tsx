@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { GameController } from '../game/game';
 import { goalCells, initialOwners, playState } from '../game/board-state';
 import type { Side } from '../game/board-state';
-import { isDefault, moveLimit, rowsOf, variantKey } from '../game/variant';
+import { isDefault, moveLimit, variantKey } from '../game/variant';
 import type { Player } from '../game/variant';
 import { isNetEngine } from '../engines/engine';
 import type { EngineId } from '../engines/engine';
@@ -393,7 +393,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         }}
       />
       <CopyLink getUrl={model.getUrl} disabled={!model.canShare} />
-      <ExplainCard blocked={explainBlock} fiveRows={rowsOf(variant) === 5} onExplain={model.explain.onExplain} />
+      <ExplainCard blocked={explainBlock} onExplain={model.explain.onExplain} />
       <InstallEntry {...(model.pwa ? { pwa: model.pwa } : {})} />
       <EngineCard
         info={s.current?.info ?? null}

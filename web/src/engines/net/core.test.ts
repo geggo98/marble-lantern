@@ -9,6 +9,7 @@ import type { ProbeResult } from '../warnings';
 import { NetCore } from './core';
 import type { BackendKind, NetCoreDeps } from './core';
 import type { ModelInfo } from './models';
+import { rowsText } from './model-manifest';
 import type { WebNetModule } from './webnet.d';
 
 const LEGAL = [10, 20, 30, 40];
@@ -17,12 +18,15 @@ function model(id: string, variants: Variant[], planeSet: ModelInfo['planeSet'] 
   return {
     id, labelKey: `model.${id}`, descriptionKey: `model.${id}.d`, variants, planes: 13, planeSet, formatVersion: 1, players: 2, params: 1,
     rawBytes: 1, packedBytes: 1, sha256Raw: '0'.repeat(64), sha256Packed: '0'.repeat(64), file: `${id}.safetensors.gz`, sourceSha256: '0'.repeat(64), createdFrom: 'test',
+    rows: rowsText(variants),
   };
 }
 const ADJ2 = DEFAULT_VARIANT as Variant;
 const LONG2: Variant = { jump: 'long', players: 2 };
 const EXPERT = model('expert', [ADJ2]);
 const SHARED = model('shared', [ADJ2, LONG2], 'classic1v');
+const ADJ2R5: Variant = { jump: 'adjacent', players: 2, rows: 5 };
+const EXPERT5 = model('expert5', [ADJ2R5]);
 
 /** A scripted facade: `leaves` batches of `batch` positions per move, then best() answers `move`. */
 class FakeWebNet {
@@ -43,6 +47,14 @@ class FakeWebNet {
   setWeightsInfo(planes: string, width: number): string {
     this.calls.push('setWeightsInfo');
     this.weightsInfo.push([planes, width]);
+    return 'ok 1586 2';
+  }
+  weightsRows: string[] = [];
+  /** The 5-row facade call; refuses, like WebNetCore, a size list without the size of the last create. */
+  setWeightsInfoRows(planes: string, width: number, rows: string): string {
+    this.calls.push('setWeightsInfoRows');
+    this.weightsInfo.push([planes, width]);
+    this.weightsRows.push(rows);
     return 'ok 1586 2';
   }
   setTable(): string { return 'ok 1'; }
@@ -215,6 +227,29 @@ describe('NetCore: the search loop', () => {
     await core.newGame({ nodes: [1, 1], variant: LONG2, model: 'shared', netOptions: { sims: 800, batch: 4 } });
     expect(r.web.created).toEqual([{ jump: 'long', players: '2', sims: 800, batch: 4, seed: 4242 }]);
     expect(r.web.weightsInfo).toEqual([['classic1v', 2]]);
+  });
+
+  it('a 5-row model names its board sizes to the facade (setWeightsInfoRows "5"); a 4-row model keeps the two-argument call', async () => {
+    const r = rig([EXPERT, SHARED, EXPERT5]);
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], variant: ADJ2R5, model: 'expert5' });
+    expect(core.warnings).toEqual([]);
+    expect(r.web.weightsRows).toEqual(['5']);
+    expect(r.web.rowsSeen.length).toBe(0);
+    const res = await core.choose([], undefined, ADJ2R5);
+    expect(res.net.backend).toBe('wasm');
+    await core.newGame({ nodes: [1, 1], model: 'expert' });
+    expect(r.web.calls.filter((c) => c.startsWith('setWeights'))).toEqual(['setWeightsInfoRows', 'setWeightsInfo']);
+  });
+
+  it('a 4-row model in a 5-row game is a model-variant-mismatch without a download, the 5-row model in a 4-row game too', async () => {
+    const r = rig([EXPERT, SHARED, EXPERT5]);
+    const core = new NetCore('wasm', r.deps);
+    await core.newGame({ nodes: [1, 1], variant: ADJ2R5, model: 'expert' });
+    expect(codes(core.warnings)).toContain('model-variant-mismatch');
+    await core.newGame({ nodes: [1, 1], model: 'expert5' });
+    expect(codes(core.warnings)).toContain('model-variant-mismatch');
+    expect(r.loads).toEqual([]);
   });
 
   it('defaults: 200 simulations; batch 1 on the CPU, 4 on WebGPU and 8 for 800 simulations', async () => {

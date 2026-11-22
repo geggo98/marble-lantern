@@ -50,7 +50,7 @@ describe('variantText', () => {
     expect(five).toBe(`${four} · ${translate('net.variant.rows5')}`);
     expect(five).toContain('5-row houses');
     expect(de['net.variant.rows5']).toBe('Häuser mit 5 Reihen'); // the German catalog has both new texts
-    expect(de['net.warn.no-model-rows']).toContain('Brettgröße');
+    expect(de['net.warn.no-model-rows']).toContain('5 Reihen');
     expect(variantText({ jump: 'long', players: 3, rows: 5, camps: 'open' }, translate)).toMatch(/3 players.*5-row houses$/);
   });
 
@@ -61,12 +61,14 @@ describe('variantText', () => {
 });
 
 describe('no-model on 5 rows', () => {
-  const FIVE: Variant = { jump: 'adjacent', players: 2, rows: 5 };
-  it('says that no net exists for the board size and offers no button; on 4 rows the button stays', async () => {
+  const FIVE: Variant = { jump: 'long', players: 3, rows: 5 };
+  it('a 5-row variant without a net: says so and offers no button; on 4 rows and for the 5-row classic game the button stays', async () => {
+    const [classic5] = describeWarnings([{ code: 'no-model', variant: { jump: 'adjacent', players: 2, rows: 5 } }], translate);
+    expect(classic5!.action).toBe('choose-model');
     const [five] = describeWarnings([{ code: 'no-model', variant: FIVE }], translate);
     expect(five!.action).toBeUndefined();
     expect(five!.text).toBe(translate('net.warn.no-model-rows', { variant: variantText(FIVE, translate) }));
-    expect(five!.text).toContain('No net has been trained for this board size');
+    expect(five!.text).toContain('No net has been trained for this variant on 5 rows');
     expect(five!.text).not.toContain('No model is selected');
     const [four] = describeWarnings([{ code: 'no-model', variant: V2 }], translate);
     expect(four!.action).toBe('choose-model');

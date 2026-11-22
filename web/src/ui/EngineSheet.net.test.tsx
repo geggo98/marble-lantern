@@ -116,11 +116,17 @@ describe('groups by engine', () => {
 });
 
 describe('model list', () => {
-  it('2 players, adjacent: None first and checked by default, then both models, no hidden note', async () => {
+  it('2 players, adjacent: None first and checked by default, then both 4-row models; the 5-row expert is hidden and the note says so', async () => {
     await open();
     expect(models()).toEqual(['none', EXPERT, SHARED]);
     expect(q<HTMLInputElement>('[data-model="none"] input')!.checked).toBe(true);
-    expect(q('[data-net-hidden-note]')).toBeNull();
+    expect(q('[data-net-hidden-note]')).not.toBeNull();
+  });
+
+  it('2 players, adjacent, 5 rows: only the 5-row expert is offered', async () => {
+    await open({ variant: { jump: 'adjacent', players: 2, rows: 5 } });
+    expect(models()).toEqual(['none', 'small-2p-adjacent-r5-expert']);
+    expect(q('[data-net-hidden-note]')).not.toBeNull();
   });
 
   it('3 players: the expert model is not offered, the shared one is, and a note says why', async () => {
