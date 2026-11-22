@@ -94,3 +94,11 @@
 .ml-fig-jp__arrtype { display: block; }
 /* the line "from | (to << 8) = value = hex" has 3 to 5 digits per number and wraps at a phone width for some moves: it always has the room of two lines */
 .ml-fig-jp__eq--code { min-height: 3em; }
+
+/* D4: two-digit chips keep one line with the 2 px read border */
+.ml-fig-jp__pc { white-space: nowrap; min-width: 0; padding: 0; }
+/* D6: at 320 px the three views stay in one row (the kit stacks three options below 22rem), and the control row with the stepper sticks like in the other figures */
+@container ml-fig (max-width: 22rem) { .ml-fig:has(.ml-fig-jp) .ml-fig-seg:has(> :nth-child(3)) { display: flex; } .ml-fig:has(.ml-fig-jp) .ml-fig-seg__opt { flex-basis: 0; padding-inline: var(--ml-space-1); } }
+@media (min-height: 30rem) {
+  @container ml-fig (max-width: 39.99rem) { .ml-fig__panel:has(.ml-fig-stepper) > .ml-fig-jp__ctls { position: sticky; top: 0; z-index: 2; border-block-end: var(--ml-border) solid var(--ml-color-line); } }
+}

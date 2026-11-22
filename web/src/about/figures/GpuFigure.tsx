@@ -301,7 +301,7 @@ export function GpuFigure({ catalog, number, initialHw = DEFAULT_HW }: GpuFigure
   // ---- the comparison table ----
   const cmp = (
     <>
-      <table className="ml-fig-cmp" data-table="cmp">
+      <table className="ml-fig-cmptable" data-table="cmp">
         <caption>{t('fig.gpu.cmp.caption')}</caption>
         <thead>
           <tr>
@@ -332,7 +332,7 @@ export function GpuFigure({ catalog, number, initialHw = DEFAULT_HW }: GpuFigure
           ))}
         </tbody>
       </table>
-      <ul className="ml-fig-cmp__notes">
+      <ul className="ml-fig-cmptable__notes">
         <li>
           <Markup text={t('fig.gpu.cmp.note.unknown')} />
         </li>

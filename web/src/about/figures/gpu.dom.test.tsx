@@ -133,8 +133,8 @@ describe('figure J4: structure', () => {
       for (const th of Array.from(table.querySelectorAll('th'))) expect(th.getAttribute('scope')).toMatch(/^(col|row)$/);
     }
     expect(all('table')).toHaveLength(2);
-    expect(all('.ml-fig-cmp thead th')).toHaveLength(4);
-    expect(all('.ml-fig-cmp tbody tr')).toHaveLength(8);
+    expect(all('.ml-fig-cmptable thead th')).toHaveLength(4);
+    expect(all('.ml-fig-cmptable tbody tr')).toHaveLength(8);
   });
 });
 
@@ -167,13 +167,13 @@ describe('figure J4: steps', () => {
   it('marks the rows of the comparison table of each step', async () => {
     await mount();
     await goTo(2);
-    expect(all('.ml-fig-cmp tr[data-state="active"]').map((r) => r.getAttribute('data-row'))).toEqual(['membw', 'path']);
+    expect(all('.ml-fig-cmptable tr[data-state="active"]').map((r) => r.getAttribute('data-row'))).toEqual(['membw', 'path']);
     await goTo(3);
-    expect(all('.ml-fig-cmp tr[data-state="active"]').map((r) => r.getAttribute('data-row'))).toEqual(['units', 'l2', 'mem']);
+    expect(all('.ml-fig-cmptable tr[data-state="active"]').map((r) => r.getAttribute('data-row'))).toEqual(['units', 'l2', 'mem']);
     await goTo(7);
-    expect(all('.ml-fig-cmp tr[data-state="active"]')).toHaveLength(0);
+    expect(all('.ml-fig-cmptable tr[data-state="active"]')).toHaveLength(0);
     await goTo(0);
-    expect(all('.ml-fig-cmp tr[data-state="active"]')).toHaveLength(0);
+    expect(all('.ml-fig-cmptable tr[data-state="active"]')).toHaveLength(0);
   });
 
   it('points the pipe to the GPU at step 2 and to the host at step 8, thin on the T4 and thick on the RTX 5090', async () => {
@@ -210,8 +210,8 @@ describe('figure J4: hardware', () => {
     await choose('m3');
     expect(stage().dataset.hw).toBe('m3');
     expect(stage().dataset.step).toBe('unit');
-    expect(all('.ml-fig-cmp th[data-sel], .ml-fig-cmp td[data-sel]')).toHaveLength(1 + 8);
-    expect(text(q('.ml-fig-cmp th[data-sel]'))).toBe('M3 Max');
+    expect(all('.ml-fig-cmptable th[data-sel], .ml-fig-cmptable td[data-sel]')).toHaveLength(1 + 8);
+    expect(text(q('.ml-fig-cmptable th[data-sel]'))).toBe('M3 Max');
   });
 
   it('names the levels and parts with the words of the machine', async () => {
@@ -246,13 +246,13 @@ describe('figure J4: hardware', () => {
     expect(text(q('[data-part="tgmem"] .ml-fig-part__v'))).toBe('32 KB'); // published: Metal feature set tables
     expect(text(q('[data-part="simd"] .ml-fig-part__row span'))).toBe(unknown);
     expect(all('[data-panel="3"] .gp-unit--unk').length).toBe(32 - 1 + 0 - 0); // 31 dashed bars, one marked
-    for (const row of ['l1', 'l2']) expect(text(q(`.ml-fig-cmp tr[data-row="${row}"] td[data-sel]`))).toBe('–');
+    for (const row of ['l1', 'l2']) expect(text(q(`.ml-fig-cmptable tr[data-row="${row}"] td[data-sel]`))).toBe('–');
     expect(text(q('.gp-ladder'))).not.toMatch(/\d+ cycles/);
     await choose('rtx');
     for (const id of ['reg']) expect(text(q(`[data-part="${id}"] .ml-fig-part__v`))).toBe(unknown);
     expect(text(q('[data-part="warp"] .ml-fig-part__row span'))).toBe(unknown);
     expect(text(q('.gp-ladder'))).not.toMatch(/\d+ cycles/);
-    expect(text(q('.ml-fig-cmp tr[data-row="backend"] td[data-sel]'))).toBe('–');
+    expect(text(q('.ml-fig-cmptable tr[data-row="backend"] td[data-sel]'))).toBe('–');
     expect(text(q('[data-part="link"] .ml-fig-part__v'))).toBe('PCIe Gen5 · at most 64 GB/s');
     await choose('t4');
     expect(text(q('.gp-ladder'))).toContain('30 cycles');

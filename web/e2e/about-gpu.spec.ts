@@ -57,7 +57,7 @@ async function stepThrough(fig: Locator): Promise<Sample[]> {
         height: box.height,
         stage: top('.gp-stage'),
         zoom: top('.ml-fig-zoom'),
-        table: top('.ml-fig-cmp'),
+        table: top('.ml-fig-cmptable'),
         caption: top('figcaption'),
         status: el.querySelector('.ml-fig__status')!.getBoundingClientRect().height,
       };
