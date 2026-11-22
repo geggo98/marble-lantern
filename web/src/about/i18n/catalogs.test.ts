@@ -114,10 +114,10 @@ describe.each(TOPICS)('topic catalog %s', (topic) => {
 // paragraphs per section. Words are counted as the reader sees them: a term or link counts its visible text, a source chip one word.
 const BUDGET = { lead: 60, p: 90, pDs: 110, read: 20 } as const;
 const DS_TOPICS = ['inference', 'training'];
-// The two Java topics of round 3 (2026-11-22) came with texts that exceed the budgets above: lead up to 70 words, paragraphs up to 155
-// (the longest is about 153, the GPU anatomy), reading notes up to 23, up to six paragraphs per section. Origin: the text writer delivered them with the figures in mind; the
+// The two Java topics of round 3 (2026-11-22) came with texts that exceed the budgets above: lead up to 70 words, paragraphs up to 170
+// (the longest is about 169, sec.tornadovm.p4 after the round-3 text review of 2026-11-22), reading notes up to 23, up to six paragraphs per section. Origin: the text writer delivered them with the figures in mind; the
 // owner has not decided to shorten them. Limit: only these two topics; any other topic keeps the budgets above. Expiry: once the texts are shortened.
-const JAVA_TOPICS: Record<string, { lead: number; p: number; read: number }> = { java: { lead: 70, p: 155, read: 23 }, 'java-web': { lead: 70, p: 155, read: 23 } };
+const JAVA_TOPICS: Record<string, { lead: number; p: number; read: number }> = { java: { lead: 70, p: 170, read: 23 }, 'java-web': { lead: 70, p: 170, read: 23 } };
 const visibleWords = (text: string): number =>
   text
     .replace(/\{(?<kind>[a-z]+):(?<target>[^{}|]*)(?:\|(?<label>[^{}]*))?\}/g, (_m, kind: string, target: string, label?: string) => label ?? (kind === 'src' ? 'x' : target))

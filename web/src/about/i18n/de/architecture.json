@@ -133,7 +133,7 @@
   "fig.online.node.hillaClient.detail": "Hilla erzeugt diesen TypeScript-Client aus dem Java-Endpoint, deshalb ist jeder Aufruf typisiert. Er ist ein Build-Ergebnis und nicht in Git. Jeder Aufruf ist ein `POST` mit JSON und einem CSRF-Token.",
   "fig.online.node.endpoint.label": "GameEndpoint",
   "fig.online.node.endpoint.detail": "`GameEndpoint` ist die HTTP-API mit drei Methoden: `engines()`, `legalMoves(history)` und `choose(engineId, history, nodes)`. Er reicht jeden Aufruf an den Engine-Dienst weiter.",
-  "fig.online.node.engines.label": "Engine-Dienst und Semaphore",
+  "fig.online.node.engines.label": "Engine-Dienst und Semaphor",
   "fig.online.node.engines.label.short": "Engines",
   "fig.online.node.engines.detail": "`Engines` prüft das Budget ({n:1} bis {n:5000000} Knoten), spielt die Zugliste nach und holt ein Permit von einem fairen Semaphor (`Semaphore`) mit einem Permit pro Prozessor. Er wartet höchstens {n:30} Sekunden und meldet sonst, dass der Server ausgelastet ist.",
   "fig.online.node.alphaBeta.label": "Alpha-Beta-Spieler",
