@@ -27,9 +27,9 @@ public final class Encoder {
     public static final int NEXT = 1;
     /** Plane 2: pieces of relative player 2; zero with two players. */
     public static final int THIRD = 2;
-    /** Plane 3: the mover's goal corner. */
+    /** Plane 3: the mover's goal house ({@code Layout.inGoal}): the 10-cell corner on 4 rows, 15 cells on 5 rows. */
     public static final int GOAL = 3;
-    /** Plane 4: the mover's start corner. */
+    /** Plane 4: the mover's start house ({@code Layout.inStart}): the 10-cell corner on 4 rows, 15 cells on 5 rows. */
     public static final int START = 4;
     /** Plane 5: cells the mover may stand on ({@code Layout.allowed}). */
     public static final int PLAYABLE = 5;
@@ -107,8 +107,6 @@ public final class Encoder {
         Orientation orientation = Orientation.of(position);
         Layout layout = position.layout();
         int mover = orientation.mover();
-        int goal = layout.goalCorner(mover);
-        int start = layout.startCorner(mover);
         int limit = position.rules().moveLimit();
         float progress = (float) Math.min(position.ply(), limit) / limit;
 
@@ -121,11 +119,11 @@ public final class Encoder {
                 // Relative player 0, 1, 2 are planes OWN, NEXT, THIRD.
                 out[base + OWN + orientation.relativePlayer(owner)] = 1f;
             }
-            int corner = Geometry.cornerOf(c);
-            if (corner == goal) {
+            // the house of the layout: on 4 rows exactly the corner, on 5 rows the corner and the hexagon row before it
+            if (layout.inGoal(mover, c)) {
                 out[base + GOAL] = 1f;
             }
-            if (corner == start) {
+            if (layout.inStart(mover, c)) {
                 out[base + START] = 1f;
             }
             if (layout.allowed(mover, c)) {

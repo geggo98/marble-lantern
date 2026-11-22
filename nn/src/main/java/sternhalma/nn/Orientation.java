@@ -16,7 +16,8 @@ import sternhalma.engine.Position;
  * </ul>
  * After the map, relative player i (the player who moves i plies after the mover) starts in
  * {@code Layout.of(players).startCorner(i)}, and {@code Layout.allowed(mover, c)} equals
- * {@code Layout.allowed(0, toCanonical(c))} for every cell c.
+ * {@code Layout.allowed(0, toCanonical(c))} for every cell c. The same holds for the houses of both board sizes:
+ * {@code layout.inGoal(mover, c)} equals {@code layout.inGoal(0, toCanonical(c))}.
  *
  * <p>Instances are immutable and may be shared; {@link #of(int, int)} may return cached instances.
  */
@@ -85,21 +86,11 @@ public final class Orientation {
     }
 
     /**
-     * The planes, the orientations and the policy head are for the 4-row board (10 pieces, 10-cell houses). A position of
-     * a 5-row game would be encoded without an error and mark only the 10 corner cells as goal and start.
-     *
-     * @throws IllegalArgumentException if the position is not on the 4-row board
+     * The orientation for the side to move of a position. Both board sizes share the 121 cells and the corners, so
+     * the map is the same on 4 and 5 rows; whether a network may read a 5-row position is decided by its
+     * {@link NetworkConfig#rows()} ({@link Evaluator}).
      */
-    public static void requireFourRows(Position position) {
-        if (position.rules().triangleRows() != sternhalma.engine.RuleSet.TriangleRows.FOUR) {
-            throw new IllegalArgumentException("the network encoding is for the 4-row board, got triangleRows="
-                    + position.rules().triangleRows());
-        }
-    }
-
-    /** The orientation for the side to move of a position (4-row board only, see {@link #requireFourRows}). */
     public static Orientation of(Position position) {
-        requireFourRows(position);
         return of(position.rules().players(), position.sideToMove());
     }
 

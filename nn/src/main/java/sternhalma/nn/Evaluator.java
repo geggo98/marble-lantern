@@ -63,7 +63,8 @@ public final class Evaluator {
      * Evaluates one position. The position is not changed.
      *
      * @throws IllegalArgumentException if the position's player count differs from the network's, or, for a network of
-     *                                  {@link PlaneSet#CLASSIC1V}, is not 2 or 3
+     *                                  {@link PlaneSet#CLASSIC1V}, is not 2 or 3, or the position's board size is not
+     *                                  one of {@link NetworkConfig#rows()}
      */
     public Evaluation evaluate(Position position) {
         return evaluate(List.of(position)).getFirst();
@@ -114,6 +115,11 @@ public final class Evaluator {
             if (variants ? positionPlayers != 2 && positionPlayers != 3 : positionPlayers != netPlayers) {
                 throw new IllegalArgumentException("position " + b + " has " + positionPlayers
                         + " players, the network has " + netPlayers + (variants ? " (serves 2 and 3)" : ""));
+            }
+            if (!config.supports(position.rules().triangleRows())) {
+                // planes 3, 4, 7, 8 and 11 mean other cells on the other board size: such an input is legal but wrong
+                throw new IllegalArgumentException("position " + b + " is on the " + position.rules().triangleRows()
+                        .rows() + "-row board, the network is for triangle_rows=" + NetworkConfig.rowsText(config.rows()));
             }
             Encoder.encode(planes, position, input, b * inputSize);
         }

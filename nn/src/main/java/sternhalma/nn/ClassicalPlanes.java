@@ -21,8 +21,13 @@ import sternhalma.engine.RuleSet;
  *       the side to move swapped).
  *   <li>{@link Encoder#PASSED}: 1 in every cell row if the armies have passed each other (two players), else 0.
  *   <li>{@link Encoder#EVAL}: the linear evaluation of the position for the mover in logit units
- *       ({@link #linearLogit}), in every cell row; 0 for three players.
+ *       ({@link #linearLogit}), in every cell row; 0 for three players and on the 5-row board.
  * </ul>
+ *
+ * <p><b>5-row board.</b> The distance planes use the distances of the 5-row layout (goal house of 15 cells), plane
+ * {@link Encoder#PASSED} counts the 15 pieces of that layout, and {@link Encoder#EVAL} is 0: the weights of the linear
+ * evaluation were fitted on 10 pieces (decision D1 of the 5-row network plan). With plane 12 at 0 the value prior
+ * {@code k * eval} switches itself off, as it does for three players.
  *
  * <p>All planes follow from the position alone. They are never stored in a sample file: {@link SampleExpander}
  * rebuilds the position from the canonical cells and calls the same code as {@link Encoder#encode}.
@@ -57,19 +62,24 @@ public final class ClassicalPlanes {
     private static final int COUNT = 10;
     private static final int SIDE_SUMS = 11;
 
-    /** [players - 2][player][cell]: the distance divided by {@link #DIST_SCALE}, 0 for a cell the player may not enter. */
-    private static final float[][][] DIST_PLANE = new float[2][][];
+    /**
+     * [rows ordinal][players - 2][player][cell]: the distance divided by {@link #DIST_SCALE}, 0 for a cell the player
+     * may not enter.
+     */
+    private static final float[][][][] DIST_PLANE = new float[RuleSet.TriangleRows.values().length][2][][];
 
     static {
-        for (int players = 2; players <= 3; players++) {
-            Layout layout = Layout.of(players);
-            float[][] table = new float[players][Geometry.CELLS];
-            for (int p = 0; p < players; p++) {
-                for (int c = 0; c < Geometry.CELLS; c++) {
-                    table[p][c] = layout.allowed(p, c) ? (float) layout.distance(p, c) / DIST_SCALE : 0f;
+        for (RuleSet.TriangleRows rows : RuleSet.TriangleRows.values()) {
+            for (int players = 2; players <= 3; players++) {
+                Layout layout = Layout.of(players, rows);
+                float[][] table = new float[players][Geometry.CELLS];
+                for (int p = 0; p < players; p++) {
+                    for (int c = 0; c < Geometry.CELLS; c++) {
+                        table[p][c] = layout.allowed(p, c) ? (float) layout.distance(p, c) / DIST_SCALE : 0f;
+                    }
                 }
+                DIST_PLANE[rows.ordinal()][players - 2] = table;
             }
-            DIST_PLANE[players - 2] = table;
         }
     }
 
@@ -86,7 +96,12 @@ public final class ClassicalPlanes {
      * may not stand there.
      */
     static float distancePlane(int players, int player, int cell) {
-        return DIST_PLANE[players - 2][player][cell];
+        return distancePlane(RuleSet.TriangleRows.FOUR, players, player, cell);
+    }
+
+    /** {@link #distancePlane(int, int, int)} on a board of the given size. */
+    static float distancePlane(RuleSet.TriangleRows rows, int players, int player, int cell) {
+        return DIST_PLANE[rows.ordinal()][players - 2][player][cell];
     }
 
     /**
@@ -97,18 +112,18 @@ public final class ClassicalPlanes {
      * @param position the position; its side to move is the mover of {@code orientation}
      * @param mirror   write each row to its left-right mirror (two players); the planes of the mirrored position
      * @param variants the plane set is {@link PlaneSet#CLASSIC1V}: {@link Encoder#EVAL} is 0 under the LONG jump rule
-     *                 (the linear evaluation is fitted for adjacent jumps), as it is for three players
+     *                 (the linear evaluation is fitted for adjacent jumps), as it is for three players and on 5 rows
      * @param offset   start of the position in {@code out}
      * @param stride   planes per row of {@code out}, at least {@link Encoder#CLASSIC_PLANES}
      */
     static void fill(Position position, Orientation orientation, boolean mirror, boolean variants, float[] out,
             int offset, int stride) {
-        Orientation.requireFourRows(position);
         int players = orientation.players();
         int mover = orientation.mover();
         int next = (mover + 1) % players;
-        float[] distOwn = DIST_PLANE[players - 2][mover];
-        float[] distNext = DIST_PLANE[players - 2][next];
+        RuleSet.TriangleRows rows = position.rules().triangleRows();
+        float[] distOwn = DIST_PLANE[rows.ordinal()][players - 2][mover];
+        float[] distNext = DIST_PLANE[rows.ordinal()][players - 2][next];
         int[] row = new int[Geometry.CELLS];
         for (int c = 0; c < Geometry.CELLS; c++) {
             int canonical = orientation.toCanonical(c);
@@ -131,7 +146,9 @@ public final class ClassicalPlanes {
             out[row[Move.to(moves[i])] + Encoder.REACH_NEXT] = 1f;
         }
         float passed = passed(position) ? 1f : 0f;
-        boolean evalOn = players == 2 && !(variants && position.rules().jumpRule() == RuleSet.JumpRule.LONG);
+        // D1: 0 on 5 rows; the weights were fitted on 10 pieces, and the 10/15 dsumPhase correction is not ported here
+        boolean evalOn = players == 2 && rows == RuleSet.TriangleRows.FOUR
+                && !(variants && position.rules().jumpRule() == RuleSet.JumpRule.LONG);
         float eval = evalOn ? (float) linearLogit(position) : 0f;
         for (int c = 0; c < Geometry.CELLS; c++) {
             out[row[c] + Encoder.PASSED] = passed;
@@ -140,19 +157,21 @@ public final class ClassicalPlanes {
     }
 
     /**
-     * Whether the armies have passed each other: all 10 pieces of both players are on the board and every piece of
-     * player 0 has a larger {@code r} than every piece of player 1. Two players only; the same as
-     * {@code RaceAdjudication.passed} ({@code search} tests it).
+     * Whether the armies have passed each other: all pieces of the layout (10, or 15 on 5 rows) of both players are on
+     * the board and every piece of player 0 has a larger {@code r} than every piece of player 1. Two players only. On
+     * the 4-row board the same as {@code RaceAdjudication.passed} ({@code search} tests it); that one declines 5 rows,
+     * because the race table exists for 10 pieces only.
      */
     public static boolean passed(Position position) {
         if (position.rules().players() != 2) {
             return false;
         }
-        if (position.pieceCount(0) != Position.PIECES || position.pieceCount(1) != Position.PIECES) {
+        int pieces = position.layout().pieces();
+        if (position.pieceCount(0) != pieces || position.pieceCount(1) != pieces) {
             return false;
         }
         // The piece lists are sorted by cell id, and ids are ordered by r first.
-        return Geometry.r(position.pieceCell(0, 0)) > Geometry.r(position.pieceCell(1, Position.PIECES - 1));
+        return Geometry.r(position.pieceCell(0, 0)) > Geometry.r(position.pieceCell(1, pieces - 1));
     }
 
     /**
