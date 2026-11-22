@@ -1,0 +1,123 @@
+/* Figure J7 (TeaVM and the call boundary, Fig. 7.2): the parts of kit/LaneDiagram.tsx (.ml-fig-lanes, .ml-fig-ghostcell) and the figure-local
+   parts (.ml-fig-j7). Imported by BoundaryFigure.tsx only. No new colour token: every colour is a token of tokens.css or tokens-about.css.
+   The layout switches with the width of the figure (container ml-fig, 40rem), not of the window. */
+
+/* ===== GhostCell: all variants in one grid cell, the largest sets the size ===== */
+.ml-fig-ghostcell { display: grid; min-width: 0; }
+.ml-fig-ghostcell > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-ghostcell > [data-off] { visibility: hidden; pointer-events: none; user-select: none; }
+
+/* StableBold: the visible text and a hidden bold copy in one grid cell, so that going bold never changes the size */
+.ml-fig-stablebold { display: grid; min-width: 0; }
+.ml-fig-stablebold > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-stablebold > [data-ghost] { font-weight: 700; visibility: hidden; pointer-events: none; user-select: none; }
+
+/* ===== LaneDiagram: lanes, walls between them, one region ===== */
+.ml-fig-lanes { --rot-in: 90deg; --rot-out: -90deg; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.ml-fig-lanes__inner { display: contents; margin: 0; padding: 0; list-style: none; }
+.ml-fig-lanes__group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; padding: 6px 8px 8px; border: 1px solid var(--ml-color-line); border-radius: 10px; background: var(--ml-fig-panel-bg); }
+.ml-fig-lanes__glabel { padding: 0 2px 4px; font: 700 12px/1.5 var(--ml-font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ml-color-ink-muted); }
+.ml-fig-lanes__lane { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2px 8px; min-width: 0; padding: 8px 10px; border: 1.5px solid var(--ml-fig-mark); border-radius: 6px; background: var(--ml-fig-bg); outline: 0 solid transparent; }
+.ml-fig-lanes__name { font: 500 14px/1.3 var(--ml-font-ui); overflow-wrap: anywhere; }
+.ml-fig-lanes__code { grid-column: 1 / -1; font: 12px/1.4 var(--ml-font-data); color: var(--ml-color-ink-muted); overflow-wrap: anywhere; }
+.ml-fig-lanes__mem { grid-column: 1 / -1; font-size: 12px; line-height: 1.4; color: var(--ml-color-ink-muted); }
+.ml-fig-lanes__pill { display: inline-flex; align-items: center; gap: 4px; font: 12px/1.5 var(--ml-font-ui); white-space: nowrap; color: var(--ml-color-ink-muted); }
+.ml-fig-lanes__pill svg { flex: none; width: 12px; height: 12px; }
+.ml-fig-lanes__pill .p-stroke { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.ml-fig-lanes__pill .p-fill { fill: currentColor; }
+.ml-fig-lanes__lane[data-state="active"] { border-color: var(--ml-fig-accent); outline: 1.5px solid var(--ml-fig-accent); outline-offset: 0; background: var(--ml-fig-accent-bg); }
+.ml-fig-lanes__lane[data-state="active"] .ml-fig-lanes__name { font-weight: 700; }
+/* inside an active lane the secondary text is ink, not muted: one block, one signal (spec section 8) */
+.ml-fig-lanes__lane[data-state="active"] :is(.ml-fig-lanes__code, .ml-fig-lanes__mem, .ml-fig-lanes__pill) { color: var(--ml-color-ink); }
+.ml-fig-lanes__lane[data-state="dim"] { border-color: var(--ml-fig-dim); }
+.ml-fig-lanes__lane[data-state="dim"] .ml-fig-lanes__name { color: var(--ml-color-ink-muted); }
+
+/* a wall: name, the line with the direction badge on it, tag */
+.ml-fig-lanes__wall { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; padding: 6px 2px; color: var(--ml-color-ink-muted); }
+.ml-fig-lanes__wname { font: 500 12px/1.35 var(--ml-font-ui); color: var(--ml-color-ink); padding-inline-end: 40px; }
+.ml-fig-lanes__wtag { font-size: 12px; line-height: 1.35; padding-inline-end: 40px; }
+.ml-fig-lanes__line { position: relative; box-sizing: content-box; height: 0; border: 0 solid var(--ml-fig-mark); }
+.ml-fig-lanes__line[data-kind="msg"] { height: 4px; border-block: 2px dashed var(--ml-fig-mark); }
+.ml-fig-lanes__line[data-kind="none"] { border-top: 2px dotted var(--ml-fig-dim); }
+.ml-fig-lanes__line[data-kind="convert"] { height: 4px; border-block: 2px solid var(--ml-fig-mark); }
+.ml-fig-lanes__line[data-kind="slot"] { border-top: 6px solid var(--ml-fig-mark); }
+.ml-fig-lanes__dir { position: absolute; inset-inline-end: 6px; top: 50%; display: grid; place-items: center; width: 28px; height: 28px; margin-top: -14px; border: 2px solid var(--ml-fig-accent); border-radius: 50%; background: var(--ml-fig-bg); color: var(--ml-fig-accent); visibility: hidden; }
+.ml-fig-lanes__dir svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transform: rotate(var(--rot-in)); }
+.ml-fig-lanes__wall[data-dir="out"] .ml-fig-lanes__dir svg { transform: rotate(var(--rot-out)); }
+.ml-fig-lanes__wall[data-dir] .ml-fig-lanes__dir { visibility: visible; }
+.ml-fig-lanes__wall[data-dir] .ml-fig-lanes__line { border-color: var(--ml-fig-accent); }
+.ml-fig-lanes__wall[data-dir] .ml-fig-lanes__wname { font-weight: 700; }
+.ml-fig-lanes__wall[data-dir] .ml-fig-lanes__wtag { color: var(--ml-color-ink); }
+
+/* ===== J7 ===== */
+.ml-fig-j7 { display: grid; gap: 12px; min-width: 0; }
+.ml-fig-j7 .ml-fig-readout { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ml-fig-j7 .ml-fig-readout__cell { grid-template-rows: auto 1.5em; align-content: space-between; padding: 6px 8px; min-width: 0; }
+.ml-fig-j7 .ml-fig-readout dt { font-size: 12px; line-height: 1.35; color: var(--ml-color-ink-muted); }
+.ml-fig-j7 .ml-fig-readout__value { font: 500 16px/1.5 var(--ml-font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-fig-j7__pay { display: grid; gap: 6px; min-width: 0; padding: 8px 10px; border: 1px solid var(--ml-color-line-strong); border-inline-start: 4px solid var(--ml-fig-accent); border-radius: 6px; background: var(--ml-fig-bg); }
+.ml-fig-j7__payhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; font-size: 12px; color: var(--ml-color-ink-muted); }
+.ml-fig-j7__how { justify-items: end; }
+.ml-fig-j7__how [data-how] { display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; border: 1px solid var(--ml-color-ink); border-radius: 6px; color: var(--ml-color-ink); font: 500 12px/1.6 var(--ml-font-ui); white-space: nowrap; }
+.ml-fig-j7__how [data-how="clone"] { border-style: dashed; }
+.ml-fig-j7__how [data-how="none"] { border-color: var(--ml-fig-dim); color: var(--ml-color-ink-muted); }
+.ml-fig-j7__how [data-how="numbers"] { background: var(--ml-color-primary); color: var(--ml-color-on-primary); }
+.ml-fig-j7__how [data-how="convert"] { border-width: 3px; border-style: double; }
+.ml-fig-j7__code { margin: 0; font: 12px/1.5 var(--ml-font-data); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ml-code-ink, var(--ml-color-ink)); }
+.ml-fig-j7__code .c-dim { color: var(--ml-color-ink-muted); }
+.ml-fig-j7__cmp { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+.ml-fig-j7__cmp caption { caption-side: top; padding-bottom: 4px; text-align: start; font-size: 12px; color: var(--ml-color-ink-muted); }
+.ml-fig-j7__cmp th, .ml-fig-j7__cmp td { padding: 6px 8px; border: 1px solid var(--ml-color-line); vertical-align: top; text-align: start; overflow-wrap: anywhere; }
+.ml-fig-j7__cmp thead th { font: 700 12px/1.4 var(--ml-font-ui); }
+.ml-fig-j7__cmp tbody th { width: 5.75rem; font: 500 12px/1.4 var(--ml-font-ui); color: var(--ml-color-ink-muted); }
+.ml-fig-j7__cmp code { display: block; font: 12px/1.45 var(--ml-font-data); white-space: pre-wrap; }
+.ml-fig-j7__cmp td > span { display: block; font-size: 12px; line-height: 1.45; }
+/* compact: only the selected column is rendered; the switch is the way to the others */
+.ml-fig-j7__cmp [data-col]:not([data-sel]) { display: none; }
+.ml-fig-j7__cmp [data-span="wide"] { display: none; }
+.ml-fig-j7__cmp [data-sel] { background: var(--ml-fig-accent-bg); }
+.ml-fig-j7__cmp thead th[data-sel] { box-shadow: inset 0 3px 0 var(--ml-fig-accent); }
+.ml-fig-j7__cmp tr[data-on] > th { color: var(--ml-color-ink); font-weight: 700; box-shadow: inset 4px 0 0 var(--ml-fig-accent); }
+.ml-fig-j7__cmp th .ml-fig-stablebold > [data-ghost]::before { content: "\25B8\00a0"; }
+.ml-fig-j7__cmp tr[data-on] > th .ml-fig-stablebold > :first-child::before { content: "\25B8\00a0"; }
+.ml-fig-j7__cmp td.ml-fig-j7__same { background: var(--ml-fig-panel-bg); }
+/* inside the selected column secondary text is ink (spec section 8) */
+.ml-fig-j7__cmp td[data-sel] code, .ml-fig-j7__cmp td[data-sel] > span { color: var(--ml-color-ink); }
+.ml-fig-j7__also { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.ml-fig-j7__also li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start; }
+.ml-fig-j7__also svg { width: 20px; height: 20px; margin-top: 1px; fill: none; stroke: var(--ml-fig-axis); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ml-fig-j7__alsohead { margin: 0 0 4px; font: 700 12px/1.5 var(--ml-font-ui); color: var(--ml-color-ink-muted); }
+/* legend marks (the kit gives the svg its size) */
+.ml-fig-j7__lg-stroke, .ml-fig-j7__lg-dim { fill: none; }
+.ml-fig-j7__lg-stroke { stroke: var(--ml-fig-mark); }
+.ml-fig-j7__lg-dim { stroke: var(--ml-fig-dim); }
+.ml-fig-j7__lg-active { fill: var(--ml-fig-accent-bg); stroke: var(--ml-fig-accent); stroke-width: 2.5; }
+
+@container ml-fig (min-width: 40rem) {
+  .ml-fig-lanes { grid-template-columns: minmax(0, 1fr) 7.5rem minmax(0, 2.75fr); --rot-in: 0deg; --rot-out: 180deg; }
+  .ml-fig-lanes__group { grid-template-columns: minmax(0, 1fr) 7.5rem minmax(0, 1fr); grid-template-rows: auto 1fr; padding: 6px 10px 10px; }
+  .ml-fig-lanes__glabel { grid-column: 1 / -1; }
+  /* the page lane and wall A stand beside the lanes of the region, below its label row */
+  .ml-fig-lanes > .ml-fig-lanes__lane, .ml-fig-lanes > .ml-fig-lanes__wall { margin-block: 31px 11px; }
+  .ml-fig-lanes__lane { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; padding: 10px 12px; }
+  .ml-fig-lanes__lane > [data-pill] { justify-self: start; }
+  .ml-fig-lanes__wall { grid-template-rows: auto minmax(44px, 1fr) auto; justify-items: center; gap: 6px; padding: 2px 6px; text-align: center; }
+  .ml-fig-lanes__wname, .ml-fig-lanes__wtag { padding-inline-end: 0; }
+  .ml-fig-lanes__line { width: 0; height: auto; }
+  .ml-fig-lanes__line[data-kind="msg"] { width: 4px; height: auto; border-block: 0; border-inline: 2px dashed var(--ml-fig-mark); }
+  .ml-fig-lanes__line[data-kind="none"] { border-top: 0; border-inline-start: 2px dotted var(--ml-fig-dim); }
+  .ml-fig-lanes__line[data-kind="convert"] { width: 4px; height: auto; border-block: 0; border-inline: 2px solid var(--ml-fig-mark); }
+  .ml-fig-lanes__line[data-kind="slot"] { border-top: 0; border-inline-start: 6px solid var(--ml-fig-mark); }
+  .ml-fig-lanes__dir { position: static; grid-area: 2 / 1; align-self: center; margin: 0; z-index: 1; }
+  .ml-fig-lanes__line { grid-area: 2 / 1; }
+  .ml-fig-j7__cmp [data-col]:not([data-sel]) { display: table-cell; }
+  .ml-fig-j7__cmp [data-span="wide"] { display: table-cell; }
+  .ml-fig-j7__cmp [data-span="compact"] { display: none; }
+  .ml-fig-j7__cmp tbody th { width: 8rem; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ml-fig-lanes__lane, .ml-fig-lanes__line { transition: background-color var(--ml-dur-base) var(--ml-ease), border-color var(--ml-dur-base) var(--ml-ease); }
+}
+@media (forced-colors: active) {
+  .ml-fig-lanes__lane[data-state="active"] { outline-width: 3px; }
+}
