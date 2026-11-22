@@ -169,7 +169,8 @@ public final class Web {
      * {@code linear-r3} (order of {@code LinearEvaluator.GAIN_NAMES}, side to move minus opponent), its score for the side
      * to move, the side to move, and the single-agent distance of every cell for player 0 and for player 1, see
      * {@link WebCore#features}. The features are printed by {@link Double#toString}, which parses back to the same
-     * double. A non-classic game gives {@code error unsupported ...}.
+     * double. A game that is not two players with adjacent jumps and closed corners (on 4 or 5 rows) gives
+     * {@code error unsupported ...}.
      */
     @JSExport
     public static String features(String history, String jump, String players, String ranking, String camps, String rows) {

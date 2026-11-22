@@ -478,7 +478,8 @@
   "explain_link_mcts": "Wie MCTS einen Zug wählt",
   "explain_link_forward": "Im Inneren des Netzes",
   "explain_net_note": "Wenn du dort zum ersten Mal „Meine Partie“ wählst, lädt der Browser eventuell die Netz-Engine und ein Modell herunter, etwa 345 kB.",
+  "explain_net_rows5": "Deine Partie hat 5 Reihen, darum zeigt diese Abbildung nur ihr Beispiel: Das Netz wurde für 4 Reihen trainiert.",
   "explain_disabled_nogame": "Starte zuerst eine Partie.",
   "explain_disabled_over": "Die Partie ist zu Ende, es gibt keinen Zug mehr zu erklären.",
-  "explain_disabled_variant": "Nur für das klassische Spiel: 2 Spieler, Nachbarsprung, fremde Dreiecke gesperrt, 4 Reihen. Bewertung und Netz der Abbildungen wurden für dieses Spiel trainiert."
+  "explain_disabled_variant": "Nur für das klassische Spiel: 2 Spieler, Nachbarsprung, fremde Dreiecke gesperrt, 4 oder 5 Reihen. Bei 5 Reihen zeigen die beiden Abbildungen zum Netz nur ihr Beispiel, denn das Netz wurde für 4 Reihen trainiert."
 }

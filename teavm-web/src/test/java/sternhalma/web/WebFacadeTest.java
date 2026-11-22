@@ -879,6 +879,42 @@ class WebFacadeTest {
         assertEquals(800_000L, nodes);
     }
 
+    /**
+     * The 5-row classic game: the features of the engine's own 5-row position (15 pieces, 15-cell houses), the score of
+     * linear-r3 on it and the distances of the 5-row layout, along a seeded random playout. The expected values come
+     * from the engine, not from the facade.
+     */
+    @Test
+    void theFeaturesOnFiveRowsAreThoseOfTheFiveRowPosition() {
+        WebCore core = new WebCore();
+        RuleSet rules = RuleSet.defaults(2, RuleSet.TriangleRows.FIVE);
+        Position position = Position.initial(rules);
+        java.util.List<Integer> history = new java.util.ArrayList<>();
+        long state = 7;
+        for (int ply = 0; ply < 160 && position.outcome() == null; ply++) {
+            int[] h = history.stream().mapToInt(Integer::intValue).toArray();
+            double[] expected = new double[13];
+            LinearEvaluator.features(position, expected, LinearEvaluator.GainMode.BOTH);
+            WebCore.Features f = core.features(h, RuleSet.JumpRule.ADJACENT, 2, RuleSet.Ranking.FIRST_WINNER_ONLY,
+                    RuleSet.ForeignCamps.CLOSED, RuleSet.TriangleRows.FIVE);
+            assertArrayEquals(expected, f.values(), "ply " + ply);
+            assertEquals(Evaluators.byName("linear-r3").evaluate(position), f.score(), "ply " + ply);
+            assertEquals(position.sideToMove(), f.sideToMove());
+            for (int p = 0; p < 2; p++) {
+                for (int cell = 0; cell < 121; cell++) {
+                    assertEquals(position.layout().distance(p, cell), f.distance()[p][cell], "player " + p + ", cell " + cell);
+                }
+            }
+            int[] legal = position.legalMoves();
+            state = state * 6364136223846793005L + 1442695040888963407L;
+            int move = legal[(int) ((state >>> 33) % legal.length)];
+            position.make(move);
+            history.add(move);
+        }
+        assertEquals(15, position.pieceCount(0));
+        assertTrue(history.size() >= 100, "the playout reached the middle game: " + history.size() + " plies");
+    }
+
     @Test
     void featuresAreForTheClassicGameOnly() {
         WebCore core = new WebCore();
@@ -894,8 +930,13 @@ class WebFacadeTest {
                 () -> core.features(new int[0], adjacent, 2, first, RuleSet.ForeignCamps.OPEN, four)).code());
         assertEquals("unsupported", assertThrows(WebFailure.class,
                 () -> core.features(new int[0], adjacent, 2, first, RuleSet.ForeignCamps.PASS_THROUGH, four)).code());
+        RuleSet.TriangleRows five = RuleSet.TriangleRows.FIVE;
         assertEquals("unsupported", assertThrows(WebFailure.class,
-                () -> core.features(new int[0], adjacent, 2, first, closed, RuleSet.TriangleRows.FIVE)).code());
+                () -> core.features(new int[0], RuleSet.JumpRule.LONG, 2, first, closed, five)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 3, first, closed, five)).code());
+        assertEquals("unsupported", assertThrows(WebFailure.class,
+                () -> core.features(new int[0], adjacent, 2, first, RuleSet.ForeignCamps.OPEN, five)).code());
         assertEquals("illegal-history", assertThrows(WebFailure.class,
                 () -> core.features(new int[] {MID[1]}, adjacent, 2, first, closed, four)).code());
         // the ranking rule plays the same two-player game
@@ -927,7 +968,8 @@ class WebFacadeTest {
         assertTrue(Web.features("", "long", null, null, null, null).startsWith("error unsupported "));
         assertTrue(Web.features("", null, "3", null, null, null).startsWith("error unsupported "));
         assertTrue(Web.features("", null, null, null, "open", null).startsWith("error unsupported "));
-        assertTrue(Web.features("", null, null, null, null, "5").startsWith("error unsupported "));
+        assertTrue(Web.features("", null, null, null, null, "5").startsWith("ok "), "the 5-row classic game is explained as well");
+        assertTrue(Web.features("", "long", null, null, null, "5").startsWith("error unsupported "));
         assertTrue(Web.features("1,x", null, null, null, null, null).startsWith("error illegal-history "));
     }
 }

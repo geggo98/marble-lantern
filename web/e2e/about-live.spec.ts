@@ -1,10 +1,11 @@
 // Live positions in the Info figures (plan: live-plan.md). One file with four parts; each work package fills only its own describe block.
 //   Part 1 (WP0, this file): no extra worker and no download for the net engine on the play screen, on an Info page, and after every
 //          "Explain this position" link. The owner's rule: a second engine worker starts only when the reader presses a live switch.
-//   Part 2 (WP1): V7 live and the root-scores board.   Part 3 (WP3): V6 live.   Part 4 (WP6): V10 and V9b live.
+//   Part 2 (WP1): V7 live and the root-scores board.   Part 3 (WP3): V6 live.   Part 4 (WP6): V10 and V9b live.   Part 5: a 5-row game.
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { EVAL_MID_HASH } from './eval-mid-link';
 import { openApp, playOneExchange, plyOf, waitForHumanTurn, watchPageErrors } from './helpers';
 
@@ -334,6 +335,136 @@ test.describe('part 4 (WP6): V10 and V9b live', () => {
     await expect(page.locator(`${F} [role=status]`)).toContainText('Computed in your browser.', { timeout: 90_000 });
     await expect(page.locator(`${F} [data-origin]`)).toHaveText('Your game, ply 4, computed in your browser');
     expect(await page.locator(`${F} .ml-fig-policy li`).count()).toBe(5);
+    errors.expectNone();
+  });
+});
+
+// Part 5: a game on 5 rows (the default size of a new game). The classical figures explain it; their numbers are checked against the C++
+// engine run in Node.js on the same history. The net figures stay at their example with the 5-row reason, and nothing of the net engine is
+// requested, because every shipped network was trained on 4 rows.
+test.describe('part 5: a 5-row game', () => {
+  const cppJs = fileURLToPath(new URL('../public/engines/cpp/engine-cpp.js', import.meta.url));
+  /** The C ABI of the C++ engine that this test calls (cpp/README.md, "Search and the wasm API on 5-row boards"). */
+  interface Cpp {
+    _malloc(bytes: number): number;
+    _shw_game_new5(jump: number, players: number, ranking: number, camps: number, rows: number): number;
+    _shw_play(move: number): number;
+    _shw_features(values: number, scoreSide: number, distance: number): number;
+    _shw_legal_moves(out: number, cap: number): number;
+    HEAPU8: Uint8Array;
+    HEAP32: Int32Array;
+  }
+  /**
+   * The C++ engine in Node.js on the 5-row classic game after `history`: an independent run of the export the page calls (the Java twin
+   * gives the same report, features.cross.test.ts). The raw C ABI keeps the web sources out of this test process.
+   */
+  async function nodeEngine(history: readonly number[]): Promise<{ features: number[]; score: number; legal: number }> {
+    const m = await ((await import(/* @vite-ignore */ pathToFileURL(cppJs).href)) as { default: () => Promise<Cpp> }).default();
+    if (m._shw_game_new5(0, 2, 0, 0, 5) !== 0) throw new Error('shw_game_new5');
+    for (const move of history) if (m._shw_play(move) !== 0) throw new Error(`illegal move ${move}`);
+    const base = m._malloc(13 * 8 + 2 * 4 + 242 * 4);
+    if (m._shw_features(base, base + 13 * 8, base + 13 * 8 + 8) !== 0) throw new Error('shw_features');
+    const features = Array.from(new Float64Array(m.HEAPU8.buffer, base, 13));
+    const score = m.HEAP32[(base + 13 * 8) >> 2]!;
+    const out = m._malloc(4 * 2048);
+    const legal = m._shw_legal_moves(out, 2048);
+    return { features, score, legal };
+  }
+  const mine = (page: Page, fig: string) => page.locator(`${fig} [data-live-switch] label.ml-fig-seg__opt`).filter({ hasText: 'My game' });
+  /**
+   * The moves of the running game, read from the address: the page writes every move into the game link (`#g=v1.<payload>`, 14 bits per
+   * move, from << 7 | to, base64url; encodeMoves in src/app/game-url.ts). The engine's move is from | to << 8. The link names 5 rows (`t=5`).
+   */
+  const historyOf = (page: Page): number[] => {
+    const hash = new URL(page.url()).hash;
+    expect(hash).toMatch(/&t=5(&|$)/);
+    const payload = /^#g=v1\.([A-Za-z0-9_-]*)/.exec(hash)?.[1];
+    if (payload === undefined) throw new Error(`no game link in ${page.url()}`);
+    const bytes = Buffer.from(payload, 'base64url');
+    const moves: number[] = [];
+    for (let n = 0, bit = 0; n < Math.floor((bytes.length * 8) / 14); n++) {
+      let value = 0;
+      for (let i = 0; i < 14; i++, bit++) value = (value << 1) | ((bytes[bit >>> 3]! >>> (7 - (bit & 7))) & 1);
+      moves.push((value >>> 7) | ((value & 127) << 8));
+    }
+    return moves;
+  };
+  const num = (text: string): number => Number(text.replace(/[−–]/g, '-').replace(/[,+\s]/g, ''));
+  const NET_NOTE = 'Your game has 5 rows, so this figure shows its example only: the network was trained on 4 rows.';
+  const NET_REASON = 'Your game has 5 rows. The network was trained on 4 rows only and cannot read the larger houses of 15 cells, so this figure shows the example only.';
+
+  async function fiveRowGame(page: Page): Promise<number[]> {
+    await openApp(page, 'en', '', 'human', 5);
+    await playOneExchange(page);
+    await playOneExchange(page);
+    expect(await plyOf(page)).toBe(4);
+    return historyOf(page);
+  }
+
+  test('the card is enabled; the two net links say that their figures stay at the example', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    await fiveRowGame(page);
+    await expect(page.locator('[data-explain-card]')).not.toHaveAttribute('data-disabled', '');
+    await expect(page.locator('a[data-explain-link]')).toHaveCount(5);
+    await expect(page.locator('[data-explain-note]')).toHaveText([NET_NOTE, NET_NOTE]);
+    errors.expectNone();
+  });
+
+  test('Fig. 2.3: My game shows the features and the score of the C++ engine for the 5-row position, with the 5-row note', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    const history = await fiveRowGame(page);
+    const expected = await nodeEngine(history);
+    await page.locator('a[data-explain-link="evaluation"]').click();
+    const FIG = '#fig-eval';
+    await page.locator(`${FIG} [data-live-switch] input[value="mine"]`).check();
+    await expect(page.locator(`${FIG} [data-origin]`)).toContainText('Your game, ply 4', { timeout: 30_000 });
+    await expect(page.locator(`${FIG} .ml-fig__status`)).toHaveText('Computed in your browser.');
+    const score = page.locator(`${FIG} .ml-fig-readout__cell`).filter({ has: page.locator('dt', { hasText: /^Score$/ }) }).locator('dd');
+    expect(num((await score.textContent()) ?? '')).toBe(expected.score);
+    const shown = (await page.locator(`${FIG} .ml-fig-feat tbody tr td[data-label="Value"]`).allTextContents()).map(num);
+    expect(shown).toHaveLength(13);
+    shown.forEach((v, i) => expect(Math.abs(v - expected.features[i]!), `feature ${i}`).toBeLessThan(0.01));
+    await expect(page.locator(`${FIG} [data-live-note=rows5]`)).toContainText('Your game has 5 rows');
+    errors.expectNone();
+  });
+
+  test('Fig. 2.2 and Fig. 2.1b compute on the 5-row position: five depth markers, and one table row per legal move of the C++ engine', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    const history = await fiveRowGame(page);
+    const { legal } = await nodeEngine(history);
+    await page.locator('a[data-explain-link="budget"]').click();
+    await mine(page, '#fig-budget').click();
+    await expect(page.locator('#fig-budget [data-origin]')).toHaveText('Your game, ply 4, computed in your browser');
+    await expect
+      .poll(() => page.locator('#fig-budget .ml-fig-plot__pt--1').evaluateAll((els) => els.filter((e) => !e.closest('.ml-fig-legend')).length))
+      .toBe(5);
+    await expect(page.locator('#fig-budget [data-live-note=rows5]')).toBeVisible();
+    await expect(page.locator('#fig-budget [data-live-note=race]')).toHaveCount(0); // no race table on 5 rows
+
+    await page.locator('.ml-nav__link').first().click(); // Play
+    await page.locator('a[data-explain-link="alpha-beta"]').click();
+    await mine(page, '#fig-roots').click();
+    await expect(page.locator('#fig-roots [data-roots]')).toHaveAttribute('data-roots', 'ready');
+    await expect(page.locator('#fig-roots tbody tr')).toHaveCount(legal);
+    await expect(page.locator('#fig-roots [data-live-note=rows5]')).toBeVisible();
+    errors.expectNone();
+  });
+
+  test('Fig. 3.3 and Fig. 3.2 keep My game disabled with the 5-row reason, and nothing of the net engine is requested', async ({ page }) => {
+    const errors = watchPageErrors(page);
+    const urls: string[] = [];
+    page.on('request', (r) => urls.push(r.url()));
+    await fiveRowGame(page);
+    await page.locator('a[data-explain-link="mcts"]').click();
+    await expect(page.locator('#fig-mcts [data-live-switch] input[value="mine"]')).toBeDisabled();
+    await expect(page.locator('#fig-mcts [data-live-reason]')).toHaveText(NET_REASON);
+    await page.locator('.ml-nav__link').first().click(); // Play
+    await page.locator('a[data-explain-link="forward-pass"]').click();
+    await expect(page.locator('#fig-forward select.ml-fig-select').first().locator('option')).toHaveText([
+      'Start position', 'Mid-game, after 30 plies', 'Race, after 106 plies',
+    ]);
+    await expect(page.locator('#fig-forward [data-live-reason]')).toHaveText(NET_REASON);
+    expect(netRequests(urls)).toEqual([]);
     errors.expectNone();
   });
 });

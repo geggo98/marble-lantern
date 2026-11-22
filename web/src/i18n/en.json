@@ -478,7 +478,8 @@
   "explain_link_mcts": "How MCTS chooses a move",
   "explain_link_forward": "Inside the network",
   "explain_net_note": "The first time you choose “My game” there, the browser may download the net engine and a model, about 345 kB.",
+  "explain_net_rows5": "Your game has 5 rows, so this figure shows its example only: the network was trained on 4 rows.",
   "explain_disabled_nogame": "Start a game first.",
   "explain_disabled_over": "The game is over, so there is no move left to explain.",
-  "explain_disabled_variant": "Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 rows. The evaluation and the network of the figures were trained for this game."
+  "explain_disabled_variant": "Only for the classic game: 2 players, neighbour jump, foreign triangles closed, 4 or 5 rows. On 5 rows the two network figures show their example only, because the network was trained on 4 rows."
 }

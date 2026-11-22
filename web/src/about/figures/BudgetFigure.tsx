@@ -5,9 +5,10 @@ import { useRef, useState } from 'react';
 import { Figure, Legend, LegendItem, LiveSwitch, Manipulate, PLOT_BREAKPOINT_PX, Plot, PlotCursor, PlotDots, PlotLine, Slider, useMeasuredWidth } from '../kit';
 import { Markup } from '../kit/markup';
 import raw from '../data/ab-budget-mid.json';
-import { FigFoot, figLabel, useFigText } from './common';
+import { FigFoot, LiveRows5Note, figLabel, useFigText } from './common';
 import type { Catalog } from './common';
 import { liveBlockedReason } from '../live/classic';
+import { rowsOf } from '../../game/variant';
 import { useLive } from '../live/context';
 import { runBudget } from '../live/budget';
 import type { BudgetResult, BudgetRow } from '../live/budget';
@@ -151,6 +152,7 @@ export function BudgetFigure({ catalog, number }: BudgetFigureProps): React.JSX.
           {t('fig.budget.live.race')}
         </p>
       )}
+      <LiveRows5Note kit={kit} show={mine && input !== null && rowsOf(input.snapshot.variant) === 5} />
       <p className="ml-fig-budget__readout" aria-live="polite">
         {browser && <span>{t('fig.budget.readout', { nodes: n(browser.nodes), depth: n(browser.depth), move: browser.move.text })}</span>}
         {plain && <span>{t('fig.budget.readout.plain', { depth: n(plain.depth), move: plain.move.text })}</span>}

@@ -5,8 +5,10 @@
 //   1. for each feature that is a per-side sum, mover sum minus opponent sum equals the engine's feature;
 //   2. round(scale x sum of weight x feature) equals the engine's score.
 import type { Engine, FeatureReport } from '../../engines/engine';
-import { CELL_COUNT, DIRECTIONS, GOAL_CELLS, START_CELLS, cellAt, cellId, neighbor } from '../../board/cells';
+import { CELL_COUNT, DIRECTIONS, cellAt, cellId, goalHouses, neighbor, startHouses } from '../../board/cells';
+import type { BoardRows } from '../../board/cells';
 import { replay } from '../../game/board-state';
+import { rowsOf } from '../../game/variant';
 import type { Variant } from '../../game/variant';
 import example from '../data/eval-mid.json';
 import type { EvalData, Feature, SideData } from '../figures/eval-model';
@@ -25,7 +27,10 @@ const SCALE = EXAMPLE.meta.scale;
 const DQ = [1, -1, 0, 0, 1, -1] as const;
 const DR = [0, 0, 1, -1, -1, 1] as const;
 
-/** A cell a player of the classic game may stand on: the central hexagon and the two corners of the players (Layout.allowed, closed camps). */
+/**
+ * A cell a player of the classic game may stand on: the central hexagon and the two corners of the players (Layout.allowed, closed camps).
+ * The same on 5 rows: the larger houses add only hexagon cells (docs/rules.md, "Foreign corners").
+ */
 const allowed = (cell: number): boolean => {
   const c = cellAt(cell);
   const s = -c.q - c.r;
@@ -42,12 +47,12 @@ const fail = (message: string): never => {
   throw new LiveError('internal', message);
 };
 
-/** The marks and sums of one side. `distance[cell]` is Layout.distance of that player. */
-function sideOf(owner: Int8Array, player: 0 | 1, role: 'mover' | 'opponent', distance: readonly number[]): SideData {
+/** The marks and sums of one side. `distance[cell]` is Layout.distance of that player; the houses are those of the board size `rows`. */
+function sideOf(owner: Int8Array, player: 0 | 1, role: 'mover' | 'opponent', distance: readonly number[], rows: BoardRows): SideData {
   const dist = (cell: number): number => distance[cell] ?? fail(`no distance for cell ${cell}`);
   const closer = (cell: number, here: number): boolean => cell >= 0 && allowed(cell) && dist(cell) < here;
-  const goal = new Set(GOAL_CELLS[player]);
-  const start = new Set(START_CELLS[player]);
+  const goal = new Set(goalHouses(2, rows)[player]);
+  const start = new Set(startHouses(2, rows)[player]);
   const pieces: { cell: number; distance: number; lateral: number }[] = [];
   const inGoal: number[] = [];
   const inStart: number[] = [];
@@ -119,7 +124,8 @@ export function buildEvalData(report: FeatureReport, history: readonly number[],
   const me = report.sideToMove;
   if (me !== history.length % 2) fail(`side to move ${me} after ${history.length} plies`);
   const you = (1 - me) as 0 | 1;
-  const sides = [sideOf(owner, me, 'mover', report.distance[me]), sideOf(owner, you, 'opponent', report.distance[you])];
+  const rows = rowsOf(variant);
+  const sides = [sideOf(owner, me, 'mover', report.distance[me], rows), sideOf(owner, you, 'opponent', report.distance[you], rows)];
   const features: Feature[] = NAMES.map((name, i) => {
     const value = report.features[i]!;
     const weight = WEIGHTS.get(name) ?? fail(`no weight for ${name}`);

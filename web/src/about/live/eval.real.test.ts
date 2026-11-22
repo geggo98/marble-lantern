@@ -11,6 +11,7 @@ import type { CppModuleFactory } from '../../engines/cpp/core';
 import { EngineFailure } from '../../engines/protocol';
 import { makeMove } from '../../engines/engine';
 import { DEFAULT_VARIANT } from '../../game/variant';
+import type { Variant } from '../../game/variant';
 import golden from '../data/eval-mid.json';
 import { buildEvalData } from './eval';
 
@@ -29,17 +30,20 @@ const handler = new CppRequestHandler({
 });
 const assets = { engine: ['file://engine-cpp.js'], manifest: 'file://m', tableGz: 'file://t' };
 
-const features = (history: readonly number[]): Promise<FeatureReport> => handler.handle({ id: 0, type: 'features', history: [...history], variant: DEFAULT_VARIANT }) as Promise<FeatureReport>;
-const legalCount = async (history: readonly number[]): Promise<number> => ((await handler.handle({ id: 0, type: 'legalMoves', history: [...history] })) as number[]).length;
+const features = (history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<FeatureReport> =>
+  handler.handle({ id: 0, type: 'features', history: [...history], variant }) as Promise<FeatureReport>;
+const legalCount = async (history: readonly number[], variant: Variant = DEFAULT_VARIANT): Promise<number> =>
+  ((await handler.handle({ id: 0, type: 'legalMoves', history: [...history], variant })) as number[]).length;
+const FIVE: Variant = { ...DEFAULT_VARIANT, rows: 5 };
 
 let exported = false;
 const SKIP = 'skipped: the engine has no `features` export yet (WP2); run this test after the WP2 merge, with fresh engine builds';
 
 /** A short game of the engine against itself: the history at plies 0 to `plies`. */
-async function play(plies: number): Promise<number[]> {
-  await handler.handle({ id: 0, type: 'newGame', setup: { nodes: [300, 300] } });
+async function play(plies: number, variant: Variant = DEFAULT_VARIANT): Promise<number[]> {
+  await handler.handle({ id: 0, type: 'newGame', setup: { nodes: [300, 300], variant } });
   const history: number[] = [];
-  for (let i = 0; i < plies; i++) history.push(((await handler.handle({ id: 0, type: 'choose', history: [...history] })) as ChooseResult).move);
+  for (let i = 0; i < plies; i++) history.push(((await handler.handle({ id: 0, type: 'choose', history: [...history], variant })) as ChooseResult).move);
   return history;
 }
 
@@ -96,5 +100,22 @@ describe('the V6 adapter on the real engine', () => {
     const data = buildEvalData(await features(history), history, DEFAULT_VARIANT, await legalCount(history));
     expect(data.meta.score).toBe(179);
     expect(data.sides).toEqual(g.sides);
+  });
+
+  guarded('a 5-row game passes the checks at every ply, with 15 pieces and the 15-cell houses counted for inGoal and inStart', async () => {
+    const history = await play(90, FIVE);
+    let goalSeen = false;
+    let startMixed = false;
+    for (let ply = 0; ply <= history.length; ply += 1) {
+      const h = history.slice(0, ply);
+      const data = buildEvalData(await features(h, FIVE), h, FIVE, await legalCount(h, FIVE));
+      expect(data.sides[0]!.pieces, `ply ${ply}`).toHaveLength(15);
+      expect(data.sides[1]!.pieces, `ply ${ply}`).toHaveLength(15);
+      goalSeen ||= data.sides.some((side) => side.sums.inGoal! > 0);
+      startMixed ||= data.sides[0]!.sums.inStart !== data.sides[1]!.sums.inStart;
+    }
+    // the line reaches the goal houses and has plies where the sides differ in the start house, so both house checks were exercised
+    expect(goalSeen).toBe(true);
+    expect(startMixed).toBe(true);
   });
 });

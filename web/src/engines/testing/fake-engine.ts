@@ -100,8 +100,9 @@ export class FakeEngineCore {
   /** A report of the right shape with fixed numbers: 13 features that count the ply, score 0, zero distances. Tests that need real numbers pass their own core. */
   private features(history: readonly number[], variant: Variant): FeatureReport {
     this.featuresCalls++;
-    if (variant.players !== 2 || variant.jump !== 'adjacent' || (variant.rows ?? 4) !== 4 || (variant.camps ?? 'closed') !== 'closed') {
-      throw new EngineFailure('unsupported', 'features is for the classic game');
+    // the gate of the real exports (WebCore.features, shw_features): two players, adjacent jumps, closed corners, 4 or 5 rows
+    if (variant.players !== 2 || variant.jump !== 'adjacent' || (variant.camps ?? 'closed') !== 'closed') {
+      throw new EngineFailure('unsupported', 'features is for the classic game on 4 or 5 rows');
     }
     this.legal(history, variant); // illegal-history
     return {

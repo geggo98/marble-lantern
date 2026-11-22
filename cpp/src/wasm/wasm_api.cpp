@@ -368,15 +368,15 @@ SHW_API int shw_evaluate3(std::int32_t* out3) {
 // The static evaluation of the current position by linear-r3, term by term (Java: WebCore.features; the Info pages explain it). Writes the 13
 // features (LinearEvaluator::features with GainMode::Both, order of GAIN_NAMES, side to move minus opponent) to out13[0..12], the linear-r3
 // score for the side to move and the side to move to out_score_side[0..1], and the single-agent distance Layout::distance(p, cell) to
-// out_dist242[p * 121 + cell]. Classic games only (two players, adjacent jumps, 4 rows, closed foreign corners; the ranking rule changes
-// nothing for two players). No search and no table: it reads the replayed position and a fresh evaluator, never a game or analysis player.
+// out_dist242[p * 121 + cell]. Two players, adjacent jumps and closed foreign corners, on 4 or 5 rows (the ranking rule changes nothing for
+// two players); on 5 rows the 15-piece layout with dsumPhase on the 10-piece scale, the evaluation of kBrowserRows5Spec. No search and no
+// table: it reads the replayed position and a fresh evaluator, never a game or analysis player.
 // Returns 0, or -1 for another game (shw_error() tells).
 SHW_API int shw_features(double* out13, std::int32_t* out_score_side, std::int32_t* out_dist242) {
     const sh::Position& pos = *g_pos;
     const sh::RuleSet& rules = pos.rules();
-    if (rules.players() != 2 || rules.jump_rule() != sh::RuleSet::JumpRule::Adjacent || rules.triangle_rows() != sh::RuleSet::TriangleRows::Four ||
-        rules.foreign_camps() != sh::RuleSet::ForeignCamps::Closed) {
-        g_error = "the evaluation features exist for the classic game only (two players, adjacent jumps, 4 rows, closed corners)";
+    if (rules.players() != 2 || rules.jump_rule() != sh::RuleSet::JumpRule::Adjacent || rules.foreign_camps() != sh::RuleSet::ForeignCamps::Closed) {
+        g_error = "the evaluation features exist for the classic game only (two players, adjacent jumps, closed corners, 4 or 5 rows)";
         return -1;
     }
     const std::span<double, sh::LinearEvaluator::kGainFeatures> features(out13, sh::LinearEvaluator::kGainFeatures);
