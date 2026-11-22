@@ -1,4 +1,4 @@
-// End-to-end matrix of the Info part (plan section 6.5): hub, six topics and the glossary, in four viewports, two themes and two languages.
+// End-to-end matrix of the Info part (plan section 6.5): hub, seven topics and the glossary, in four viewports, two themes and two languages.
 // The full matrix is sampled to keep the run short:
 //   - every route x all four sizes in en/light (28 cells),
 //   - every route in de/dark at 320 x 568 and 844 x 390 (14 cells),
@@ -11,7 +11,9 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openApp, watchPageErrors } from './helpers';
 
-const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java'] as const;
+const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'java-web'] as const;
+// Topics whose page has no figure yet (the code snippets are figures of another kind, figure.ml-code).
+const FIGURELESS: readonly string[] = ['java-web'];
 const ROUTES = [{ id: 'hub', hash: '#/about' }, ...TOPICS.map((t) => ({ id: t, hash: `#/about/${t}` })), { id: 'glossary', hash: '#/about/glossary' }] as const;
 
 const SIZES = [
@@ -55,7 +57,8 @@ async function openRoute(page: Page, route: (typeof ROUTES)[number], cell: Cell,
   } else {
     await expect(page.locator('main[data-topic]')).toHaveAttribute('data-topic', route.id);
   }
-  if ((TOPICS as readonly string[]).includes(route.id)) await expect(page.locator('figure.ml-fig').first()).toBeVisible();
+  // java-web has no figure until J6 and J7 are built in (FIGURELESS); remove the exception then.
+  if ((TOPICS as readonly string[]).includes(route.id) && !FIGURELESS.includes(route.id)) await expect(page.locator('figure.ml-fig').first()).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme', cell.theme);
 }
 
@@ -285,7 +288,7 @@ test.describe('about matrix (reduced motion)', () => {
 
         const svgs = await probeSvgs(page);
         // The architecture diagrams are HTML boxes below 640 px (BoxDiagram); the other topics draw svgs at every size.
-        const hasSvg = (TOPICS as readonly string[]).includes(route.id) && !(route.id === 'architecture' && cell.width < 640);
+        const hasSvg = (TOPICS as readonly string[]).includes(route.id) && !FIGURELESS.includes(route.id) && !(route.id === 'architecture' && cell.width < 640);
         if (hasSvg) expect(svgs.seen, 'the probe saw figure svgs').toBeGreaterThan(0);
         expect(svgs.bad, 'figure svgs without role and name').toEqual([]);
 
@@ -339,7 +342,7 @@ test.describe('about topics (motion allowed)', () => {
       await openRoute(page, route, { width: 390, height: 844, theme: 'light', language: 'en' }, 'no-preference');
       const steppers = page.locator('.ml-fig-stepper');
       const count = await steppers.count();
-      if (topic === 'tuning' || topic === 'java') {
+      if (topic === 'tuning' || topic === 'java' || topic === 'java-web') {
         // The tuning and java figures have no stepper (tuning: a staircase with a filter, a curve with a phase switch, sweeps; java: a dot chart with one switch): nothing to step or play.
         expect(count, 'tuning or java figures with a stepper').toBe(0);
         errors.expectNone();

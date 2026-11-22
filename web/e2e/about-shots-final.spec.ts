@@ -1,6 +1,6 @@
 // Final screenshots of every Info route for the visual review. Not part of CI: it runs only when SHOT_DIR is set.
 //   SHOT_DIR=/some/dir npm exec --no -- playwright test e2e/about-shots-final.spec.ts --project=chromium
-// For every route (hub, five topics, glossary), size, theme and language it writes SHOT_DIR/<route>-<w>x<h>-<theme>-<lang>.png (the
+// For every route (hub, seven topics, glossary), size, theme and language it writes SHOT_DIR/<route>-<w>x<h>-<theme>-<lang>.png (the
 // viewport as a reader sees it first) and, when the page is taller than the viewport, SHOT_DIR/<route>-<w>x<h>-<theme>-<lang>-full.png.
 import { expect, test } from '@playwright/test';
 import { openApp } from './helpers';
@@ -14,6 +14,7 @@ const ROUTES = [
   { id: 'training', hash: '#/about/training' },
   { id: 'tuning', hash: '#/about/tuning' },
   { id: 'java', hash: '#/about/java' },
+  { id: 'java-web', hash: '#/about/java-web' },
   { id: 'glossary', hash: '#/about/glossary' },
 ] as const;
 const SIZES = [

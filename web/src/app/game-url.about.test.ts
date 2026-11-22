@@ -18,12 +18,12 @@ describe('parseHash: the About screen and its sub-routes', () => {
     expect(parseHash('#/about/classical/')).toEqual({ kind: 'screen', screen: 'about', topic: 'classical' });
   });
 
-  it.each(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary'])('knows the topic %s', (topic) => {
+  it.each(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'java-web', 'glossary'])('knows the topic %s', (topic) => {
     expect(parseHash(`#/about/${topic}`)).toEqual({ kind: 'screen', screen: 'about', topic });
   });
 
-  it('lists the six topics and the glossary, in order (java sits before the glossary)', () => {
-    expect([...ABOUT_TOPICS]).toEqual(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary']);
+  it('lists the seven topics and the glossary, in order (java-web sits before the glossary)', () => {
+    expect([...ABOUT_TOPICS]).toEqual(['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'java-web', 'glossary']);
   });
 
   it('reads the section of a topic', () => {

@@ -142,7 +142,7 @@ Size, measured by the unit test `web/src/app/game-url.test.ts`: 100 plies give 1
 
 ### Routes
 
-`#/bench` and `#/about` open the benchmark and the about screen. Any other fragment that is not a game fragment shows the play screen. When the user goes back from another screen to the play screen during a game, the app writes the current game into the address again.
+`#/bench` and `#/about` open the benchmark and the about screen. Any other fragment that is not a game fragment shows the play screen. When the user goes back from another screen to the play screen during a game, the app writes the current game into the address again. The about screen lists the topics of the Info part, in the order of `ABOUT_TOPICS` in `web/src/about/routes.ts`: architecture, classical, inference, training, tuning, java (high-speed Java), java-web (Java in the browser) and the glossary. Each topic is a lazy chunk (`web/src/about/AboutTopic.tsx`).
 
 ### History
 

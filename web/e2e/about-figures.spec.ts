@@ -586,8 +586,8 @@ for (const lang of ['en', 'de'] as const) {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => undefined); // Firefox has no such permission; the fallback path then answers
     await page.setViewportSize(PHONE);
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
-    await openApp(page, lang, '#/about/java');
-    const snippet = page.locator('figure.ml-code[data-snippet="hgen"]'); // the widest line of the page: one 200-character line
+    await openApp(page, lang, '#/about/java-web');
+    const snippet = page.locator('figure.ml-code[data-snippet="hgen"]'); // the widest (topic java-web since round 3) line of the page: one 200-character line
     await snippet.scrollIntoViewIfNeeded();
     await expect(snippet).toBeVisible();
     const m = await snippet.evaluate((el) => {

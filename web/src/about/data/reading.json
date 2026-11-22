@@ -46,6 +46,23 @@
     { "id": 41, "title": "JEP 454: Foreign Function & Memory API", "authors": "OpenJDK", "url": "https://openjdk.org/jeps/454", "level": "advanced", "verifiedOn": "2026-11-21" },
     { "id": 42, "title": "How to create and use browser-callable services in Hilla", "authors": "Vaadin", "url": "https://vaadin.com/docs/latest/hilla/guides/browser-callable-services", "level": "beginner", "verifiedOn": "2026-11-21" },
     { "id": 43, "title": "Hilla documentation", "authors": "Vaadin", "url": "https://vaadin.com/docs/latest/hilla", "level": "beginner", "verifiedOn": "2026-11-21" },
-    { "id": 44, "title": "TeaVM overview", "authors": "TeaVM project", "url": "https://teavm.org/docs/intro/overview.html", "level": "beginner", "verifiedOn": "2026-11-21" }
+    { "id": 44, "title": "TeaVM overview", "authors": "TeaVM project", "url": "https://teavm.org/docs/intro/overview.html", "level": "beginner", "verifiedOn": "2026-11-21" },
+    { "id": 45, "title": "CUDA C++ Best Practices Guide", "authors": "NVIDIA", "url": "https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 46, "title": "CUDA Programming Guide: Programming Model", "authors": "NVIDIA", "url": "https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 47, "title": "Turing Tuning Guide", "authors": "NVIDIA", "url": "https://docs.nvidia.com/cuda/turing-tuning-guide/index.html", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 48, "title": "Dissecting the NVidia Turing T4 GPU via Microbenchmarking", "authors": "Z. Jia, M. Maggioni, J. Smith, D. P. Scarpazza", "year": 2019, "url": "https://arxiv.org/abs/1903.07486", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 49, "title": "Getting Started with CUDA Graphs", "authors": "NVIDIA Technical Blog", "url": "https://developer.nvidia.com/blog/cuda-graphs/", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 50, "title": "Scale compute workloads across Apple GPUs (WWDC22)", "authors": "Apple", "year": 2022, "url": "https://developer.apple.com/videos/play/wwdc2022/10159", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 51, "title": "Explore GPU advancements in M3 and A17 Pro", "authors": "Apple", "url": "https://developer.apple.com/videos/play/tech-talks/111375", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 52, "title": "RFR: 8340272: C2 SuperWord: JMH benchmark for Reduction vectorization", "authors": "E. Peter, hotspot-compiler-dev mailing list", "year": 2024, "url": "https://mail.openjdk.org/pipermail/hotspot-compiler-dev/2024-September/080075.html", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 60, "title": "Introduction to security in Hilla", "authors": "Vaadin", "url": "https://vaadin.com/docs/latest/hilla/guides/security/intro", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 61, "title": "Interacting with JavaScript", "authors": "TeaVM project", "url": "https://teavm.org/docs/runtime/jso.html", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 62, "title": "Loader API (Wasm GC backend)", "authors": "TeaVM project", "url": "https://teavm.org/docs/wasm-gc-backend/loader.html", "level": "advanced", "verifiedOn": "2026-11-22" },
+    { "id": 63, "title": "Using Web Workers", "authors": "MDN Web Docs", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 64, "title": "The structured clone algorithm", "authors": "MDN Web Docs", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 65, "title": "Transferable objects", "authors": "MDN Web Docs", "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects", "level": "beginner", "verifiedOn": "2026-11-22" },
+    { "id": 66, "title": "Exported WebAssembly functions", "authors": "MDN Web Docs", "url": "https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Exported_functions", "level": "beginner to advanced", "verifiedOn": "2026-11-22" },
+    { "id": 67, "title": "WebAssembly Garbage Collection (WasmGC) now enabled by default in Chrome", "authors": "T. Steiner (Chrome for Developers)", "year": 2023, "url": "https://developer.chrome.com/blog/wasmgc", "level": "beginner to advanced", "verifiedOn": "2026-11-22" },
+    { "id": 68, "title": "Interacting with code", "authors": "Emscripten project", "url": "https://emscripten.org/docs/porting/connecting_cpp_and_javascript/Interacting-with-code.html", "level": "advanced", "verifiedOn": "2026-11-22" }
   ]
 }

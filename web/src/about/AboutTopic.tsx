@@ -19,6 +19,7 @@ export const topicLoaders: Record<AboutTopic, Loader> = {
   training: () => import('./topics/training'),
   tuning: () => import('./topics/tuning'),
   java: () => import('./topics/java'),
+  'java-web': () => import('./topics/java-web'),
   glossary: () => import('./topics/glossary'),
 };
 

@@ -39,7 +39,7 @@ const loose = (text: string): string =>
 
 describe('German glossary names', () => {
   it('sees all terms', () => {
-    expect(ids.length).toBe(165);
+    expect(ids.length).toBe(188);
   });
 
   it('has no English term that the display rule would hide', () => {

@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openApp, playOneExchange, plyOf, watchPageErrors } from './helpers';
 
-const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'glossary'];
+const TOPICS = ['architecture', 'classical', 'inference', 'training', 'tuning', 'java', 'java-web', 'glossary'];
 
 const noOverflow = async (page: Page): Promise<void> => {
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
