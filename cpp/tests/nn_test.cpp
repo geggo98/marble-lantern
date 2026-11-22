@@ -359,6 +359,21 @@ SH_TEST(config_metadata_rules) {
     CHECK(!config_from_metadata(v1_wrong_width));
 }
 
+SH_TEST(config_metadata_ignores_the_optional_key_triangle_rows) {
+    // docs/network.md, decision D2 of the 5-row network: the Java writer adds triangle_rows ("5" or "4,5") to a network
+    // that is not for the 4-row board alone. The key changes no tensor and no format version, and C++ has no encoder:
+    // the reader ignores it, for every plane set and for any text.
+    for (const NetworkConfig& c : {kTiny, tiny_config(3, PlaneSet::Plain), tiny_config(3, PlaneSet::Classic1V)}) {
+        for (const char* rows : {"4", "5", "4,5", "anything"}) {
+            auto m = metadata_of(c);
+            m["triangle_rows"] = rows;
+            const auto read = config_from_metadata(m);
+            CHECK(read.has_value());
+            if (read) CHECK(*read == c);
+        }
+    }
+}
+
 SH_TEST(config_metadata_rules_of_format_version_3) {
     // docs/network.md, "File format rules": v3 requires planes=classic1v, players=3, input_planes=15; v2 with classic1v and v3 with
     // another plane set are rejected; v1 and v2 stay as they were.
