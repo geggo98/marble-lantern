@@ -77,10 +77,6 @@
   .ml-fig-ctl--wide .ml-fig-ctl__input { grid-area: 1 / 2 / 2 / -1; }
 }
 .ml-fig-scale { display: flex; justify-content: space-between; margin-top: -0.5rem; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.2 var(--ml-font-data); }
-/* D9: the ring of a focused slider goes around the thumb; the box ring of the whole input cut the label above and struck through the tick labels */
-.ml-fig .ml-slider:focus-visible { outline: none; }
-.ml-fig .ml-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1px var(--ml-color-ink), 0 0 0 calc(var(--ml-focus-width) + 1px) var(--ml-color-focus); }
-.ml-fig .ml-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 1px var(--ml-color-ink), 0 0 0 calc(var(--ml-focus-width) + 1px) var(--ml-color-focus); }
 
 .ml-fig-stepper { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ml-space-2); }
 .ml-fig-stepper .ml-btn { background: var(--ml-fig-bg); }
