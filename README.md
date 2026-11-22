@@ -71,7 +71,7 @@ flowchart LR
   ep -->|"ServerChoice JSON"| ui
 ```
 
-**Training.** Command-line JVM jobs play games, train the network on the CPU or on the GPU through TornadoVM, and keep a new network only if it wins more than half of a gating match against the current best. Everything they write lands in the git-ignored `data/`. `scripts/models/pack-model.py` packs a chosen network into `web/models/` for the browser.
+**Training.** Command-line JVM jobs play games, train the network on the CPU or on the GPU through TornadoVM, and keep a new network only if it wins more than half of a gating match against the current best. Everything they write lands in the git-ignored `data/`. `scripts/models/pack-model.py` packs a chosen network into `web/models/` for the browser, and `scripts/models/archive-nets.py` archives every trained network in `models/`.
 
 ```mermaid
 flowchart LR
@@ -123,7 +123,8 @@ Paths are relative to the repository root. Rows marked *git-ignored* name direct
 | `web/src/ui/`, `web/design/` | React components; design tokens and notes | `web/design/design-notes.md` |
 | `web/src/about/` | the Info pages, their figures and the figure data in `data/` | `web/src/about/routes.ts`, `web/src/about/topics/architecture.tsx` |
 | `web/src/pwa/`, `web/tooling/` | service worker and the Vite plugin that writes `sw.js` | `web/src/pwa/sw.ts` |
-| `web/models/` | shipped networks (F16 + gzip) and `models.json` | `docs/models.md` |
+| `web/models/` | the three shipped networks (F16 + gzip): [4-row expert](web/models/small-2p-adjacent-expert.safetensors.gz), [5-row expert](web/models/small-2p-adjacent-r5-expert.safetensors.gz), [shared](web/models/small-shared-all.safetensors.gz), listed in [`models.json`](web/models/models.json) | `docs/models.md` |
+| `models/` | every trained network of the documented runs (F32 + gzip, Git LFS), with sizes, SHA-256, board sizes, strength and kWh in [`index.md`](models/index.md) | `models/README.md` |
 | `web/e2e/` | Playwright tests | `web/playwright.config.ts` |
 | `scripts/` | one script per devenv task; training, model packing and cloud scripts | `scripts/loop.sh` |
 | `docs/` | design documents, ADRs, references | `docs/architecture.md` |

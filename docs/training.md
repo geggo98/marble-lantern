@@ -450,7 +450,7 @@ The job follows the [long-running-job conventions](architecture.md#long-running-
 
 #### Energy measurement
 
-To state afterwards how many kWh a network or a phase of a run cost, `scripts/energy/` records the energy counters of the Mac's battery controller during a run (`sampler.py`), marks phases (`mark.py start|end <phase>`) and sums the energy per phase (`report.py`). It measures the whole machine at the wall socket, with a resolution of about one minute, and cannot split CPU from GPU. What it measures, how to read it and its limits: `scripts/energy/README.md`.
+To state afterwards how many kWh a network or a phase of a run cost, `scripts/energy/` records the energy counters of the Mac's battery controller during a run (`sampler.py`), marks phases (`mark.py start|end <phase>`) and sums the energy per phase (`report.py`). It measures the whole machine at the wall socket, with a resolution of about one minute, and cannot split CPU from GPU. What it measures, how to read it and its limits: `scripts/energy/README.md`. The first measured run is the [five-row expert net](#energy); its per-phase table and the energy per network are there.
 
 #### Run monitor
 
@@ -2639,6 +2639,113 @@ The control is `--control ab3`: the opponent's own spec in the candidate seat, s
 - Web integration: not part of that run. It was done afterwards: the browser net engines (`net-wasm`, `net-webgpu`) run the Java MCTS in TeaVM with the C++ WebAssembly or WebGPU forward pass and offer the shared net and the loop-3 expert net as models (see [Net engines](web-ui.md) and [models](models.md)). The C++ MCTS was not used.
 
 If the owner wants to continue, the next experiments would be, in this order: a LARGE shared network (capacity), `--strata natural` against `equal`, 800 simulations, and MCTS self-play with the shared network. None of them is planned.
+
+## Five-row expert net
+
+**TL;DR:** The first network for the 5-row board (15 pieces per player in a 15-cell house, [rules](rules.md#board-size-triangle-rows)) was trained on 2026-11-22 in one unattended run of 5 hours 8 minutes on the Apple M3 Max: teacher games of the classical 5-row player, Gen0, then 10 generations of MCTS self-play. It is a SMALL `classic1` network for 2 players with the neighbour jump and closed foreign corners. Generation 9, the last promoted one, ships in the browser as `small-2p-adjacent-r5-expert`. At 200 simulations it scores 0.950 to 0.996 against the classical 5-row player at 1,600 to 102,400 nodes (+512 ± 81 Elo at 102,400), and 0.991 against its own Gen0. The whole run took 0.21 kWh at the wall, 0.14 kWh above the idle power of the machine.
+
+All numbers are measured on 2026-11-22. The run data are under `data/net5/` (git-ignored; the networks themselves are archived in [`models/`](../models/README.md)).
+
+Terms used in this section:
+
+- **5-row ladder, `ab:N`:** the classical 5-row player `BROWSER_ROWS5_SPEC` (`search/src/main/java/sternhalma/search/Strategies.java`) at N search nodes per move. It plays without race play, because the race tables exist for 10 pieces only. Its Elo cannot be compared with 4-row Elo against `BEST_SPEC`.
+- **E1, E2, E3:** the acceptance checks of this run. E1: Gen0 scores at least 0.6 against `ab:6400`. E2: the best loop network beats Gen0 with z > 1.96 in a direct match. E3: the best loop network against the 5-row ladder.
+- **Plane 12 on 5 rows:** the classical evaluation plane is 0 on the 5-row board, because the weights of the linear evaluation were fitted on 10 pieces ([network, input planes](network.md#input-planes), "Board sizes"); the value prior `k · eval` therefore adds nothing there.
+- Gen0, Loop, gate, baseline clause, window, opening pair, score: as in [Bootstrap](#bootstrap-generation-0-from-a-classical-teacher), [As implemented (block 2h)](#as-implemented-block-2h) and [Two players: `MctsMatch`](#two-players-mctsmatch).
+
+### What was run
+
+| Step | Setting | Result |
+|---|---|---|
+| pilot | 20 teacher games, seed 500 | median 128 plies (120 to 144), 0 of 20 games at the move limit of 250 plies |
+| ladder check | `ab:6400` against `ab:1600`, 100 pairs, seed 4101 | score 0.810 ± 0.025 (+252 ± 57 Elo): the ladder separates budgets |
+| teacher data | 8,000 games, seed 501, `BROWSER_ROWS5_SPEC` at 5,000 nodes, teacher depth 2, value blend `--teacher-alpha 0.7,0.3,127`, 14 threads | 160 shards, 949,818 training and 110,077 held-out samples, 24 min 40 s |
+| Gen0 | `--planes classic1 --rows 5 --preset small --trainer gpu --steps 40000 --batch 256 --seed 1` | 7 min 20 s at 90.9 steps/s; held-out proxies: policy KL 0.298, top-1 63.8 %, value loss 0.155, winner predicted in 75.4 % of 2,500 positions |
+| E1 | Gen0, MCTS 200 simulations, `race=0`, 200 pairs per rung, seed 3001 | see the ladder table below |
+| loop | 10 generations of 2,500 games at 200 simulations, `--lr 3e-4 --lr-final 1e-5 --reuse 20`, window 1,500,000 samples with the teacher data as generation 0, gate 200 pairs with `--promote-z 1.28`, baseline clause against `ab:25600` with 100 pairs | 9 of 10 candidates promoted; 4 h 0 min |
+| E2 | generation 9 against Gen0, 400 pairs, seed 3002 | score 0.991 ± 0.003, +822 ± 155 Elo |
+| E3 | generation 9, same settings as E1, plus the rung `ab:102400` | see the ladder table below |
+
+Command lines: the driver `data/net5/driver.zsh` (steps pilot to E2) and `data/net5/driver.log`; E3 ran `scripts/mctsmatch.sh --net <generation 9> --subject mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0 --vs ab:1600 --vs ab:6400 --vs ab:25600 --vs ab:102400 --pairs 200 --seed 3001 --threads 14 --rows 5`.
+
+### Gate decisions
+
+| Generation | Gate score against the best before (200 pairs) | Decision | Candidate against `ab:25600` (100 pairs, baseline clause) |
+|---|---|---|---|
+| 1 | 0.759 ± 0.019 | promoted | 0.840 |
+| 2 | 0.863 ± 0.017 | promoted | 0.950 |
+| 3 | 0.625 ± 0.021 | promoted | 0.960 |
+| 4 | 0.623 ± 0.019 | promoted | 0.980 |
+| 5 | 0.578 ± 0.020 | promoted | 0.980 |
+| 6 | 0.596 ± 0.020 | promoted | 0.985 |
+| 7 | 0.588 ± 0.020 | promoted | 0.975 |
+| 8 | 0.538 ± 0.020 | promoted | 0.987 |
+| 9 | 0.555 ± 0.021 | promoted | 0.990 |
+| 10 | 0.515 ± 0.021 | rejected (z 0.72, needs above 1.28) | not evaluated |
+
+Source: `data/net5/loop-small/gen-NNNN/decision.json` and the "gen N decision" lines of the loop logs in `data/net5/logs/`. The stop rule (from generation 6, stop after two rejections in a row; at the latest after generation 10) did not trigger before generation 10. The gate scores fall from 0.76 to about 0.55, as in [loop run 3](#loop-run-3-measured-2026-11-14) on 4 rows.
+
+### Strength against the 5-row ladder
+
+MCTS at 200 simulations, `race=0`, 200 opening pairs per rung, seed 3001. ± is the 95 % interval.
+
+| Opponent | Gen0 (E1) | Generation 9 (E3) |
+|---|---|---|
+| `ab:1600` | 0.910, +402 ± 60 Elo | 0.996, +970 ± 193 Elo |
+| `ab:6400` | 0.817, +260 ± 42 Elo | 0.990, +798 ± 261 Elo |
+| `ab:25600` | 0.680, +131 ± 33 Elo | 0.971, +611 ± 112 Elo |
+| `ab:102400` | not measured | 0.950, +512 ± 81 Elo |
+
+Source: `data/net5/e1.txt` and the E3 output (games per rung: 398-1-1, 396-0-4, 388-1-11 and 380-0-20 for generation 9). E1 passes (0.817 ≥ 0.6 against `ab:6400`), and E2 passes (z far above 1.96).
+
+**The ladder is saturated for generation 9.** At scores of 0.95 to 0.996 the Elo intervals are wide, and the differences between rungs say little. The direct match E2 (0.991 over 400 pairs) is the better measure of the loop's gain. It is inflated, because both sides are networks of the same lineage and self-play rewards exploiting a predecessor (the same effect as in [loop run 4](#loop-run-4-measured-2026-11-14), where the gates added up to about twice the gain of the direct match). The 5-row classical player is also weaker than `BEST_SPEC` is on 4 rows: it has no race play, and its evaluation was fitted on 10 pieces.
+
+**F16 check before shipping.** `HalfPrecisionStudy` on 2,000 positions of seeded random 5-row playouts (seed 11, ply 20 to 120), F32 network against the widened packed file: the best move agrees in 2,000 of 2,000 positions (100 %), the mean KL divergence of the move priors is 3.5 × 10⁻⁷, the largest value difference is 1.0 × 10⁻³. The packed file is 115,132 bytes ([models](models.md)).
+
+### Energy
+
+The run was measured with the energy tools ([Energy measurement](#energy-measurement), `scripts/energy/README.md`). Per phase (wall energy of the whole machine; "above baseline" subtracts the idle power of 13.64 W times the covered time):
+
+| Phase | Duration | Mean W | kWh | kWh above baseline |
+|---|---|---|---|---|
+| baseline (idle) | 0:10:00 | 13.6 | 0.0021 | 0 |
+| pilot | 0:00:04 | 51.2 | 0.0001 | 0.0000 |
+| ladder check | 0:00:12 | 51.2 | 0.0002 | 0.0001 |
+| teacher data | 0:24:40 | 39.0 | 0.0160 | 0.0104 |
+| Gen0 | 0:07:24 | 36.5 | 0.0045 | 0.0028 |
+| E1 | 0:12:28 | 36.8 | 0.0076 | 0.0048 |
+| loop generation 1 | 0:31:20 | 37.4 | 0.0196 | 0.0124 |
+| loop generation 2 | 0:25:53 | 39.0 | 0.0168 | 0.0110 |
+| loop generation 3 | 0:22:52 | 46.1 | 0.0176 | 0.0124 |
+| loop generation 4 | 0:24:26 | 42.4 | 0.0173 | 0.0117 |
+| loop generation 5 | 0:22:36 | 40.9 | 0.0154 | 0.0103 |
+| loop generation 6 | 0:23:08 | 44.5 | 0.0171 | 0.0119 |
+| loop generation 7 | 0:25:51 | 44.0 | 0.0190 | 0.0131 |
+| loop generation 8 | 0:24:01 | 44.4 | 0.0178 | 0.0123 |
+| loop generation 9 | 0:23:04 | 42.5 | 0.0163 | 0.0111 |
+| loop generation 10 | 0:17:00 | 46.3 | 0.0131 | 0.0093 |
+| E2 | 0:14:06 | 48.1 | 0.0110 | 0.0079 |
+| **sum of phases** (without baseline) | 4:58:42 | | **0.2094** | **0.1415** |
+| **whole run** (5:07:55 with data) | | 41.2 | **0.2115** | **0.1415** |
+| E3 (separate run `net5-ship-eval`, see below) | 0:19:56 | 41.0 | 0.0130 | about 0.0087 |
+
+Source: `data/energy/net5.report.md` (written by `scripts/energy/report.py`) and `data/energy/net5-ship-eval.csv`. The loop generations together took 0.170 kWh (0.115 above baseline) in 4 h 0 min.
+
+**Energy per network** (training phases only, without the checks pilot, ladder, E1 and E2): the Gen0 network took 0.021 kWh (teacher data and Gen0; 0.013 above baseline); the shipped generation 9 took 0.177 kWh (teacher data, Gen0 and loop generations 1 to 9; 0.119 above baseline). Every loop generation costs about 0.013 to 0.020 kWh; [`models/index.md`](../models/index.md) lists the figure per network.
+
+**Method.** `scripts/energy/sampler.py` polled the energy counters of the battery controller every 5 s and `scripts/energy/mark.py` marked the start and end of each phase; `report.py` integrated the counter `AccumulatedWallEnergyEstimate`, the controller's estimate of the energy at the wall socket. The power adapter was connected and the battery stood at its charge limit of 80 % for the whole run: 0 of 3,710 polls were flagged for battery charging or discharging. The baseline is the mean power of a 10-minute idle phase recorded before the first step.
+
+**Limits.**
+
+- The figures are for the whole machine, display included, and the machine was shared with other work: a phase's kWh is an upper bound for the training itself. Origin: the sampler reads the whole system's counters (`scripts/energy/README.md`, "What the numbers mean").
+- The counters refresh about once a minute, so the 4- and 12-second phases (pilot, ladder check) are indications only; phases of 10 minutes or more have errors below 5 % (same source, "Resolution").
+- Nothing splits CPU from GPU: the Gen0 figure (GPU trainer) and the teacher figure (CPU search) are both whole-system figures.
+- E3 ran in a separate sampler run (`net5-ship-eval`) without an idle phase of its own. Its "above baseline" figure subtracts the 13.64 W of the main run, computed by hand; the report of that run used its own lowest 10-minute mean, which is the load itself. The sampler started after the rung `ab:1600` had finished (about 4.5 minutes, not covered), and other agent work (builds and tests) ran on the machine during E3, so its figure is an upper bound.
+- The baseline of 13.64 W was taken with the display on and the desktop idle; a different desktop state gives a different idle power and changes every "above baseline" figure by up to the difference times the duration.
+
+### Files
+
+The networks of the run (Gen0 and generations 1 to 10) are archived as `models/nets/net5/*.safetensors.gz` ([`models/README.md`](../models/README.md)). The packed browser copy of generation 9 is `web/models/small-2p-adjacent-r5-expert.safetensors.gz`; how the browser uses it: [web UI](web-ui.md#choosing-a-net-engine).
 
 ## Open questions
 
