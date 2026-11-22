@@ -12,9 +12,11 @@ import sternhalma.engine.Position;
 
 /**
  * Not a test: how much does storing the weights as float16 (F32 to F16 to F32 at load) change the outputs of a net?
- * Usage: {@code HalfPrecisionStudy <net.safetensors> [positions=2000] [seed=11] [packed.safetensors|- [players=2 [adjacent|long]]]}. With a packed file (the F32 widening of a packed model, scripts/models/pack-model.py widen) the study compares the net with that file instead of its own rounding. Prints a table; it does not judge strength.
+ * Usage: {@code HalfPrecisionStudy <net.safetensors> [positions=2000] [seed=11] [packed.safetensors|- [players=2 [adjacent|long [rows=4]]]]}.
+ * {@code rows} is the board size of the playouts, 4 or 5; a 5-row study needs a network that lists 5 rows (metadata key
+ * {@code triangle_rows}). With a packed file (the F32 widening of a packed model, scripts/models/pack-model.py widen) the study compares the net with that file instead of its own rounding. Prints a table; it does not judge strength.
  *
- * <p>Positions: seeded random two-player playouts (adjacent jump rule), positions between ply 20 and ply 120 that are not
+ * <p>Positions: seeded random playouts (two players, adjacent jump rule and 4 rows unless the arguments say otherwise), positions between ply 20 and ply 120 that are not
  * finished and have at least two legal moves, {@code positions} of them evenly spaced. Variants: {@code all} converts every
  * tensor, {@code weights} converts only the convolution and dense weight matrices (biases and the prior scalars stay F32).
  * Compared with the F32 net, both through the scalar reference {@link Network} and {@link Evaluator}: the raw policy logits
@@ -36,8 +38,13 @@ public final class HalfPrecisionStudy {
         int players = args.length > 4 ? Integer.parseInt(args[4]) : 2;
         sternhalma.engine.RuleSet.JumpRule jump = args.length > 5
                 ? sternhalma.engine.RuleSet.JumpRule.valueOf(args[5].toUpperCase(Locale.ROOT)) : sternhalma.engine.RuleSet.JumpRule.ADJACENT;
+        sternhalma.engine.RuleSet.TriangleRows rows = args.length > 6 && args[6].equals("5")
+                ? sternhalma.engine.RuleSet.TriangleRows.FIVE : sternhalma.engine.RuleSet.TriangleRows.FOUR;
+        if (args.length > 6 && !args[6].equals("4") && !args[6].equals("5")) {
+            throw new IllegalArgumentException("rows must be 4 or 5, not " + args[6]);
+        }
         List<Position> pool = new ArrayList<>();
-        for (Position p : Playouts.positions(players, jump, 200, 160, seed)) {
+        for (Position p : Playouts.positions(players, jump, rows, 200, 160, seed)) {
             if (p.ply() >= 20 && p.ply() <= 120 && p.outcome() == null && p.legalMoves().length >= 2) {
                 pool.add(p);
             }
@@ -50,7 +57,7 @@ public final class HalfPrecisionStudy {
             positions.add(pool.get((int) ((long) i * pool.size() / wanted)));
         }
         System.out.println("# net " + args[0] + " " + config + ", " + positions.size() + " positions of " + pool.size()
-                + " (ply 20..120, seed " + seed + ")");
+                + " (ply 20..120, seed " + seed + ", " + players + " players, " + jump + ", " + rows.rows() + " rows)");
         Network ref = new Network(base);
         Evaluator refEval = new Evaluator(ref);
         List<Evaluation> reference = evaluate(refEval, positions);

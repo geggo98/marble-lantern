@@ -9,7 +9,7 @@
 """Packs a network (F32 safetensors) for the browser: F16 weights, gzip -9, and an entry in web/models/models.json.
 
 usage:
-  pack-model.py pack <net.safetensors> --id ID --variant jump:players [--variant ...] --created-from LABEL
+  pack-model.py pack <net.safetensors> --id ID --variant jump:players[:rows] [--variant ...] --created-from LABEL
                 [--strength-json JSON-or-FILE] [--out DIR]
   pack-model.py verify [--out DIR] [--source ID=<net.safetensors> ...]
   pack-model.py widen <ID> <out.safetensors> [--out DIR]
@@ -17,9 +17,11 @@ usage:
 pack:    reads the F32 file, converts every tensor to F16 (struct 'e', round to nearest even; a value beyond 65504 or a
          NaN/Inf is an error, exit 1), keeps the metadata and adds weights_dtype=F16 and source_sha256, writes
          DIR/<ID>.safetensors.gz (gzip -9, mtime 0, no file name: same input, same bytes) and adds or replaces the entry
-         <ID> in DIR/models.json. Default DIR: <repo>/web/models. Variants are jump:players, jump adjacent|long, players 2|3.
+         <ID> in DIR/models.json. Default DIR: <repo>/web/models. Variants are jump:players[:rows], jump adjacent|long, players 2|3,
+         rows 4 (default, not written to the manifest) or 5 (written as "rows": 5). The board sizes of the variants must
+         equal the network's metadata key triangle_rows (missing = 4), else exit 2.
 verify:  every entry: file exists, packedBytes and sha256Packed match, gunzip gives rawBytesF16 and sha256Raw, the header is
-         F16 with the metadata the entry claims (formatVersion, planes, players, params). With --source ID=file it also checks
+         F16 with the metadata the entry claims (formatVersion, planes, players, params, triangle_rows). With --source ID=file it also checks
          that the packed net is the F16 rounding of that F32 file (sourceSha256 and every weight). Exit 0 = ok, 1 = a difference.
 widen:   writes the F32 safetensors the browser loader produces from the packed file (for the agreement check in Java).
 Manifest key order: lengths and hashes come before the descriptive fields (a cut-short manifest is detectable).
@@ -152,10 +154,26 @@ def write_manifest(out: Path, m: dict) -> None:
 
 
 def parse_variant(s: str) -> dict:
-    jump, _, players = s.partition(":")
-    if jump not in ("adjacent", "long") or players not in ("2", "3"):
-        fail(f"--variant {s!r}: expected adjacent|long:2|3", 2)
-    return {"jump": jump, "players": int(players)}
+    """jump:players[:rows] -> manifest variant. rows 4 is the default and is not written, so a 4-row entry keeps the shape
+    {jump, players} that every app version reads; rows 5 adds "rows": 5."""
+    parts = s.split(":")
+    if len(parts) not in (2, 3) or parts[0] not in ("adjacent", "long") or parts[1] not in ("2", "3") \
+            or (len(parts) == 3 and parts[2] not in ("4", "5")):
+        fail(f"--variant {s!r}: expected adjacent|long:2|3[:4|5]", 2)
+    v = {"jump": parts[0], "players": int(parts[1])}
+    if len(parts) == 3 and parts[2] == "5":
+        v["rows"] = 5
+    return v
+
+
+def rows_text(variants: list) -> str:
+    """The value of the network metadata key triangle_rows that the variants need: "4", "5" or "4,5"."""
+    return ",".join(str(r) for r in sorted({v.get("rows", 4) for v in variants}))
+
+
+def net_rows(meta: dict) -> str:
+    """The board sizes a network file lists (metadata key triangle_rows; a file without it is a 4-row network)."""
+    return meta.get("triangle_rows", "4")
 
 
 def cmd_pack(a) -> int:
@@ -172,6 +190,8 @@ def cmd_pack(a) -> int:
             fail("--strength-json must be a JSON object", 2)
     src = Path(a.net).read_bytes()
     f16, meta, count, small = to_f16(src)
+    if net_rows(meta) != rows_text(variants):
+        fail(f"the variants need triangle_rows={rows_text(variants)}, the network lists {net_rows(meta)}", 2)
     gz = gzip.compress(f16, compresslevel=9, mtime=0)  # compress() writes no file name into the header
     gz32 = gzip.compress(src, compresslevel=9, mtime=0)
     out = Path(a.out)
@@ -235,6 +255,8 @@ def check_entry(out: Path, e: dict, source: Optional[Path]) -> list:
         errs.append(f"{e['id']}: planeSet differs from the header")
     if e["params"] != sum(math.prod(t[2]) for t in tensors):
         errs.append(f"{e['id']}: params differ from the tensor shapes")
+    if net_rows(meta) != rows_text(e["variants"]):
+        errs.append(f"{e['id']}: the variants need triangle_rows={rows_text(e['variants'])}, the header lists {net_rows(meta)}")
     if meta.get("source_sha256") != e["sourceSha256"]:
         errs.append(f"{e['id']}: sourceSha256 differs from the header")
     if source is not None:
