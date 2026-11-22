@@ -11,6 +11,7 @@ import type { Sims } from '../engines/warnings';
 import { Board } from '../ui/Board';
 import { AdvantageBar } from '../ui/AdvantageBar';
 import type { AdvantageState } from '../ui/AdvantageBar';
+import { advantageOfOutcome } from '../guides/advantage';
 import { AdvantageBar3 } from '../ui/AdvantageBar3';
 import { GuideSettings } from '../ui/GuideSettings';
 import { TrailSetting } from '../ui/TrailSetting';
@@ -182,7 +183,9 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   const boardGuides = useMemo(() => (guidesOn && guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guidesOn, guides.view]);
   // the advantage strip: always on the play screen (docs/web-ui.md, "Advantage strip"); this is what it shows
   const analysisGone = guides.status === 'unavailable' || guides.status === 'failed';
-  const advState: AdvantageState = demo ? 'unavailable' : three ? (evaluate3 === undefined || advantage3.failed ? 'unavailable' : 'value') : guides.advantage ? 'value' : analysisGone ? 'unavailable' : 'pending';
+  // a finished two-player game shows its result, never the stale value of the position before the last move (no analysis runs after the end)
+  const finished = !three && !demo && state.outcome !== undefined && state.outcome !== null;
+  const advState: AdvantageState = demo ? 'unavailable' : finished ? 'value' : three ? (evaluate3 === undefined || advantage3.failed ? 'unavailable' : 'value') : guides.advantage ? 'value' : analysisGone ? 'unavailable' : 'pending';
   const seatName = (side: number): string => {
     const v = views[side];
     return v ? t(seatNameKey(v), { n: v.number }) : '';
@@ -430,6 +433,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             legal={state.legal}
             interactive={humanTurn}
             inert={!humanTurn}
+            over={Boolean(state.outcome)}
             guides={boardGuides}
             targetMarks={guideLevel !== 'none'}
             dimOthers={guidesOn}
@@ -456,8 +460,8 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
           ) : (
             <AdvantageBar
               state={advState}
-              info={guides.advantage}
-              stale={guides.advantageStale}
+              info={finished ? advantageOfOutcome(state.outcome!, humanSide) : guides.advantage}
+              stale={!finished && guides.advantageStale}
               ends={demo || three ? null : { engine: styleOf(humanSide === 0 ? 1 : 0), you: styleOf(humanSide) }}
             />
           )}

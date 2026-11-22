@@ -238,6 +238,7 @@
   "advantage_mate": "{who}: guaranteed to win in {plies} plies",
   "advantage_race": "{who}: ahead in the race",
   "advantage_slight": "{who}: slightly ahead",
+  "advantage_over": "{who}: won",
   "advantage_updating": "updating",
   "advantage_you": "You",
   "advantage_pending": "No evaluation yet",

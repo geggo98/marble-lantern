@@ -3,6 +3,7 @@
 // The guide level stays at its default ("targets"): the strip must not depend on the marks (a stored level would only add marks).
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { TWO_PLAYER_WIN } from './fixtures';
 import { openApp, waitForHumanTurn, watchPageErrors } from './helpers';
 
 const SIZES = [
@@ -85,6 +86,24 @@ test.describe('strip on a wide screen after scrolling', () => {
     // not merely inside: it stays at the bottom edge of the window (sticky stage), 16 px from it at scroll 0 and about 80 px after the page scrolled
     expect(b.vh - b.bottom, `distance of the strip from the bottom edge after scrolling by ${y}px`).toBeLessThanOrEqual(120);
   });
+});
+
+test('a finished two-player game: the strip shows the result at once (full for the winner, no "updating"), and the board has no progress cursor', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await page.addInitScript(() => localStorage.setItem('ml.guides', 'eval')); // "With evaluation", as in the report
+  await openApp(page, 'en', `#g=v1.${TWO_PLAYER_WIN.moves}&h=1&l=2`); // side 0 has won; the person is side 1
+  await page.locator('[data-choice="link-side-to-move"]').click();
+  await expect(page.locator('.ml-result')).toBeVisible();
+  const adv = page.locator('.ml-play__adv .ml-advantage');
+  await expect(adv).toHaveAttribute('data-advantage', 'engine');
+  await expect(adv).toHaveAttribute('data-level', 'over');
+  await expect(adv).toContainText('Engine: won');
+  await expect(adv).not.toContainText('updating');
+  await expect(adv).not.toHaveClass(/is-stale/);
+  await page.waitForTimeout(1500); // a late analysis answer must not bring an old value back
+  await expect(adv).toHaveAttribute('data-level', 'over');
+  expect(await page.locator('svg.ml-board__svg').evaluate((e) => getComputedStyle(e).cursor)).not.toBe('progress');
+  errors.expectNone();
 });
 
 test.describe('strip on a low wide window', () => {

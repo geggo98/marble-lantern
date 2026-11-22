@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { describeAdvantage } from '../guides/advantage';
+import { advantageOfOutcome, describeAdvantage } from '../guides/advantage';
 import en from '../i18n/en.json';
 import { AdvantageBar } from './AdvantageBar';
 import { AdvantageBar3 } from './AdvantageBar3';
@@ -77,6 +77,16 @@ describe('AdvantageBar states', () => {
     await draw(<AdvantageBar state="value" info={describeAdvantage(-150)} stale />);
     expect(q('.ml-advantage')?.classList.contains('is-stale')).toBe(true);
     expect(q('.ml-advantage__text')?.textContent).toContain(`(${en.advantage_updating})`);
+  });
+});
+
+describe('AdvantageBar after the end of the game', () => {
+  it('a won game fills the whole half track for the winner and carries no "updating" note', async () => {
+    await draw(<AdvantageBar state="value" info={advantageOfOutcome({ kind: 'win', winner: 0 }, 1)} ends={{ engine: 'b', you: 'a' }} />);
+    expect(q('.ml-advantage__text')?.textContent).toBe('Advantage: Engine: won');
+    expect(q('.ml-advantage__fill--engine')?.getAttribute('style')).toContain('inline-size: 50%');
+    expect(q('.ml-advantage')?.classList.contains('is-stale')).toBe(false);
+    expect(q('.ml-advantage__text')?.textContent).not.toContain(en.advantage_updating);
   });
 });
 
