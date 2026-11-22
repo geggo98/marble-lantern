@@ -4,6 +4,7 @@
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { Snippet } from '../figures/Snippet';
+import { GpuFigure } from '../figures/GpuFigure';
 import { JavaSpeedFigure } from '../figures/JavaSpeedFigure';
 import { JavaPlainFigure } from '../figures/JavaPlainFigure';
 import { SimdFigure } from '../figures/SimdFigure';
@@ -38,6 +39,7 @@ const FIGURES: Record<string, () => React.ReactNode> = {
   ),
   tornadovm: () => (
     <>
+      <GpuFigure catalog={shared} number={[6, 4]} />
       <Snip id="b1" elideAfter />
       <Snip id="b2" />
     </>
