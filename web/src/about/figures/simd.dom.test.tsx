@@ -255,7 +255,7 @@ describe('figure J3 text', () => {
   it('cites the measurement with a source chip', async () => {
     await render();
     expect(q('.ml-fig-simd__facts a.ml-src').getAttribute('data-src')).toBe('docs/network.md');
-    expect(text(q('.ml-fig-simd__facts a.ml-src'))).toBe('docs/network.md:480');
+    expect(text(q('.ml-fig-simd__facts a.ml-src'))).toBe('docs/network.md:482');
   });
   it('speaks German', async () => {
     i18n.setLanguage('de');

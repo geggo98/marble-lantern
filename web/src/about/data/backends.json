@@ -7,13 +7,13 @@
       "backend": "Java scalar reference (Network)",
       "preset": "SMALL",
       "batch": "1",
-      "rate": { "source": { "doc": "docs/network.md", "line": 486 }, "value": "115", "range": "94 to 120" }
+      "rate": { "source": { "doc": "docs/network.md", "line": 488 }, "value": "115", "range": "94 to 120" }
     },
     {
       "backend": "Java Vector API (VectorNetwork)",
       "preset": "SMALL",
       "batch": "1",
-      "rate": { "source": { "doc": "docs/network.md", "line": 487 }, "value": "1,760", "range": "1,671 to 1,918" }
+      "rate": { "source": { "doc": "docs/network.md", "line": 489 }, "value": "1,760", "range": "1,671 to 1,918" }
     },
     {
       "backend": "Java Vector API (VectorNetwork), lower load",

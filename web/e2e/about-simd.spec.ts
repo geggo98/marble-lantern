@@ -11,11 +11,16 @@ const SIZES: Size[] = [PHONE, { width: 390, height: 844 }, { width: 820, height:
 const LANES = [1, 4, 8, 16] as const;
 const TOLERANCE = 0.5;
 const FIG = '#fig-simd';
+// The CI runner (Linux) has no system-ui font of the Mac: its fallback (DejaVu Sans) is wider than the Mac face. "wide" stands in for it with Verdana and a little letter spacing,
+// the widest face of a Mac, so the layout checks also run where a line of text breaks earlier than on the owner machine.
+const FONTS = { default: "", wide: ":root:root { --ml-font-ui: Verdana, sans-serif; } .ml-fig-simd, .ml-fig-presets { letter-spacing: 0.02em; }" } as const;
+type Font = keyof typeof FONTS;
 
-async function open(page: Page, size: Size, lang: 'en' | 'de' = 'en', scheme: 'light' | 'dark' = 'light', motion: 'reduce' | 'no-preference' = 'reduce'): Promise<Locator> {
+async function open(page: Page, size: Size, lang: 'en' | 'de' = 'en', scheme: 'light' | 'dark' = 'light', motion: 'reduce' | 'no-preference' = 'reduce', font: Font = 'default'): Promise<Locator> {
   await page.setViewportSize(size);
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: motion });
   await openApp(page, lang, '#/about/java');
+  if (FONTS[font]) await page.addStyleTag({ content: FONTS[font] });
   const fig = page.locator(FIG);
   await fig.scrollIntoViewIfNeeded();
   await page.evaluate(() => document.fonts.ready);
@@ -101,9 +106,9 @@ function expectStable(label: string, samples: Sample[]): void {
   }
 }
 
-for (const size of SIZES) {
-  test(`J3 stable layout at ${size.width} x ${size.height}: one height for narration, code strip, grid, readout, number line and figure over 4 lane counts x 12 steps (en, de)`, async ({ page }) => {
-    const fig = await open(page, size, 'en');
+for (const font of Object.keys(FONTS) as Font[]) for (const size of SIZES) {
+  test(`J3 stable layout at ${size.width} x ${size.height}, ${font} font: one height for narration, code strip, grid, readout, number line and figure over 4 lane counts x 12 steps (en, de)`, async ({ page }) => {
+    const fig = await open(page, size, 'en', 'light', 'reduce', font);
     expectStable(`en ${size.width}`, await walk(fig));
     await page.locator('.ml-header [data-language="de"]').click();
     await expect(page.locator('.ml-header [data-language="de"]')).toHaveAttribute('aria-pressed', 'true');
@@ -130,13 +135,13 @@ test('J3 stable layout: the narration is one grid cell with ghosts, the code str
   expect(new Set(cells.code).size, 'code strips share one grid cell').toBe(1);
   expect(cells.code).toHaveLength(6);
   expect(new Set(cells.notes).size, 'notes share one grid cell').toBe(1);
-  expect(cells.notes).toHaveLength(4);
+  expect(cells.notes, 'the lane-count line (4 variants) and the machine note (4 variants)').toHaveLength(8);
   expect(cells.statusGhostsHidden && cells.codeGhostsHidden).toBe(true);
-  expect(cells.notesHidden, 'three of the four notes are hidden ghosts').toBe(3);
+  expect(cells.notesHidden, 'three of the four variants of each of the two slots are hidden ghosts').toBe(6);
 });
 
-test('J3 at 320: compact layout, no sideways scroll, SVG text of at least 12 px, 44 px targets, the whole grid inside the frame', async ({ page }) => {
-  const fig = await open(page, PHONE);
+for (const font of Object.keys(FONTS) as Font[]) test(`J3 at 320, ${font} font: compact layout, no sideways scroll, SVG text of at least 12 px, 44 px targets, the whole grid inside the frame`, async ({ page }) => {
+  const fig = await open(page, PHONE, 'en', 'light', 'reduce', font);
   await expect(fig).toHaveAttribute('data-layout', 'compact');
   const m = await page.evaluate(() => {
     const f = document.querySelector<HTMLElement>('#fig-simd')!;

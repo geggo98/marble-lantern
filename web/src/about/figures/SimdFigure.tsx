@@ -281,7 +281,11 @@ export function SimdFigure({ catalog, number }: SimdFigureProps): React.JSX.Elem
                 <svg viewBox="0 0 32 20" aria-hidden="true" focusable="false">
                   <path className="ptr" d="M16,5 l6,10 h-12z" />
                 </svg>
-                <span>{f.plain('fig.simd.meas.lanes', { lanes })}</span>
+                <span className="ml-fig-simd__slot">
+                  {LANE_STOPS.map((n) => (
+                    <span key={n} {...(n === lanes ? {} : { 'aria-hidden': 'true' })}>{f.plain('fig.simd.meas.lanes', { lanes: n })}</span>
+                  ))}
+                </span>
               </li>
               <li>
                 <svg viewBox="0 0 32 20" aria-hidden="true" focusable="false">
@@ -289,7 +293,7 @@ export function SimdFigure({ catalog, number }: SimdFigureProps): React.JSX.Elem
                   <circle className="mdot" cx={16} cy={10} r={4.5} />
                 </svg>
                 <span>
-                  <Markup text={t('fig.simd.meas.measured', { lo: MEAS.textLo, hi: MEAS.textHi })} /> <SourceChip path="docs/network.md" lines={[480, 480]} />
+                  <Markup text={t('fig.simd.meas.measured', { lo: MEAS.textLo, hi: MEAS.textHi })} /> <SourceChip path="docs/network.md" lines={[482, 482]} />
                 </span>
               </li>
               <li>
