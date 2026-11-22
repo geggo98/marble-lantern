@@ -175,10 +175,10 @@ describe('V10 live', () => {
   });
 
   it('the table fills while the run goes on: after a few steps the stepper shows that many, not 50, and Stop returns to the example with "Stopped."', async () => {
-    delay = 15;
+    delay = 120; // 50 steps take 6 s, so a partial run at 300 ms holds even on a slow runner (CI failed once with 15 ms per step)
     await render(<McstFigure />, snapshot(TWO_MOVES));
     await press('mine');
-    await settle(80);
+    await settle(300);
     const pos = q('.ml-fig-stepper__pos').textContent ?? '';
     const finished = Number(/(\d+) \/ (\d+)/.exec(pos)![2]);
     expect(finished, 'a partial run').toBeLessThan(50);

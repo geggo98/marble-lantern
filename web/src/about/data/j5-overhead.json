@@ -400,7 +400,7 @@
    "sources": [
     "nn/src/main/java/sternhalma/nn/PooledEvaluator.java:15-38",
     "docs/cloud.md:253",
-    "docs/training.md:1777"
+    "docs/training.md:1781"
    ]
   },
   "tree": {

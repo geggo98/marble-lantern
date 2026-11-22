@@ -48,7 +48,7 @@
       "elo": {
         "source": {
           "doc": "docs/training.md",
-          "line": 1037
+          "line": 1041
         },
         "value": "+338",
         "ci95": "70"
@@ -60,14 +60,14 @@
       "elo": {
         "source": {
           "doc": "docs/training.md",
-          "line": 1441
+          "line": 1445
         },
         "value": "+62"
       },
       "score": {
         "source": {
           "doc": "docs/training.md",
-          "line": 1441
+          "line": 1445
         },
         "value": "0.5887",
         "se": "0.0136"
@@ -79,14 +79,14 @@
       "elo": {
         "source": {
           "doc": "docs/training.md",
-          "line": 2169
+          "line": 2173
         },
         "value": "+138"
       },
       "score": {
         "source": {
           "doc": "docs/training.md",
-          "line": 2169
+          "line": 2173
         },
         "value": "0.688",
         "se": "0.021"
@@ -98,7 +98,7 @@
     "scores": {
       "source": {
         "doc": "docs/training.md",
-        "line": 2387
+        "line": 2391
       },
       "values": [
         "0.82",
