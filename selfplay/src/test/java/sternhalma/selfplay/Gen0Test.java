@@ -616,6 +616,35 @@ class Gen0Test {
         assertEquals(1, gen0(() -> false, "monitor-report", shared.resolve("no-such-run").toString()).code);
     }
 
+    /**
+     * {@code --preset large} builds the 64x6 network of docs/network.md ("Presets and parameter counts"), also for the 5-row board; the
+     * LARGE 5-row run (docs/training.md, "Five-row LARGE net") trained its Gen0 with it.
+     */
+    @Test
+    void thePresetLargeBuildsTheSixtyFourBySixNetworkAlsoOnFiveRows() throws Exception {
+        Gen0.Config five = new Gen0.Config("large", 1, 10, 4, 2, 1e-3, 2, 1, true, 0.1, "x", 1, "classic1", "gpu",
+                "equal", "5");
+        sternhalma.nn.NetworkConfig net = five.network();
+        assertEquals(64, net.channels(), "channels of LARGE");
+        assertEquals(6, net.blocks(), "residual blocks of LARGE");
+        assertEquals(2, net.players());
+        assertEquals(sternhalma.nn.PlaneSet.CLASSIC1, net.planes());
+        assertEquals(java.util.Set.of(sternhalma.engine.RuleSet.TriangleRows.FIVE), net.rows());
+        assertTrue(five.json().contains("\"preset\":\"large\""), five.json());
+        assertTrue(five.json().contains("\"rows\":5"), five.json());
+        // end to end on the 4-row synthetic shards: the command line accepts the preset and writes a 64x6 candidate
+        Path run = shared.resolve("large");
+        Result r = train(run, "--preset", "large", "--steps", "4", "--checkpoint-steps", "2");
+        assertEquals(0, r.code, r.err);
+        sternhalma.nn.NetworkConfig written = Parameters.load(candidate(run)).config();
+        assertEquals(64, written.channels(), "channels of the written candidate");
+        assertEquals(6, written.blocks(), "blocks of the written candidate");
+        // an unknown preset names all three
+        Result huge = train(shared.resolve("huge"), "--preset", "huge");
+        assertEquals(2, huge.code, huge.err);
+        assertTrue(huge.err.contains("small, large or tiny"), huge.err);
+    }
+
     @Test
     void theWholeRunEtaTextFollowsTheRate() {
         assertEquals("whole run: nothing left to train", Gen0.wholeRun(0, 5, "x"));

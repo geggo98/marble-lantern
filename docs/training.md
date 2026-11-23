@@ -763,7 +763,7 @@ Batch building is more than 5,000 times faster than the CPU trainer on SMALL (11
 | `ReplayBuffer` | `selfplay` | Implements `BatchSource`; `addGeneration(generation, files, GameFilter)` takes only the games that the filter accepts; `result(index)` is the result of the game for the mover. |
 
 ```text
-gen0.sh run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes] [--steps 4000] [--batch 64] [--microbatch 16] [--threads 4] [--lr 1e-3]
+gen0.sh run DATA RUN [--preset small|large|tiny] [--planes plain|classic1|classic1-planes] [--steps 4000] [--batch 64] [--microbatch 16] [--threads 4] [--lr 1e-3]
         [--warmup 200] [--seed 1] [--holdout 0.1] [--augment 1] [--value-coefficient 1]
         [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
         [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120]
@@ -2504,7 +2504,7 @@ With one variant present, both settings give the same draw.
 
 ### Gen0 options and held-out proxies
 
-`Gen0 run ... --planes classic1v --preset small|tiny --trainer cpu|gpu [--strata equal|natural]` writes `players: 3`, `planes` and `strata` to `run.json`. Checkpoints, resume, lock and exit codes are unchanged ([Bootstrap](#bootstrap-generation-0-from-a-classical-teacher)). `Loop` still rejects every network with a player count other than 2.
+`Gen0 run ... --planes classic1v --preset small|large|tiny --trainer cpu|gpu [--strata equal|natural]` writes `players: 3`, `planes` and `strata` to `run.json`. Checkpoints, resume, lock and exit codes are unchanged ([Bootstrap](#bootstrap-generation-0-from-a-classical-teacher)). `Loop` still rejects every network with a player count other than 2.
 
 The held-out split is by game id, as before: a fraction of the games of each shard, chosen from the shard seed and the game id. For each variant, Gen0 takes the held-out samples of that variant (at most `--eval-samples`, evenly spaced) and computes policy KL, top-1 accuracy, value loss and winner accuracy.
 

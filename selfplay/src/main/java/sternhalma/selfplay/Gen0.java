@@ -47,7 +47,7 @@ import sternhalma.tornado.GpuTrainers;
  * estimates (docs/training.md, "Bootstrap" and "As implemented (block 2e)").
  *
  * <pre>
- *   Gen0 run DATA RUN [--preset small|tiny] [--planes plain|classic1|classic1-planes|classic1v]|tiny] [--rows 4|5] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
+ *   Gen0 run DATA RUN [--preset small|large|tiny] [--planes plain|classic1|classic1-planes|classic1v]|tiny] [--rows 4|5] [--steps N] [--batch 64] [--microbatch 16] [--threads T] [--lr 1e-3] [--trainer cpu|gpu]
  *                     [--warmup 200] [--seed S] [--holdout 0.1] [--augment 1|0] [--strata equal|natural] [--value-coefficient 1]
  *                     [--checkpoint-steps 200] [--checkpoint-seconds 120] [--keep 2] [--progress-seconds 10]
  *                     [--eval-samples 2500] [--proxy-every 1] [--proxy-seconds 120] [--elo-every 0] [--elo-seconds 500] [--ladder 200] [--ladder-spec SPEC]
@@ -168,8 +168,9 @@ public final class Gen0 {
         NetworkConfig network() {
             NetworkConfig size = switch (preset) {
                 case "small" -> NetworkConfig.small(players());
+                case "large" -> NetworkConfig.large(players());
                 case "tiny" -> NetworkConfig.tiny(players());
-                default -> throw new IllegalArgumentException("--preset must be small or tiny, got " + preset);
+                default -> throw new IllegalArgumentException("--preset must be small, large or tiny, got " + preset);
             };
             return size.withPlanes(planeSet()).withRows(java.util.Set.of(boardSize()));
         }
