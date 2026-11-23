@@ -10,7 +10,7 @@
 index models/index.json and models/index.md.
 
 usage:
-  archive-nets.py [--data DIR] [--out DIR] [--energy FILE] [--check]
+  archive-nets.py [--data DIR] [--out DIR] [--energy FILE] [--energy-large FILE] [--check]
 
 Every distinct network file (by SHA-256) is stored once, as F32 safetensors with gzip -9, mtime 0 and no file name in the
 header, so the same input gives the same bytes. A second source path with the same bytes (for example generation 0 of a
@@ -20,8 +20,9 @@ that is missing on this machine is reported and skipped; the index then lacks it
 The index lists per network: the stored file, the source path under data/, run and documentation section, the gate
 decision of a loop generation (data/<run>/gen-NNNN/decision.json), preset, plane set, players, board sizes (metadata key
 triangle_rows, missing = 4), the variants the plane set can play, sizes, SHA-256 of the raw and of the stored file,
-strength (measured figures for the networks the documentation reports, else the gate score) and kWh (only the 5-row
-run measured energy: data/energy/net5.report.json; every other row says "not measured").
+strength (measured figures for the networks the documentation reports, else the gate score) and kWh (only the two 5-row
+runs measured energy: data/energy/net5.report.json for SMALL and data/energy/net5-large.report.json for LARGE; every
+other row says "not measured").
 
 --check: build everything in memory and compare with models/; exit 1 on any difference, 0 when all matches. Files are
 written under a temporary name and renamed. A stored file whose bytes are already right is kept (SKIP). Exit codes:
@@ -60,6 +61,13 @@ RUNS = {
     "net5": ("Five-row expert net: Gen0 and loop", "five-row-expert-net"),
 }
 
+# Parts of a run directory that the documentation reports in a section of their own (path prefix below data/ -> the same
+# pair as in RUNS). The LARGE 5-row run shares data/net5 with the SMALL one: its teacher data, Gen0 and checks.
+PARTS = {
+    "net5/gen0-large/": ("Five-row LARGE net: Gen0 LARGE", "five-row-large-net"),
+    "net5/loop-large/": ("Five-row LARGE net: loop", "five-row-large-net"),
+}
+
 # Measured figures that the documentation reports for single networks (source path -> text). Everything else gets the
 # gate score of its loop generation, if it has one.
 STRENGTH = {
@@ -79,6 +87,14 @@ STRENGTH = {
     "loop4/gen-0011/candidate.safetensors":
         "best network of loop run 4 (LARGE 64x6); 4 rows, 200 sims: +407 Elo vs ab:102400 (BEST_SPEC), ladder saturated; "
         "vs its generation 0: +78 ± 19 Elo (400 pairs)",
+    "net5/gen0-large/gen-0000/candidate.safetensors":
+        "5 rows, MCTS 200 sims vs the 5-row classical player: +503 ± 79 / +361 ± 52 / +242 ± 39 Elo vs ab:1600 / 6400 / "
+        "25600 (E1, 200 pairs)",
+    "net5/loop-large/gen-0010/candidate.safetensors":
+        "best LARGE 5-row network, not shipped; 5 rows, MCTS 200 sims vs the 5-row classical player: +1162 ± 113 / "
+        "+713 ± 168 / +798 ± 261 / +636 ± 125 Elo vs ab:1600 / 6400 / 25600 / 102400 (E3, 200 pairs per rung, ladder "
+        "saturated); vs its Gen0: score 0.963, +565 ± 48 Elo (E2, 400 pairs); vs the shipped SMALL generation 9 at 200 "
+        "sims each: score 0.680, +131 ± 24 Elo (400 pairs)",
 }
 
 
@@ -115,13 +131,19 @@ def variants(meta: dict) -> list:
     return [f"{j}:{p}" + ("" if r == "4" else f":{r}") for r in rows for j, p in jumps_players]
 
 
-def energy(report: Path) -> dict:
-    """kWh per 5-row network (wall, whole machine) from the energy report of the 5-row run: the training phases that made it."""
-    if not report.exists():
-        return {}
-    phases = {p["phase"]: p["kwh"] for p in json.loads(report.read_text())["phases"]}
+def phase_kwh(report: Path) -> dict:
+    return {p["phase"]: p["kwh"] for p in json.loads(report.read_text())["phases"]} if report.exists() else {}
+
+
+def energy(report: Path, report_large: Path) -> dict:
+    """kWh per 5-row network (wall, whole machine) from the energy reports of the two 5-row runs: the training phases that
+    made it. The checks (pilot, ladder check, E1, E2, H2H, E3) are not counted."""
+    phases = phase_kwh(report)
+    out = energy_large(phase_kwh(report_large), phases.get("teacher"))
+    if not phases:
+        return out
     gen0 = phases.get("teacher", 0) + phases.get("gen0", 0)
-    out = {"net5/gen0-small/gen-0000/candidate.safetensors": (gen0, "teacher data + Gen0")}
+    out["net5/gen0-small/gen-0000/candidate.safetensors"] = (gen0, "teacher data + Gen0")
     total = gen0
     for g in range(1, 11):
         phase = phases.get(f"loop-{g}")
@@ -131,6 +153,29 @@ def energy(report: Path) -> dict:
         out[f"net5/loop-small/gen-{g:04d}/candidate.safetensors"] = (
             phase, f"loop generation {g}: self-play, training, gate; {total:.3f} kWh with teacher data, Gen0 and "
                    + (f"generations 1 to {g}" if g > 1 else "generation 1"))
+    return out
+
+
+def energy_large(phases: dict, teacher) -> dict:
+    """The LARGE run: Gen0 LARGE is its phase gen0-large alone; it trained on the teacher data of the SMALL run, which the
+    cumulative figure of a loop generation adds (teacher data + Gen0 LARGE + loop generations 1 to g), so that it is
+    comparable with the SMALL rows."""
+    if "gen0-large" not in phases:
+        return {}
+    gen0 = phases["gen0-large"]
+    out = {"net5/gen0-large/gen-0000/candidate.safetensors": (gen0, "Gen0 LARGE only; the teacher data came from the "
+                                                                    "SMALL run")}
+    total = gen0 + (teacher or 0)
+    for g in range(1, 11):
+        phase = phases.get(f"loop-large-{g}")
+        if phase is None:
+            continue
+        total += phase
+        out[f"net5/loop-large/gen-{g:04d}/candidate.safetensors"] = (
+            phase, f"loop generation {g}: self-play, training, gate; {total:.3f} kWh with the teacher data, Gen0 LARGE "
+                   f"and generations 1 to {g}" if g > 1 else
+            f"loop generation 1: self-play, training, gate; {total:.3f} kWh with the teacher data, Gen0 LARGE and "
+            f"generation 1")
     return out
 
 
@@ -152,9 +197,9 @@ def stored_name(run: str, rel: Path) -> str:
     return f"{run}/{'-'.join(parts)}.safetensors.gz"
 
 
-def build(data: Path, energy_file: Path):
+def build(data: Path, energy_file: Path, energy_large: Path):
     rows, files, missing = [], {}, []
-    kwh = energy(energy_file)
+    kwh = energy(energy_file, energy_large)
     for run, (what, section) in RUNS.items():
         base = data / run
         if not base.is_dir():
@@ -172,12 +217,13 @@ def build(data: Path, energy_file: Path):
             strength = STRENGTH.get(key, "")
             gate = decision(src)
             e = kwh.get(key)
+            what_part, section_part = next((v for k, v in PARTS.items() if key.startswith(k)), (what, section))
             rows.append({
                 "file": f"nets/{name}",
                 "source": f"data/{key}",
                 "run": run,
-                "runDescription": what,
-                "doc": f"{TRAINING}#{section}",
+                "runDescription": what_part,
+                "doc": f"{TRAINING}#{section_part}",
                 "gate": gate,
                 "preset": f"{meta.get('channels')}x{meta.get('blocks')}",
                 "planeSet": meta.get("planes", "plain"),  # format version 1 files have no key: the plain plane set
@@ -228,10 +274,13 @@ def main() -> int:
     ap.add_argument("--data", default=str(ROOT / "data"))
     ap.add_argument("--out", default=str(ROOT / "models"))
     ap.add_argument("--energy", default=None, help="energy report JSON of the 5-row run (default: <data>/energy/net5.report.json)")
+    ap.add_argument("--energy-large", default=None,
+                    help="energy report JSON of the LARGE 5-row run (default: <data>/energy/net5-large.report.json)")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     data, out = Path(a.data), Path(a.out)
-    rows, files, missing = build(data, Path(a.energy) if a.energy else data / "energy/net5.report.json")
+    rows, files, missing = build(data, Path(a.energy) if a.energy else data / "energy/net5.report.json",
+                                 Path(a.energy_large) if a.energy_large else data / "energy/net5-large.report.json")
     index = {"v": 1, "networks": rows}
     texts = {out / "index.json": (json.dumps(index, indent=1, ensure_ascii=False) + "\n").encode(),
              out / "index.md": markdown(rows).encode()}
