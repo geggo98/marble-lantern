@@ -2079,7 +2079,7 @@
    "storedBytes": 1308141,
    "sha256Raw": "4c5dfc9a5336fb06b489fce39aebf01005138a3d44357a7b070357a747f2990e",
    "sha256Stored": "03f8fec2430d38920f56838d285cc5345da7dff4127a81acf8f19839ab5c045b",
-   "strength": "best LARGE 5-row network, not shipped; 5 rows, MCTS 200 sims vs the 5-row classical player: +1162 ± 113 / +713 ± 168 / +798 ± 261 / +636 ± 125 Elo vs ab:1600 / 6400 / 25600 / 102400 (E3, 200 pairs per rung, ladder saturated); vs its Gen0: score 0.963, +565 ± 48 Elo (E2, 400 pairs); vs the shipped SMALL generation 9 at 200 sims each: score 0.680, +131 ± 24 Elo (400 pairs)",
+   "strength": "best LARGE 5-row network, not shipped; 5 rows, MCTS 200 sims vs the 5-row classical player: +1162 ± 113 / +713 ± 168 / +798 ± 261 / +636 ± 125 Elo vs ab:1600 / 6400 / 25600 / 102400 (E3, 200 pairs per rung, ladder saturated); vs its Gen0: score 0.963, +565 ± 48 Elo (E2, 400 pairs); vs the shipped SMALL generation 9 at 200 sims each: score 0.680, +131 ± 24 Elo (400 pairs); at equal CPU time (SMALL at 1,000 sims): score 0.270, -173 ± 36 Elo (200 pairs)",
    "kWh": 0.062,
    "kWhNote": "loop generation 10: self-play, training, gate; 0.712 kWh with the teacher data, Gen0 LARGE and generations 1 to 10"
   },

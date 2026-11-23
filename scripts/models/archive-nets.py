@@ -94,7 +94,8 @@ STRENGTH = {
         "best LARGE 5-row network, not shipped; 5 rows, MCTS 200 sims vs the 5-row classical player: +1162 ± 113 / "
         "+713 ± 168 / +798 ± 261 / +636 ± 125 Elo vs ab:1600 / 6400 / 25600 / 102400 (E3, 200 pairs per rung, ladder "
         "saturated); vs its Gen0: score 0.963, +565 ± 48 Elo (E2, 400 pairs); vs the shipped SMALL generation 9 at 200 "
-        "sims each: score 0.680, +131 ± 24 Elo (400 pairs)",
+        "sims each: score 0.680, +131 ± 24 Elo (400 pairs); at equal CPU time (SMALL at 1,000 sims): score 0.270, "
+        "-173 ± 36 Elo (200 pairs)",
 }
 
 

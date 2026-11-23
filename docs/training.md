@@ -2745,13 +2745,13 @@ Source: [`models/runs/net5/net5.report.md`](../models/runs/net5/net5.report.md) 
 
 ### CPU against GPU training: measured power and estimated energy
 
-**TL;DR:** The owner asked what the training of the 5-row networks would cost without the GPU. An experiment on 2026-11-22 ran the Gen0 trainer alone for 5.5 to 11 minutes per configuration, on the CPU and on the GPU, for SMALL and LARGE, and measured the wall power of the whole machine. On the CPU a training step takes 36 times (SMALL) and 51 times (LARGE) as long as on the GPU, at about the same power of 42 to 49 W. Scaled to the step count of a whole run, the training steps would cost about 1.2 kWh for SMALL and 7.3 kWh for LARGE on the CPU, against 0.035 and 0.14 kWh on the GPU. Each estimate has an uncertainty of about ±22 to 23 %.
+**TL;DR:** The owner asked what the training of the 5-row networks would cost without the GPU. An experiment on 2026-11-22 ran the Gen0 trainer alone for 5.5 to 11 minutes per configuration, on the CPU and on the GPU, for SMALL and LARGE, and measured the wall power of the whole machine. On the CPU a training step takes 36 times (SMALL) and 51 times (LARGE) as long as on the GPU, at about the same power of 42 to 49 W. Scaled to the step count of a whole run, the training steps would cost about 1.2 kWh for SMALL and 7.3 kWh for LARGE on the CPU, against 0.035 and 0.14 kWh on the GPU. Each estimate has an uncertainty of about ±22 to 23 %. The LARGE run later checked the GPU figure: its training steps took 0.136 kWh in 3.25 h, 2 % below the estimate ([check of the GPU estimate](#check-of-the-gpu-estimate)); the CPU figures remain unchecked.
 
 The experiment is a measurement of power and step time. The kWh of whole runs are an estimate built on it. The records are in [`models/runs/net5-cpu-power/`](../models/runs/net5-cpu-power/README.md).
 
 **Conditions.** 2026-11-22, 23:14 to 2026-11-23, 00:13 CET, on the M3 Max of the [five-row expert net](#five-row-expert-net). The power adapter was connected and the battery stood at 80 % without charging (709 of 709 polls). The display stayed on. Other programs ran: the load average of the idle baseline was 2.1 to 6.5 (mean 3.4), from the `loadavg1` column of the sampler file `data/energy/net5-cpu-power.csv` (on the training machine only; columns: [`scripts/energy/README.md`](../scripts/energy/README.md), "Files"). A `powermetrics` process of the root user (the macOS tool that samples CPU and GPU power; it adds a little load of its own) was already running; this was seen while the experiment ran, and no file records it.
 
-**Procedure.** The script [`experiment.zsh`](../models/runs/net5-cpu-power/experiment.zsh) started the energy sampler (run name `net5-cpu-power`) and then ran six phases with 60 idle seconds between them, so that no phase edge (the start or end marker that `mark.py` writes) falls on a load change ([`scripts/energy/README.md`](../scripts/energy/README.md), "Measured check"). Each training phase started a fresh Gen0 run on the 5-row teacher data of the expert run (`--planes classic1 --rows 5 --batch 256 --seed 1`), stopped it with SIGTERM when the phase time was over, and threw the training output away. SMALL used the configuration of the expert run's Gen0 (`--lr 1e-3`), LARGE (64 channels, 6 residual blocks) the configuration of the LARGE run below (`--lr 3e-4`). The CPU phases passed `--threads 14`. Gen0 on main accepts only `--preset small|tiny`; the LARGE phases ran from a checkout with one added switch case ([`gen0-large.patch`](../models/runs/net5-cpu-power/gen0-large.patch)).
+**Procedure.** The script [`experiment.zsh`](../models/runs/net5-cpu-power/experiment.zsh) started the energy sampler (run name `net5-cpu-power`) and then ran six phases with 60 idle seconds between them, so that no phase edge (the start or end marker that `mark.py` writes) falls on a load change ([`scripts/energy/README.md`](../scripts/energy/README.md), "Measured check"). Each training phase started a fresh Gen0 run on the 5-row teacher data of the expert run (`--planes classic1 --rows 5 --batch 256 --seed 1`), stopped it with SIGTERM when the phase time was over, and threw the training output away. SMALL used the configuration of the expert run's Gen0 (`--lr 1e-3`), LARGE (64 channels, 6 residual blocks) the configuration of the LARGE run below (`--lr 3e-4`). The CPU phases passed `--threads 14`. At that time Gen0 accepted only `--preset small|tiny`, so the LARGE phases ran from a checkout with one added switch case ([`gen0-large.patch`](../models/runs/net5-cpu-power/gen0-large.patch)); the switch case is now part of Gen0.
 
 | Phase | Trainer, network | Duration | Mean W | Peak W | kWh | kWh above baseline | Step time | Steps/s |
 |---|---|---|---|---|---|---|---|---|
@@ -2769,7 +2769,7 @@ Source: [`net5-cpu-power.report.md`](../models/runs/net5-cpu-power/net5-cpu-powe
 **Step counts of a whole training run.**
 
 - SMALL, measured: 40,000 Gen0 steps plus 222,254 loop training steps (the sum of the `units` field, the steps done, over the `train` phase lines of `data/net5/loop-small/metrics.jsonl`; git-ignored, on the training machine only) = 262,254 steps.
-- LARGE, estimated: 60,000 Gen0 steps (the driver `data/net5/driver-large.zsh` of the LARGE run below; git-ignored, on the training machine only) plus 22,000 steps per loop generation. The 22,000 is the mean of the SMALL loop (22,225); it assumes that LARGE generations have the same number of games, the same window and the same reuse factor, and therefore the same number of steps. For 10 generations that is 280,000 steps; for 6 generations, 192,000 steps. Six is the earliest end the stop rule allows: it is checked from generation 6 on, so rejections in generations 5 and 6 end the run after generation 6 ([Gate decisions](#gate-decisions)).
+- LARGE, estimated before the LARGE run: 60,000 Gen0 steps (the driver of the [LARGE run](#five-row-large-net), [`models/runs/net5-large/driver-large.zsh`](../models/runs/net5-large/driver-large.zsh)) plus 22,000 steps per loop generation. The 22,000 is the mean of the SMALL loop (22,225); it assumes that LARGE generations have the same number of games, the same window and the same reuse factor, and therefore the same number of steps. For 10 generations that is 280,000 steps; for 6 generations, 192,000 steps. Six is the earliest end the stop rule allows: it is checked from generation 6 on, so rejections in generations 5 and 6 end the run after generation 6 ([Gate decisions](#gate-decisions-2) of the five-row expert net). The LARGE run then ran all 10 generations and did 285,618 steps, 2.0 % more than estimated ([check of the GPU estimate](#check-of-the-gpu-estimate)).
 
 **Estimate.** Energy = steps × measured step time × mean power of the phase. "Above baseline" uses the mean power minus 12.59 W.
 
@@ -2803,16 +2803,160 @@ What is measured: the power and the step time of each configuration for 5.5 to 1
 - "CPU only" covers the training steps only. A real run without the GPU would also need the network on the CPU for the self-play and the gates of the loop (`--evaluator`, header of `scripts/loop.sh`), which costs more time and energy. That part is not estimated.
 - The CPU trainer gives different networks than the GPU trainer (header of `scripts/loop.sh`). The estimate is a cost of training, not a promise of the same network.
 - `--threads 14` is a best case for the CPU: 14 of the 16 cores, two left for the system. The Gen0 step of the expert run (`models/runs/net5/driver.zsh`) passed no `--threads`, and Gen0 then uses 4 threads (`Math.min(4, availableProcessors)` in `selfplay/src/main/java/sternhalma/selfplay/Gen0.java`); a CPU Gen0 with that default would take longer than estimated here. The loop steps of the driver pass `--threads 14`.
-- The GPU phases overstate the power by about 33 % (48.5 W in gpu-small against 36.5 W in the real Gen0; the energy check above comes out 17 % high), because of the heat of the CPU phases before them. The LARGE GPU step time is probably too long for the same reason: the experiment measured 23.3 steps/s, while the progress lines of the running LARGE Gen0 ([LARGE 5-row run](#large-5-row-run-in-progress); its log is on the training machine only) reported a mean of 26 to 32 steps/s in its first 4 minutes. Both effects make the GPU figures upper bounds.
+- The gpu-small phase overstates the power of SMALL by about 33 % (48.5 W against 36.5 W in the real Gen0; the energy check above comes out 17 % high), likely because of the heat of the CPU phases before it. For LARGE the experiment was close: the whole LARGE run trained at 40.8 to 41.5 ms per step and 41.6 to 41.8 W, against 42.86 ms and 41.8 W here, and its training steps took 0.136 kWh against the estimated 0.139 kWh ([check of the GPU estimate](#check-of-the-gpu-estimate)). The progress lines of the LARGE Gen0 showed 26 to 32 steps/s in its first 4 minutes (its log is on the training machine only), but that rate did not last: the whole Gen0 trained at 24.1 steps/s (the `train` cost event of [`models/runs/net5-large/gen0-metrics.jsonl`](../models/runs/net5-large/gen0-metrics.jsonl)).
 - All figures are the wall power of the whole machine with the display on and other programs running, as in [Energy](#energy). The counters cannot split CPU from GPU; the comparison works only because each phase ran one trainer and nothing else of the project.
-
-### LARGE 5-row run (in progress)
-
-A LARGE network (64 channels, 6 residual blocks) for the same 5-row variant started on 2026-11-23 with the driver `data/net5/driver-large.zsh` (git-ignored, on the training machine only; it will be copied with the run's records), from the same patched checkout as the LARGE phases above, because main has no `--preset large` for Gen0 yet, under energy measurement (run name `net5-large`). The plan: a 10-minute idle baseline; Gen0 LARGE on the GPU on the teacher data of the expert run, 60,000 steps of batch 256 at `--lr 3e-4` (16.2 passes over the 949,818 training samples); the check E1 (at least 0.6 against `ab:6400`); the loop with up to 10 generations (`--lr 1e-4 --lr-final 1e-5`, otherwise the settings of the SMALL loop, with the stop rule); and the final comparison: E2 (best LARGE against its Gen0), a direct match of the best LARGE against the shipped SMALL generation 9 (400 pairs), and E3 against the 5-row ladder up to `ab:102400`. The results and the energy table of the run follow after it has finished.
 
 ### Files
 
-The networks of the run (Gen0 and generations 1 to 10) are archived as `models/nets/net5/*.safetensors.gz` ([`models/README.md`](../models/README.md)). The packed browser copy of generation 9 is `web/models/small-2p-adjacent-r5-expert.safetensors.gz`; how the browser uses it: [web UI](web-ui.md#choosing-a-net-engine).
+The networks of the run (Gen0 and generations 1 to 10) are archived as `models/nets/net5/*.safetensors.gz` ([`models/README.md`](../models/README.md)). The packed browser copy of generation 9 is `web/models/small-2p-adjacent-r5-expert.safetensors.gz`; how the browser uses it: [web UI](web-ui.md#choosing-a-net-engine). The LARGE network of the same variant and its files: [Five-row LARGE net](#five-row-large-net).
+
+## Five-row LARGE net
+
+**TL;DR:** A LARGE network (64 channels, 6 residual blocks, [network](network.md#presets-and-parameter-counts)) for the variant of the [five-row expert net](#five-row-expert-net) was trained in one unattended run of 21 h 21 min on the Apple M3 Max, from 2026-11-22, 23:14 UTC, to 2026-11-23, 20:35 UTC: Gen0 LARGE on the teacher data of the SMALL run, then 10 generations of MCTS self-play, all 10 promoted. At 200 simulations each, the best LARGE network (generation 10) beats the shipped SMALL generation 9 by **+131 ± 24 Elo** (score 0.680, 400 pairs). But it needs about 5.6 times the CPU time per move, and at equal CPU time per move SMALL generation 9 with 1,000 simulations beats it clearly: LARGE scores 0.270, **-173 ± 36 Elo** (200 pairs). The classical 5-row ladder is saturated for both networks and cannot rank them. The network is archived and not shipped in the browser ([models, trained but not shipped](models.md#models-trained-but-not-shipped)). The run took 0.89 kWh at the wall, 0.62 kWh above the idle power of the machine; the training steps alone took about 0.136 kWh, 2 % below the [CPU against GPU estimate](#cpu-against-gpu-training-measured-power-and-estimated-energy).
+
+All numbers are measured on 2026-11-22 and 2026-11-23. The run directories `data/net5/gen0-large/` and `data/net5/loop-large/` are git-ignored and exist only on the training machine. The networks are archived in [`models/`](../models/README.md) (`models/nets/net5/gen0-large-*` and `loop-large-*`), and the records this section cites (driver script, match summaries, loop decisions, run configurations, metrics files, energy reports, the analysis script) are copied to [`models/runs/net5-large/`](../models/runs/net5-large/README.md).
+
+Terms used in this section, in addition to those of the [five-row expert net](#five-row-expert-net) (5-row ladder `ab:N`, E1, E2, E3, Gen0, gate, baseline clause, held-out proxies):
+
+- **SMALL run:** the run of the [five-row expert net](#five-row-expert-net), which trained SMALL networks (32 channels, 4 residual blocks) for the same variant; the LARGE run reused its teacher data.
+- **SMALL generation 9:** the shipped 5-row network `small-2p-adjacent-r5-expert`, generation 9 of the SMALL loop (`data/net5/loop-small/gen-0009/candidate.safetensors`).
+- **H2H:** the direct match of the best LARGE network against SMALL generation 9, both with MCTS at 200 simulations.
+- **Equal-time match:** the best LARGE network at 200 simulations against SMALL generation 9 at 1,000 simulations, so that both spend about the same CPU time per move.
+- **CPU-ms/move:** the CPU time a player spends per searched move, as `MctsMatch` prints it in its summary line. All matches ran the networks on the CPU (Java Vector API, 14 threads, one game per thread).
+
+### What was run (LARGE)
+
+| Step | Setting | Result |
+|---|---|---|
+| baseline | 10 idle minutes before the first step | 12.69 W |
+| Gen0 LARGE | `--planes classic1 --rows 5 --preset large --trainer gpu --steps 60000 --batch 256 --lr 3e-4 --seed 1` on the 949,818 training samples of the SMALL run's teacher data; 16.2 passes, the pass count of the 128,000-step LARGE of [capacity diagnostics 2](#capacity-diagnostics-2-measured) | 48 min 42 s: 2,492 s of training at 24.1 steps/s, 21 held-out proxy evaluations of 425 s together, and the start; proxies at step 60,000: policy KL 0.252, top-1 67.2 %, value loss 0.156, winner predicted in 75.4 % of 2,500 positions (SMALL Gen0: 0.298, 63.8 %, 0.155, 75.4 %) |
+| E1 | Gen0 LARGE, MCTS 200 simulations, `race=0`, 200 pairs per rung, seed 3001 | see the ladder table below; passes (0.889 ≥ 0.6 against `ab:6400`) |
+| loop | 10 generations; the settings of the SMALL loop (2,500 games at 200 simulations, `--lr-final 1e-5 --reuse 20`, window 1,500,000 samples with the teacher data as generation 0, gate 200 pairs with `--promote-z 1.28`, baseline clause against `ab:25600` with 100 pairs, stop rule) except `--lr 1e-4`, the learning rate of [loop run 4](#loop-run-4-measured-2026-11-14) | 10 of 10 candidates promoted; 15 h 50 min |
+| E2 | generation 10 against Gen0 LARGE, 400 pairs, seed 3002 | score 0.963 ± 0.005, +565 ± 48 Elo (743-54-3 games) |
+| H2H | generation 10 against SMALL generation 9, both at 200 simulations, 400 pairs, seed 3003 | score 0.680 ± 0.015, +131 ± 24 Elo (544-0-256 games) |
+| E3 | generation 10, same settings as E1, plus the rung `ab:102400` | see the ladder table below |
+| equal time | after the driver: generation 10 at 200 simulations against SMALL generation 9 at 1,000 simulations, 200 pairs, seed 3003 | score 0.270 ± 0.021, -173 ± 36 Elo for LARGE (108-0-292 games); CPU-ms/move 543.6 (LARGE) and 478.2 (SMALL) |
+
+Command lines: the driver script [`models/runs/net5-large/driver-large.zsh`](../models/runs/net5-large/driver-large.zsh) (all steps except the equal-time match, whose command is in the [README of the records](../models/runs/net5-large/README.md)). The driver ran Gen0 from a separate checkout, because Gen0 had no `--preset large` when the run started; the preset is now part of Gen0, and the README says how to rerun the driver on a current checkout.
+
+### Gate decisions of the LARGE loop
+
+| Generation | Gate score against the best before (200 pairs) | z | Decision | Candidate against `ab:25600` (100 pairs, baseline clause) |
+|---|---|---|---|---|
+| 1 | 0.795 ± 0.018 | 16.0 | promoted | 0.870 |
+| 2 | 0.853 ± 0.017 | 20.8 | promoted | 0.977 |
+| 3 | 0.635 ± 0.023 | 5.8 | promoted | 0.980 |
+| 4 | 0.556 ± 0.023 | 2.5 | promoted | 0.975 |
+| 5 | 0.578 ± 0.021 | 3.7 | promoted | 0.990 |
+| 6 | 0.635 ± 0.022 | 6.1 | promoted | 0.985 |
+| 7 | 0.601 ± 0.021 | 4.8 | promoted | 0.985 |
+| 8 | 0.618 ± 0.022 | 5.5 | promoted | 0.995 |
+| 9 | 0.590 ± 0.021 | 4.4 | promoted | 0.990 |
+| 10 | 0.561 ± 0.021 | 2.9 | promoted | 0.990 |
+
+Source: [`models/runs/net5-large/decisions.jsonl`](../models/runs/net5-large/decisions.jsonl), the `decision.json` of each generation. ± is the standard error. The best network is generation 10: its `candidate_sha256` (`4c5dfc9a5336fb06`) is the `best_sha256` that the driver passed to E2, H2H and E3.
+
+**The gates overstate the gain.** Converted to Elo, the ten gate scores add up to about +1,080 Elo; the direct match E2 gives +565 ± 48, about half. Loop run 4 showed the same ratio on 4 rows ([findings of loop run 4](#findings)): every promotion is selected on a noisy score, and self-play rewards exploiting the predecessor. **The loop had not stopped improving:** generation 10 still passed the gate with z = 2.9, and the stop rule (two rejections in a row from generation 6) never triggered.
+
+**Time per generation:** 1 h 22 min to 2 h 7 min. Per generation (the `phase` events of [`models/runs/net5-large/loop-metrics.jsonl`](../models/runs/net5-large/loop-metrics.jsonl)): self-play 2,741 to 3,715 s, training 810 to 1,096 s, gate 625 to 906 s, baseline clause 190 to 270 s, and the in-loop ladder estimate (100 pairs against `ab:1600`, `ab:6400` and `ab:25600`) 531 to 700 s. Generation 1 also holds the ladder estimate of generation 0 (685 s). Generations 6 to 10 took about 15 % less time than generations 1 to 5, at a higher mean power (44 to 46 W against 38 to 40 W, energy table below); the records do not show why.
+
+### Strength of the LARGE net
+
+MCTS at 200 simulations, `race=0`, 200 opening pairs per rung, seed 3001 (the same openings for all four networks). ± is the 95 % interval. The SMALL columns repeat the [ladder table of the SMALL run](#strength-against-the-5-row-ladder).
+
+| Opponent | SMALL Gen0 (E1) | LARGE Gen0 (E1) | SMALL generation 9 (E3) | LARGE generation 10 (E3) |
+|---|---|---|---|---|
+| `ab:1600` | 0.910, +402 ± 60 | 0.948, +503 ± 79 | 0.996, +970 ± 193 | 0.999, +1162 ± 113 |
+| `ab:6400` | 0.817, +260 ± 42 | 0.889, +361 ± 52 | 0.990, +798 ± 261 | 0.984, +713 ± 168 |
+| `ab:25600` | 0.680, +131 ± 33 | 0.801, +242 ± 39 | 0.971, +611 ± 112 | 0.990, +798 ± 261 |
+| `ab:102400` | not measured | not measured | 0.950, +512 ± 81 | 0.975, +636 ± 125 |
+
+Source: [`e1.txt`](../models/runs/net5-large/e1.txt) and [`e3.txt`](../models/runs/net5-large/e3.txt) in `models/runs/net5-large/` (games per rung for generation 10: 399-1-0, 393-1-6, 396-0-4 and 390-0-10), and the files of the SMALL run in `models/runs/net5/`.
+
+**Before self-play, LARGE is clearly stronger.** Gen0 LARGE scores 0.801 against `ab:25600`, Gen0 SMALL 0.680, on the same teacher data, openings and seed. Its held-out policy KL is lower as well (0.252 against 0.298).
+
+**After self-play, the ladder cannot rank the two.** Both networks score 0.95 to 0.999 at every rung, the Elo intervals overlap at every rung, and at `ab:6400` SMALL is ahead. This repeats the 4-row finding: the LARGE network of [loop run 4](#loop-run-4-measured-2026-11-14) showed no measurable gain over its generation 0 against the saturated `BEST_SPEC` ladder (+407 against +409 Elo at 102,400 nodes), while the direct match showed +78 ± 19 Elo. Here, too, only direct matches separate the networks: H2H gives LARGE +131 ± 24 Elo over SMALL at equal simulations.
+
+### Strength per cost
+
+| | SMALL generation 9 | LARGE generation 10 | LARGE / SMALL |
+|---|---|---|---|
+| parameters | 61,734 | 352,998 | 5.7 |
+| F32 safetensors (training output) | 249,400 B | 1,415,168 B | 5.7 |
+| F32 with gzip (archive) | 230,335 B | 1,308,141 B | 5.7 |
+| F16 safetensors | 126,020 B | 709,236 B | 5.6 |
+| F16 with gzip (browser format) | 115,132 B | 650,959 B | 5.7 |
+| CPU-ms/move at 200 simulations, H2H | 97.4 | 541.7 | 5.6 |
+| CPU-ms/move at 200 simulations, E3 (four rungs) | 98 to 126 | 525 to 545 | 4.3 to 5.6 |
+| wall energy of the training (teacher data, Gen0, loop up to this generation) | 0.177 kWh | 0.712 kWh | 4.0 |
+
+The F16 sizes of LARGE come from packing generation 10 with `scripts/models/pack-model.py pack ... --variant adjacent:2:5` into a scratch directory; nothing was written to `web/models/`. The CPU-ms/move are from the summary lines of [`h2h.txt`](../models/runs/net5-large/h2h.txt), [`e3.txt`](../models/runs/net5-large/e3.txt) and the SMALL [`e3.txt`](../models/runs/net5/e3.txt).
+
+**At equal simulations LARGE is stronger; at equal CPU time SMALL is.** More simulations buy strength as well: on 4 rows SMALL gained about +120 Elo per doubling of the simulations ([E2, search scaling](#e2-search-scaling-of-the-network)) and LARGE about +110 ([loop run 4](#direct-match-and-search-scaling)). 1,000 simulations are 2.3 doublings above 200, so if the 4-row rate held on 5 rows, SMALL at 1,000 simulations would gain about +280 Elo over itself at 200, more than the +131 Elo that LARGE gains by its size. The equal-time match measured it directly: SMALL generation 9 at 1,000 simulations against LARGE generation 10 at 200, with 478.2 against 543.6 CPU-ms/move, so SMALL even spent 12 % less time. LARGE scored 0.270 ± 0.021 (108-0-292 games, 200 pairs), **-173 ± 36 Elo** ([`equal-time.txt`](../models/runs/net5-large/equal-time.txt)). On this CPU, the time of a move buys more strength as simulations of the SMALL network than as size. This measures for 5 rows what [capacity diagnostics 2](#capacity-diagnostics-2-measured) had only expected for 4 rows: "at equal wall time per move generation 13 with 5 times the simulations should beat LARGE" (generation 13 is the SMALL network of loop run 3).
+
+**Limits.**
+
+- Self-play inflation: E2 and the gates compare networks of the same lineage. H2H and the equal-time match compare two lineages, but both started from the same teacher data and learned only from their own self-play, so a gain between them need not carry over to the classical player or to people.
+- The ladder is saturated at 0.95 to 0.999 for both networks after the loop, so it gives no ranking (see above).
+- All matches ran the networks on the CPU. The time per move of LARGE on the GPU and in the browser is not measured. For SMALL the browser needs 58 ms per move at 200 simulations on a desktop-class CPU ([web UI, measurements of the net engines](web-ui.md#measurements-of-the-net-engines)); 5.6 times that is about 320 ms for LARGE, an estimate.
+- Only 200 simulations (and 1,000 for SMALL in the equal-time match) were measured. The ranking at the browser presets 50 and 800 simulations is not known.
+- One run with one seed; how much a second LARGE run would differ is not measured. LARGE generation 10 had one promoted generation more than SMALL generation 9.
+
+### Energy of the LARGE run
+
+Measured as in [Energy](#energy) (run name `net5-large`). "Above baseline" subtracts the idle power of 12.69 W times the covered time.
+
+| Phase | Duration | Mean W | kWh | kWh above baseline |
+|---|---|---|---|---|
+| baseline (idle) | 0:10:00 | 12.7 | 0.0020 | 0 |
+| Gen0 LARGE | 0:48:42 | 41.6 | 0.0338 | 0.0235 |
+| E1 | 1:14:26 | 40.1 | 0.0497 | 0.0340 |
+| loop generation 1 | 2:07:11 | 40.3 | 0.0855 | 0.0586 |
+| loop generation 2 | 1:46:01 | 40.2 | 0.0711 | 0.0486 |
+| loop generation 3 | 1:39:21 | 39.7 | 0.0657 | 0.0447 |
+| loop generation 4 | 1:39:15 | 38.4 | 0.0635 | 0.0425 |
+| loop generation 5 | 1:41:12 | 37.7 | 0.0635 | 0.0421 |
+| loop generation 6 | 1:25:27 | 44.9 | 0.0639 | 0.0458 |
+| loop generation 7 | 1:23:13 | 44.9 | 0.0623 | 0.0447 |
+| loop generation 8 | 1:24:16 | 44.4 | 0.0623 | 0.0445 |
+| loop generation 9 | 1:22:06 | 45.3 | 0.0620 | 0.0447 |
+| loop generation 10 | 1:21:48 | 45.5 | 0.0620 | 0.0447 |
+| E2 | 1:27:30 | 43.8 | 0.0639 | 0.0454 |
+| H2H | 0:37:04 | 43.9 | 0.0271 | 0.0193 |
+| E3 | 1:14:56 | 44.0 | 0.0543 | 0.0387 |
+| **Gen0 only** | 0:48:42 | | **0.0338** | **0.0235** |
+| **loop only** (generations 1 to 10) | 15:49:50 | | **0.6618** | **0.4609** |
+| **checks only** (E1, E2, H2H, E3) | 4:33:56 | | **0.1950** | **0.1374** |
+| **sum of phases** (without baseline) | 21:11:37 | | **0.8906** | **0.6218** |
+| **whole run** (21:20:56 with data) | | 41.8 | **0.8926** | **0.6218** |
+
+Source: [`net5-large.report.md`](../models/runs/net5-large/net5-large.report.md) (written by `scripts/energy/report.py`); the three "only" rows are sums of its phase rows. The equal-time match ran after the sampler had stopped and was not measured. The battery was idle for all but 1 to 4 % of the covered time of three phases (Gen0 LARGE, loop generations 5 and 6; noted in the report), so these phases mix in a little battery power.
+
+Inside the loop, self-play took most of the energy: integrated over the windows of the `phase` events of `loop-metrics.jsonl` (with [`net5large-analyze.py`](../models/runs/net5-large/net5large-analyze.py)), self-play took 0.363 kWh (55 % of the loop), training 0.107 kWh (16 %), the gates 0.085 kWh (13 %), the in-loop ladder estimates 0.079 kWh (12 %) and the baseline clauses 0.028 kWh (4 %).
+
+**Energy per network** (training phases only, without the checks): Gen0 LARGE took 0.034 kWh (0.023 above baseline), or 0.050 kWh with the 0.016 kWh of the teacher data it reused from the SMALL run. The best network, generation 10, took 0.712 kWh: teacher data 0.016, Gen0 LARGE 0.034 and loop generations 1 to 10 0.662 (0.495 above baseline). For SMALL the same figures are 0.021 kWh for Gen0 with teacher data and 0.177 kWh for the shipped generation 9 ([Energy](#energy)): LARGE took 2.4 times the energy for Gen0 and 4.0 times for the best network. [`models/index.md`](../models/index.md) lists the figure per network; there the cumulative figure of a LARGE loop generation also counts the teacher data, so that it compares with the SMALL rows.
+
+### Check of the GPU estimate
+
+The [CPU against GPU estimate](#cpu-against-gpu-training-measured-power-and-estimated-energy) predicted the GPU training of a 10-generation LARGE run before the run started. The run measured the same quantities:
+
+| | Estimate (before the run) | LARGE run |
+|---|---|---|
+| training steps | 280,000 (60,000 + 10 × 22,000) | 285,618 (Gen0 60,000 + loop 225,618; 21,967 to 23,848 per generation) |
+| time per step | 42.86 ms (23.3 steps/s) | Gen0 41.5 ms (24.1 steps/s); loop 40.8 ms (24.5 steps/s): generations 1 to 5 43.1 to 46.0 ms, generations 6 to 10 36.7 to 37.8 ms |
+| training time | 3.3 h | 3.25 h (Gen0 2,492 s + loop 9,211 s) |
+| mean power while training | 41.8 W | loop training 41.8 W; Gen0 phase 41.6 W |
+| wall energy | 0.139 kWh (0.108 to 0.171) | 0.136 kWh (Gen0 about 0.029 + loop 0.107) |
+| above baseline | 0.098 kWh (0.075 to 0.120) | 0.094 kWh (Gen0 about 0.020 + loop 0.074) |
+
+How the run's figures were obtained ([`net5large-analyze.py`](../models/runs/net5-large/net5large-analyze.py), output reproduced by running it as the [README of the records](../models/runs/net5-large/README.md) says):
+
+- Steps and time of the loop: the `units` and the wall time of the `train` phase events in `loop-metrics.jsonl`. Energy of the loop: the sampler counters integrated over the windows of those events, which end at the event's time stamp and last its wall time.
+- Gen0 has no phase events. Its training time is the `train` cost event of [`models/runs/net5-large/gen0-metrics.jsonl`](../models/runs/net5-large/gen0-metrics.jsonl) (60,000 steps, 2,492 s); the 21 proxy evaluations took 425 s. The energy counters cover only the whole Gen0 phase (0.0338 kWh in 2,922 s), so the training share is that energy times 2,492 / 2,922 (85 %), assuming even power over the phase; this gives "about 0.029 kWh". The whole phase, start and proxies included, would give 0.141 kWh for the run column.
+
+**The estimate was 2 % high** (0.139 against 0.136 kWh), and 4 % high when scaled to the real step count (0.142 kWh for 285,618 steps). The errors partly cancel: the step count was 2.0 % low, the time per step 4.6 % high (42.86 against a mean of 41.0 ms), and the power exact. All differences lie well inside the ±23 % of the estimate. Scaled the same way, the CPU estimate becomes 175 h (7.3 days) and 7.46 kWh (5.8 to 9.1) for 285,618 steps; it stays unchecked, because no CPU run was made.
+
+Why the LARGE estimate came out better than the SMALL check (17 % high): the power of the experiment's gpu-large phase happened to match the real run (41.8 W both), while gpu-small drew 33 % more than the real SMALL Gen0.
 
 ## Open questions
 

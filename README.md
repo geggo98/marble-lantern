@@ -124,7 +124,7 @@ Paths are relative to the repository root. Rows marked *git-ignored* name direct
 | `web/src/about/` | the Info pages, their figures and the figure data in `data/` | `web/src/about/routes.ts`, `web/src/about/topics/architecture.tsx` |
 | `web/src/pwa/`, `web/tooling/` | service worker and the Vite plugin that writes `sw.js` | `web/src/pwa/sw.ts` |
 | `web/models/` | the three shipped networks (F16 + gzip): [4-row expert](web/models/small-2p-adjacent-expert.safetensors.gz), [5-row expert](web/models/small-2p-adjacent-r5-expert.safetensors.gz), [shared](web/models/small-shared-all.safetensors.gz), listed in [`models.json`](web/models/models.json) | `docs/models.md` |
-| `models/` | every trained network of the documented runs (F32 + gzip, Git LFS), with sizes, SHA-256, board sizes, strength and kWh in [`index.md`](models/index.md) | `models/README.md` |
+| `models/` | every trained network of the documented runs (F32 + gzip, Git LFS), with sizes, SHA-256, board sizes, strength and kWh in [`index.md`](models/index.md); the run records that `docs/training.md` cites are in `models/runs/` ([5-row SMALL run](models/runs/net5/README.md), [5-row LARGE run](models/runs/net5-large/README.md), [CPU against GPU power](models/runs/net5-cpu-power/README.md)) | `models/README.md` |
 | `web/e2e/` | Playwright tests | `web/playwright.config.ts` |
 | `scripts/` | one script per devenv task; training, model packing and cloud scripts | `scripts/loop.sh` |
 | `docs/` | design documents, ADRs, references | `docs/architecture.md` |
