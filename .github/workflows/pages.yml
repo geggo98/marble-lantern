@@ -21,7 +21,9 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # 2026-11-23: 60 was too short: the e2e step alone took 53 min (3170 s, 1145 tests in Chromium and Firefox plus WebKit) and the run was
+    # cancelled by the timeout 11 s after e2e passed, before the site upload and the deploy. 100 leaves room; shard the e2e step if it grows again.
+    timeout-minutes: 100
     env:
       REPO_NAME: ${{ github.event.repository.name }}
     steps:
