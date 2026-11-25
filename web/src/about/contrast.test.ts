@@ -1,4 +1,4 @@
-// Contrast of the figure colours. The design notes (web/design/about/about-notes.md, "Contrast table") list 42 token pairs with their
+// Contrast of the figure colours. The design notes (web/design/about/about-notes.md, "Contrast table") list 47 token pairs with their
 // resolved colours and WCAG 2 ratios. This test recomputes every row from the CSS: it parses the `--ml-*` and `--ml-fig-*` tokens of
 // tokens.css and tokens-about.css for light and dark, resolves the `var()` aliases, and checks per row
 //   - the resolved hex values written in the table are the ones the CSS gives,
@@ -90,10 +90,10 @@ function tableRows(): Row[] {
 const rows = tableRows();
 
 describe('contrast of the figure tokens', () => {
-  it('reads the whole table of the design notes (46 pairs; the notes say "All 46 pairs")', () => {
-    expect(rows).toHaveLength(46);
+  it('reads the whole table of the design notes (47 pairs; the notes say "All 47 pairs")', () => {
+    expect(rows).toHaveLength(47);
     expect(rows.filter((r) => r.needed === 4.5)).toHaveLength(13); // the text pairs
-    expect(rows.filter((r) => r.needed === 3)).toHaveLength(33); // the graphic pairs
+    expect(rows.filter((r) => r.needed === 3)).toHaveLength(34); // the graphic pairs
   });
 
   it('knows the two dark blocks of each file are equal (the files require it)', () => {

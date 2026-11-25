@@ -120,6 +120,7 @@ Limit: an alias resolves on `:root`. A component that forces a theme on a subtre
 | `--ml-fig-accent` on `--ml-fig-accent-bg` | #0b6660 on #d9ece8 | 5.5 | #62cfc2 on #12332f | 7.2 | 3 |
 | `--ml-fig-accent` on `--ml-fig-band` | #0b6660 on #cfe6e1 | 5.2 | #62cfc2 on #17403b | 6.1 | 3 |
 | `--ml-fig-mark` on `--ml-fig-band` | #1f1b16 on #cfe6e1 | 13.0 | #f2ebdf on #17403b | 9.6 | 3 |
+| `--ml-fig-alt` on `--ml-fig-band` (the triangle of the equal-time match inside the dominated region, V15) | #8a2a6b on #cfe6e1 | 6.1 | #e58fc8 on #17403b | 4.9 | 3 |
 | `--ml-fig-alt` on `--ml-fig-bg` | #8a2a6b on #fffdf8 | 7.8 | #e58fc8 on #1e1a16 | 7.4 | 3 |
 | `--ml-fig-accent` on `--ml-fig-board-bg` | #0b6660 on #e7dcc6 | 5.0 | #62cfc2 on #25201b | 8.6 | 3 |
 | `--ml-fig-mark` on `--ml-fig-board-bg` | #1f1b16 on #e7dcc6 | 12.5 | #f2ebdf on #25201b | 13.6 | 3 |
@@ -147,7 +148,7 @@ Limit: an alias resolves on `:root`. A component that forces a theme on a subtre
 | `--ml-code-keyword` on `--ml-code-bg` | #0b6660 on #ece5d6 | 5.4 | #62cfc2 on #0f0d0b | 10.3 | 4.5 |
 | `--ml-code-string` on `--ml-code-bg` | #8a2a6b on #ece5d6 | 6.3 | #e58fc8 on #0f0d0b | 8.3 | 4.5 |
 
-All 46 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
+All 47 pairs reach their threshold in both themes. The lowest values are 3.1 (`--ml-fig-heat-1` on the light plate, the socket edge on the dark plate). The plan asks for a unit test that recomputes this table (plan, section 6.5, "Contrast"); the test must resolve the aliases against `tokens.css`.
 
 Two fills are below 3:1 on purpose, as decoration: `--ml-fig-band` and `--ml-fig-accent-bg` against the figure background. Each has an outline in `--ml-fig-accent` that carries the shape. Do not draw either without its outline.
 
@@ -703,6 +704,18 @@ Each note gives the view box or coordinate system, the order of the elements fro
 - **Focusable:** the seven rows; in the open panel its controls.
 - **Controls:** segmented switch "measured / all" above the staircase; two sliders in the Elo panel.
 - **Compact:** the staircase is a list of full-width rows; the whisker of a row is an inline SVG of 120 × 24 under its text, all on the same scale; the scale is written once above the list. The three sweep plots stack. The futility table becomes rows (the pattern of `.ml-table` below 44rem).
+
+### V15 What the training cost (Fig. 4.4, topic training, section energy)
+
+- **Kind:** a Plot (2D, log x axis) with three views, a legend, a detail panel and a table of eight rows. No 3D: energy is time times an almost constant power (36 to 49 W), so the third axis would add depth and no information.
+- **Views:** `energy` (x kWh, y strength in Elo), `time` (x hours, y strength) and `both` (x hours, y kWh, no strength, no front). Wide plot 640 x 340 units, compact 260 x 340; the height is the same in every view. The x domains of `energy` and `time` span three decades each.
+- **Strength:** the ladder Elo against the classical player at 25,600 nodes, with its 95 % interval as a whisker. LARGE generation 10 is drawn hollow with a dashed whisker, because the ladder is saturated and cannot rank it against SMALL generation 9. The direct match is a triangle at its x: up (accent, filled) at equal simulations, down (hollow, plum outline) at equal time per move, placed at the Elo of SMALL generation 9 plus the match.
+- **Front:** one step line of the rows that no other row dominates (not worse in energy and in time, and resolved stronger), dashed towards a row that is unknown or decided by the match; the region below and right of it is the band fill. The front changes only with the comparison basis (segmented switch "compare strength at"; disabled in the view `both`, with a reason line that is always there).
+- **CPU rows:** vertical dashed lines with an arrowhead at the top and a label at the bottom of the frame, in the strength views (their strength was not measured); points with a range whisker in the view `both`, joined to their GPU row by a right-angled dashed path that carries the factors.
+- **Focusable:** the two segmented switches, then the eight buttons in the first column of the table. The plot and the detail panel hold nothing focusable; the hit circles on the points are for the pointer only.
+- **Detail panel:** below the plot, all eight variants in one grid cell, so that its height is that of the tallest.
+- **Compact:** the table rows become four lines (button and trainer; time, energy, strength; size; front).
+- **Contrast:** `--ml-fig-alt` on `--ml-fig-band` (the equal-time triangle inside the dominated region) is in the contrast table.
 
 ## 11. Component list
 
