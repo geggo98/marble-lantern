@@ -65,7 +65,7 @@
 .ml-fig-energy__table th.ml-fig-energy__net { text-align: left; font-weight: var(--ml-weight-medium); }
 .ml-fig-energy__table td { font-family: var(--ml-font-data); }
 .ml-fig-energy__table td.ml-fig-energy__trainer, .ml-fig-energy__table td.ml-fig-energy__size, .ml-fig-energy__table td.ml-fig-energy__front-cell { font-family: var(--ml-font-ui); text-align: left; }
-.ml-fig-energy__table tr[data-selected] > * { background: var(--ml-fig-accent-bg); }
+.ml-fig-energy__table tr[data-selected] { background: var(--ml-fig-accent-bg); }
 .ml-fig-energy__pick { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 var(--ml-space-1); border: 0; border-radius: var(--ml-radius-sm); background: transparent; color: var(--ml-color-ink); font: inherit; text-align: left; cursor: pointer; }
 .ml-fig-energy__pick[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 3px; }
 .ml-fig-energy__code { white-space: nowrap; font-family: var(--ml-font-data); margin-inline-end: 0.35em; }

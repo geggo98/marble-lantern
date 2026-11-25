@@ -168,12 +168,12 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
     const timeLabel = (net: EnergyRow['net']): string => fig.pick('fig.energy.factor.time', compact, { x: fmt.fixed(factor(net).time, 0) });
     const energyLabel = (net: EnergyRow['net']): string => fig.pick('fig.energy.factor.energy', compact, { x: fmt.fixed(factor(net).energy, 0) });
     const lowerAt = (h: number): number => sy((wLo / 1000) * h);
-    const labelX = 60;
+    const labelX = compact ? 120 : 60;
     costMarks = (
       <>
         <g data-part="power-band">
           <PlotBand xs={xs} lo={xs.map((x) => (wLo / 1000) * x)} hi={xs.map((x) => (wHi / 1000) * x)} />
-          <text className="ml-fig-energy__bandlabel" x={sx(labelX)} y={lowerAt(labelX) + 18} textAnchor="start">
+          <text className="ml-fig-energy__bandlabel" x={sx(labelX)} y={lowerAt(labelX) + 18} textAnchor={compact ? 'end' : 'start'}>
             {t('fig.energy.band', { lo: fmt.fixed(wLo, 0), hi: fmt.fixed(wHi, 0) })}
           </text>
         </g>

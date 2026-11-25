@@ -140,7 +140,7 @@ export function EnergyFigure({ data = ENERGY_DATA, initial }: EnergyFigureProps)
           <Plot
             layout={compact ? 'compact' : 'wide'}
             height={340}
-            margin={{ top: 44 }}
+            margin={{ top: 44, ...(compact ? { left: 48 } : {}) }}
             title={title}
             desc={plain(`fig.energy.desc.${view}`)}
             x={{ scale: 'log', domain: spec.x.domain, ticks: spec.x.ticks, format: f.tick, label: t(spec.x.key === 'kwh' ? 'fig.energy.axis.energy' : 'fig.energy.axis.time') }}
