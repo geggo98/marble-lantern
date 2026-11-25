@@ -628,20 +628,21 @@ describe('the topic pages', () => {
     expect(place('fig-backends')).toBe('about-inference-backends');
     expect(all('figure.ml-fig')).toHaveLength(4);
   });
-  it('training: V13 under learning, V11 under loop, V12 under throughput', async () => {
+  it('training: V13 under learning, V11 under loop, V12 under throughput, Fig. 4.4 under energy', async () => {
     await render(<TrainingPage topic="training" onJumpSection={() => undefined} />);
     expect(place('fig-lr')).toBe('about-training-learning');
     expect(place('fig-loop')).toBe('about-training-loop');
     expect(place('fig-pooled')).toBe('about-training-throughput');
-    expect(all('figure.ml-fig')).toHaveLength(3);
+    expect(place('fig-energy')).toBe('about-training-energy');
+    expect(all('figure.ml-fig')).toHaveLength(4);
   });
-  it('the page text comes from the catalog and the figure numbers run 3.1 to 3.4 and 4.1 to 4.3', async () => {
+  it('the page text comes from the catalog and the figure numbers run 3.1 to 3.4 and 4.1 to 4.4', async () => {
     await render(<InferencePage topic="inference" onJumpSection={() => undefined} />);
     expect(all('.ml-fig__label').map(text)).toEqual(['Fig. 3.1', 'Fig. 3.2', 'Fig. 3.3', 'Fig. 3.4']);
     expect(text(q('h1'))).toBe(inferenceCatalog.lookup('en', 'title'));
     act(() => root.unmount());
     root = createRoot(host);
     await render(<TrainingPage topic="training" onJumpSection={() => undefined} />);
-    expect(all('.ml-fig__label').map(text)).toEqual(['Fig. 4.1', 'Fig. 4.2', 'Fig. 4.3']);
+    expect(all('.ml-fig__label').map(text)).toEqual(['Fig. 4.1', 'Fig. 4.2', 'Fig. 4.3', 'Fig. 4.4']);
   });
 });

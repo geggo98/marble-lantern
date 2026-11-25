@@ -1,4 +1,4 @@
-// Topic page "training": the prose comes from the catalog (about/i18n/{en,de}/training.json), the figures V13, V11 and V12 stand in the
+// Topic page "training": the prose comes from the catalog (about/i18n/{en,de}/training.json), the figures V13, V11, V12 and Fig. 4.4 (energy) stand in the
 // sections the outline names (plan sections 2.4 and 3).
 import en from '../i18n/en/training.json';
 import de from '../i18n/de/training.json';
@@ -6,6 +6,7 @@ import type { SameKeys } from '../i18n/catalog';
 import { TopicPage, defineTopic } from '../TopicPage';
 import type { TopicPageProps } from '../TopicPage';
 import { trainingCatalog } from '../figures/catalogs';
+import { EnergyFigure } from '../figures/EnergyFigure';
 import { LoopFigure } from '../figures/LoopFigure';
 import { LrFigure } from '../figures/LrFigure';
 import { PooledFigure } from '../figures/PooledFigure';
@@ -15,6 +16,7 @@ export const catalogsMatch: SameKeys<typeof en, typeof de> = true;
 
 const FIGURES: Record<string, () => React.ReactNode> = {
   learning: () => <LrFigure />,
+  energy: () => <EnergyFigure />,
   loop: () => <LoopFigure />,
   throughput: () => <PooledFigure />,
 };

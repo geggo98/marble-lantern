@@ -1,0 +1,101 @@
+/* Fig. 4.4 (what the training cost, topic training). Everything here is local to the figure: the marks of the plot, the legend, the detail panel and
+   the table. Colours are the tokens of the figure kit (--ml-fig-*); no new token. Layout note: web/design/about/about-notes.md, "V15". */
+.ml-fig-energy { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-4); min-width: 0; }
+.ml-fig-energy__plot { min-width: 0; }
+.ml-fig-energy__info { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ml-space-3); min-width: 0; align-items: start; }
+@container ml-fig (min-width: 40rem) { .ml-fig-energy__info { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+/* the reason line under the switches: always one line of room, hidden unless the view shows no strength */
+.ml-fig-energy__reason { margin: 0; font-size: var(--ml-text-xs); color: var(--ml-color-ink-muted); }
+.ml-fig-energy__reason[data-off] { visibility: hidden; }
+
+/* marks */
+.ml-fig-energy__mark[data-fill="solid"] { fill: var(--ml-fig-mark); stroke: var(--ml-fig-bg); stroke-width: 1.5; }
+.ml-fig-energy__mark[data-fill="hollow"] { fill: var(--ml-fig-bg); stroke: var(--ml-fig-mark); stroke-width: 2; }
+.ml-fig-energy__whisker--dashed { stroke-dasharray: 2 3; }
+.ml-fig-energy__region { fill: var(--ml-fig-band); stroke: none; }
+.ml-fig-energy__front { fill: none; stroke: var(--ml-fig-accent); stroke-width: var(--ml-fig-stroke); stroke-linejoin: round; stroke-linecap: butt; }
+.ml-fig-energy__front--dashed { stroke-dasharray: 7 4; }
+.ml-fig-energy__bound { stroke: var(--ml-fig-mark); stroke-width: var(--ml-fig-stroke-thin); stroke-dasharray: 2 4; fill: none; }
+.ml-fig-energy__arrow { fill: var(--ml-fig-mark); stroke: none; }
+.ml-fig-energy__tri--up { fill: var(--ml-fig-accent); stroke: var(--ml-fig-bg); stroke-width: 1.5; stroke-linejoin: round; }
+.ml-fig-energy__tri--down { fill: var(--ml-fig-bg); stroke: var(--ml-fig-alt); stroke-width: 2; stroke-linejoin: round; }
+.ml-fig-energy__swatch { fill: var(--ml-fig-band); stroke: var(--ml-fig-accent); stroke-width: 1; }
+.ml-fig-energy__path { fill: none; stroke: var(--ml-fig-mark); stroke-width: var(--ml-fig-stroke-thin); stroke-dasharray: 2 4; }
+.ml-fig-energy__ring { fill: none; stroke: var(--ml-fig-accent); stroke-width: var(--ml-fig-stroke-active); }
+.ml-fig-energy__hit { fill: transparent; pointer-events: all; cursor: pointer; }
+
+/* labels: the data face, ink, with a halo so that a label stays readable over a line */
+.ml-fig-plot text.ml-fig-energy__label,
+.ml-fig-plot text.ml-fig-energy__factor,
+.ml-fig-plot text.ml-fig-energy__cpulabel,
+.ml-fig-plot text.ml-fig-energy__cue,
+.ml-fig-plot text.ml-fig-energy__bandlabel { fill: var(--ml-color-ink); font-weight: 600; paint-order: stroke; stroke: var(--ml-fig-bg); stroke-width: 4px; stroke-linejoin: round; }
+.ml-fig-plot text.ml-fig-energy__cpulabel,
+.ml-fig-plot text.ml-fig-energy__factor,
+.ml-fig-plot text.ml-fig-energy__bandlabel { font-weight: 400; stroke: none; }
+.ml-fig-plot text.ml-fig-energy__cue { font-family: var(--ml-font-ui); fill: var(--ml-fig-axis); font-weight: 500; }
+.ml-fig-plot text[data-selected] { font-weight: 700; }
+
+/* legend: one column of entries that wrap; an entry the current view does not draw is dimmed (and hidden from screen readers) */
+.ml-fig-energy__legend { flex-direction: column; align-items: flex-start; gap: var(--ml-space-1); }
+.ml-fig-energy__legend .ml-fig-legend__item { white-space: normal; align-items: flex-start; }
+.ml-fig-energy__legend .ml-fig-legend__item svg { margin-top: 0.0625rem; }
+.ml-fig-legend__item[data-off] { opacity: 0.45; }
+
+/* detail panel: all variants in one grid cell, the hidden ones give the size */
+.ml-fig-energy__detail { padding: var(--ml-space-3); border: var(--ml-border) solid var(--ml-fig-mark); border-inline-start-width: 4px; border-radius: var(--ml-radius-sm); min-width: 0; font-size: var(--ml-text-sm); }
+.ml-fig-energy__stack { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.ml-fig-energy__stack > * { grid-area: 1 / 1; min-width: 0; }
+.ml-fig-energy__stack > [data-off] { visibility: hidden; }
+.ml-fig-energy__variant { display: grid; gap: var(--ml-space-2); align-content: start; }
+.ml-fig-energy__variant p { margin: 0; }
+.ml-fig-energy__detail-title { margin: 0; font: var(--ml-weight-bold) var(--ml-text-sm)/1.3 var(--ml-font-ui); }
+.ml-fig-energy__dl { display: grid; gap: var(--ml-space-1); margin: 0; }
+.ml-fig-energy__dl > div { display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr); column-gap: var(--ml-space-2); }
+.ml-fig-energy__dl dt { color: var(--ml-color-ink-muted); }
+.ml-fig-energy__dl dd { margin: 0; grid-column: 2; font-variant-numeric: tabular-nums; }
+.ml-fig-energy__hidden[data-off] { visibility: hidden; }
+
+/* the table */
+.ml-fig-energy__tablewrap { display: grid; gap: var(--ml-space-2); min-width: 0; }
+.ml-fig-energy__table th, .ml-fig-energy__table td { vertical-align: top; }
+.ml-fig-energy__table td { white-space: normal; }
+.ml-fig-energy__table .ml-fig-energy__group { text-align: left; font: var(--ml-weight-medium) var(--ml-text-xs)/1.3 var(--ml-font-ui); color: var(--ml-color-ink-muted); background: var(--ml-color-surface-sunken); }
+.ml-fig-energy__table th.ml-fig-energy__net { text-align: left; font-weight: var(--ml-weight-medium); }
+.ml-fig-energy__table td { font-family: var(--ml-font-data); }
+.ml-fig-energy__table td.ml-fig-energy__trainer, .ml-fig-energy__table td.ml-fig-energy__size, .ml-fig-energy__table td.ml-fig-energy__front-cell { font-family: var(--ml-font-ui); text-align: left; }
+.ml-fig-energy__table tr[data-selected] > * { background: var(--ml-fig-accent-bg); }
+.ml-fig-energy__pick { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 var(--ml-space-1); border: 0; border-radius: var(--ml-radius-sm); background: transparent; color: var(--ml-color-ink); font: inherit; text-align: left; cursor: pointer; }
+.ml-fig-energy__pick[aria-pressed="true"] { font-weight: var(--ml-weight-bold); text-decoration: underline; text-underline-offset: 3px; }
+.ml-fig-energy__code { font-family: var(--ml-font-data); margin-inline-end: 0.35em; }
+.ml-fig-energy__tag { margin-inline-start: var(--ml-space-2); }
+.ml-fig-energy__factor-line { display: block; color: var(--ml-color-ink-muted); font-family: var(--ml-font-ui); font-size: var(--ml-text-xs); }
+.ml-fig-energy__fn { font-size: 0.8em; }
+.ml-fig-energy__note { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
+.ml-fig-energy__table td::before { content: none; }
+
+/* narrow figure: a row becomes lines (button and trainer, then time, energy, strength, then size and front) instead of seven cramped columns */
+@container ml-fig (max-width: 39.999rem) {
+  .ml-fig-energy__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ml-fig-energy__table, .ml-fig-energy__table tbody { display: block; }
+  .ml-fig-energy__table tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--ml-space-2); padding: var(--ml-space-1) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-color-line); }
+  .ml-fig-energy__table tbody tr:first-child { display: block; padding: 0; border: 0; }
+  .ml-fig-energy__table th, .ml-fig-energy__table td { padding: var(--ml-space-1) 0; border: 0; text-align: left; white-space: normal; }
+  .ml-fig-energy__table th.ml-fig-energy__net { grid-column: 1 / 3; grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; }
+  .ml-fig-energy__table td.ml-fig-energy__trainer { grid-column: 3; grid-row: 1; align-self: center; text-align: right; }
+  .ml-fig-energy__table td.ml-fig-energy__time { grid-column: 1; grid-row: 2; }
+  .ml-fig-energy__table td.ml-fig-energy__energy { grid-column: 2; grid-row: 2; }
+  .ml-fig-energy__table td.ml-fig-energy__strength { grid-column: 3; grid-row: 2; }
+  .ml-fig-energy__table td.ml-fig-energy__size { grid-column: 1 / -1; grid-row: 3; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
+  .ml-fig-energy__table td.ml-fig-energy__front-cell { grid-column: 1 / -1; grid-row: 4; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
+  .ml-fig-energy__table td.ml-fig-energy__front-cell:not(:empty)::before { content: attr(data-label) ": "; }
+  .ml-fig-energy__table td.ml-fig-energy__front-cell:has(> .ml-visually-hidden)::before { content: none; }
+  .ml-fig-energy__dl > div { grid-template-columns: minmax(0, 6.5rem) minmax(0, 1fr); }
+}
+
+@media (forced-colors: active) {
+  .ml-fig-energy__ring { stroke: Highlight; }
+  .ml-fig-energy__front, .ml-fig-energy__tri--up { stroke: CanvasText; }
+  .ml-fig-energy__tri--up { fill: CanvasText; }
+}
