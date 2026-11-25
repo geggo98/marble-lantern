@@ -82,10 +82,11 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
           const labelY = area.y1 - 6 - i * 15;
           return (
             <g key={r.id} data-bound={r.id}>
+              <title>{t('fig.energy.cpu.bound', { code: code(r) })}</title>
               <line className="ml-fig-energy__bound" x1={x} x2={x} y1={area.y1} y2={area.y0} />
               <path className="ml-fig-energy__arrow" d={`M${x} ${area.y0 + 2}L${x + 7} ${area.y0 + 6}L${x} ${area.y0 + 10}Z`} />
               <text className="ml-fig-energy__cpulabel" x={x - 6} y={labelY} textAnchor="end" data-selected={r.id === selected ? '' : undefined}>
-                {compact ? code(r) : t('fig.energy.cpu.bound', { code: code(r) })}
+                {code(r)}
               </text>
             </g>
           );
@@ -126,16 +127,16 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
         {runs.map((r) => {
           const x = sx(xOf(r, strengthView));
           const ladder = r.strength!;
-          const side = r.id === 'small-gen9' ? 'left' : r.generation === 10 ? 'above' : 'right';
+          const side = r.id === 'small-gen9' ? 'left' : r.generation === 10 ? 'above' : compact && r.id === 'small-gen0' ? 'below' : 'right';
           const top = Math.min(sy(ladder.elo + ladder.ci), sy(ladder.elo));
           return (
             <text
               key={r.id}
               className="ml-fig-energy__label"
               data-selected={r.id === selected ? '' : undefined}
-              x={side === 'left' ? x - 9 : side === 'above' ? x : x + 9}
-              y={side === 'above' ? top - 8 : sy(ladder.elo) - 8}
-              textAnchor={side === 'left' ? 'end' : side === 'above' ? 'middle' : 'start'}
+              x={side === 'left' ? x - 9 : side === 'above' || side === 'below' ? x : x + 9}
+              y={side === 'above' ? top - 8 : side === 'below' ? sy(ladder.elo - ladder.ci) + 15 : sy(ladder.elo) - 8}
+              textAnchor={side === 'left' ? 'end' : side === 'above' || side === 'below' ? 'middle' : 'start'}
             >
               {code(r)}
             </text>
@@ -167,11 +168,12 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
     const timeLabel = (net: EnergyRow['net']): string => fig.pick('fig.energy.factor.time', compact, { x: fmt.fixed(factor(net).time, 0) });
     const energyLabel = (net: EnergyRow['net']): string => fig.pick('fig.energy.factor.energy', compact, { x: fmt.fixed(factor(net).energy, 0) });
     const lowerAt = (h: number): number => sy((wLo / 1000) * h);
+    const labelX = 60;
     costMarks = (
       <>
         <g data-part="power-band">
           <PlotBand xs={xs} lo={xs.map((x) => (wLo / 1000) * x)} hi={xs.map((x) => (wHi / 1000) * x)} />
-          <text className="ml-fig-energy__bandlabel" x={sx(xTop) - 8} y={lowerAt(xTop) + 16} textAnchor="end">
+          <text className="ml-fig-energy__bandlabel" x={sx(labelX)} y={lowerAt(labelX) + 18} textAnchor="start">
             {t('fig.energy.band', { lo: fmt.fixed(wLo, 0), hi: fmt.fixed(wHi, 0) })}
           </text>
         </g>
