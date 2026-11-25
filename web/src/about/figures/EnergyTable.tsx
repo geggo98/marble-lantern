@@ -76,9 +76,7 @@ export function EnergyTable({ data, basis, selected, onSelect, fig, f, id }: Tab
               {fx && <span className="ml-fig-energy__factor-line">{fx.time}</span>}
             </td>
             <td className="ml-fig-energy__energy" data-label={t('fig.energy.col.energy')}>
-              <span>
-                {f.kwh(row)} {f.range(row)}
-              </span>
+              <span>{f.kwh(row)}</span> {f.range(row) && <span>{f.range(row)}</span>}
               {unchecked && <sup className="ml-fig-energy__fn" aria-hidden="true"> †</sup>}
               {row.status === 'estimate' && <span className="ml-visually-hidden"> {f.estimateSr(row)}</span>}
               {fx && <span className="ml-fig-energy__factor-line">{fx.energy}</span>}

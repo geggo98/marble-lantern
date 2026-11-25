@@ -73,25 +73,22 @@
 .ml-fig-energy__factor-line { display: block; color: var(--ml-color-ink-muted); font-family: var(--ml-font-ui); font-size: var(--ml-text-xs); }
 .ml-fig-energy__fn { font-size: 0.8em; }
 .ml-fig-energy__note { margin: 0; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
-.ml-fig-energy__table td::before { content: none; }
 
-/* narrow figure: a row becomes lines (button and trainer, then time, energy, strength, then size and front) instead of seven cramped columns */
+/* narrow figure: a row is its name on top and one "label  value" line per column below, so that no number breaks from its unit and no cell is squeezed */
 @container ml-fig (max-width: 55.999rem) {
   .ml-fig-energy__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .ml-fig-energy__table, .ml-fig-energy__table tbody { display: block; }
   .ml-fig-energy__table caption { display: block; width: 100%; }
-  .ml-fig-energy__table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.1fr); column-gap: var(--ml-space-2); padding: var(--ml-space-1) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-color-line); }
-  .ml-fig-energy__table tbody tr:first-child { display: block; padding: 0; border: 0; }
-  .ml-fig-energy__table th, .ml-fig-energy__table td { padding: var(--ml-space-1) 0; border: 0; text-align: left; white-space: normal; }
-  .ml-fig-energy__table th.ml-fig-energy__net { grid-column: 1 / 3; grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; }
-  .ml-fig-energy__table td.ml-fig-energy__trainer { grid-column: 3; grid-row: 1; align-self: center; text-align: right; }
-  .ml-fig-energy__table td.ml-fig-energy__time { grid-column: 1; grid-row: 2; }
-  .ml-fig-energy__table td.ml-fig-energy__energy { grid-column: 2; grid-row: 2; }
-  .ml-fig-energy__table td.ml-fig-energy__strength { grid-column: 3; grid-row: 2; }
-  .ml-fig-energy__table td.ml-fig-energy__size { grid-column: 1 / -1; grid-row: 3; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
-  .ml-fig-energy__table td.ml-fig-energy__front-cell { grid-column: 1 / -1; grid-row: 4; color: var(--ml-color-ink-muted); font-size: var(--ml-text-xs); }
-  .ml-fig-energy__table td.ml-fig-energy__front-cell:not(:empty)::before { content: attr(data-label) ": "; }
-  .ml-fig-energy__table td.ml-fig-energy__front-cell:has(> .ml-visually-hidden)::before { content: none; }
+  .ml-fig-energy__table, .ml-fig-energy__table tbody, .ml-fig-energy__table tbody tr { display: block; }
+  .ml-fig-energy__table tbody tr { padding: var(--ml-space-2) var(--ml-space-2); border-bottom: var(--ml-border) solid var(--ml-color-line); }
+  .ml-fig-energy__table tbody tr:first-child { padding: 0; border: 0; }
+  .ml-fig-energy__table th, .ml-fig-energy__table td { display: block; padding: 2px 0; border: 0; text-align: left; white-space: normal; }
+  .ml-fig-energy__table th.ml-fig-energy__net { display: flex; flex-wrap: wrap; align-items: center; padding-bottom: var(--ml-space-1); }
+  .ml-fig-energy__table td { position: relative; padding-inline-start: 6.25rem; min-height: 1.4em; }
+  .ml-fig-energy__table td::before { content: attr(data-label); position: absolute; inset-inline-start: 0; top: 2px; max-width: 5.75rem; color: var(--ml-color-ink-muted); font: var(--ml-text-xs)/1.4 var(--ml-font-ui); }
+  .ml-fig-energy__table td:has(> .ml-visually-hidden:only-child)::before { content: none; }
+  .ml-fig-energy__table td:has(> .ml-visually-hidden:only-child) { min-height: 0; padding: 0; }
+  .ml-fig-energy__table td > span, .ml-fig-energy__table td > sup { white-space: nowrap; }
+  .ml-fig-energy__table td .ml-fig-energy__factor-line { white-space: normal; }
   .ml-fig-energy__dl > div { grid-template-columns: minmax(0, 6.5rem) minmax(0, 1fr); }
 }
 
@@ -100,4 +97,3 @@
   .ml-fig-energy__front, .ml-fig-energy__tri--up { stroke: CanvasText; }
   .ml-fig-energy__tri--up { fill: CanvasText; }
 }
-.ml-fig-energy__time > span:first-child { white-space: nowrap; }
