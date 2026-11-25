@@ -31,7 +31,7 @@ const FIGURE_PREFIXES: Record<string, readonly string[]> = {
   architecture: ['fig.offline', 'fig.online', 'fig.pipeline', 'fig.tree'],
   classical: ['fig.ab', 'fig.eval', 'fig.budget', 'fig.race', 'fig.roots'],
   inference: ['fig.net', 'fig.forward', 'fig.mcts'],
-  training: ['fig.loop', 'fig.pooled', 'fig.lr'],
+  training: ['fig.loop', 'fig.pooled', 'fig.lr', 'fig.energy'],
   tuning: ['fig.story'],
   java: ['fig.javaspeed', 'fig.javaplain', 'fig.simd', 'fig.gpu', 'fig.j5'],
   'java-web': ['fig.hilla', 'fig.boundary'],
@@ -118,6 +118,10 @@ const DS_TOPICS = ['inference', 'training'];
 // (the longest is about 169, sec.tornadovm.p4 after the round-3 text review of 2026-11-22), reading notes up to 23, up to six paragraphs per section. Origin: the text writer delivered them with the figures in mind; the
 // owner has not decided to shorten them. Limit: only these two topics; any other topic keeps the budgets above. Expiry: once the texts are shortened.
 const JAVA_TOPICS: Record<string, { lead: number; p: number; read: number }> = { java: { lead: 70, p: 170, read: 23 }, 'java-web': { lead: 70, p: 170, read: 23 } };
+// One section may have a fourth paragraph: topic training, section energy (Fig. 4.4). Origin: the text writer of 2026-11-25 needed four paragraphs (the method,
+// the two groups of rows, the findings, the limits of the estimates), and the owner allowed it. Limit: only sec.energy.p4 of the topic training; every other
+// section keeps three. Expiry: once the section is shortened to three paragraphs.
+const FOURTH_PARAGRAPH = new Set(['training:sec.energy.p4']);
 const visibleWords = (text: string): number =>
   text
     .replace(/\{(?<kind>[a-z]+):(?<target>[^{}|]*)(?:\|(?<label>[^{}]*))?\}/g, (_m, kind: string, target: string, label?: string) => label ?? (kind === 'src' ? 'x' : target))
@@ -142,7 +146,7 @@ describe.each(TOPICS)('text budgets of topic %s', (topic) => {
       expect(over).toEqual([]);
       const paragraphs = Object.keys(catalog).filter((k) => /^sec\.[^.]+\.p\d+$/.test(k));
       expect(paragraphs.length, 'paragraphs seen').toBeGreaterThan(0);
-      expect(paragraphs.filter((k) => Number(k.split('.p')[1]) > (topic in JAVA_TOPICS ? 6 : 3))).toEqual([]);
+      expect(paragraphs.filter((k) => Number(k.split('.p')[1]) > (topic in JAVA_TOPICS ? 6 : 3)).filter((k) => !FOURTH_PARAGRAPH.has(`${topic}:${k}`))).toEqual([]);
     });
   }
 });
