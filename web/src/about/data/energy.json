@@ -1,0 +1,503 @@
+{
+ "schema": 1,
+ "source": {
+  "generator": "transcribed",
+  "date": "2026-11-25",
+  "how": "Every number is copied from a cited line of docs/training.md (sections 'Energy', 'CPU against GPU training', 'Strength per cost', 'Check of the GPU estimate'); energy.test.ts reads each line and looks for the needle and the numbers. The duration of the four complete runs is the sum of the phase durations (column 'duration', from the markers) of the cited rows of the energy reports: SMALL Gen0 = teacher 0:24:40 + gen0 0:07:24 = 0.534 h; SMALL generation 9 adds loop-1 to loop-9 = 4.254 h; LARGE Gen0 = the reused teacher data 0:24:40 + gen0-large 0:48:42 = 1.223 h; LARGE generation 10 adds loop-large-1 to loop-large-10 = 17.053 h. They are stored with three decimals; the figure prints 0.53, 4.3, 1.2 and 17. The checks (pilot, ladder, e1 to e3, h2h) are not in the sum, as the document says for the energy per network. The SMALL GPU row and the two CPU rows are the document's estimates; the LARGE CPU row is the document's rescaling to the real step count of 285,618 steps ('Check of the GPU estimate'); the LARGE GPU row is measured. The ratios are the documented ones, not computed from the rounded hours."
+ },
+ "machine": {
+  "name": "Apple MacBook Pro, M3 Max",
+  "idleW": 12.7,
+  "trainW": [
+   36,
+   49
+  ],
+  "source": {
+   "doc": "docs/training.md",
+   "line": 2831,
+   "needle": "12.69 W"
+  },
+  "trainWSource": {
+   "doc": "docs/training.md",
+   "line": 2806,
+   "needle": "48.5 W against 36.5 W"
+  },
+  "trainWNote": "The band spans the mean powers the document names, 36.5 W (real SMALL Gen0) and 48.5 W (experiment, gpu-small), rounded outward to whole watts."
+ },
+ "nets": {
+  "SMALL": {
+   "channels": 32,
+   "blocks": 4,
+   "weights": 61734,
+   "packedBytes": 115132,
+   "cpuMsPerMove": 97.4,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2884,
+    "needle": "| parameters | 61,734 |"
+   },
+   "packedSource": {
+    "doc": "docs/training.md",
+    "line": 2888,
+    "needle": "| F16 with gzip (browser format) | 115,132 B |"
+   },
+   "msSource": {
+    "doc": "docs/training.md",
+    "line": 2889,
+    "needle": "| CPU-ms/move at 200 simulations, H2H | 97.4 |"
+   }
+  },
+  "LARGE": {
+   "channels": 64,
+   "blocks": 6,
+   "weights": 352998,
+   "packedBytes": 650959,
+   "cpuMsPerMove": 541.7,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2884,
+    "needle": "352,998"
+   },
+   "packedSource": {
+    "doc": "docs/training.md",
+    "line": 2888,
+    "needle": "650,959 B"
+   },
+   "msSource": {
+    "doc": "docs/training.md",
+    "line": 2889,
+    "needle": "541.7"
+   }
+  }
+ },
+ "rows": [
+  {
+   "id": "small-gen0",
+   "net": "SMALL",
+   "group": "run",
+   "trainer": "gpu",
+   "generation": 0,
+   "hours": 0.534,
+   "hoursFrom": [
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 12,
+     "needle": "| teacher |",
+     "duration": "0:24:40"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 13,
+     "needle": "| gen0 |",
+     "duration": "0:07:24"
+    }
+   ],
+   "kwh": 0.021,
+   "status": "measured",
+   "aboveIdleKwh": 0.013,
+   "strength": {
+    "elo": 131,
+    "ci": 33,
+    "source": {
+     "doc": "docs/training.md",
+     "line": 2871,
+     "needle": "`ab:25600`"
+    }
+   },
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2734,
+    "needle": "the Gen0 network took 0.021 kWh"
+   }
+  },
+  {
+   "id": "small-gen9",
+   "net": "SMALL",
+   "group": "run",
+   "trainer": "gpu",
+   "generation": 9,
+   "shipped": true,
+   "hours": 4.254,
+   "hoursFrom": [
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 12,
+     "needle": "| teacher |",
+     "duration": "0:24:40"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 13,
+     "needle": "| gen0 |",
+     "duration": "0:07:24"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 15,
+     "needle": "| loop-1 |",
+     "duration": "0:31:20"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 16,
+     "needle": "| loop-2 |",
+     "duration": "0:25:53"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 17,
+     "needle": "| loop-3 |",
+     "duration": "0:22:52"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 18,
+     "needle": "| loop-4 |",
+     "duration": "0:24:26"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 19,
+     "needle": "| loop-5 |",
+     "duration": "0:22:36"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 20,
+     "needle": "| loop-6 |",
+     "duration": "0:23:08"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 21,
+     "needle": "| loop-7 |",
+     "duration": "0:25:51"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 22,
+     "needle": "| loop-8 |",
+     "duration": "0:24:01"
+    },
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 23,
+     "needle": "| loop-9 |",
+     "duration": "0:23:04"
+    }
+   ],
+   "kwh": 0.177,
+   "status": "measured",
+   "aboveIdleKwh": 0.119,
+   "strength": {
+    "elo": 611,
+    "ci": 112,
+    "source": {
+     "doc": "docs/training.md",
+     "line": 2871,
+     "needle": "`ab:25600`"
+    }
+   },
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2734,
+    "needle": "the shipped generation 9 took 0.177 kWh"
+   }
+  },
+  {
+   "id": "large-gen0",
+   "net": "LARGE",
+   "group": "run",
+   "trainer": "gpu",
+   "generation": 0,
+   "hours": 1.223,
+   "hoursFrom": [
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 12,
+     "needle": "| teacher |",
+     "duration": "0:24:40"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 10,
+     "needle": "| gen0-large |",
+     "duration": "0:48:42"
+    }
+   ],
+   "kwh": 0.05,
+   "status": "measured",
+   "strength": {
+    "elo": 242,
+    "ci": 39,
+    "source": {
+     "doc": "docs/training.md",
+     "line": 2871,
+     "needle": "`ab:25600`"
+    }
+   },
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2937,
+    "needle": "or 0.050 kWh with the 0.016 kWh of the teacher data"
+   }
+  },
+  {
+   "id": "large-gen10",
+   "net": "LARGE",
+   "group": "run",
+   "trainer": "gpu",
+   "generation": 10,
+   "hours": 17.053,
+   "hoursFrom": [
+    {
+     "doc": "models/runs/net5/net5.report.md",
+     "line": 12,
+     "needle": "| teacher |",
+     "duration": "0:24:40"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 10,
+     "needle": "| gen0-large |",
+     "duration": "0:48:42"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 12,
+     "needle": "| loop-large-1 |",
+     "duration": "2:07:11"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 13,
+     "needle": "| loop-large-2 |",
+     "duration": "1:46:01"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 14,
+     "needle": "| loop-large-3 |",
+     "duration": "1:39:21"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 15,
+     "needle": "| loop-large-4 |",
+     "duration": "1:39:15"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 16,
+     "needle": "| loop-large-5 |",
+     "duration": "1:41:12"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 17,
+     "needle": "| loop-large-6 |",
+     "duration": "1:25:27"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 18,
+     "needle": "| loop-large-7 |",
+     "duration": "1:23:13"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 19,
+     "needle": "| loop-large-8 |",
+     "duration": "1:24:16"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 20,
+     "needle": "| loop-large-9 |",
+     "duration": "1:22:06"
+    },
+    {
+     "doc": "models/runs/net5-large/net5-large.report.md",
+     "line": 21,
+     "needle": "| loop-large-10 |",
+     "duration": "1:21:48"
+    }
+   ],
+   "kwh": 0.712,
+   "status": "measured",
+   "strength": {
+    "elo": 798,
+    "ci": 261,
+    "source": {
+     "doc": "docs/training.md",
+     "line": 2871,
+     "needle": "`ab:25600`"
+    }
+   },
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2937,
+    "needle": "generation 10, took 0.712 kWh"
+   }
+  },
+  {
+   "id": "small-steps-gpu",
+   "net": "SMALL",
+   "group": "steps",
+   "trainer": "gpu",
+   "hours": 0.71,
+   "kwh": 0.035,
+   "kwhRange": [
+    0.027,
+    0.043
+   ],
+   "status": "estimate",
+   "aboveIdleKwh": 0.026,
+   "steps": 262254,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2779,
+    "needle": "| SMALL | GPU |"
+   }
+  },
+  {
+   "id": "small-steps-cpu",
+   "net": "SMALL",
+   "group": "steps",
+   "trainer": "cpu",
+   "hours": 25.8,
+   "kwh": 1.19,
+   "kwhRange": [
+    0.92,
+    1.46
+   ],
+   "status": "estimate",
+   "checked": false,
+   "aboveIdleKwh": 0.86,
+   "steps": 262254,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2778,
+    "needle": "| SMALL | CPU, 14 threads |"
+   }
+  },
+  {
+   "id": "large-steps-gpu",
+   "net": "LARGE",
+   "group": "steps",
+   "trainer": "gpu",
+   "hours": 3.25,
+   "kwh": 0.136,
+   "status": "measured",
+   "aboveIdleKwh": 0.094,
+   "steps": 285618,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2949,
+    "needle": "| wall energy |"
+   },
+   "hoursSource": {
+    "doc": "docs/training.md",
+    "line": 2947,
+    "needle": "| training time |"
+   },
+   "aboveIdleSource": {
+    "doc": "docs/training.md",
+    "line": 2950,
+    "needle": "| above baseline |"
+   },
+   "stepsSource": {
+    "doc": "docs/training.md",
+    "line": 2945,
+    "needle": "| training steps |"
+   }
+  },
+  {
+   "id": "large-steps-cpu",
+   "net": "LARGE",
+   "group": "steps",
+   "trainer": "cpu",
+   "hours": 175,
+   "kwh": 7.46,
+   "kwhRange": [
+    5.8,
+    9.1
+   ],
+   "status": "estimate",
+   "checked": false,
+   "steps": 285618,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2957,
+    "needle": "the CPU estimate becomes 175 h"
+   },
+   "stepsSource": {
+    "doc": "docs/training.md",
+    "line": 2945,
+    "needle": "| training steps |"
+   }
+  }
+ ],
+ "matches": [
+  {
+   "a": "large-gen10",
+   "b": "small-gen9",
+   "basis": "sims",
+   "elo": 131,
+   "ci": 24,
+   "simsA": 200,
+   "simsB": 200,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2836,
+    "needle": "+131 ± 24 Elo"
+   }
+  },
+  {
+   "a": "large-gen10",
+   "b": "small-gen9",
+   "basis": "time",
+   "elo": -173,
+   "ci": 36,
+   "simsA": 200,
+   "simsB": 1000,
+   "source": {
+    "doc": "docs/training.md",
+    "line": 2838,
+    "needle": "-173 ± 36 Elo"
+   }
+  }
+ ],
+ "factors": [
+  {
+   "net": "SMALL",
+   "time": 36,
+   "energy": 34,
+   "timeSource": {
+    "doc": "docs/training.md",
+    "line": 2748,
+    "needle": "36 times (SMALL) and 51 times (LARGE)"
+   },
+   "energySource": {
+    "doc": "docs/training.md",
+    "line": 2783,
+    "needle": "34 times (SMALL) and 52 times (LARGE)"
+   }
+  },
+  {
+   "net": "LARGE",
+   "time": 51,
+   "energy": 52,
+   "timeSource": {
+    "doc": "docs/training.md",
+    "line": 2748,
+    "needle": "36 times (SMALL) and 51 times (LARGE)"
+   },
+   "energySource": {
+    "doc": "docs/training.md",
+    "line": 2783,
+    "needle": "34 times (SMALL) and 52 times (LARGE)"
+   }
+  }
+ ]
+}
