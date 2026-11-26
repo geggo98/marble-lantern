@@ -122,7 +122,7 @@ class MctsMatchTest {
     @Test
     void usageErrorsExitWith2() {
         assertEquals(2, MctsMatch.run(new String[] {"--out", shared.resolve("d").toString()}, System.out, System.err));
-        assertEquals(2, match(shared.resolve("e"), "--subject", "ab:nodes=3", "--vs", "ab:1").code);
+        assertEquals(2, match(shared.resolve("e"), "--subject", "ab:bogus=3", "--vs", "ab:1").code);
         assertEquals(2, match(shared.resolve("f"), "--subject", "mcts:sims=3,bogus=1", "--vs", "ab:1").code);
         assertEquals(2, match(shared.resolve("g"), "--subject", "mcts:sims=3", "--vs", "ab:5").code, "a rung between 2 and 99");
         assertEquals(2, match(shared.resolve("h"), "--subject", "mcts:sims=3", "--vs", "ab:1", "--pairs", "1").code);
@@ -164,5 +164,84 @@ class MctsMatchTest {
         assertEquals(2, match(shared.resolve("j2"), "--subject", "mcts:sims=3,race=0", "--vs", "ab:1", "--ladder-spec",
                 "ab:eval=distance,jump=long").code, "a long spec in adjacent games");
         assertEquals(2, match(shared.resolve("j3"), "--subject", "mcts:sims=3,race=0", "--vs", "ab:1", "--jump", "diagonal").code);
+    }
+
+    private static final String BASE = "ab:eval=distance";
+
+    @Test
+    void aClassicalSubjectPlaysTheGamesOfArenaForTheSameSeed() throws Exception {
+        Path dir = shared.resolve("cl1");
+        Run r = match(dir, "--subject", "ab:100", "--vs", "ab:1", "--pairs", "6", "--seed", "11");
+        assertEquals(0, r.code, r.err);
+        assertTrue(r.err.contains("6 ok, 0 skip, 0 error, 0 left - nothing more to do"), r.err);
+        MctsMatch.Summary s = MctsMatch.summarize("s", "o", 6, 11, MctsMatch.read(pairFiles(dir).get(0)));
+        sternhalma.search.Arena.Report a = sternhalma.search.Arena.match(
+                sternhalma.search.PlayerSpec.parse(StrengthEstimate.spec(BASE, 100)),
+                sternhalma.search.PlayerSpec.parse(StrengthEstimate.spec(BASE, 1)), 6, 11, 4, 2);
+        assertEquals(a.aWins(), s.wins());
+        assertEquals(a.draws(), s.draws());
+        assertEquals(a.bWins(), s.losses());
+        assertEquals(a.score(), s.score(), 1e-12);
+        assertEquals(a.averagePlies(), s.averagePlies(), 1e-12);
+        assertTrue(s.subjectSimsPerSearchedMove() > 0, "the nodes of the classical subject are counted");
+    }
+
+    @Test
+    void aClassicalMatchResumesAfterATornLineAndSkipsWhatIsDone() throws Exception {
+        Path dir = shared.resolve("cl2");
+        String[] args = {"--subject", "ab:100", "--vs", "ab:1", "--pairs", "4", "--seed", "12"};
+        Run first = match(dir, args);
+        assertEquals(0, first.code, first.err);
+        Path file = pairFiles(dir).get(0);
+        List<String> lines = Files.readAllLines(file);
+        assertEquals(4, lines.size());
+        Files.write(file, List.of(lines.get(0), lines.get(1), lines.get(3), lines.get(2).substring(0, 20)));
+        Run second = match(dir, args);
+        assertEquals(0, second.code, second.err);
+        assertTrue(second.err.contains("1 ok, 3 skip, 0 error, 0 left"), second.err);
+        assertEquals(first.out.split(";")[0], second.out.split(";")[0]);
+        Run third = match(dir, args);
+        assertTrue(third.err.contains("0 ok, 4 skip, 0 error, 0 left - nothing more to do"), third.err);
+        assertEquals(1, pairFiles(dir).size());
+    }
+
+    @Test
+    void aClassicalMatchHoldsTheLock() throws Exception {
+        Path dir = Files.createDirectories(shared.resolve("cl3"));
+        try (FileChannel ch = FileChannel.open(dir.resolve(".match.lock"), StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE); FileLock lock = ch.tryLock()) {
+            assertTrue(lock != null);
+            assertEquals(75, match(dir, "--subject", "ab:100", "--vs", "ab:1", "--pairs", "2").code);
+            assertTrue(pairFiles(dir).isEmpty());
+        }
+    }
+
+    @Test
+    void aFullClassicalSpecIsASubjectAndNeedsNoNetwork() throws Exception {
+        Path dir = shared.resolve("cl4");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int code = MctsMatch.run(new String[] {"--out", dir.toString(), "--ladder-spec", BASE, "--subject",
+                BASE + ",nodes=100,tt=16", "--vs", "ab:1", "--pairs", "3", "--seed", "13", "--threads", "2"},
+                new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
+        assertEquals(0, code, err.toString(StandardCharsets.UTF_8));
+        // the same player as the text ab:100 with the same ladder spec: the same games, so the same pair lines
+        Path dir2 = shared.resolve("cl4b");
+        assertEquals(0, match(dir2, "--subject", "ab:100", "--vs", "ab:1", "--pairs", "3", "--seed", "13").code);
+        MctsMatch.Summary x = MctsMatch.summarize("s", "o", 3, 13, MctsMatch.read(pairFiles(dir).get(0)));
+        MctsMatch.Summary y = MctsMatch.summarize("s", "o", 3, 13, MctsMatch.read(pairFiles(dir2).get(0)));
+        assertEquals(y.score(), x.score(), 1e-12);
+        assertEquals(y.wins(), x.wins());
+        assertEquals(y.subjectSimsPerSearchedMove(), x.subjectSimsPerSearchedMove(), 1e-9);
+    }
+
+    @Test
+    void badClassicalSubjectsAreUsageErrors() {
+        assertEquals(2, match(shared.resolve("cl5"), "--subject", "ab:5", "--vs", "ab:1").code, "a rung between 2 and 99");
+        assertEquals(2, match(shared.resolve("cl6"), "--subject", BASE + ",jump=long", "--vs", "ab:1").code,
+                "a long spec in adjacent games");
+        assertEquals(2, match(shared.resolve("cl7"), "--subject", "ab:100", "--vs", "ab:1", "--evaluator", "gpu").code);
+        assertEquals(2, match(shared.resolve("cl8"), "--subject", "ab:100", "--vs", "ab:1", "--jump", "long").code,
+                "the ab:eval=distance ladder spec plays adjacent hops");
     }
 }

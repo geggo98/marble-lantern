@@ -73,6 +73,11 @@ import sternhalma.tornado.GpuEvaluators;
  * (the raw policy of {@code --net}) or an {@code mcts:...} spec; a spec without {@code net} uses {@code --net}. Each
  * pair starts from the same seeded random opening and is played twice with the colours swapped.
  *
+ * <p>The <em>subject</em> may also be classical: {@code ab:N} (the {@code --ladder-spec} at N nodes) or a full spec
+ * {@code ab:...}. Then no network is needed, and a classical match against a classical opponent uses the same pair
+ * files, lock and resume as a network match, with the openings and games of {@code Arena} for the same seed (the games of
+ * a pair take their colours in the same order). In the pair lines the subject's {@code s_sims} column then holds its nodes.
+ *
  * <p>Job conventions (docs/training.md, "Job conventions"): every finished pair is appended as one JSON line to
  * {@code DIR/pairs-<hash>.jsonl} (the hash of subject, opponent, seed and opening), and the state of a rerun is read from
  * these files only: finished pairs are skipped, a torn last line is ignored. A running tool holds a lock on
@@ -206,7 +211,12 @@ final class MctsMatch {
             throw new IllegalArgumentException("--evaluator must be cpu or gpu, got " + evaluator);
         }
         GpuEvaluators.Session session = null;
-        LongFunction<Player> subjectFactory = NetPlayers.factory(subject, own);
+        boolean classicalSubject = isClassical(subject);
+        if (classicalSubject && evaluator.equals("gpu")) {
+            throw new IllegalArgumentException("--evaluator gpu needs a network subject, got " + subject);
+        }
+        LongFunction<Player> subjectFactory = classicalSubject ? classicalFactory(subject, ladderSpec, jump, rows)
+                : NetPlayers.factory(subject, own);
         Scope scope = null;
         if (evaluator.equals("gpu")) {
             String why = GpuEvaluators.unavailableReason();
@@ -230,7 +240,7 @@ final class MctsMatch {
         }
         List<LongFunction<Player>> opponentFactories = new ArrayList<>();
         for (String opponent : opponents) {
-            opponentFactories.add(opponentFactory(opponent, ladderSpec, own));
+            opponentFactories.add(opponentFactory(opponent, ladderSpec, own, jump, rows));
         }
         Files.createDirectories(dir);
         try (FileChannel lockChannel = FileChannel.open(dir.resolve(".match.lock"), StandardOpenOption.CREATE,
@@ -331,14 +341,42 @@ final class MctsMatch {
         }
     }
 
-    private static LongFunction<Player> opponentFactory(String text, String ladderSpec, Parameters own) {
-        if (text.startsWith("ab:")) {
-            int nodes = Integer.parseInt(text.substring(3));
-            StrengthEstimate.requireDistinctRungs(List.of(nodes));
-            PlayerSpec spec = PlayerSpec.parse(StrengthEstimate.spec(ladderSpec, nodes));
-            return seed -> spec.create();
+    private static LongFunction<Player> opponentFactory(String text, String ladderSpec, Parameters own, JumpRule jump,
+            RuleSet.TriangleRows rows) {
+        if (isClassical(text)) {
+            return classicalFactory(text, ladderSpec, jump, rows);
         }
         return NetPlayers.factory(text, own);
+    }
+
+    /** Whether the text is a classical (alpha-beta) player: {@code ab:N} or a full spec {@code ab:...}. */
+    static boolean isClassical(String text) {
+        return text.startsWith("ab:");
+    }
+
+    /**
+     * A factory of classical players. {@code ab:N} (digits only) is the {@code ladderSpec} at N nodes (N = 1 is depth 1;
+     * 2 to 99 are refused, see {@link StrengthEstimate#requireDistinctRungs}); any other {@code ab:...} text is a full
+     * {@link PlayerSpec} that must play the jump rule and the board size of the games. The argument of the factory is
+     * ignored: an alpha-beta player has no random stream.
+     */
+    static LongFunction<Player> classicalFactory(String text, String ladderSpec, JumpRule jump, RuleSet.TriangleRows rows) {
+        String number = text.substring(3);
+        PlayerSpec spec;
+        if (!number.isEmpty() && number.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            int nodes = Integer.parseInt(number);
+            StrengthEstimate.requireDistinctRungs(List.of(nodes));
+            spec = PlayerSpec.parse(StrengthEstimate.spec(ladderSpec, nodes));
+        } else {
+            StrengthEstimate.requireJump(text, jump);
+            spec = PlayerSpec.parse(text);
+            if (spec.rows() != rows) {
+                throw new IllegalArgumentException("the player " + text + " plays rows=" + spec.rows().rows()
+                        + " but the games use rows=" + rows.rows());
+            }
+        }
+        PlayerSpec chosen = spec;
+        return seed -> chosen.create();
     }
 
     /** The finished pairs of a file; a line that does not parse (a torn last line) is ignored. */
@@ -465,6 +503,8 @@ final class MctsMatch {
             if (NetPlayers.unwrap(mine) instanceof MctsPlayer m) {
                 sSims += m.totalSims();
                 sRace += m.raceMoves();
+            } else if (NetPlayers.unwrap(mine) instanceof AlphaBetaPlayer a) {
+                sSims += a.totalNodes(); // a classical subject: nodes are counted in the sims column
             }
             if (NetPlayers.unwrap(theirs) instanceof AlphaBetaPlayer a) {
                 oNodes += a.totalNodes();

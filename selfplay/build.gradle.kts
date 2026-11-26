@@ -140,6 +140,8 @@ tasks.register<JavaExec>("matchBench") {
 }
 
 tasks.withType<Test>().configureEach {
+    // The owner rule: tests that run subprocesses and timing-sensitive games are never taken from the build cache.
+    outputs.doNotCacheIf("selfplay tests run with --no-build-cache (owner rule)") { true }
     // The subprocess tests (signals, lock) start the tool in a child JVM with the test's class path.
     workingDir = rootDir
     maxHeapSize = "2g"
