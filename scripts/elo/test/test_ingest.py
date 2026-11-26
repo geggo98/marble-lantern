@@ -266,7 +266,14 @@ class PairFiles(unittest.TestCase):
                  json.dumps({"pair": 0, "score": 1.0, "wins": 2, "draws": 0, "losses": 0}),
                  json.dumps({"pair": 2, "score": 0.0, "wins": 0, "draws": 0, "losses": 2})]
         (self.dir / f"pairs-{self.hash}.jsonl").write_text("\n".join(lines) + "\n")
-        with self.assertRaises(ingest.Inconsistent):
+        with self.assertRaisesRegex(ingest.Inconsistent, "twice"):
+            ingest.run(self.root, [self.source], self.root / "data", self.root / "out")
+
+    def test_wrong_pair_index_is_an_error_even_when_the_sums_agree(self):
+        wl = {0: (2, 0), 1: (2, 0), 5: (0, 2)}  # sums 4-0-2 as in the summary line, but pair 2 is called 5
+        lines = [json.dumps({"pair": i, "score": w / 2, "wins": w, "draws": 0, "losses": l}) for i, (w, l) in wl.items()]
+        (self.dir / f"pairs-{self.hash}.jsonl").write_text("\n".join(lines) + "\n")
+        with self.assertRaisesRegex(ingest.Inconsistent, "indices 0 to 2"):
             ingest.run(self.root, [self.source], self.root / "data", self.root / "out")
 
     def test_absent_file_gives_totals_only(self):
@@ -304,14 +311,14 @@ class PairFiles(unittest.TestCase):
         self.assertEqual((self.root / "out" / e["file"]).read_text(),
                          (self.dir / f"pairs-{self.hash}.jsonl").read_text())
 
-    def test_pair_file_from_a_gate_directory_is_not_used(self):
+    def test_pair_file_from_a_gate_directory_is_refused(self):
         gdir = self.root / "data" / "loop3" / "gen-0005"
         gdir.mkdir(parents=True)
         (gdir / f"pairs-{self.hash}.jsonl").write_text(
             "\n".join(json.dumps({"pair": i, "score": 1.0, "wins": 2, "draws": 0, "losses": 0}) for i in range(3)))
-        ingest.run(self.root, [self.source], self.root / "data", self.root / "out")
-        (e,) = edges_of(self.root / "out")
-        self.assertIsNone(e["file"])
+        with self.assertRaises(ingest.Refused):
+            ingest.run(self.root, [src("e1.txt", pairs_dir="loop3/gen-0005")], self.root / "data",
+                       self.root / "out")
 
 
 class ArenaLine(unittest.TestCase):
