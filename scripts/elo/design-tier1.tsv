@@ -1,0 +1,95 @@
+# Design of Tier 1 (plan section 3.5): the 2p-adj-r5 scale of the energy figure plus the bridge pilot.
+# One row per edge: kind pair = MctsMatch pairs, one-vs-two = ThreeSeatMatch openings (players = candidate|opponent in both seats),
+# table = three different players (T2). units = new pairs or openings; existing_units = already played (source existing).
+# priority: 1 = backbone, 2 = extra, 3 = last; a capped run takes the lowest numbers first and must leave a connected graph.
+#bridge-allowed	2p-adj-r5	ab:browser-r5@n1000	ab:browser-r5@n2236
+#bridge-allowed	2p-adj-r5	ab:browser-r5@n2236	ab:browser-r5@n5000
+#bridge-allowed	2p-adj-r5	ab:browser-r5@n5000	ab:browser-r5@n10000
+#bridge-allowed	2p-adj-r5	ab:browser-r5@n10000	ab:browser-r5@n20000
+edge_id	scale	block	kind	players	units	existing_units	seed	priority	source	of
+t1.2p-adj-r4.001	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n1000|ab:browser-r4@n2236	150	0	8101	1	new	-
+t1.2p-adj-r4.002	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n2236|ab:browser-r4@n5000	150	0	8101	1	new	-
+t1.2p-adj-r4.003	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n5000|ab:browser-r4@n10000	150	0	8101	1	new	-
+t1.2p-adj-r4.004	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n10000|ab:browser-r4@n20000	150	0	8101	1	new	-
+t1.2p-adj-r4.005	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n20000|ab:browser-r4@n44721	150	0	8101	1	new	-
+t1.2p-adj-r4.006	2p-adj-r4	r4-pilot	pair	ab:browser-r4@n44721|ab:browser-r4@n100000	150	0	8101	1	new	-
+t1.2p-adj-r4.007	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s50|net:shared-gen0@s200	150	0	8101	1	new	-
+t1.2p-adj-r4.008	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s200|net:shared-gen0@s800	150	0	8101	1	new	-
+t1.2p-adj-r4.009	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s50|ab:browser-r4@n1000	150	0	8101	2	new	-
+t1.2p-adj-r4.010	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s50|ab:browser-r4@n5000	150	0	8101	2	new	-
+t1.2p-adj-r4.011	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s50|ab:browser-r4@n10000	150	0	8101	2	new	-
+t1.2p-adj-r4.012	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s200|ab:browser-r4@n5000	150	0	8101	1	new	-
+t1.2p-adj-r4.013	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s200|ab:browser-r4@n20000	150	0	8101	1	new	-
+t1.2p-adj-r4.014	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s200|ab:browser-r4@n44721	150	0	8101	1	new	-
+t1.2p-adj-r4.015	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s800|ab:browser-r4@n20000	150	0	8101	2	new	-
+t1.2p-adj-r4.016	2p-adj-r4	r4-pilot	pair	net:shared-gen0@s800|ab:browser-r4@n100000	150	0	8101	2	new	-
+t1.2p-adj-r5.001	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n1000|ab:browser-r5@n2236	200	0	8102	1	new	-
+t1.2p-adj-r5.002	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n2236|ab:browser-r5@n5000	200	0	8102	1	new	-
+t1.2p-adj-r5.003	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n5000|ab:browser-r5@n10000	200	0	8102	1	new	-
+t1.2p-adj-r5.004	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n10000|ab:browser-r5@n20000	200	0	8102	1	new	-
+t1.2p-adj-r5.005	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n20000|ab:browser-r5@n44721	200	0	8102	1	new	-
+t1.2p-adj-r5.006	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n44721|ab:browser-r5@n100000	200	0	8102	1	new	-
+t1.2p-adj-r5.007	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n100000|ab:browser-r5@n223607	200	0	8102	1	new	-
+t1.2p-adj-r5.008	2p-adj-r5	r5-classical-chain	pair	ab:browser-r5@n223607|ab:browser-r5@n500000	200	0	8102	1	new	-
+t1.2p-adj-r5.009	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen0@s200|net:r5-small-gen1@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.010	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen1@s200|net:r5-small-gen2@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.011	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen2@s200|net:r5-small-gen4@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.012	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen4@s200|net:r5-small-gen6@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.013	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen6@s200|net:r5-small-gen9@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.014	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen0@s200|net:r5-small-gen2@s200	200	0	8102	2	new	-
+t1.2p-adj-r5.015	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen2@s200|net:r5-small-gen6@s200	200	0	8102	2	new	-
+t1.2p-adj-r5.016	2p-adj-r5	r5-small-gens	pair	net:r5-small-gen4@s200|net:r5-small-gen9@s200	200	0	8102	2	new	-
+t1.2p-adj-r5.017	2p-adj-r5	r5-large-gen0	pair	net:r5-large-gen0@s200|net:r5-small-gen0@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.018	2p-adj-r5	r5-large-gen0	pair	net:r5-large-gen0@s200|net:r5-small-gen1@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.019	2p-adj-r5	r5-sims	pair	net:r5-small-gen9@s50|net:r5-small-gen9@s100	200	0	8102	1	new	-
+t1.2p-adj-r5.020	2p-adj-r5	r5-sims	pair	net:r5-small-gen9@s100|net:r5-small-gen9@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.021	2p-adj-r5	r5-sims	pair	net:r5-small-gen9@s200|net:r5-small-gen9@s1000	200	0	8102	1	new	-
+t1.2p-adj-r5.022	2p-adj-r5	r5-sims	pair	net:r5-small-gen0@s200|net:r5-small-gen0@s1000	200	0	8102	1	new	-
+t1.2p-adj-r5.023	2p-adj-r5	r5-sims	pair	net:r5-small-gen0@s1000|net:r5-small-gen2@s200	200	0	8102	1	new	-
+t1.2p-adj-r5.024	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen9@s50|ab:browser-r5@n223607	200	0	8102	1	new	-
+t1.2p-adj-r5.025	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen9@s50|ab:browser-r5@n500000	200	0	8102	2	new	-
+t1.2p-adj-r5.026	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen9@s100|ab:browser-r5@n500000	200	0	8102	1	new	-
+t1.2p-adj-r5.027	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen6@s200|ab:browser-r5@n500000	200	0	8102	2	new	-
+t1.2p-adj-r5.028	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen4@s200|ab:browser-r5@n223607	200	0	8102	2	new	-
+t1.2p-adj-r5.029	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen2@s200|ab:browser-r5@n100000	200	0	8102	2	new	-
+t1.2p-adj-r5.030	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen2@s200|ab:browser-r5@n44721	200	0	8102	2	new	-
+t1.2p-adj-r5.031	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen1@s200|ab:browser-r5@n20000	200	0	8102	2	new	-
+t1.2p-adj-r5.032	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen0@s200|ab:browser-r5@n20000	200	0	8102	1	new	-
+t1.2p-adj-r5.033	2p-adj-r5	r5-net-classical	pair	net:r5-small-gen0@s200|ab:browser-r5@n44721	200	0	8102	2	new	-
+t1.2p-adj-r5.034	2p-adj-r5	r5-net-classical	pair	net:r5-large-gen0@s200|ab:browser-r5@n100000	200	0	8102	1	new	-
+t1.2p-adj-r5.035	2p-adj-r5	r5-existing	pair	net:r5-large-gen10@s200|net:r5-small-gen9@s200	0	400	-	0	existing	models/runs/net5-large/h2h.txt
+t1.2p-adj-r5.036	2p-adj-r5	r5-existing	pair	net:r5-large-gen10@s200|net:r5-small-gen9@s1000	0	200	-	0	existing	models/runs/net5-large/equal-time.txt
+t1.2p-adj-r5.037	2p-adj-r5	r5-existing	pair	net:r5-small-gen9@s200|net:r5-small-gen0@s200	0	400	-	0	existing	models/runs/net5/e2.txt
+t1.2p-adj-r5.038	2p-adj-r5	r5-existing	pair	net:r5-large-gen10@s200|net:r5-large-gen0@s200	0	400	-	0	existing	models/runs/net5-large/e2.txt
+t1.3p-adj-r4.001	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n1000|ab:browser-3p@n2236	150	0	8104	1	new	-
+t1.3p-adj-r4.002	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n2236|ab:browser-3p@n1000	150	0	8104	1	new	-
+t1.3p-adj-r4.003	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n2236|ab:browser-3p@n5000	150	0	8104	1	new	-
+t1.3p-adj-r4.004	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n5000|ab:browser-3p@n2236	150	0	8104	1	new	-
+t1.3p-adj-r4.005	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n5000|ab:browser-3p@n10000	150	0	8104	1	new	-
+t1.3p-adj-r4.006	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n10000|ab:browser-3p@n5000	150	0	8104	1	new	-
+t1.3p-adj-r4.007	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n10000|ab:browser-3p@n20000	150	0	8104	1	new	-
+t1.3p-adj-r4.008	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n20000|ab:browser-3p@n10000	150	0	8104	1	new	-
+t1.3p-adj-r4.009	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n20000|ab:browser-3p@n44721	150	0	8104	1	new	-
+t1.3p-adj-r4.010	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n44721|ab:browser-3p@n20000	150	0	8104	1	new	-
+t1.3p-adj-r4.011	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n44721|ab:browser-3p@n100000	150	0	8104	1	new	-
+t1.3p-adj-r4.012	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n100000|ab:browser-3p@n44721	150	0	8104	1	new	-
+t1.3p-adj-r4.013	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s50|net:shared-gen0@s200	150	0	8104	1	new	-
+t1.3p-adj-r4.014	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s200|net:shared-gen0@s50	150	0	8104	1	new	-
+t1.3p-adj-r4.015	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s200|net:shared-gen0@s800	150	0	8104	1	new	-
+t1.3p-adj-r4.016	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s800|net:shared-gen0@s200	150	0	8104	1	new	-
+t1.3p-adj-r4.017	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s50|ab:browser-3p@n1000	150	0	8104	2	new	-
+t1.3p-adj-r4.018	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n1000|net:shared-gen0@s50	150	0	8104	2	new	-
+t1.3p-adj-r4.019	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s50|ab:browser-3p@n5000	150	0	8104	2	new	-
+t1.3p-adj-r4.020	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n5000|net:shared-gen0@s50	150	0	8104	2	new	-
+t1.3p-adj-r4.021	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s50|ab:browser-3p@n10000	150	0	8104	2	new	-
+t1.3p-adj-r4.022	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n10000|net:shared-gen0@s50	150	0	8104	2	new	-
+t1.3p-adj-r4.023	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s200|ab:browser-3p@n5000	150	0	8104	1	new	-
+t1.3p-adj-r4.024	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n5000|net:shared-gen0@s200	150	0	8104	1	new	-
+t1.3p-adj-r4.025	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s200|ab:browser-3p@n20000	150	0	8104	1	new	-
+t1.3p-adj-r4.026	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n20000|net:shared-gen0@s200	150	0	8104	1	new	-
+t1.3p-adj-r4.027	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s200|ab:browser-3p@n44721	150	0	8104	1	new	-
+t1.3p-adj-r4.028	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n44721|net:shared-gen0@s200	150	0	8104	1	new	-
+t1.3p-adj-r4.029	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s800|ab:browser-3p@n20000	150	0	8104	2	new	-
+t1.3p-adj-r4.030	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n20000|net:shared-gen0@s800	150	0	8104	2	new	-
+t1.3p-adj-r4.031	3p-adj-r4	p3-pilot	one-vs-two	net:shared-gen0@s800|ab:browser-3p@n100000	150	0	8104	2	new	-
+t1.3p-adj-r4.032	3p-adj-r4	p3-pilot	one-vs-two	ab:browser-3p@n100000|net:shared-gen0@s800	150	0	8104	2	new	-
