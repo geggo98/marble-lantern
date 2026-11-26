@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntFunction;
 import java.util.function.LongFunction;
 
 import sternhalma.engine.Outcome;
@@ -242,10 +244,20 @@ final class ThreeSeatMatch {
                     opts.put(key, args[i + 1]);
                 }
             }
+            if (opts.containsKey("table")) {
+                if (!opts.containsKey("out") || !opponents.isEmpty() || opts.containsKey("candidate")
+                        || opts.containsKey("control")) {
+                    throw new IllegalArgumentException("usage: ThreeSeatMatch --out DIR --table A,B,C [--net FILE]"
+                            + " [--jump adjacent|long] [--openings 100] [--seed 4001] [--threads 4] [--opening-plies 6]"
+                            + " [--progress-seconds 10]  (--table excludes --candidate, --control and --vs)");
+                }
+                return TableMatch.match(opts, out, err);
+            }
             if (!opts.containsKey("out") || opponents.isEmpty() || opts.containsKey("candidate") == opts.containsKey("control")) {
                 throw new IllegalArgumentException("usage: ThreeSeatMatch --out DIR (--candidate SPEC | --control ab3|random)"
                         + " [--net FILE] --vs OPP [--vs OPP ...] [--jump adjacent|long] [--openings 100] [--seed 4001]"
-                        + " [--threads 4] [--opening-plies 6] [--progress-seconds 10]");
+                        + " [--threads 4] [--opening-plies 6] [--progress-seconds 10]\n"
+                        + "   or: ThreeSeatMatch --out DIR --table A,B,C [same options]");
             }
             return match(opts, opponents, out, err);
         } catch (IllegalArgumentException e) {
@@ -366,8 +378,13 @@ final class ThreeSeatMatch {
                     if (todo > 0) {
                         err.printf(Locale.ROOT, "threeseatmatch: %s vs 2 x %s: %d openings to play, %d finished before (%s)%n",
                                 candidate, opponent, todo, openings - todo, file);
-                        ok += play(file, candidateFactories.get(k), opponentFactories.get(k), candidate, opponent, openings,
-                                seed, openingPlies, jump, threads, done, stop, err, progressSeconds);
+                        RuleSet rules = RuleSet.defaults(SEATS).withJumpRule(jump);
+                        LongFunction<Player> candidateFactory = candidateFactories.get(k);
+                        LongFunction<Player> opponentFactory = opponentFactories.get(k);
+                        ok += play(file, candidate + " vs 2 x " + opponent, openings, threads, done.keySet(), index -> {
+                            Position start = StrengthEstimate.opening(rules, seed, index, openingPlies);
+                            return playOpening(start, index, candidateFactory, opponentFactory, gameSeed(seed, index)).fields();
+                        }, stop, err, progressSeconds);
                         done = read(file);
                     }
                     if (stop.get()) {
@@ -395,7 +412,7 @@ final class ThreeSeatMatch {
         }
     }
 
-    private static FileLock tryLock(FileChannel channel) throws IOException {
+    static FileLock tryLock(FileChannel channel) throws IOException {
         try {
             return channel.tryLock();
         } catch (OverlappingFileLockException e) {
@@ -424,11 +441,16 @@ final class ThreeSeatMatch {
         return result;
     }
 
-    private static int play(Path file, LongFunction<Player> candidate, LongFunction<Player> opponent, String candidateText,
-            String opponentText, int openings, long seed, int openingPlies, JumpRule jump, int threads,
-            Map<Integer, OpeningLine> done, AtomicBoolean stop, PrintStream err, double progressSeconds) throws IOException {
-        RuleSet rules = RuleSet.defaults(SEATS).withJumpRule(jump);
-        int todo = openings - done.size();
+    /**
+     * Plays the openings {@code 0..openings-1} that are not in {@code doneKeys} and appends one JSON line per opening.
+     *
+     * @param worker plays one opening (by index) and returns the fields of its line; called from several threads
+     * @param label the text of the progress lines
+     */
+    static int play(Path file, String label, int openings, int threads, Set<Integer> doneKeys,
+            IntFunction<Map<String, Object>> worker, AtomicBoolean stop, PrintStream err, double progressSeconds)
+            throws IOException {
+        int todo = openings - doneKeys.size();
         AtomicInteger finished = new AtomicInteger();
         long t0 = System.nanoTime();
         long[] last = {t0};
@@ -436,7 +458,7 @@ final class ThreeSeatMatch {
                 StandardOpenOption.APPEND); ExecutorService pool = Executors.newFixedThreadPool(threads)) {
             List<Future<?>> futures = new ArrayList<>();
             for (int opening = 0; opening < openings; opening++) {
-                if (done.containsKey(opening)) {
+                if (doneKeys.contains(opening)) {
                     continue;
                 }
                 int index = opening;
@@ -444,11 +466,10 @@ final class ThreeSeatMatch {
                     if (stop.get()) {
                         return;
                     }
-                    Position start = StrengthEstimate.opening(rules, seed, index, openingPlies);
-                    OpeningLine line = playOpening(start, index, candidate, opponent, gameSeed(seed, index));
+                    Map<String, Object> fields = worker.apply(index);
                     synchronized (writer) {
                         try {
-                            writer.write(RunMonitor.json(line.fields()));
+                            writer.write(RunMonitor.json(fields));
                             writer.newLine();
                             writer.flush();
                         } catch (IOException e) {
@@ -460,8 +481,7 @@ final class ThreeSeatMatch {
                             last[0] = now;
                             double el = (now - t0) / 1e9;
                             double rate = n / el;
-                            err.printf(Locale.ROOT, "%s vs 2 x %s: %d/%d openings  %.3f/s  ETA %s  elapsed %s%n", candidateText,
-                                    opponentText, n, todo, rate, Gen0.duration(Math.round((todo - n) / rate)),
+                            err.printf(Locale.ROOT, "%s: %d/%d openings  %.3f/s  ETA %s  elapsed %s%n", label, n, todo, rate, Gen0.duration(Math.round((todo - n) / rate)),
                                     Gen0.duration(Math.round(el)));
                         }
                     }
