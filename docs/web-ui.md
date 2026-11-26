@@ -732,6 +732,46 @@ The standard error treats the moves as independent, which they are not (moves of
 
 **Tests.** `web/src/skill/*.test.ts` cover the statistic, the interval, the mapping, clamping, the minimum-moves rule, isotonic smoothing, the level encoding and the tracker (with a controllable fake engine). `web/src/app/App.skill.test.tsx` runs the app with the fake engine. `web/src/skill/skill.real.test.ts` plays a simulated player on the real C++ engine: the best mover gets the strongest end of the ladder, the random mover the weakest (skipped when the engine build is missing). `web/e2e/skill.spec.ts` runs the whole flow in a browser.
 
+### Planned: human data export
+
+**Not built.** This subsection describes a planned feature. No code for it exists, and the app today has no way to export or send the measurements.
+
+**Purpose.** A planned Elo study rates the engines of each game type, with the classical engine at level 3 (20,000 nodes) as 1000. For a human it gives only an estimate: the skill estimate names the node budget that loses as much per move as the person does, and the study reads the rating of that budget from its scale. The result is labelled as a move-quality equivalent with a modelling error of unknown size, not a measured rating ([limits](#skill-estimate) above). The study can use a person's losses only if they leave the browser. Today they stay in `localStorage` under `ml.skill.v1` and nothing leaves the browser.
+
+**Origin.** The owner's decision of 2026-11-26: humans get the estimate only, and the plan keeps an export function in the browser for later.
+
+**What the ledger holds today** (`web/src/skill/ledger.ts`, `web/src/skill/tracker.ts`):
+
+- Per list, up to 1,000 pairs `[hash, raw loss]`, oldest first. The raw loss is the loss before the cap of 200 points.
+- The lists are `entries` (adjacent jumps, 4 rows), `long` (long hop, 4 rows), `five` (adjacent jumps, 5 rows) and `fiveLong` (long hop, 5 rows). Three-player games are never measured.
+- The hash is `hashKey` over the move list of the game up to and including the measured move (`history.slice(0, i + 1).join(',')`), 64 bits as 16 hex characters. The source calls it "not a secret".
+- The ledger records no date, no game boundary, no engine version and no foreign-corner rule. A list can therefore mix games with closed and with open foreign corners.
+
+**Two options.**
+
+| | A. Download a file | B. Send to a serverless endpoint |
+|---|---|---|
+| What the person does | presses a button on the skill card; the browser saves a JSON file; the person decides whether to send it and by which channel | presses a button; the page posts the data to a small function on a cloud host (for example a function URL on AWS Lambda) |
+| Offline | works offline; it needs no network | needs the network; offline it must fail or queue the request |
+| Server | none; the static site stays static | a function, a store for the results, CORS for the site's origin, logs, an owner who runs it |
+| What the receiver learns besides the data | only what the person's chosen channel reveals | the IP address and the time of every request; the cloud host logs them, whatever the function itself stores |
+| Privacy law | the app collects nothing; the person sends the file like any other file | the IP address is personal data in the EU (Court of Justice, case C-582/14, Breyer, 2016), so the site needs a privacy notice and a lawful basis |
+| Data quality | the person can edit the file | anyone can post invented or repeated data; without accounts the endpoint cannot tell people apart or stop a flood |
+| Cost and care | a button and a test | a cloud account, rate limits, monitoring, deletion requests |
+
+**Recommendation: option A, the file download.** Rationale: the published site is a static GitHub Pages site that plays offline after one visit ([the two modes](#the-two-modes), [installable app and offline cache](#installable-app-and-offline-cache)), and the owner's request of 2026-11-26 adds two more goals: no accounts and no tracking. A download keeps all three properties. An endpoint breaks the first and makes the second and third hard to promise, because the host sees the IP address of every request. The study gains little from an endpoint: without accounts it cannot trust a posted result more than a file. Limit: a download depends on each person sending the file by hand, so few files may arrive. If that turns out to be too few, an endpoint can accept the same file format later, behind its own opt-in and privacy notice.
+
+**Planned file content.** A new format, not the raw `ml.skill.v1` text:
+
+- `schema` (`ml.skill.export.v1`), the export date (day only), and the engine id and version of `web/src/skill/calibration.json`, so the receiver knows which analysis measured the losses.
+- Per list: the raw losses in their stored order, the count, and the game type it belongs to (`entries` is two players, adjacent jumps, 4 rows).
+- No hashes. Rationale: the first entry of a game started in the app is the hash of one or two moves, and trying the few legal opening moves finds them, so the hashes reveal the start of each game. They also let a receiver link two exports of the same person. The study needs only the losses.
+- No paused flag, no browser data, no identifier of the person or the device.
+
+The skill card would show the counts before the download and say that the file holds move losses only. The texts for that dialog are not written yet.
+
+**Limits.** The export carries the limits of the ledger: no game boundaries, no dates, no foreign-corner rule, at most 1,000 moves per list. A person who plays on several devices has several ledgers. The losses depend on the analysis engine build; after a change of the search or the evaluation, files of different builds must not be pooled.
+
 ## Net engines
 
 **TL;DR:** `net-wasm` and `net-webgpu` play with Monte Carlo tree search (MCTS) guided by a neural network, in the browser. Both run the Java MCTS, compiled by TeaVM, in a Web Worker. They differ in where the forward pass of the network runs: `net-wasm` uses C++ compiled to WebAssembly with SIMD on the CPU, `net-webgpu` uses WGSL (WebGPU Shading Language) kernels on the GPU. The player chooses a **model** (a network file) and a **strength** (50, 200 or 800 simulations per move) in the engine sheet. Without a usable model or backend the engine still answers every move: it plays random legal moves and says why. `net-webgpu` without a working GPU plays with the CPU forward pass instead. The models themselves are described in [models](models.md).
