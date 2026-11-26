@@ -1,5 +1,6 @@
 #!/bin/zsh
 # usage: scripts/threeseatmatch.sh --out DIR (--candidate SPEC | --control ab3|random) [--net FILE] --vs ab3:nodes=5000 [--vs random] [--jump adjacent|long] [--openings 100] [--seed 4001]
+# usage: scripts/threeseatmatch.sh --out DIR --table A,B,C [--net FILE] [--jump adjacent|long] [--openings 100] [--seed 4001]   (three players, all 6 seatings per opening, winner identity recorded; see TableMatch.java)
 # usage: scripts/threeseatmatch.sh paired A/openings-X.jsonl B/openings-Y.jsonl [--json OUT.json]
 # (see selfplay/src/main/java/sternhalma/selfplay/ThreeSeatMatch.java and PairedReport.java, docs/training.md "Evaluating variants")
 # Builds the selfplay module and plays three-player games of a candidate against two identical opponents, the candidate
