@@ -17,8 +17,10 @@ export interface EnergyFmt {
   range: (row: EnergyRow) => string;
   aboveIdle: (row: EnergyRow) => string;
   power: (row: EnergyRow) => string;
-  /** "+611 ± 112 Elo". */
+  /** "+131 ± 24 Elo" (a head-to-head match). */
   elo: (elo: number, ci: number) => string;
+  /** "1,840 ± 130" (a rating on the scale, no sign; the display values of the rating file). */
+  rating: (elo: number, hw: number) => string;
   size: (net: NetName, data: EnergyData) => string;
   /** A tick label: at most two decimals, locale separators. */
   tick: (v: number) => string;
@@ -53,6 +55,7 @@ export function makeEnergyFmt(fig: FigText): EnergyFmt {
     aboveIdle: (row) => (row.aboveIdleKwh === undefined ? '' : t('fig.energy.unit.kwh', { v: fmt.fixed(row.aboveIdleKwh, decimalsOf(row.aboveIdleKwh)) })),
     power: (row) => t('fig.energy.unit.w', { v: fmt.fixed(powerW(row), 0) }),
     elo: (elo, ci) => t('fig.energy.unit.elo', { v: fmt.signed(elo), ci: fmt.fixed(ci, 0) }),
+    rating: (elo, hw) => t('fig.energy.unit.rating', { v: fmt.fixed(elo, 0), ci: fmt.fixed(hw, 0) }),
     size: (net, data) => {
       const n = data.nets[net];
       return t('fig.energy.size', { weights: fmt.fixed(Math.round(n.weights / 1000) * 1000, 0), kb: fmt.fixed(Math.round(n.packedBytes / 1000), 0) });

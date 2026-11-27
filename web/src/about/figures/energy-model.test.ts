@@ -2,31 +2,36 @@
 // four complete runs at both bases is the table of the design spec; the synthetic rows pin each rule and each boundary of the strength model.
 import { describe, expect, it } from 'vitest';
 import {
-  ENERGY_DATA, VIEWS, compareStrength, daysOf, dominates, formatHours, formatKwh, frontPath, frontPoints, frontStatus, groupRows, hitRadii, markKind, matchOf, parentRun,
-  powerW, rowById, rowCode, strengthY, viewSpec, xOf,
+  ELO_DOMAIN, ENERGY_DATA, VIEWS, compareStrength, daysOf, dominates, formatHours, formatKwh, frontPath, frontPoints, frontStatus, groupRows, hitRadii, markKind, matchOf, matchY, parentRun,
+  powerW, ratingOf, rowById, rowCode, strengthY, viewSpec, xOf,
 } from './energy-model';
-import type { Basis, Cost, EnergyData, EnergyRow, FrontPoint, FrontStatus } from './energy-model';
+import type { Basis, Cost, EnergyData, EnergyRow, FrontPoint, FrontStatus, Rating } from './energy-model';
 import { linearScale, logScale } from '../kit';
 
 const D = ENERGY_DATA;
 const row = (id: string): EnergyRow => rowById(D, id);
 const RUNS = ['small-gen0', 'large-gen0', 'small-gen9', 'large-gen10'] as const;
 
-/** A synthetic complete run for a rule test: ladder interval elo ± ci, the cost as energy and time. */
-const synth = (id: string, net: 'SMALL' | 'LARGE', elo: number, ci: number, kwh: number, hours: number): EnergyRow => ({
-  id, net, group: 'run', trainer: 'gpu', hours, kwh, status: 'measured', strength: { elo, ci, source: { doc: 'x', line: 1, needle: 'x' } }, source: { doc: 'x', line: 1, needle: 'x' },
+/** A synthetic complete run for a rule test: rating interval elo ± hw at both bases, the cost as energy and time. */
+const rating = (basis: Basis, elo: number, hw: number): Rating => ({ basis, config: 'x', sims: 200, elo, hw95: hw, displayElo: elo, displayHw95: hw, method: 'x' });
+const synth = (id: string, net: 'SMALL' | 'LARGE', elo: number, hw: number, kwh: number, hours: number): EnergyRow => ({
+  id, net, group: 'run', trainer: 'gpu', hours, kwh, status: 'measured', strength: { sims: rating('sims', elo, hw), time: rating('time', elo, hw) }, source: { doc: 'x', line: 1, needle: 'x' },
 });
-const world = (rows: EnergyRow[], matches: EnergyData['matches'] = []): EnergyData => ({ ...D, rows, matches });
+const world = (rows: EnergyRow[], matches: EnergyData['matches'] = [], pairs: EnergyData['pairs'] = []): EnergyData => ({ ...D, rows, matches, pairs });
+const pooled = (a: string, b: string, basis: Basis, elo: number, hw95: number): EnergyData['pairs'][number] => ({ a, b, basis, elo, hw95 });
 const match = (a: string, b: string, basis: Basis, elo: number, ci: number): EnergyData['matches'][number] => ({
   a, b, basis, elo, ci, simsA: 200, simsB: 200, source: { doc: 'x', line: 1, needle: 'x' },
 });
 
 describe('front status of the committed data', () => {
-  // docs/training.md, "Strength per cost": at equal simulations LARGE generation 10 is stronger (+131 ± 24), at equal CPU time per move SMALL generation 9 is (-173 ± 36);
-  // LARGE generation 0 was never played against SMALL at equal time.
+  // Hand reading of models/ratings/ratings.json (scale 2p-adj-r5). Costs rise S0 < L0 < S9 < L10 in energy and in time.
+  // Equal simulations: every pair is decided (L0-S0 +124 ± 76, S9-S0 +642 ± 87, L10-L0 +585 ± 92, L10-S0 +710 ± 97, S9-L0 +517 ± 91, and the match L10-S9 +131 ± 24),
+  // each dearer row is stronger than every cheaper one, so all four are on the front.
+  // Equal time: L0 against S0 at 1,000 simulations is -239 ± 135, so the cheaper S0 beats L0; S9 beats S0 (+591 ± 175) and L0 (2151 - 1321 = 830 against 164 + 116);
+  // the match L10-S9 is -173 ± 36, so the cheaper S9 beats L10.
   const EXPECTED: Record<Basis, Record<(typeof RUNS)[number], FrontStatus>> = {
     sims: { 'small-gen0': 'front', 'large-gen0': 'front', 'small-gen9': 'front', 'large-gen10': 'front' },
-    time: { 'small-gen0': 'front', 'large-gen0': 'unknown', 'small-gen9': 'front', 'large-gen10': 'dominated' },
+    time: { 'small-gen0': 'front', 'large-gen0': 'dominated', 'small-gen9': 'front', 'large-gen10': 'dominated' },
   };
   it.each(RUNS.flatMap((id) => (['sims', 'time'] as const).map((basis) => [id, basis] as const)))('%s at %s', (id, basis) => {
     expect(frontStatus(row(id), basis, D)).toBe(EXPECTED[basis][id]);
@@ -35,8 +40,9 @@ describe('front status of the committed data', () => {
   it('LARGE generation 10 is on the front at both bases when the equal-time match is removed', () => {
     const data = { ...D, matches: D.matches.filter((m) => m.basis === 'sims') };
     expect(frontStatus(row('large-gen10'), 'sims', data)).toBe('front');
-    // without a match the ladder cannot separate the two (intervals overlap): the pair is unresolved, so the status is `unknown`, never `dominated`
-    expect(frontStatus(row('large-gen10'), 'time', data)).not.toBe('dominated');
+    // without the match the pair has no pooled difference in the data, and the ratings 2151 and 1907 differ by 244, less than 164 + 132:
+    // the pair is unresolved, so the status is `unknown`, never `dominated`
+    expect(frontStatus(row('large-gen10'), 'time', data)).toBe('unknown');
   });
 
   it('LARGE generation 10 is dominated at equal simulations when the sign of that match is flipped', () => {
@@ -71,11 +77,12 @@ describe('compareStrength: the rules', () => {
     expect(compareStrength(a, b, 'sims', world([a, b], [match('a', 'b', 'sims', -25, 24)]))).toBe('weaker');
   });
 
-  it('rule 1: a match of the other basis does not apply, and an unresolved match does not fall back to the ladder', () => {
-    const a = synth('a', 'LARGE', 900, 10, 1, 1); // the ladder alone would say: a is far stronger
+  it('rule 1: a match of the other basis does not apply, and an unresolved match does not fall back to a pooled pair or the ratings', () => {
+    const a = synth('a', 'LARGE', 900, 10, 1, 1); // the ratings alone would say: a is far stronger
     const b = synth('b', 'SMALL', 100, 10, 1, 1);
-    expect(compareStrength(a, b, 'time', world([a, b], [match('a', 'b', 'sims', -100, 5)]))).toBe('unresolved'); // equal time, LARGE ahead on the ladder: rule 3
+    expect(compareStrength(a, b, 'time', world([a, b], [match('a', 'b', 'sims', -100, 5)]))).toBe('stronger');
     expect(compareStrength(a, b, 'sims', world([a, b], [match('a', 'b', 'sims', 3, 5)]))).toBe('unresolved');
+    expect(compareStrength(a, b, 'sims', world([a, b], [match('a', 'b', 'sims', 3, 5)], [pooled('a', 'b', 'sims', 800, 10)]))).toBe('unresolved');
     expect(compareStrength(a, b, 'sims', world([a, b]))).toBe('stronger');
   });
 
@@ -86,42 +93,47 @@ describe('compareStrength: the rules', () => {
     expect(compareStrength(b, a, 'sims', data)).toBe('weaker');
   });
 
-  it('rule 2: ladder intervals that touch at one value are unresolved; one Elo apart they are resolved', () => {
+  it('rule 2: the pooled difference decides when it is larger than its half-width, not when it equals it, in both directions', () => {
+    const a = synth('a', 'SMALL', 500, 10, 1, 1);
+    const b = synth('b', 'SMALL', 500, 10, 1, 1);
+    const at = (elo: number, hw: number): EnergyData => world([a, b], [], [pooled('a', 'b', 'sims', elo, hw)]);
+    expect(compareStrength(a, b, 'sims', at(86, 85))).toBe('stronger');
+    expect(compareStrength(a, b, 'sims', at(85, 85))).toBe('unresolved');
+    expect(compareStrength(a, b, 'sims', at(-85, 85))).toBe('unresolved');
+    expect(compareStrength(a, b, 'sims', at(-86, 85))).toBe('weaker');
+    expect(compareStrength(b, a, 'sims', at(86, 85))).toBe('weaker'); // stored for (a, b), queried for (b, a)
+  });
+
+  it('rule 2: the pooled difference wins over the ratings, and a pair of the other basis does not apply', () => {
+    const a = synth('a', 'SMALL', 900, 10, 1, 1);
+    const b = synth('b', 'SMALL', 100, 10, 1, 1);
+    // the ratings are far apart; the pooled interval of the fit says it is open
+    expect(compareStrength(a, b, 'sims', world([a, b], [], [pooled('a', 'b', 'sims', 30, 85)]))).toBe('unresolved');
+    expect(compareStrength(a, b, 'time', world([a, b], [], [pooled('a', 'b', 'sims', 30, 85)]))).toBe('stronger');
+  });
+
+  it('rule 3: with no match and no pooled pair, bars that touch or overlap are unresolved; one Elo beyond the summed half-widths is resolved', () => {
     const lo = synth('lo', 'SMALL', 100, 10, 1, 1); // 90 .. 110
     const touching = synth('touch', 'SMALL', 120, 10, 1, 1); // 110 .. 130
     const apart = synth('apart', 'SMALL', 121, 10, 1, 1); // 111 .. 131
-    const data = world([lo, touching, apart]);
+    const overlapping = synth('over', 'SMALL', 115, 10, 1, 1); // 105 .. 125
+    const data = world([lo, touching, apart, overlapping]);
     expect(compareStrength(touching, lo, 'sims', data)).toBe('unresolved');
     expect(compareStrength(lo, touching, 'sims', data)).toBe('unresolved');
+    expect(compareStrength(overlapping, lo, 'sims', data)).toBe('unresolved');
     expect(compareStrength(apart, lo, 'sims', data)).toBe('stronger');
     expect(compareStrength(lo, apart, 'sims', data)).toBe('weaker');
   });
 
-  it('rule 2 also applies at equal time for two nets of one size', () => {
-    const a = synth('a', 'SMALL', 600, 10, 1, 1);
-    const b = synth('b', 'SMALL', 200, 10, 1, 1);
-    expect(compareStrength(a, b, 'time', world([a, b]))).toBe('stronger');
-  });
-
-  it('rule 3: a LARGE row that is stronger on the ladder is unresolved at equal time and stronger at equal simulations', () => {
-    const large = synth('large', 'LARGE', 800, 20, 2, 2);
-    const small = synth('small', 'SMALL', 400, 20, 1, 1);
-    const data = world([small, large]);
-    expect(compareStrength(large, small, 'time', data)).toBe('unresolved');
-    expect(compareStrength(small, large, 'time', data)).toBe('unresolved');
-    expect(compareStrength(large, small, 'sims', data)).toBe('stronger');
-    expect(frontStatus(large, 'time', data)).toBe('unknown');
-    expect(frontStatus(large, 'sims', data)).toBe('front');
-  });
-
-  it('rule 3: a SMALL row that is stronger on the ladder stays stronger at equal time, and a weaker LARGE row is dominated at both bases', () => {
-    const large = synth('large', 'LARGE', 300, 20, 2, 2);
-    const small = synth('small', 'SMALL', 700, 20, 1, 1);
-    const data = world([small, large]);
-    expect(compareStrength(small, large, 'time', data)).toBe('stronger');
-    expect(compareStrength(large, small, 'time', data)).toBe('weaker');
-    expect(frontStatus(large, 'time', data)).toBe('dominated');
-    expect(frontStatus(large, 'sims', data)).toBe('dominated');
+  it('rule 3 sums the half-widths of both rows and reads the rating of the asked basis', () => {
+    const wide = synth('wide', 'SMALL', 100, 50, 1, 1);
+    const narrow = synth('narrow', 'SMALL', 160, 5, 1, 1);
+    expect(compareStrength(narrow, wide, 'sims', world([wide, narrow]))).toBe('stronger'); // 60 > 50 + 5
+    const wider = synth('wider', 'SMALL', 100, 56, 1, 1);
+    expect(compareStrength(narrow, wider, 'sims', world([wider, narrow]))).toBe('unresolved'); // 60 < 56 + 5
+    const other = { ...narrow, strength: { sims: rating('sims', 160, 5), time: rating('time', 120, 5) } };
+    expect(compareStrength(other, wide, 'time', world([wide, other]))).toBe('unresolved'); // 20 < 55
+    expect(compareStrength(other, wide, 'sims', world([wide, other]))).toBe('stronger');
   });
 
   it('a row without strength is unresolved against everything', () => {
@@ -172,31 +184,38 @@ describe('dominates', () => {
   });
 });
 
-describe('strengthY and matchOf', () => {
-  it('is the ladder Elo for a row without a match', () => {
-    expect(strengthY(row('small-gen9'), 'sims', D)).toBe(611);
-    expect(strengthY(row('small-gen0'), 'time', D)).toBe(131);
+describe('strengthY, ratingOf and matchOf', () => {
+  // the published ratings (models/ratings/ratings.json): SMALL generation 9 is 1839 at 200 and 2151 at 1,000 simulations
+  it('is the rating of the basis: S0 1197 / 1560, L0 1321 both, S9 1839 / 2151, L10 1907 both', () => {
+    expect(RUNS.map((id) => strengthY(row(id), 'sims', D))).toEqual([1197, 1321, 1839, 1907]);
+    expect(RUNS.map((id) => strengthY(row(id), 'time', D))).toEqual([1560, 1321, 2151, 1907]);
   });
-  it('is the Elo of SMALL generation 9 plus the match for LARGE generation 10: 742 at equal simulations, 438 at equal time', () => {
-    expect(strengthY(row('large-gen10'), 'sims', D)).toBe(611 + 131);
-    expect(strengthY(row('large-gen10'), 'time', D)).toBe(611 - 173);
+  it('has the half-widths and the display values of the rating file', () => {
+    expect(RUNS.map((id) => ratingOf(row(id), 'sims').hw95)).toEqual([100, 116, 125, 132]);
+    expect(RUNS.map((id) => [ratingOf(row(id), 'sims').displayElo, ratingOf(row(id), 'sims').displayHw95])).toEqual([[1200, 100], [1320, 120], [1840, 130], [1910, 140]]);
+    expect(ratingOf(row('small-gen9'), 'time')).toMatchObject({ elo: 2151, hw95: 164, displayElo: 2150, displayHw95: 170, sims: 1000 });
+  });
+  it('the triangle of the match stands at the Elo of SMALL generation 9 plus the match: 1970 at equal simulations, 1978 at equal time', () => {
+    const at = (basis: Basis): number => matchY(matchOf(row('large-gen10'), basis, D)!, basis);
+    expect(at('sims')).toBe(1839 + 131);
+    expect(at('time')).toBe(2151 - 173);
     expect(matchOf(row('large-gen10'), 'time', D)).toMatchObject({ elo: -173, ci: 36, simsA: 200, simsB: 1000 });
     expect(matchOf(row('small-gen9'), 'time', D)).toBeUndefined();
   });
-  it('refuses a row with no strength', () => {
-    expect(() => strengthY(row('small-steps-cpu'), 'sims', D)).toThrow(/no strength/);
+  it('refuses a row with no rating', () => {
+    expect(() => strengthY(row('small-steps-cpu'), 'sims', D)).toThrow(/no rating/);
   });
 });
 
 describe('frontPath', () => {
   const pts: FrontPoint[] = [
-    { x: 0.021, y: 131 },
-    { x: 0.05, y: 242 },
-    { x: 0.177, y: 611, dashed: true },
+    { x: 0.021, y: 1197 },
+    { x: 0.05, y: 1321 },
+    { x: 0.177, y: 1839, dashed: true },
   ];
   it('starts at the first point, goes horizontally then vertically, and ends at the right edge at the last y', () => {
     const { line } = frontPath(pts, 10, 0);
-    expect(line.map(({ x, y }) => [x, y])).toEqual([[0.021, 131], [0.05, 131], [0.05, 242], [0.177, 242], [0.177, 611], [10, 611]]);
+    expect(line.map(({ x, y }) => [x, y])).toEqual([[0.021, 1197], [0.05, 1197], [0.05, 1321], [0.177, 1321], [0.177, 1839], [10, 1839]]);
     expect(line.map((v) => v.dashed)).toEqual([false, false, false, true, true, false]);
   });
   it('is monotone in x and in y, and sorts its input by x', () => {
@@ -205,7 +224,7 @@ describe('frontPath', () => {
       expect(line[i]!.x).toBeGreaterThanOrEqual(line[i - 1]!.x);
       expect(line[i]!.y).toBeGreaterThanOrEqual(line[i - 1]!.y);
     }
-    expect(line[0]).toMatchObject({ x: 0.021, y: 131 });
+    expect(line[0]).toMatchObject({ x: 0.021, y: 1197 });
   });
   it('closes the region at the bottom edge and contains a point just below and right of the last point, not one just above', () => {
     const { region } = frontPath(pts, 10, 0);
@@ -220,20 +239,20 @@ describe('frontPath', () => {
       }
       return c;
     };
-    expect(inside({ x: 0.18, y: 600 })).toBe(true);
-    expect(inside({ x: 0.18, y: 620 })).toBe(false);
-    expect(inside({ x: 0.03, y: 140 })).toBe(false); // above the first step
-    expect(inside({ x: 0.03, y: 120 })).toBe(true);
+    expect(inside({ x: 0.18, y: 1800 })).toBe(true);
+    expect(inside({ x: 0.18, y: 1900 })).toBe(false);
+    expect(inside({ x: 0.03, y: 1250 })).toBe(false); // above the first step
+    expect(inside({ x: 0.03, y: 1150 })).toBe(true);
   });
   it('returns nothing for no points', () => {
     expect(frontPath([], 10, 0)).toEqual({ line: [], region: [] });
   });
-  it('for the committed data: the line of equal simulations runs S0, L0, S9 and dashed to the triangle; at equal time L0 is dashed and L10 is absent', () => {
+  it('for the committed data: at equal simulations the line runs S0, L0, S9, L10 with no dashed step; at equal time only S0 and S9 are on it', () => {
     const sims = frontPoints('energy', 'sims', D);
-    expect(sims.map((p) => [p.x, p.y, p.dashed])).toEqual([[0.021, 131, false], [0.05, 242, false], [0.177, 611, false], [0.712, 742, true]]);
+    expect(sims.map((p) => [p.x, p.y, p.dashed])).toEqual([[0.021, 1197, false], [0.05, 1321, false], [0.177, 1839, false], [0.712, 1907, false]]);
     const time = frontPoints('energy', 'time', D);
-    expect(time.map((p) => [p.x, p.y, p.dashed])).toEqual([[0.021, 131, false], [0.05, 242, true], [0.177, 611, false]]);
-    expect(frontPoints('time', 'time', D).map((p) => p.x)).toEqual([0.534, 1.223, 4.254]);
+    expect(time.map((p) => [p.x, p.y, p.dashed])).toEqual([[0.021, 1560, false], [0.177, 2151, false]]);
+    expect(frontPoints('time', 'time', D).map((p) => p.x)).toEqual([0.534, 4.254]);
   });
 });
 
@@ -241,10 +260,11 @@ describe('viewSpec', () => {
   const log = (v: number): number => Math.log10(v);
   for (const compact of [false, true]) {
     describe(compact ? 'compact' : 'wide', () => {
-      it('has the domains of the design: 0.01 to 10 kWh, 0.25 to 250 h, 0 to 1,200 Elo, and 0.3 to 300 h against 0.01 to 10 kWh in the view both', () => {
+      it('has the domains of the design: 0.01 to 10 kWh, 0.25 to 250 h, 1,000 to 2,400 Elo, and 0.3 to 300 h against 0.01 to 10 kWh in the view both', () => {
         expect(viewSpec('energy', compact).x.domain).toEqual([0.01, 10]);
         expect(viewSpec('time', compact).x.domain).toEqual([0.25, 250]);
-        expect(viewSpec('energy', compact).y.domain).toEqual([0, 1200]);
+        expect(viewSpec('energy', compact).y.domain).toEqual([1000, 2400]);
+        expect(ELO_DOMAIN).toEqual([1000, 2400]);
         expect(viewSpec('both', compact).x.domain).toEqual([0.3, 300]);
         expect(viewSpec('both', compact).y.domain).toEqual([0.01, 10]);
       });
@@ -287,13 +307,14 @@ describe('viewSpec', () => {
         }
         inside(spec.x, xOf(r, view), `${r.id} x`);
         if (kind === 'point' && r.strength) {
-          inside(spec.y, r.strength.elo - r.strength.ci, `${r.id} ladder low`);
-          inside(spec.y, r.strength.elo + r.strength.ci, `${r.id} ladder high`);
           for (const basis of ['sims', 'time'] as const) {
+            const q = ratingOf(r, basis);
+            inside(spec.y, q.elo - q.hw95, `${r.id} ${basis} rating low`);
+            inside(spec.y, q.elo + q.hw95, `${r.id} ${basis} rating high`);
             const m = matchOf(r, basis, D);
             if (m) {
-              inside(spec.y, strengthY(r, basis, D) - m.ci, `${r.id} ${basis} match low`);
-              inside(spec.y, strengthY(r, basis, D) + m.ci, `${r.id} ${basis} match high`);
+              inside(spec.y, matchY(m, basis) - m.ci, `${r.id} ${basis} match low`);
+              inside(spec.y, matchY(m, basis) + m.ci, `${r.id} ${basis} match high`);
             }
           }
         }
@@ -305,7 +326,7 @@ describe('viewSpec', () => {
     expect(s(0.01)).toBeCloseTo(0, 9);
     expect(s(10)).toBeCloseTo(300, 9);
     expect(s(0.1)).toBeCloseTo(100, 9);
-    expect(linearScale([0, 1200], [268, 0])(600)).toBeCloseTo(134, 9);
+    expect(linearScale([1000, 2400], [280, 0])(1700)).toBeCloseTo(140, 9);
   });
 });
 
@@ -330,7 +351,7 @@ describe('rowCode and rows', () => {
     expect(groupRows(D, 'run').map(rowCode)).toEqual(['S0', 'L0', 'S9', 'L10']);
     expect(groupRows(D, 'steps').map(rowCode)).toEqual(['S-GPU', 'S-CPU', 'L-GPU', 'L-CPU']);
   });
-  it('has the eight rows of the design and a ladder strength for exactly the four complete runs', () => {
+  it('has the eight rows of the design and a rating for exactly the four complete runs', () => {
     expect(D.rows).toHaveLength(8);
     expect(D.rows.filter((r) => r.strength).map((r) => r.id).sort()).toEqual([...RUNS].sort());
   });

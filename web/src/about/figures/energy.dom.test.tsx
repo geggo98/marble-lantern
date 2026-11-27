@@ -144,8 +144,10 @@ describe('the basis switch', () => {
     expect(all('svg.ml-fig-plot polygon.ml-fig-energy__tri--down')).toHaveLength(1);
     expect(all('svg.ml-fig-plot polygon.ml-fig-energy__tri--up')).toHaveLength(0);
     expect(q('tr[data-row="large-gen10"]').dataset['front']).toBe('dominated');
-    expect(q('tr[data-row="large-gen0"]').dataset['front']).toBe('unknown');
+    // at equal time the cheaper SMALL generation 0 (1,000 simulations) beats LARGE generation 0: -239 ± 135 in the rating file
+    expect(q('tr[data-row="large-gen0"]').dataset['front']).toBe('dominated');
     expect(q('tr[data-row="small-gen9"]').dataset['front']).toBe('front');
+    expect(q('tr[data-row="small-gen0"]').dataset['front']).toBe('front');
   });
 
   it('keeps the front column of the table in words for both bases, whichever basis is on', async () => {
@@ -153,7 +155,8 @@ describe('the basis switch', () => {
     const before = all('td.ml-fig-energy__front-cell').map(text);
     click(radio(1, 1));
     expect(all('td.ml-fig-energy__front-cell').map(text)).toEqual(before);
-    expect(text(q('tr[data-row="large-gen0"] td.ml-fig-energy__front-cell'))).toBe('yes; not played at equal time');
+    expect(text(q('tr[data-row="small-gen9"] td.ml-fig-energy__front-cell'))).toBe('yes');
+    expect(text(q('tr[data-row="large-gen0"] td.ml-fig-energy__front-cell'))).toBe('only at equal simulations');
     expect(text(q('tr[data-row="large-gen10"] td.ml-fig-energy__front-cell'))).toBe('only at equal simulations');
   });
 
@@ -202,9 +205,9 @@ describe('accessible names and the live region', () => {
     await render();
     expect(all('[role="status"]')).toHaveLength(1);
     expect(all('.ml-fig__status-line--ghost')).toHaveLength(5);
-    expect(text(q('[role="status"]'))).toContain('equal simulations: LARGE generation 10 beats');
+    expect(text(q('[role="status"]'))).toContain('equal simulations: in their head-to-head match LARGE generation 10 beats');
     click(radio(1, 1));
-    expect(text(q('[role="status"]'))).toContain('equal time per move: LARGE generation 10 loses');
+    expect(text(q('[role="status"]'))).toContain('equal time per move: in their head-to-head match LARGE generation 10 loses');
     click(radio(0, 1));
     expect(text(q('[role="status"]'))).toContain('Strength against time at equal time per move');
     click(radio(0, 2));
@@ -220,11 +223,11 @@ describe('accessible names and the live region', () => {
 
   it('keeps every legend entry in all views and dims (and hides) the ones that do not apply', async () => {
     await render();
-    expect(all('.ml-fig-energy__legend .ml-fig-legend__item')).toHaveLength(9);
+    expect(all('.ml-fig-energy__legend .ml-fig-legend__item')).toHaveLength(10);
     const off = (): number => all('.ml-fig-energy__legend [data-off]').length;
     const before = off();
     click(radio(0, 2));
-    expect(all('.ml-fig-energy__legend .ml-fig-legend__item')).toHaveLength(9);
+    expect(all('.ml-fig-energy__legend .ml-fig-legend__item')).toHaveLength(10);
     expect(off()).not.toBe(before);
     expect(all('.ml-fig-energy__legend [data-off]').every((e) => e.getAttribute('aria-hidden') === 'true')).toBe(true);
   });
@@ -240,12 +243,49 @@ describe('numbers', () => {
       const energy = `${f(r.kwh, formatKwh(r))} kWh`;
       expect(text(tr.querySelector('td.ml-fig-energy__time')), r.id).toContain(r.status === 'estimate' ? `≈ ${time}` : time);
       expect(text(tr.querySelector('td.ml-fig-energy__energy')), r.id).toContain(r.status === 'estimate' ? `≈ ${energy}` : energy);
-      if (r.strength) expect(text(tr.querySelector('td.ml-fig-energy__strength'))).toBe(`+${r.strength.elo} ± ${r.strength.ci} Elo`);
+      // the strength cell holds the display values of the rating at the basis (equal simulations is on), with thousands separators and no sign
+      if (r.strength) expect(text(tr.querySelector('td.ml-fig-energy__strength')), r.id).toBe(`${f(r.strength.sims.displayElo, 0)} ± ${f(r.strength.sims.displayHw95, 0)}`);
+      else expect(text(tr.querySelector('td.ml-fig-energy__strength')), r.id).not.toMatch(/\d ± /);
     }
     expect(text(q('tr[data-row="small-steps-cpu"] td.ml-fig-energy__energy'))).toContain('(0.9–1.5)');
     expect(text(q('tr[data-row="small-steps-cpu"] td.ml-fig-energy__time'))).toContain('36 times the time');
     expect(text(q('tr[data-row="large-steps-cpu"] td.ml-fig-energy__energy'))).toContain('52 times the energy');
     expect(text(q('tr[data-row="large-gen0"] td.ml-fig-energy__energy'))).toContain('0.050 kWh');
+  });
+
+  it('the strength column follows the basis: SMALL generation 9 is 1,840 ± 130 at 200 simulations and 2,150 ± 170 at equal time; CPU rows have no rating', async () => {
+    await render();
+    const cell = (id: string): string => text(q(`tr[data-row="${id}"] td.ml-fig-energy__strength`));
+    expect([cell('small-gen0'), cell('large-gen0'), cell('small-gen9'), cell('large-gen10')]).toEqual(['1,200 ± 100', '1,320 ± 120', '1,840 ± 130', '1,910 ± 140']);
+    click(radio(1, 1));
+    expect([cell('small-gen0'), cell('large-gen0'), cell('small-gen9'), cell('large-gen10')]).toEqual(['1,560 ± 150', '1,320 ± 120', '2,150 ± 170', '1,910 ± 140']);
+    expect(cell('small-steps-cpu')).toBe('no rating: never played');
+    expect(cell('large-steps-cpu')).toBe('no rating: never played');
+  });
+
+  it('the detail shows the ratings of both bases with their simulations, the method line and the match lines', async () => {
+    await render();
+    const detail = (): string => text(q('.ml-fig-energy__variant:not([data-off])'));
+    expect(detail()).toContain('At 200 simulations: 1,840 ± 130');
+    expect(detail()).toContain('At equal time per move, 1,000 simulations: 2,150 ± 170');
+    expect(detail()).toContain('Random-effects fit over 53 matches');
+    pick('large-gen10');
+    expect(detail()).toContain('At 200 simulations: 1,910 ± 140');
+    expect(detail()).not.toContain('At equal time per move'); // the same config at both bases: said once
+  });
+
+  it('the Elo axis runs from 1,000 to 2,400 and its label names the scale; the old 0 to 1,200 ticks are gone', async () => {
+    await render();
+    const labels = all('svg.ml-fig-plot text').map(text);
+    for (const tick of ['1,000', '1,200', '1,400', '1,600', '1,800', '2,000', '2,200', '2,400']) expect(labels, tick).toContain(tick);
+    expect(labels).not.toContain('0');
+    expect(labels.some((l) => l.includes('level 3') && l.includes('= 1000'))).toBe(true);
+  });
+
+  it('draws one 95 % bar per complete run, from its rating minus to plus its half-width, and a second one for the match', async () => {
+    await render();
+    expect(all('svg.ml-fig-plot g[data-row] path.ml-fig-plot__whisker')).toHaveLength(4 + 1);
+    expect(all('svg.ml-fig-plot g[data-match] path.ml-fig-plot__whisker')).toHaveLength(1);
   });
 
   it('the mean power in the detail is kWh per hour of the row', async () => {
@@ -276,7 +316,7 @@ describe('German', () => {
     expect(text(q('tr[data-row="small-gen9"] td.ml-fig-energy__energy'))).toContain('0,177 kWh');
     expect(text(q('tr[data-row="small-steps-cpu"] td.ml-fig-energy__energy'))).toContain('≈ 1,2 kWh (0,9–1,5)');
     expect(text(q('tr[data-row="small-steps-gpu"] td.ml-fig-energy__time'))).toContain('≈ 0,71 h');
-    expect(text(q('tr[data-row="small-gen9"] td.ml-fig-energy__strength'))).toBe('+611 ± 112 Elo');
+    expect(text(q('tr[data-row="small-gen9"] td.ml-fig-energy__strength'))).toBe('1.840 ± 130');
     expect(all('.ml-fig-energy__tick, svg.ml-fig-plot text').some((e) => text(e) === '0,01')).toBe(true);
     expect(all('tbody tr[data-row]')).toHaveLength(8);
     expect(all('.ml-fig__status-line--ghost')).toHaveLength(5);

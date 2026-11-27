@@ -37,11 +37,37 @@ export interface EnergyRow {
   checked?: boolean;
   aboveIdleKwh?: number;
   steps?: number;
-  strength?: { elo: number; ci: number; source: Cite };
+  /** The rating of a complete run on the scale 2p-adj-r5, per comparison basis. The steps rows have none. */
+  strength?: Record<Basis, Rating>;
   source: Cite;
   hoursSource?: Cite;
   stepsSource?: Cite;
   aboveIdleSource?: Cite;
+}
+/** One entry of models/ratings/ratings.json (scale 2p-adj-r5), copied as that file prints it. */
+export interface Rating {
+  basis: Basis;
+  /** The config id of the rating file, e.g. "net:r5-small-gen9@s1000". */
+  config: string;
+  /** Simulations per move of that config. */
+  sims: number;
+  elo: number;
+  /** Half-width of the 95 % interval, disagreement between matches included. */
+  hw95: number;
+  /** The values the table prints (Elo rounded to 10, half-width up to 10). */
+  displayElo: number;
+  displayHw95: number;
+  method: string;
+  /** The entry rests on few matches (SMALL generation 0 at 1,000 simulations: two edges). */
+  sparse?: boolean;
+}
+/** A pooled pairwise difference `a` minus `b` of the rating fit, for a pair without a head-to-head match. */
+export interface PooledPair {
+  a: string;
+  b: string;
+  basis: Basis;
+  elo: number;
+  hw95: number;
 }
 export interface EnergyMatch {
   /** The row that is compared (here LARGE generation 10) and the anchor it is compared with (SMALL generation 9). */
@@ -79,6 +105,8 @@ export interface EnergyData {
   nets: Record<NetName, NetInfo>;
   rows: EnergyRow[];
   matches: EnergyMatch[];
+  pairs: PooledPair[];
+  ratings: { file: string; scale: string; anchor: string; anchorElo: number; axis: { domain: [number, number]; rule: string }; compareRule: string };
   factors: Factor[];
 }
 
@@ -120,35 +148,38 @@ const matchFor = (a: EnergyRow, b: EnergyRow, basis: Basis, data: EnergyData): {
   return undefined;
 };
 
-/** Rule 2: the ladder decides when the two 95 % intervals are disjoint. Touching at one value is not disjoint. */
-function ladder(a: EnergyRow, b: EnergyRow): Verdict {
-  if (!a.strength || !b.strength) return 'unresolved';
-  const aLo = a.strength.elo - a.strength.ci;
-  const aHi = a.strength.elo + a.strength.ci;
-  const bLo = b.strength.elo - b.strength.ci;
-  const bHi = b.strength.elo + b.strength.ci;
-  if (aLo > bHi) return 'stronger';
-  if (bLo > aHi) return 'weaker';
-  return 'unresolved';
-}
+/** The pooled difference `a` minus `b` of the rating fit for the basis, if the data holds that pair (in either order). */
+const pooledFor = (a: EnergyRow, b: EnergyRow, basis: Basis, data: EnergyData): { elo: number; hw: number } | undefined => {
+  for (const p of data.pairs) {
+    if (p.basis !== basis) continue;
+    if (p.a === a.id && p.b === b.id) return { elo: p.elo, hw: p.hw95 };
+    if (p.a === b.id && p.b === a.id) return { elo: -p.elo, hw: p.hw95 };
+  }
+  return undefined;
+};
+
+/** An interval for the difference decides the pair when it excludes 0. Touching 0 is not deciding. */
+const decide = (elo: number, hw: number): Verdict => (elo > hw ? 'stronger' : -elo > hw ? 'weaker' : 'unresolved');
 
 /**
- * Is `a` stronger than `b` at the comparison basis? Three rules, in this order:
- * 1. A direct match of the two rows for the basis decides when its Elo is larger than its interval, else the pair is unresolved.
- * 2. Else, at equal simulations or for two nets of one size (equal simulations are then equal time), the ladder decides when the intervals are disjoint.
- * 3. Else (equal time, nets of different size, no match): a SMALL row that the ladder ranks higher stays higher, because equal time gives SMALL more
- *    simulations than the ladder gave it; a LARGE row that the ladder ranks higher is unresolved. Origin: LARGE needs 5.6 times the CPU time per move
- *    (docs/training.md, "Strength per cost") and more simulations buy strength there. Limit: it assumes that more simulations never make a net weaker.
- * The result is antisymmetric: swapping the rows swaps `stronger` and `weaker`.
+ * Is `a` stronger than `b` at the comparison basis? Three rules, in this order (models/ratings/ratings.json, "energyTable.compareRule"):
+ * 1. A head-to-head match of the two rows for the basis decides when its Elo is larger than its interval, else the pair is unresolved.
+ * 2. Else the pooled pairwise difference of the rating fit decides when its interval excludes 0, else the pair is unresolved.
+ * 3. Else (the fit lists no pooled difference for the pair) the difference of the two ratings decides when it is larger than the SUM of their
+ *    half-widths. Origin: the interval of a difference is never wider than that sum, so this is the conservative reading. Limit: it can only
+ *    leave a pair unresolved that the fit would resolve; it never resolves one that the fit leaves open.
+ * Overlapping rating bars alone never decide the order, because the bars share the uncertain path to the anchor (rule 3 asks for more than overlap).
+ * A row without a rating (the training-steps rows) is unresolved against every row. The result is antisymmetric.
  */
 export function compareStrength(a: EnergyRow, b: EnergyRow, basis: Basis, data: EnergyData): Verdict {
   const m = matchFor(a, b, basis, data);
-  if (m) return m.elo > m.ci ? 'stronger' : -m.elo > m.ci ? 'weaker' : 'unresolved';
-  const byLadder = ladder(a, b);
-  if (basis === 'sims' || a.net === b.net) return byLadder;
-  if (byLadder === 'unresolved') return 'unresolved';
-  const smallWins = (byLadder === 'stronger' ? a : b).net === 'SMALL';
-  return smallWins ? byLadder : 'unresolved';
+  if (m) return decide(m.elo, m.ci);
+  const p = pooledFor(a, b, basis, data);
+  if (p) return decide(p.elo, p.hw);
+  const ra = a.strength?.[basis];
+  const rb = b.strength?.[basis];
+  if (!ra || !rb) return 'unresolved';
+  return decide(ra.elo - rb.elo, ra.hw95 + rb.hw95);
 }
 
 /** `a` is not worse than `b` in every chosen cost. Equal cost counts (not strictly cheaper), as the model has no "equally strong". */
@@ -179,15 +210,19 @@ export function matchOf(row: EnergyRow, basis: Basis, data: EnergyData): (Energy
   return m ? { ...m, anchor: rowById(data, m.b) } : undefined;
 }
 
-/** The y of the mark that decides a row: its ladder Elo, or the Elo of its anchor plus the match for a row that has one. */
-export function strengthY(row: EnergyRow, basis: Basis, data: EnergyData): number {
-  const m = matchOf(row, basis, data);
-  if (m) {
-    if (!m.anchor.strength) throw new Error(`anchor ${m.anchor.id} has no strength`);
-    return m.anchor.strength.elo + m.elo;
-  }
-  if (!row.strength) throw new Error(`row ${row.id} has no strength`);
-  return row.strength.elo;
+/** The rating of a complete run for the basis. */
+export function ratingOf(row: EnergyRow, basis: Basis): Rating {
+  const r = row.strength?.[basis];
+  if (!r) throw new Error(`row ${row.id} has no rating at ${basis}`);
+  return r;
+}
+
+/** The y of the mark that decides a row: its Elo on the scale 2p-adj-r5 at the basis. */
+export const strengthY = (row: EnergyRow, basis: Basis, _data?: EnergyData): number => ratingOf(row, basis).elo;
+
+/** The y of the head-to-head triangle: the Elo of the anchor row plus the match. */
+export function matchY(m: EnergyMatch & { anchor: EnergyRow }, basis: Basis): number {
+  return ratingOf(m.anchor, basis).elo + m.elo;
 }
 
 // ---- front geometry ----
@@ -195,7 +230,7 @@ export function strengthY(row: EnergyRow, basis: Basis, data: EnergyData): numbe
 export interface FrontPoint {
   x: number;
   y: number;
-  /** The way to this point is dashed (the row is `unknown` or its y comes from a match). */
+  /** The way to this point is dashed (the row is `unknown`). */
   dashed?: boolean;
 }
 export interface PathVertex extends FrontPoint {
@@ -231,7 +266,7 @@ export function frontPath(points: readonly FrontPoint[], xRight: number, yBottom
 /** The x of a row in a strength view: energy in kWh or duration in hours. */
 export const xOf = (row: EnergyRow, view: Exclude<View, 'both'>): number => (view === 'energy' ? row.kwh : row.hours);
 
-/** The points of the front for a strength view and basis, with `unknown` rows and rows decided by a match drawn dashed. */
+/** The points of the front for a strength view and basis, with `unknown` rows drawn dashed. */
 export function frontPoints(view: Exclude<View, 'both'>, basis: Basis, data: EnergyData): FrontPoint[] {
   return data.rows
     .filter((r) => r.group === 'run')
@@ -239,7 +274,7 @@ export function frontPoints(view: Exclude<View, 'both'>, basis: Basis, data: Ene
     .flatMap((r) => {
       const status = frontStatus(r, basis, data);
       if (status === 'dominated') return [];
-      return [{ x: xOf(r, view), y: strengthY(r, basis, data), dashed: status === 'unknown' || matchOf(r, basis, data) !== undefined }];
+      return [{ x: xOf(r, view), y: strengthY(r, basis, data), dashed: status === 'unknown' }];
     });
 }
 
@@ -257,7 +292,9 @@ export interface ViewSpec {
   y: AxisSpec;
 }
 
-const ELO_TICKS = [0, 200, 400, 600, 800, 1000, 1200];
+/** The Elo axis: the interval ends of all ratings, rounded outward to 200 (the rule of the rating file; energy.test.ts checks it against the data). */
+export const ELO_DOMAIN: [number, number] = [1000, 2400];
+const ELO_TICKS = [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400];
 const KWH_WIDE = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10];
 const KWH_COMPACT = [0.01, 0.1, 1, 10];
 const HOURS_WIDE = [0.5, 1, 2, 5, 10, 20, 50, 100, 200];
@@ -265,7 +302,7 @@ const HOURS_COMPACT = [1, 10, 100];
 
 /** Axes of a view in the wide and the compact layout (design spec section 2). The energy and the duration domain span three decades each. */
 export function viewSpec(view: View, compact: boolean): ViewSpec {
-  const elo: AxisSpec = { scale: 'linear', domain: [0, 1200], ticks: ELO_TICKS, key: 'elo' };
+  const elo: AxisSpec = { scale: 'linear', domain: ELO_DOMAIN, ticks: ELO_TICKS, key: 'elo' };
   switch (view) {
     case 'energy':
       return { x: { scale: 'log', domain: [0.01, 10], ticks: compact ? KWH_COMPACT : KWH_WIDE, key: 'kwh' }, y: elo };
