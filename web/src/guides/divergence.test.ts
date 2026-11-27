@@ -53,10 +53,10 @@ describe('trap: other cases', () => {
     expect(findDivergences(classical, net, none).trap?.move).toBe(5);
   });
   it('favourite ties go to the lowest move code', () => {
-    // moves 2 and 3 both have 50 visits; move 2 is fair, move 3 would be top: the tip must be move 2
+    // moves 2 and 3 both have 50 visits; move 2 is fair, move 3 would be top: the special must be move 2
     const classical = { moves: [1, 3, 2], scores: [BEST, S.top, S.fair] };
     const net = { moves: [1, 3, 2], visits: [10, 50, 50], values: [0, 0, 0] };
-    expect(findDivergences(classical, net, none).tip?.move).toBe(2);
+    expect(findDivergences(classical, net, none).special?.move).toBe(2);
   });
 });
 
@@ -99,39 +99,39 @@ describe('visits below MIN_VISITS: probes', () => {
   });
 });
 
-describe('tip: classical band of the favourite', () => {
-  const tipFor = (favScore: number) => {
+describe('special: classical band of the favourite', () => {
+  const specialFor = (favScore: number) => {
     const { classical, net } = pos([BEST, favScore], [1, 100], [0.1, 0.2]);
-    return findDivergences(classical, net, none).tip;
+    return findDivergences(classical, net, none).special;
   };
-  it('top and good: no tip', () => {
-    expect(tipFor(S.top)).toBeUndefined();
-    expect(tipFor(S.good)).toBeUndefined();
+  it('top and good: no special', () => {
+    expect(specialFor(S.top)).toBeUndefined();
+    expect(specialFor(S.good)).toBeUndefined();
   });
   it.each([
     ['fair', S.fair, 'equal'],
     ['weak', S.weak, 'worse'],
     ['poor', S.poor, 'much-worse'],
-  ] as const)('%s: tip', (_n, score, band) => {
-    expect(tipFor(score)).toEqual({ move: 2, netValue: 0.2, favouriteValue: 0.2, classicalBand: band });
+  ] as const)('%s: special', (_n, score, band) => {
+    expect(specialFor(score)).toEqual({ move: 2, netValue: 0.2, favouriteValue: 0.2, classicalBand: band });
   });
-  it('no tip when the favourite is the best move', () => {
+  it('no special when the favourite is the best move', () => {
     const { classical, net } = pos([BEST, S.poor], [100, 1], [0.1, 0.2]);
-    expect(findDivergences(classical, net, none).tip).toBeUndefined();
+    expect(findDivergences(classical, net, none).special).toBeUndefined();
   });
   it('the band edges: loss 180 is fair, 181 is weak', () => {
     const fair = pos([BEST, BEST - 180], [1, 9], [0, 0]);
     const weak = pos([BEST, BEST - 181], [1, 9], [0, 0]);
-    expect(findDivergences(fair.classical, fair.net, none).tip?.classicalBand).toBe('equal');
-    expect(findDivergences(weak.classical, weak.net, none).tip?.classicalBand).toBe('worse');
+    expect(findDivergences(fair.classical, fair.net, none).special?.classicalBand).toBe('equal');
+    expect(findDivergences(weak.classical, weak.net, none).special?.classicalBand).toBe('worse');
   });
-  it('tip and trap can occur together, at most one of each', () => {
+  it('special and trap can occur together, at most one of each', () => {
     const r = pos([BEST, S.top, S.poor, S.weak], [40, 100, 100, 100], [-0.5, 0.5, 0.5, 0.5]);
     // favourite = move 3 (poor; tie on visits with 2 and 4 goes to the lowest code, which is 2 = top)
-    expect(findDivergences(r.classical, r.net, none).tip).toBeUndefined();
+    expect(findDivergences(r.classical, r.net, none).special).toBeUndefined();
     const r2 = pos([BEST, S.poor, S.weak], [40, 100, 100], [-0.5, 0.5, 0.5]);
     const out = findDivergences(r2.classical, r2.net, none);
-    expect(out.tip?.move).toBe(2);
+    expect(out.special?.move).toBe(2);
     expect(out.trap?.move).toBe(1);
   });
 });
@@ -150,7 +150,7 @@ describe('no marks', () => {
   });
   it('the largest ordinary score still marks', () => {
     const { classical, net } = pos([SCORE.raceBase - 1, S.poor], [1, 100], [0, 0]);
-    expect(findDivergences(classical, net, none).tip?.move).toBe(2);
+    expect(findDivergences(classical, net, none).special?.move).toBe(2);
   });
   it('one move only', () => {
     const r = pos([BEST], [100], [0.5]);

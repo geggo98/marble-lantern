@@ -8,7 +8,7 @@ import type { Band } from './bands';
  * A move counts as a trap when the network values it at least this far below its favourite (values lie in -1..1, from the
  * point of view of the mover).
  *
- * Origin: simulation of 2026-11-27, 20 games, 2763 positions; the rates of traps and tips per threshold are in the table of
+ * Origin: simulation of 2026-11-27, 20 games, 2763 positions; the rates of traps and special moves per threshold are in the table of
  * the plan. Limits: small sample, one type of opponent, two players only. Step 6 of the plan calibrates this value against
  * real measurements; until then it is a guide, not a result.
  */
@@ -26,7 +26,7 @@ export interface Divergence {
   move: number;
   /** Value of `move` for the mover, from the root or from a probe. */
   netValue: number;
-  /** Value of the net favourite on the same basis. For a tip, `move` is the favourite and both values are equal. */
+  /** Value of the net favourite on the same basis. For a special move, `move` is the favourite and both values are equal. */
   favouriteValue: number;
   /** Classical band of `move` against the best classical score. */
   classicalBand: Band;
@@ -35,8 +35,8 @@ export interface Divergence {
 export interface ClassicalResult { moves: number[]; scores: number[] }
 export interface NetResult { moves: number[]; visits: number[]; values: number[] }
 
-/** Bands in which a favourite counts as a tip: fair, weak, poor. */
-const TIP_BANDS: readonly Band[] = ['equal', 'worse', 'much-worse'];
+/** Bands in which a favourite counts as a special move (Spezialzug): fair, weak, poor. */
+const SPECIAL_BANDS: readonly Band[] = ['equal', 'worse', 'much-worse'];
 
 interface Context {
   best: number;
@@ -92,7 +92,7 @@ export function needsProbe(classical: ClassicalResult, net: NetResult): number[]
 }
 
 /**
- * The tip: the net favourite when the classical search rates it fair, weak or poor. The trap: the classically best move when
+ * The special move (Spezialzug): the net favourite when the classical search rates it fair, weak or poor. The trap (Falle): the classically best move when
  * the favourite is another move and the net values the best move at least TRAP_DELTA below the favourite. At most one of each.
  * A trap needs values on one basis: root values when the best move has MIN_VISITS visits, else probes of both moves; with a
  * probe missing there is no trap. `probes` maps a move to its value for the mover.
@@ -101,16 +101,16 @@ export function findDivergences(
   classical: ClassicalResult,
   net: NetResult,
   probes: ReadonlyMap<number, number>,
-): { tip?: Divergence; trap?: Divergence } {
+): { special?: Divergence; trap?: Divergence } {
   const c = context(classical, net);
   if (!c) return {};
-  const out: { tip?: Divergence; trap?: Divergence } = {};
+  const out: { special?: Divergence; trap?: Divergence } = {};
   const favRoot = c.value.get(c.fav)!;
 
   const favIdx = classical.moves.indexOf(c.fav);
   if (favIdx >= 0) {
     const favBand = rankBand(classical.scores[favIdx]!, c.bestScore);
-    if (TIP_BANDS.includes(favBand)) out.tip = { move: c.fav, netValue: favRoot, favouriteValue: favRoot, classicalBand: favBand };
+    if (SPECIAL_BANDS.includes(favBand)) out.special = { move: c.fav, netValue: favRoot, favouriteValue: favRoot, classicalBand: favBand };
   }
 
   if (c.best !== c.fav) {
