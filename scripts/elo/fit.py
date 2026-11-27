@@ -29,7 +29,8 @@ example the ingested existing data and a tier's new data); edge ids must be uniq
                               other seats
                 "table"       (3 players, ThreeSeatMatch --table, task T2): players = [A, B, C]
   players       config ids; all different (a config against itself carries no rating information and is refused)
-  file          result file; a relative path is taken relative to the directory of this EDGES.jsonl. null: the edge has
+  file          result file; a relative path is taken relative to the directory of this EDGES.jsonl; if it is missing,
+                the same path with ".gz" appended is read as gzip (the form of the committed records). null: the edge has
                 only totals (two players only); each of its games becomes its own bootstrap unit and the report notes it
   unitsPlanned  planned number of units (pairs or openings); units with an index >= unitsPlanned are ignored, fewer
                 units than planned is an error unless --allow-partial
@@ -98,6 +99,7 @@ Exit codes: 0 written, 1 fit error (missing or broken data, disconnected graph),
 """
 import argparse
 import bisect
+import gzip
 import hashlib
 import json
 import math
@@ -329,9 +331,15 @@ def load_results(edge, allow_partial, notes):
         notes.append(f"edge {edge.id}: no result file, {len(edge.units)} games from totals, resampled as independent "
                      "games (its interval is too narrow by the within-pair correlation)")
         return
-    if not edge.file.is_file():
+    gz = edge.file.with_name(edge.file.name + ".gz")
+    if edge.file.is_file():
+        text = edge.file.read_text(encoding="utf-8")
+    elif gz.is_file():                       # the committed records (models/runs/elo-study) store result files gzip'd
+        text = gzip.decompress(gz.read_bytes()).decode("utf-8")
+        edge.file = gz
+    else:
         raise FitError(f"edge {edge.id}: result file {edge.file} not found")
-    lines = edge.file.read_text(encoding="utf-8").split("\n")
+    lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
     ignored = 0
@@ -1110,6 +1118,13 @@ def diagnostics(r, configs, args, runner, notes):
     for ei, e in enumerate(edges):
         runner.check()
         rest = edges[:ei] + edges[ei + 1:]
+        # A config whose only edge this is drops out of the rest; the sub-fit would then put it at the anchor (its
+        # parameter maps to 0) and report a meaningless prediction. Such an edge is not redundant.
+        left = {p for x in rest for p in x.players}
+        lost = sorted(p for p in e.players if p not in left and p != r.anchor)
+        if lost:
+            r.loo.append({"edge": e.id, "skipped": "not redundant: only edge of " + ", ".join(lost)})
+            continue
         sub, why = sub_fit(r.scale, rest, r.anchor, args.prior_games)
         if sub is None:
             r.loo.append({"edge": e.id, "skipped": "not redundant: " + why.split(":", 1)[-1].strip()})

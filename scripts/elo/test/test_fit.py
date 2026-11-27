@@ -296,6 +296,38 @@ class Input(Tmp):
         self.assertEqual(code, 1)
         self.assertIsNone(js)
 
+    def test_leave_one_out_skips_the_only_edge_of_a_leaf_config(self):
+        # Origin: the Tier 1 fit report predicted 0.876 (z = -11.86) for the only edge of the 1,000-node engine. Without
+        # that edge the leaf config plays in no edge, the sub-fit drops it, and its rating fell back to the anchor's.
+        rng = random.Random(4711)
+        true = {"a": 1000, "b": 1100, "c": 1200, "leaf": 600}
+        for i, (x, y) in enumerate([("a", "b"), ("b", "c"), ("a", "c"), ("leaf", "a")]):
+            self.d.edge(f"e{i}", "2p-adj-r4", "pair", [x, y], pair_lines(sim_pairs(rng, true[x], true[y], 100)))
+        edges = self.d.write()
+        _js, rep = fit.fit_all([edges], fit.parse_args(args_for(edges, self.out, [
+            "--anchor", "2p-adj-r4=a", "--replicates", "20", "--gof-replicates", "0"])), fit.Runner(None, True), [])
+        loo = rep.split("### 4. Leave one edge out", 1)[1].split("### 5.", 1)[0]
+        leaf_row = next(line for line in loo.splitlines() if line.startswith("| e3 |"))
+        self.assertIn("not redundant", leaf_row, f"leaf edge must be skipped, got: {leaf_row}")
+        self.assertIn("leaf", leaf_row, f"the reason must name the config that loses its only edge: {leaf_row}")
+        tri_row = next(line for line in loo.splitlines() if line.startswith("| e0 |"))
+        self.assertNotIn("not redundant", tri_row, f"an edge of the triangle is redundant: {tri_row}")
+
+    def test_gzipped_result_file_is_read_when_the_plain_file_is_missing(self):
+        import gzip
+        self.d.edge("e", "2p-adj-r4", "pair", ["a", "b"], pair_lines([1.0, 0.5, 0.0, 1.0]))
+        edges = self.d.write()
+        plain = self.dir / "e.jsonl"
+        (self.dir / "e.jsonl.gz").write_bytes(gzip.compress(plain.read_bytes()))
+        plain.unlink()
+        (e,) = fit.load_edges([edges])
+        self.assertEqual(sorted(e.units), [0, 1, 2, 3])
+        self.assertEqual([e.units[i]["cells"][0][1][0] for i in range(4)], [2.0, 1.0, 0.0, 2.0])
+        (self.dir / "e.jsonl.gz").unlink()
+        with self.assertRaises(fit.FitError) as cm:
+            fit.load_edges([edges])
+        self.assertIn("result file", str(cm.exception))
+
     def err(self, **kw):
         lines = kw.pop("lines", pair_lines([0.5] * 4))
         self.d.edge("e", "2p-adj-r4", kw.pop("kind", "pair"), kw.pop("players", ["a", "b"]), lines, **kw)
