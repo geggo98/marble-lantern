@@ -90,3 +90,33 @@ describe('theme blocks', () => {
     for (const band of BAND_ORDER) expect(forced).toContain(`${guideName(band)}: CanvasText`);
   });
 });
+
+// The net marks (Falle, Spezialzug) share one colour, --ml-guide-net (design: net hints, section 1.2). The design computes 5.53 / 9.99 on the socket.
+describe.each([
+  ['light', light, 5.5],
+  ['dark', darkAttr, 9.9],
+] as const)('net mark colour, %s theme', (_name, theme, onSocket) => {
+  it('reaches 3:1 against socket, plate and glow', () => {
+    expect(theme['--ml-guide-net'], 'token present').toMatch(/^#[0-9a-f]{6}$/i);
+    for (const bg of BACKGROUNDS) {
+      expect(contrast(theme['--ml-guide-net']!, theme[bg]!), `net on ${bg}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+  it('matches the contrast that the design computed on the socket', () => {
+    expect(contrast(theme['--ml-guide-net']!, theme['--ml-board-socket']!)).toBeGreaterThanOrEqual(onSocket);
+  });
+  it('differs from every band colour', () => {
+    for (const b of BAND_ORDER) expect(theme['--ml-guide-net'], b).not.toBe(theme[guideName(b)]);
+  });
+});
+
+describe('net mark colour in the theme blocks', () => {
+  it('is the same in the media query block and the attribute block', () => {
+    expect(darkMedia['--ml-guide-net']).toBe(darkAttr['--ml-guide-net']);
+    expect(darkMedia['--ml-guide-net']).toBeDefined();
+  });
+  it('falls back to CanvasText in forced-colors mode', () => {
+    const forced = css.slice(css.indexOf('@media (forced-colors: active)'));
+    expect(forced).toContain('--ml-guide-net: CanvasText');
+  });
+});

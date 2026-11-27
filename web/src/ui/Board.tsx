@@ -4,13 +4,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CELLS, GOAL_CELLS } from '../board/cells';
 import { jumpPath } from '../board/path';
 import type { Side } from '../game/board-state';
-import { makeMove } from '../engines/engine';
+import { makeMove, moveFrom, moveTo } from '../engines/engine';
 import {
   cellName, cellPoint, cycle, movableCells, navigate, reading, resolveTap, targetsOf, VIEW_BOX,
 } from './board-model';
 import type { ArrowKey, MoveDescription, Point, TapAction } from './board-model';
-import { GuideGlyphPath, GuideRing, bandTextKey, pieceTextKey } from './GuideGlyph';
+import { GuideGlyphPath, GuideRing, NetBadge, bandTextKey, pieceTextKey } from './GuideGlyph';
 import type { Band } from '../guides/bands';
+import type { BoardNetHints } from '../guides/net-hints-types';
+import type { NetMarkKind } from '../guides/marks';
 import { prefersReducedMotion } from './primitives';
 import { useTrailPhase } from './trail-fade';
 import { haptic, HAPTIC_ILLEGAL, HAPTIC_MOVE, HAPTIC_SELECT } from './haptics';
@@ -19,6 +21,7 @@ import {
 } from './touch-model';
 import type { SideStyle } from './primitives';
 import { useT } from './texts';
+import type { TextKey } from './texts';
 
 /** Move guides: the bands the board draws. Without them the board looks and works as before. */
 export interface BoardGuides {
@@ -31,6 +34,13 @@ export interface BoardGuides {
 export interface BoardProps {
   /** Optional move guides; shown only while `interactive`. */
   guides?: BoardGuides | null;
+  /**
+   * Net hints (design: net hints): the move codes (from | to << 8) of the Falle and of the Spezialzug. Shown only while `interactive`. At rest only the
+   * origin piece carries the badge; the target badge appears when that piece is selected. Drawing and names only: input is as without it.
+   */
+  netHints?: BoardNetHints | null;
+  /** HTML in the upper inline-end corner of the board box, after the SVG in DOM order (the net-hint chip). */
+  corner?: React.ReactNode;
   /** Seconds the trail of the last move stays visible before it fades; 0 or absent: always visible. */
   trailSeconds?: number;
   /** Draw the legal targets of the selected piece (default true). False: no target marks; the selected piece keeps its highlight, and taps, keys and the cell labels work as before. */
@@ -384,6 +394,19 @@ export function Board(props: BoardProps): React.JSX.Element {
     guides && selected !== null ? guides.moves.get(makeMove(selected, cell)) : undefined;
   const pieceGuide = (cell: number): Band | undefined => (guides && movable.includes(cell) ? guides.pieces.get(cell) : undefined);
 
+  // net hints: the marks whose piece can move, the piece mark (the Falle wins on a piece that has both), the marks on the targets of the selected piece
+  const net = interactive ? (props.netHints ?? null) : null;
+  const netMarks: { kind: NetMarkKind; from: number; to: number }[] = [];
+  for (const kind of ['trap', 'special'] as const) {
+    const code = net?.[kind];
+    if (code !== undefined && movable.includes(moveFrom(code))) netMarks.push({ kind, from: moveFrom(code), to: moveTo(code) });
+  }
+  const netOnPiece = (cell: number): NetMarkKind[] => netMarks.filter((m) => m.from === cell).map((m) => m.kind);
+  const netOnTarget = (cell: number): NetMarkKind | undefined =>
+    selected === null || !(props.targetMarks ?? true) || !targets.includes(cell)
+      ? undefined
+      : netMarks.find((m) => m.from === selected && m.to === cell)?.kind;
+
   const label = (cell: number): string => {
     const o = owner[cell] ?? -1;
     const parts = [cellName(cell), o < 0 ? t('cell_empty') : props.sideLabel(o)];
@@ -395,6 +418,9 @@ export function Board(props: BoardProps): React.JSX.Element {
     }
     const piece = pieceGuide(cell);
     if (piece) parts.push(t(pieceTextKey(piece)));
+    const onTarget = netOnTarget(cell);
+    if (onTarget) parts.push(t(`nethint_move_${onTarget}` as TextKey));
+    for (const kind of netOnPiece(cell)) parts.push(t(`nethint_piece_${kind}` as TextKey));
     return parts.join(', ');
   };
 
@@ -527,6 +553,34 @@ export function Board(props: BoardProps): React.JSX.Element {
           </g>
         )}
         {selectedPoint && <circle className="ml-select" cx={selectedPoint.x} cy={selectedPoint.y} r={19} />}
+        {net && (
+          <g className="ml-nethints">
+            {movable.map((c) => {
+              const kind = netOnPiece(c)[0]; // the validated mark wins when a piece has both
+              if (!kind) return null;
+              return (
+                <g key={`p${c}`} className={`ml-nethint ml-nethint--${kind}`} data-nethint={kind} data-nethint-at="piece" data-cell-of={c} {...(c === selected ? { 'data-selected': '' } : {})} transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
+                  <g transform={`translate(12 12) scale(${boost.toFixed(2)})`}>
+                    <NetBadge kind={kind} />
+                  </g>
+                </g>
+              );
+            })}
+            {targets.map((c) => {
+              const kind = netOnTarget(c);
+              if (!kind) return null;
+              // the human plays up the board: a badge at the lower right of the target would lie on the marble of the selected piece when that is its lower-right neighbour
+              const above = pos(selected!).y >= pos(c).y;
+              return (
+                <g key={`t${c}`} className={`ml-nethint ml-nethint--${kind}`} data-nethint={kind} data-nethint-at="target" data-cell-of={c} data-selected="" transform={`translate(${pos(c).x.toFixed(1)} ${pos(c).y.toFixed(1)})`}>
+                  <g transform={`translate(12 ${above ? -12 : 12}) scale(${boost.toFixed(2)})`}>
+                    <NetBadge kind={kind} />
+                  </g>
+                </g>
+              );
+            })}
+          </g>
+        )}
         {illegal && (
           <g className="ml-illegal" key={illegal.key}>
             <circle cx={pos(illegal.cell).x} cy={pos(illegal.cell).y} r={14.5} />
@@ -564,6 +618,7 @@ export function Board(props: BoardProps): React.JSX.Element {
           })}
         </g>
       </svg>
+      {props.corner}
       {illegal && (
         <p className="ml-hint" role="status">
           <svg className="ml-icon" viewBox="0 0 24 24" aria-hidden="true">

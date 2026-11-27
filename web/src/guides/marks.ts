@@ -26,3 +26,22 @@ export const MARK_TEXT: Readonly<Record<Band, string>> = {
   worse: '▼',
   'much-worse': '▼▼',
 };
+
+/** The two net marks (design: net hints, section 1.1): Falle (trap, validated, solid plate) and Spezialzug (special, unproven, hollow plate). */
+export type NetMarkKind = 'trap' | 'special';
+
+export interface NetMark {
+  /** Path of the glyph, stroked, around (0, 0). */
+  d: string;
+  strokeWidth: number;
+  /** True: solid plate with a knocked-out glyph; false: hollow plate with a glyph in the net colour. */
+  solid: boolean;
+}
+
+export const NET_MARKS: Readonly<Record<NetMarkKind, NetMark>> = {
+  trap: { d: 'M-5 2.5L-3 -2.5L-1 2.5L1 -2.5L3 2.5L5 -2.5', strokeWidth: 1.8, solid: true },
+  special: { d: 'M0 -4.6V4.6M-3.98 -2.3L3.98 2.3M-3.98 2.3L3.98 -2.3', strokeWidth: 1.6, solid: false },
+};
+
+/** The text form of the net marks, for places that cannot draw SVG (and for tests). */
+export const NET_MARK_TEXT: Readonly<Record<NetMarkKind, string>> = { trap: '↯', special: '✳' };

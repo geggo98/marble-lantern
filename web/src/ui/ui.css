@@ -199,7 +199,7 @@ a { color: inherit; text-underline-offset: 0.2em; }
 }
 
 /* ===== board ===== */
-.ml-board { margin-inline: calc(var(--ml-gutter) * -0.5); }
+.ml-board { margin-inline: calc(var(--ml-gutter) * -0.5); position: relative; } /* the net-hint chip sits in its corner */
 .ml-board__svg { display: block; width: 100%; height: auto; touch-action: manipulation; }
 @container ml-app (min-width: 60rem) {
   .ml-board { margin-inline: auto; width: 100%; max-width: calc((100dvh - 15.5rem) * 468 / 532); min-width: 22rem; }
@@ -208,11 +208,13 @@ a { color: inherit; text-underline-offset: 0.2em; }
 .ml-board__svg.is-inert.is-over { cursor: default; }
 /* Move guides, level "with evaluation": a selected piece dims the rest of the board so that the rated targets stand out (docs/web-ui.md, "Dimming").
    Opacity only: the hit circles and the focus ring are untouched. The selected piece, its ring, the targets with their glyphs and the plate stay at full strength. */
-.ml-board__sockets, .ml-pieces use, .ml-guides .ml-guide { transition: opacity 0.2s ease; }
+.ml-board__sockets, .ml-pieces use, .ml-guides .ml-guide, .ml-nethints [data-nethint] { transition: opacity 0.2s ease; }
 .ml-board__svg[data-dim] .ml-board__sockets { opacity: 0.4; }
 .ml-board__svg[data-dim] .ml-pieces use:not(.is-selected) { opacity: 0.4; }
 .ml-board__svg[data-dim] .ml-guides .ml-guide:not([data-selected]) { opacity: 0.4; }
-@media (prefers-reduced-motion: reduce) { .ml-board__sockets, .ml-pieces use, .ml-guides .ml-guide { transition: none; } }
+/* net badges of other pieces dim like the band badges; the badge of the selected piece and those on its targets carry data-selected */
+.ml-board__svg[data-dim] .ml-nethints [data-nethint]:not([data-selected]) { opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) { .ml-board__sockets, .ml-pieces use, .ml-guides .ml-guide, .ml-nethints [data-nethint] { transition: none; } }
 .ml-board__plate-edge { fill: var(--ml-board-star-edge); stroke: var(--ml-board-star-edge); stroke-width: 51; stroke-linejoin: round; }
 .ml-board__plate-fill { fill: url(#ml-plate); stroke: url(#ml-plate); stroke-width: 48; stroke-linejoin: round; }
 .ml-stop-glow { stop-color: var(--ml-board-glow); }

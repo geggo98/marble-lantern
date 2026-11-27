@@ -82,6 +82,9 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .ml-play__adv .ml-advantage--three .ml-adv3 { align-self: center; block-size: 1.75rem; }
   .ml-play__adv .ml-advantage--three { align-content: center; }
   .ml-play__bar { grid-area: bar; }
+  /* The net-hint panel lies over the advantage strip and the action bar: its top edge is the top edge of the strip row, its height is strip plus bar.
+     It is non-modal: the board above stays visible and operable. The same line serves portrait (rows adv, bar) and landscape (column 2). */
+  .ml-nethints-panel { grid-row: adv-start / bar-end; grid-column: adv-start / bar-end; }
   .ml-play__boardwrap .ml-board { margin-inline: 0; width: 100%; height: 100%; max-width: none; min-width: 0; }
   .ml-play__boardwrap .ml-board__svg { width: 100%; height: 100%; }
   .ml-play__boardwrap .ml-hint { position: absolute; inset-inline: var(--ml-space-2); bottom: var(--ml-space-2); z-index: 2; }

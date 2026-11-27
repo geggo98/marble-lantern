@@ -1,12 +1,34 @@
 /* Move guides: board marks, settings, legend, advantage bar. Colours come from the --ml-guide-* tokens (tokens.css).
-   Colour is never the only carrier: every band has its own glyph and ring style (guides/marks.ts). No animation. */
+   Colour is never the only carrier: every band has its own glyph and ring style (guides/marks.ts). Band marks have no animation; the net marks
+   fade in once (design: net hints, section 1.5). */
 .ml-guide--much-better { --g: var(--ml-guide-much-better); }
 .ml-guide--better { --g: var(--ml-guide-better); }
 .ml-guide--equal { --g: var(--ml-guide-equal); }
 .ml-guide--worse { --g: var(--ml-guide-worse); }
 .ml-guide--much-worse { --g: var(--ml-guide-much-worse); }
 
-.ml-guides, .ml-targets .ml-guide { pointer-events: none; }
+.ml-guides, .ml-targets .ml-guide, .ml-nethints { pointer-events: none; }
+
+/* net marks: Falle (solid plate, zigzag knocked out) and Spezialzug (hollow plate, asterisk). One colour for both; the plate always carries a
+   socket-coloured halo or backing, so that it keeps its contrast on the marbles (design: net hints, section 1.2). */
+.ml-net__plate { fill: var(--ml-guide-net); stroke: var(--ml-board-socket); stroke-width: 1.2; paint-order: stroke; }
+.ml-net__back { fill: var(--ml-board-socket); }
+.ml-net--special .ml-net__plate { fill: var(--ml-board-socket); stroke: var(--ml-guide-net); stroke-width: 1.4; }
+.ml-net__glyph { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ml-net--trap .ml-net__glyph { stroke: var(--ml-board-socket); }
+.ml-net--special .ml-net__glyph { stroke: var(--ml-guide-net); }
+/* the badge fades in once when the net result arrives; no loop, no pulse */
+.ml-nethints [data-nethint] { animation: ml-nethint-in 0.2s ease; }
+@keyframes ml-nethint-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.ml-net-glyph { inline-size: 2rem; block-size: 2rem; flex: none; }
+/* outside the board there is no socket behind the badge: the surface colour takes its place */
+.ml-net-glyph .ml-net__plate { stroke: var(--ml-color-surface); }
+.ml-net-glyph .ml-net--special .ml-net__plate { fill: var(--ml-color-surface); stroke: var(--ml-guide-net); }
+.ml-net-glyph .ml-net__back { fill: var(--ml-color-surface); }
+.ml-net-glyph .ml-net--trap .ml-net__glyph { stroke: var(--ml-color-surface); }
 .ml-guide__ring { fill: none; stroke: var(--g); }
 /* the glyph carries a halo in the socket colour, so that it keeps its 3:1 whatever lies behind it */
 .ml-guide__glyph { fill: var(--g); stroke: var(--ml-board-socket); stroke-width: 0.9; paint-order: stroke; }
@@ -16,9 +38,18 @@
 /* settings card */
 .ml-guides-card { display: grid; gap: var(--ml-space-2); }
 /* the level choice: three native radio buttons drawn as one segmented control; the checked one is filled (a state, not only a colour: it also has a border weight) */
-.ml-guides-card__levels { display: grid; grid-template-columns: repeat(3, 1fr); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-md); overflow: hidden; }
+.ml-guides-card__levels { display: grid; grid-template-columns: repeat(2, 1fr); border: var(--ml-border) solid var(--ml-color-line-strong); border-radius: var(--ml-radius-md); overflow: hidden; }
 .ml-guides-card__level { position: relative; display: flex; align-items: center; justify-content: center; min-block-size: var(--ml-size-control); padding: 0 var(--ml-space-2); text-align: center; cursor: pointer; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); background: var(--ml-color-surface); color: var(--ml-color-ink); }
-.ml-guides-card__level + .ml-guides-card__level { border-inline-start: var(--ml-border) solid var(--ml-color-line-strong); }
+/* a 2 x 2 grid at every width: four equal columns would break the German labels inside a word (design: net hints, section 4.1) */
+.ml-guides-card__level:nth-child(even) { border-inline-start: var(--ml-border) solid var(--ml-color-line-strong); }
+.ml-guides-card__level:nth-child(n+3) { border-block-start: var(--ml-border) solid var(--ml-color-line-strong); }
+.ml-guides-card__level { min-inline-size: 0; }
+/* the net option when it cannot be chosen: same vocabulary as an unavailable engine, without the line-through (the label is short) */
+.ml-guides-card__level[aria-disabled="true"] { background: transparent; color: var(--ml-color-ink-muted); outline: var(--ml-border) dashed var(--ml-color-line-strong); outline-offset: calc(-3 * var(--ml-border)); }
+.ml-guides-card__netoff { margin: 0; display: flex; align-items: flex-start; gap: var(--ml-space-2); font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+.ml-guides-card__netoff .ml-icon { flex: none; inline-size: 1.25rem; block-size: 1.25rem; }
+.ml-guide-legend--net { margin-block-start: var(--ml-space-2); }
+.ml-guide-legend__heading { margin: var(--ml-space-3) 0 var(--ml-space-2); font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
 .ml-guides-card__level input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .ml-guides-card__level:has(input:checked) { background: var(--ml-color-primary); color: var(--ml-color-on-primary); font-weight: 700; }
 .ml-guides-card__level:has(input:focus-visible) { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: calc(-1 * var(--ml-focus-width)); }
@@ -30,6 +61,52 @@
 .ml-guide-legend__glyph { inline-size: 2rem; block-size: 2rem; }
 .ml-guide-legend__piece { color: var(--ml-color-ink-muted); }
 .ml-guides-card__note { margin: var(--ml-space-2) 0 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
+
+/* the chip: a 44 x 32 pill in the upper inline-end corner of the board box; its hit area is 44 x 44 (design: net hints, section 3.4) */
+.ml-nethint-chip {
+  position: absolute; inset-block-start: 0; inset-inline-end: 0; z-index: 1;
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px; box-sizing: border-box;
+  inline-size: 44px; block-size: 32px; padding: 0; margin: 0; border-radius: var(--ml-radius-pill);
+  border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); color: var(--ml-color-ink-muted);
+  cursor: pointer; font: inherit;
+}
+.ml-nethint-chip::before { content: ""; position: absolute; inset-block: -6px; inset-inline: 0; }
+.ml-nethint-chip:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-nethint-chip[aria-expanded="true"] { background: var(--ml-color-surface-sunken); }
+.ml-nethint-chip[data-state="marks"] { color: var(--ml-color-ink); border-color: var(--ml-guide-net); }
+.ml-nethint-chip[data-state="failed"], .ml-nethint-chip[data-state="unavailable"] { border-style: dashed; }
+.ml-nethint-chip .ml-net-glyph { inline-size: 1.25rem; block-size: 1.25rem; }
+.ml-nethint-chip .ml-icon { inline-size: 1.125rem; block-size: 1.125rem; }
+.ml-nethint-chip__dash { inline-size: 0.875rem; block-size: 2px; background: currentColor; border-radius: 1px; }
+.ml-nethint-chip__dots { display: inline-flex; gap: 3px; }
+.ml-nethint-chip__dots i { inline-size: 5px; block-size: 5px; border-radius: 50%; background: currentColor; animation: ml-nethint-dot 1.2s ease-in-out infinite; }
+.ml-nethint-chip__dots i:nth-child(2) { animation-delay: 0.2s; }
+.ml-nethint-chip__dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ml-nethint-dot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* the net block: one row per mark (glyph, name, reason, prompt), the caveat, the state text */
+.ml-nethint-block { display: grid; gap: var(--ml-space-2); align-content: start; font-size: var(--ml-text-sm); min-inline-size: 0; }
+.ml-nethint-block:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-nethint-block__row { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: var(--ml-space-2); align-items: start; }
+.ml-nethint-block__name { margin: 0; font-weight: var(--ml-weight-medium); }
+.ml-nethint-block p { margin: 0; }
+.ml-nethint-block__prompt { color: var(--ml-color-ink-muted); }
+.ml-nethint-block__state, .ml-nethint-block__caveat { color: var(--ml-color-ink-muted); }
+@container ml-app (min-width: 60rem) {
+  .ml-guides-card .ml-nethint-block { min-block-size: 5.5rem; } /* the cards below do not jump when a mark appears */
+}
+
+/* the panel on small screens: non-modal, over the advantage strip and the action bar (mobile.css places it) */
+.ml-nethints-panel {
+  z-index: 5; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; min-inline-size: 0;
+  padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-md);
+  background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); border: var(--ml-border) solid var(--ml-color-line-strong);
+  display: grid; gap: var(--ml-space-2); align-content: start;
+}
+.ml-nethints-panel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--ml-space-2); }
+.ml-nethints-panel__title { margin: 0; font-size: var(--ml-text-sm); font-weight: var(--ml-weight-medium); }
+.ml-nethints-panel__close { min-inline-size: var(--ml-size-control); min-block-size: var(--ml-size-control); display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--ml-color-ink); cursor: pointer; font: inherit; }
+.ml-nethints-panel__close:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
 
 /* advantage strip: always on the play screen, one height in every state (docs/web-ui.md, "Advantage strip") */
 .ml-advantage { display: grid; gap: 2px; align-content: center; block-size: 100%; margin: 0; min-inline-size: 0; }
@@ -87,7 +164,19 @@
   .ml-advantage__text { max-inline-size: 26rem; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .ml-nethints [data-nethint] { animation: none; transition: none; }
+  .ml-nethint-chip__dots i { animation: none; opacity: 0.6; }
+}
+
 @media (forced-colors: active) {
+  /* the solid plate CanvasText with a Canvas glyph, the hollow plate the reverse: shape alone tells them apart */
+  .ml-net--trap .ml-net__plate, .ml-net-glyph .ml-net--trap .ml-net__plate { fill: CanvasText; stroke: Canvas; }
+  .ml-net--trap .ml-net__glyph, .ml-net-glyph .ml-net--trap .ml-net__glyph { stroke: Canvas; }
+  .ml-net--special .ml-net__plate, .ml-net-glyph .ml-net--special .ml-net__plate { fill: Canvas; stroke: CanvasText; }
+  .ml-net__back, .ml-net-glyph .ml-net__back { fill: Canvas; }
+  .ml-net--special .ml-net__glyph { stroke: CanvasText; }
+  .ml-nethint-chip, .ml-nethints-panel { border-color: CanvasText; }
   .ml-guide__glyph { fill: CanvasText; stroke: Canvas; }
   .ml-guide__badge, .ml-guide__socket { fill: Canvas; }
   .ml-guide__ring, .ml-guide__badge { stroke: CanvasText; }

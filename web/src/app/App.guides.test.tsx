@@ -229,15 +229,16 @@ describe('move guides in the app', () => {
     expect(localStorage.getItem(GUIDES_KEY)).toBe('targets');
   });
 
-  it('the three levels form one radio group: choosing one unchecks the others, the group has a name', async () => {
+  // requirement change: the level "net" is the fourth radio button (net hints design, section 4.1)
+  it('the four levels form one radio group: choosing one unchecks the others, the group has a name', async () => {
     await start();
     const group = q('[role="radiogroup"][data-guides-levels]')!;
     expect(group.getAttribute('aria-label')).toBe(en.guides_heading);
     expect(group.getAttribute('aria-describedby')).toBeTruthy();
     const radios = all<HTMLInputElement>('[data-guides-level]');
-    expect(radios.map((r) => r.value)).toEqual(['none', 'targets', 'eval']);
+    expect(radios.map((r) => r.value)).toEqual(['none', 'targets', 'eval', 'net']);
     expect(new Set(radios.map((r) => r.name)).size).toBe(1);
     await click(level('none'));
-    expect(radios.map((r) => r.checked)).toEqual([true, false, false]);
+    expect(radios.map((r) => r.checked)).toEqual([true, false, false, false]);
   });
 });
