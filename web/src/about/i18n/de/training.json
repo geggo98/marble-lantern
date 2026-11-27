@@ -146,7 +146,7 @@
   "fig.energy.basis.time": "gleicher Zeit",
   "fig.energy.basis.off": "Diese Ansicht zeigt keine Spielstärke.",
   "fig.energy.status.energy.sims": "Spielstärke gegen Energie bei gleich vielen Simulationen: Im direkten Match schlägt LARGE-Generation 10 SMALL-Generation 9 um +131 Elo, für das 4,0-Fache der Energie, und verlängert so die Front.",
-  "fig.energy.status.energy.time": "Spielstärke gegen Energie bei gleicher Zeit pro Zug: Im direkten Match verliert LARGE-Generation 10 gegen die billigere SMALL-Generation 9 mit −173 Elo und fällt aus der Front.",
+  "fig.energy.status.energy.time": "Spielstärke gegen Energie bei gleicher Zeit pro Zug: Im direkten Match verliert LARGE-Generation 10 gegen die billigere SMALL-Generation 9 mit −173 Elo und fällt aus der Front, ebenso LARGE-Generation 0.",
   "fig.energy.status.time.sims": "Spielstärke gegen Zeit bei gleich vielen Simulationen: Die Punkte bewegen sich gegenüber der Energieansicht kaum, denn der Rechner zog in jedem Lauf fast dieselbe Leistung.",
   "fig.energy.status.time.time": "Spielstärke gegen Zeit bei gleicher Zeit pro Zug: Wie auf der Energieachse ist SMALL-Generation 9 billiger und stärker als LARGE-Generation 10.",
   "fig.energy.status.both": "Energie gegen Zeit: Alle Zeilen liegen nahe einer Linie konstanter Leistung, und die CPU-Zeilen liegen weit rechts oberhalb ihrer GPU-Zeilen.",

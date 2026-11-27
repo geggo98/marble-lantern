@@ -146,7 +146,7 @@
   "fig.energy.basis.time": "equal time",
   "fig.energy.basis.off": "This view shows no strength.",
   "fig.energy.status.energy.sims": "Strength against energy at equal simulations: in their head-to-head match LARGE generation 10 beats SMALL generation 9 by +131 Elo, for 4.0 times the energy, so it extends the front.",
-  "fig.energy.status.energy.time": "Strength against energy at equal time per move: in their head-to-head match LARGE generation 10 loses to the cheaper SMALL generation 9 by −173 Elo and drops off the front.",
+  "fig.energy.status.energy.time": "Strength against energy at equal time per move: in their head-to-head match LARGE generation 10 loses to the cheaper SMALL generation 9 by −173 Elo and drops off the front, as does LARGE generation 0.",
   "fig.energy.status.time.sims": "Strength against time at equal simulations: the points barely move from the energy view, because the machine drew almost the same power in every run.",
   "fig.energy.status.time.time": "Strength against time at equal time per move: as on the energy axis, SMALL generation 9 is cheaper and stronger than LARGE generation 10.",
   "fig.energy.status.both": "Energy against time: all rows lie close to one line of constant power, and the CPU rows lie far to the right of and above their GPU rows.",
