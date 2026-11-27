@@ -1,11 +1,11 @@
 // The play screen: status bar, board, notices (loading, result, error), controls, engine card, figures, move list.
-import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { GameController } from '../game/game';
 import { goalCells, initialOwners, playState } from '../game/board-state';
 import type { Side } from '../game/board-state';
 import { isDefault, moveLimit, variantKey } from '../game/variant';
 import type { Player } from '../game/variant';
-import { isNetEngine } from '../engines/engine';
+import { isNetEngine, moveFrom } from '../engines/engine';
 import type { EngineId } from '../engines/engine';
 import type { Sims } from '../engines/warnings';
 import { Board } from '../ui/Board';
@@ -19,7 +19,12 @@ import { loadTrailSeconds, saveTrailSeconds } from '../ui/trail-fade';
 import { useGuides } from '../guides/useGuides';
 import { useAdvantage3 } from '../guides/useAdvantage3';
 import type { Evaluate3Fn } from '../guides/useAdvantage3';
-import { loadGuideLevel, saveGuideLevel } from '../guides/preference';
+import { effectiveGuideLevel, loadGuideLevel, loadNetHintsSeen, saveGuideLevel, saveNetHintsSeen } from '../guides/preference';
+import { useNetHints } from '../guides/useNetHints';
+import type { NetMarkKind } from '../guides/marks';
+import { NetHintChip } from '../ui/NetHintChip';
+import { NetHintBlock, useNetReasonText } from '../ui/NetHintBlock';
+import { netNameKey } from '../ui/GuideGlyph';
 import type { AnalyseFn } from '../guides/analyser';
 import { estimateDistance } from '../result/distance';
 import type { DistanceEstimate } from '../result/distance';
@@ -155,7 +160,9 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // (aria-disabled, taps, the analysis of the strip) waits for the list.
   const humanTurn = ready && !demo && !state.outcome && !state.thinking && state.legal.length > 0 && state.seats[state.sideToMove] === 'human';
   const [guideLevel, setGuideLevel] = useState(loadGuideLevel);
-  const guidesOn = guideLevel === 'eval'; // the marks of the evaluation (bands, piece badges, legend); the levels "targets" and "none" draw none
+  // the marks of the evaluation (bands, piece badges, legend) are on at the levels "eval" and "net"; "targets" and "none" draw none.
+  // The stored level counts here: a stored "net" without the net acts as "eval", which also has them on.
+  const guidesOn = guideLevel === 'eval' || guideLevel === 'net';
   // the cache scope names the engine that computes the scores, which for a net engine is its classical analysis engine
   const guideScope = s.current ? (model.analysisId ?? s.current.info.id) + (isDefault(variant) ? '' : `@${variantKey(variant)}`) : null;
   // a net engine plays and a classical engine analyses: the guide card names it
@@ -180,6 +187,48 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     enabled: !demo && three && evaluate3 !== undefined,
     history: state.history,
   });
+  // net hints (docs/web-ui.md, "Net hints"): the net searches the human's position and the hook says where it disagrees with the classical scores
+  const classical = useMemo(
+    () => (guides.view ? { moves: [...guides.view.scores.keys()], scores: [...guides.view.scores.values()] } : null),
+    [guides.view],
+  );
+  const netHints = useNetHints({ level: guideLevel, variant, humanTurn, history: state.history, classical, scope: guideScope });
+  const netLevel = effectiveGuideLevel(guideLevel, netHints.availability.available) === 'net';
+  const boardNetHints = useMemo(
+    () => (netLevel && netHints.state === 'marks' ? { ...(netHints.trap ? { trap: netHints.trap.move } : {}), ...(netHints.special ? { special: netHints.special.move } : {}) } : null),
+    [netLevel, netHints.state, netHints.trap, netHints.special],
+  );
+  const netMarkKinds: NetMarkKind[] = [...(boardNetHints?.trap !== undefined ? (['trap'] as const) : []), ...(boardNetHints?.special !== undefined ? (['special'] as const) : [])];
+  const netLive = netMarkKinds
+    .map((kind) => t('nethints_live', { mark: t(netNameKey(kind)), cell: cellName(moveFrom(boardNetHints![kind]!)) }))
+    .join(' ');
+  const netReasonText = useNetReasonText(netHints.availability.reason) || t('net.reason.webgpu-lost');
+  const NET_BLOCK_ID = 'ml-nethint-block';
+  const NET_PANEL_ID = 'ml-nethint-panel';
+  // small screens: the net block opens as a panel over the advantage strip and the action bar (design, section 3.4)
+  const [netPanel, setNetPanel] = useState(false);
+  const [netSeen, setNetSeen] = useState(loadNetHintsSeen);
+  const closePanel = (returnFocus: boolean): void => {
+    setNetPanel(false);
+    if (returnFocus) document.querySelector<HTMLElement>('[data-nethint-chip]')?.focus();
+  };
+  // the panel goes with the position; the first mark that ever appears opens it by itself, once
+  const plies = state.history.length;
+  const previousPlies = useRef(plies);
+  useEffect(() => {
+    if (previousPlies.current !== plies) setNetPanel(false);
+    previousPlies.current = plies;
+  }, [plies]);
+  useEffect(() => {
+    if (wide || netHints.state !== 'marks' || netSeen) return;
+    setNetSeen(true);
+    saveNetHintsSeen();
+    setNetPanel(true);
+  }, [wide, netHints.state, netSeen]);
+  const onChip = (): void => {
+    if (wide) document.getElementById(NET_BLOCK_ID)?.focus();
+    else setNetPanel((open) => !open);
+  };
   const boardGuides = useMemo(() => (guidesOn && guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guidesOn, guides.view]);
   // the advantage strip: always on the play screen (docs/web-ui.md, "Advantage strip"); this is what it shows
   const analysisGone = guides.status === 'unavailable' || guides.status === 'failed';
@@ -380,6 +429,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         level={guideLevel}
         {...(analysisLabelKey ? { analysisLabelKey } : {})}
         status={guidesOn ? guides.status : 'off'}
+        net={{ availability: netHints.availability, state: netHints.state, trap: netHints.trap, special: netHints.special, block: wide, blockId: NET_BLOCK_ID }}
         onChange={(level) => {
           setGuideLevel(level);
           saveGuideLevel(level);
@@ -435,6 +485,18 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             inert={!humanTurn}
             over={Boolean(state.outcome)}
             guides={boardGuides}
+            netHints={boardNetHints}
+            corner={
+              <NetHintChip
+                state={netHints.state}
+                marks={netMarkKinds}
+                live={netLive}
+                unavailableReason={netReasonText}
+                controls={wide ? NET_BLOCK_ID : NET_PANEL_ID}
+                {...(wide ? {} : { expanded: netPanel })}
+                onToggle={onChip}
+              />
+            }
             targetMarks={guideLevel !== 'none'}
             dimOthers={guidesOn}
             aSide={aSide as Side}
@@ -466,6 +528,25 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             />
           )}
         </div>
+        {!wide && netPanel && netHints.state !== 'off' && (
+          <aside
+            id={NET_PANEL_ID}
+            className="ml-nethints-panel"
+            aria-labelledby={`${NET_PANEL_ID}-title`}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                closePanel(true);
+              }
+            }}
+          >
+            <div className="ml-nethints-panel__head">
+              <h2 className="ml-nethints-panel__title" id={`${NET_PANEL_ID}-title`}>{t('nethints_panel_title')}</h2>
+              <button type="button" className="ml-nethints-panel__close" onClick={() => closePanel(true)}>{t('nethints_panel_close')}</button>
+            </div>
+            <NetHintBlock state={netHints.state} trap={netHints.trap} special={netHints.special} unavailableReason={netReasonText} />
+          </aside>
+        )}
         <p className="ml-visually-hidden" role="status" aria-live="polite">
           {last ? t('announce_move', { side: who(last.side), from: cellName(last.from), to: cellName(last.to) }) : ''}
         </p>
