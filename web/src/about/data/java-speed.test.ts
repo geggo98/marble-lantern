@@ -1,6 +1,6 @@
 // Figure J1 rests on data/java-speed.json: eight rows, each citing a line of a document of this repository. The test reads that line and
-// checks that it contains the value, so that a document that moves its lines fails here. (backends.json cites docs/web-ui.md:833 for the
-// same two WebAssembly figures; the line is 834 today. backends.json has no such test, so that drift is reported, not fixed here.)
+// checks that it contains the value, so that a document that moves its lines fails here. (backends.json cites the same line of
+// docs/web-ui.md for the two WebAssembly figures, but has no such test: a move of the lines must be followed there by hand.)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';

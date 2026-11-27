@@ -115,7 +115,7 @@ describe('JavaSpeedFigure', () => {
     expect(value('teavm-scalar-b1')).toBe('126–163');
     expect(value('cpp-wasm-simd')).toBe('3,100');
     expect(text(q('[data-row="java-vec-1t"] .ml-src'))).toBe('docs/tornado.md:438');
-    expect(text(q('[data-row="teavm-scalar-b1"] .ml-src'))).toBe('docs/web-ui.md:874');
+    expect(text(q('[data-row="teavm-scalar-b1"] .ml-src'))).toBe('docs/web-ui.md:983');
     // jsdom has no layout, so the plot takes the wide box and prints the value labels
     expect(all('.ml-fig-plot__value').map((e) => text(e))).toContain('110,000');
   });
