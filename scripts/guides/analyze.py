@@ -13,7 +13,8 @@ usage: analyze.py DIR [--json PATH] [--deltas 0.15,0.20,...] [--resamples N] [--
 Reads DIR/<variant>-<mode>-<game>.jsonl. A file counts only when its last line has end:true; others are listed and ignored.
 
 (a) FREQUENCY, per variant and mode, for all positions and for balanced ones (|net value| < 0.5):
-    tip  = the net favourite (most root visits) is classically fair, weak or poor;
+    tip  = the net favourite (most root visits) is classically fair, weak or poor; the app ships this mark as the Spezialzug
+           (`special` in web/src/guides/divergence.ts), "tip" is the earlier working name, kept so that result files stay readable;
     trap = the classically best move is not the favourite and its net value is at least delta below the favourite's.
     The net value of a move is its root value when it has at least `minVisits` visits, else its probe value (a search of its own).
 (b) VALIDITY, from the counter-move lines (both alternatives played out to the end by classical players):

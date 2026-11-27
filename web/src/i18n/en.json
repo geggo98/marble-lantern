@@ -451,7 +451,7 @@
   "net.reason.webgpu-device-failed": "The graphics device could not be started.",
   "net.reason.webgpu-lost": "The connection to the graphics device was lost.",
   "net.reason.load-failed": "The model file could not be downloaded, read or used.",
-  "net.reason.net-engine-not-shipped": "This build does not include the WebGPU net engine.",
+  "net.reason.net-engine-not-shipped": "This build does not include the WebGPU net.",
   "net.reason.verify-failed": "The model file does not match its checksum.",
   "net.reason.unknown": "The cause is not known.",
   "net.details.summary": "Details",

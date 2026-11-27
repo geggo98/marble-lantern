@@ -65,45 +65,45 @@
       "machine": "Chrome 156, Firefox 157, Node.js",
       "preset": "SMALL",
       "batch": "1",
-      "rate": { "source": { "doc": "docs/web-ui.md", "line": 983 }, "value": "3,100" }
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 990 }, "value": "3,100" }
     },
     {
       "backend": "C++ WebAssembly, relaxed (net-wasm)",
       "machine": "Chrome 156, Firefox 157, Node.js",
       "preset": "SMALL",
       "batch": "1",
-      "rate": { "source": { "doc": "docs/web-ui.md", "line": 983 }, "value": "4,000" }
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 990 }, "value": "4,000" }
     },
     {
       "backend": "Java via TeaVM in the browser",
       "preset": "SMALL",
       "batch": "1",
-      "rate": { "source": { "doc": "docs/web-ui.md", "line": 983 }, "value": "126 to 163" }
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 990 }, "value": "126 to 163" }
     },
     {
       "backend": "WebGPU, batch 1",
       "preset": "SMALL",
       "batch": "1",
-      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 985 }, "value": "0.5", "unit": "ms" }
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 992 }, "value": "0.5", "unit": "ms" }
     },
     {
       "backend": "WebGPU, batch 4",
       "preset": "SMALL",
       "batch": "4",
-      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 985 }, "value": "0.55", "unit": "ms" },
-      "rate": { "source": { "doc": "docs/web-ui.md", "line": 985 }, "value": "7,300", "approximate": true }
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 992 }, "value": "0.55", "unit": "ms" },
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 992 }, "value": "7,300", "approximate": true }
     },
     {
       "backend": "WebGPU, batch 16",
       "preset": "SMALL",
       "batch": "16",
-      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 985 }, "value": "0.64", "unit": "ms" }
+      "callTime": { "source": { "doc": "docs/web-ui.md", "line": 992 }, "value": "0.64", "unit": "ms" }
     },
     {
       "backend": "WebGPU, pipelined",
       "preset": "SMALL",
       "batch": "16",
-      "rate": { "source": { "doc": "docs/web-ui.md", "line": 985 }, "value": "60,000", "approximate": true }
+      "rate": { "source": { "doc": "docs/web-ui.md", "line": 992 }, "value": "60,000", "approximate": true }
     }
   ]
 }

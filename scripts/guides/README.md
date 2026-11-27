@@ -16,7 +16,10 @@ the first thresholds (plan "Zughilfe-Stufe Mit Netz-Hinweisen", steps 3 and 6) a
   300, `poor` above. These are the bands of `web/src/guides/bands.ts` under the names top, good, fair, weak, poor.
 - **Net value of a move:** its root value when it has at least 16 visits, else its probe value. A probe is a search of its own
   (100 simulations) from the position after the move; the value for the mover is minus its root value (two players only).
-- **Tip candidate:** the favourite is `fair`, `weak` or `poor`.
+- **Tip candidate:** the favourite is `fair`, `weak` or `poor`. The app ships this mark as the Spezialzug (code name `special`
+  in `web/src/guides/divergence.ts`, English UI "Special move"). "Tip" is the earlier working name; it stays in the output of
+  `analyze.py` and in the game files (field `tip`, table column `tip`, JSON keys `tip` and `tip_rate`), so that existing result
+  files stay readable. Every "tip" below means this mark.
 - **Trap candidate at delta:** the classical best move is not the favourite and its net value is at least delta below the
   favourite's. The driver records every candidate at delta 0.15; the other deltas are applied afterwards by `analyze.py`.
 - **Mode:** a label for the opponent setup. `A`: network with 200 simulations against classical with 4000 nodes (the network
