@@ -10,7 +10,8 @@ Origin: the owner decided on 2026-11-22 that every trained network goes into the
 
 - `nets/<run>/<name>.safetensors.gz`: one network, as the trainer wrote it (F32 safetensors, [network format](../docs/network.md)), compressed with gzip. `<run>` is the run directory under `data/` on the training machine; `<name>` is the path below it with `/` replaced by `-`, for example `data/loop3/gen-0013/candidate.safetensors` becomes `nets/loop3/gen-0013.safetensors.gz`.
 - `index.json`, `index.md`: one row per source file, written by `scripts/models/archive-nets.py`. Do not edit them by hand.
-- `runs/<run>/`: copies of the run records that `docs/training.md` cites but that live only in the git-ignored `data/` (driver scripts, match summaries, loop decisions, energy reports). Plain git, not LFS; they are a few KB. So far: [`runs/net5/`](runs/net5/README.md) (the SMALL 5-row run), [`runs/net5-large/`](runs/net5-large/README.md) (the LARGE 5-row run) and [`runs/net5-cpu-power/`](runs/net5-cpu-power/README.md) (the CPU against GPU power experiment, which trained no archived network).
+- `runs/<run>/`: copies of the run records that `docs/training.md` cites but that live only in the git-ignored `data/` (driver scripts, match summaries, loop decisions, energy reports). Plain git, not LFS; they are a few KB. So far: [`runs/net5/`](runs/net5/README.md) (the SMALL 5-row run), [`runs/net5-large/`](runs/net5-large/README.md) (the LARGE 5-row run) and [`runs/net5-cpu-power/`](runs/net5-cpu-power/README.md) (the CPU against GPU power experiment, which trained no archived network). [`runs/elo-study/`](runs/elo-study/README.md) holds the match records of the [Elo study](../docs/elo.md), about 1.1 MB with the raw results compressed by gzip.
+- `ratings/`: the ratings of the [Elo study](../docs/elo.md): `ratings.json` with the published numbers, and the Bradley-Terry fit of its Tier 1 run (`tier1-bt-ratings.json`, `tier1-bt-fit-report.md`).
 
 Columns of the index:
 

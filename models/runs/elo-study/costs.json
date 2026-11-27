@@ -1,0 +1,57 @@
+{
+ "ms_per_move": {
+  "2p-adj-r4": {
+   "ab:browser-r4@n1000": 1.918,
+   "ab:browser-r4@n10000": 9.038,
+   "ab:browser-r4@n100000": 98.1124,
+   "ab:browser-r4@n20000": 17.1636,
+   "ab:browser-r4@n2236": 2.9476,
+   "ab:browser-r4@n44721": 34.9273,
+   "ab:browser-r4@n5000": 5.2064,
+   "net:shared-gen0@s200": 82.0338,
+   "net:shared-gen0@s50": 25.8011,
+   "net:shared-gen0@s800": 391.5688
+  },
+  "2p-adj-r5": {
+   "ab:browser-r5@n1000": 2.194,
+   "ab:browser-r5@n10000": 13.5239,
+   "ab:browser-r5@n100000": 184.878,
+   "ab:browser-r5@n20000": 32.5646,
+   "ab:browser-r5@n2236": 3.8028,
+   "ab:browser-r5@n223607": 452.6433,
+   "ab:browser-r5@n44721": 72.7991,
+   "ab:browser-r5@n5000": 7.3558,
+   "ab:browser-r5@n500000": 993.4597,
+   "net:r5-large-gen0@s200": 525.167,
+   "net:r5-small-gen0@s1000": 534.4564,
+   "net:r5-small-gen0@s200": 99.3985,
+   "net:r5-small-gen1@s200": 102.7605,
+   "net:r5-small-gen2@s200": 93.661,
+   "net:r5-small-gen4@s200": 94.5974,
+   "net:r5-small-gen6@s200": 94.59,
+   "net:r5-small-gen9@s100": 53.0054,
+   "net:r5-small-gen9@s1000": 437.4583,
+   "net:r5-small-gen9@s200": 98.7685,
+   "net:r5-small-gen9@s50": 25.6795
+  },
+  "3p-adj-r4": {
+   "ab:browser-3p@n1000": 1.0864,
+   "ab:browser-3p@n10000": 9.3977,
+   "ab:browser-3p@n100000": 77.589,
+   "ab:browser-3p@n20000": 18.6767,
+   "ab:browser-3p@n2236": 2.0589,
+   "ab:browser-3p@n44721": 35.7495,
+   "ab:browser-3p@n5000": 5.0023,
+   "net:shared-gen0@s200": 99.6182,
+   "net:shared-gen0@s50": 27.6063,
+   "net:shared-gen0@s800": 420.4795
+  }
+ },
+ "plies": {
+  "2p-adj-r4": 96.23,
+  "2p-adj-r5": 126.38,
+  "3p-adj-r4": 138.69
+ },
+ "schema": 1,
+ "updated": "2026-11-26T22:07:07Z"
+}

@@ -1,0 +1,41 @@
+id	scale	engine	spec	net	sha256Prefix	budget	basis	level	bridge
+ab:browser-r4@n1000	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=1000,tt=16			1000		1	ab1000
+ab:browser-r4@n10000	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=10000,tt=16			10000			
+ab:browser-r4@n100000	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=100000,tt=16			100000		4	ab100000
+ab:browser-r4@n20000	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=20000,tt=16			20000		3	ab20000
+ab:browser-r4@n2236	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=2236,tt=16			2236			
+ab:browser-r4@n44721	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=44721,tt=16			44721			
+ab:browser-r4@n5000	2p-adj-r4	ab	ab:eval=racelin-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,race=1,racerows=2,nodes=5000,tt=16			5000		2	ab5000
+net:shared-gen0@s200	2p-adj-r4	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	200	sims200		shared200
+net:shared-gen0@s50	2p-adj-r4	net	mcts:sims=50,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	50			shared50
+net:shared-gen0@s800	2p-adj-r4	net	mcts:sims=800,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	800			shared800
+ab:browser-r5@n1000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=1000,tt=16			1000		1	
+ab:browser-r5@n10000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=10000,tt=16			10000			
+ab:browser-r5@n100000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=100000,tt=16			100000		4	
+ab:browser-r5@n20000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=20000,tt=16			20000		3	
+ab:browser-r5@n2236	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=2236,tt=16			2236			
+ab:browser-r5@n223607	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=223607,tt=16			223607			
+ab:browser-r5@n44721	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=44721,tt=16			44721			
+ab:browser-r5@n5000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=5000,tt=16			5000		2	
+ab:browser-r5@n500000	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=500000,tt=16			500000		5	
+net:r5-large-gen0@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-large-gen0	134b02f0c4f90deb	200	sims200,time		
+net:r5-small-gen0@s1000	2p-adj-r5	net	mcts:sims=1000,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen0	6381176933b830da	1000	time		
+net:r5-small-gen0@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen0	6381176933b830da	200	sims200		
+net:r5-small-gen1@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen1	470d62dc8d5f1f4d	200	sims200		
+net:r5-small-gen2@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen2	c011ea74e605e974	200	sims200		
+net:r5-small-gen4@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen4	da8c551e5f047f5b	200	sims200		
+net:r5-small-gen6@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen6	d96126dd5401f399	200	sims200		
+net:r5-small-gen9@s100	2p-adj-r5	net	mcts:sims=100,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	100			
+net:r5-small-gen9@s1000	2p-adj-r5	net	mcts:sims=1000,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	1000	time		
+net:r5-small-gen9@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	200	sims200		
+net:r5-small-gen9@s50	2p-adj-r5	net	mcts:sims=50,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	50			
+ab:browser-3p@n1000	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=1000,tt=16			1000		1	ab1000
+ab:browser-3p@n10000	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=10000,tt=16			10000			
+ab:browser-3p@n100000	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=100000,tt=16			100000		4	ab100000
+ab:browser-3p@n20000	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=20000,tt=16			20000		3	ab20000
+ab:browser-3p@n2236	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=2236,tt=16			2236			
+ab:browser-3p@n44721	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=44721,tt=16			44721			
+ab:browser-3p@n5000	3p-adj-r4	ab	ab3:eval=linear-r2,nodes=5000,tt=16			5000		2	ab5000
+net:shared-gen0@s200	3p-adj-r4	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	200	sims200		shared200
+net:shared-gen0@s50	3p-adj-r4	net	mcts:sims=50,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	50			shared50
+net:shared-gen0@s800	3p-adj-r4	net	mcts:sims=800,batch=1,cpuct=1.0,noise=0,temp=0,race=0	shared-gen0	71cfd413d13df936	800			shared800

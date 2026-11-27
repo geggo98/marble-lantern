@@ -1,0 +1,10 @@
+id	scale	engine	spec	net	sha256Prefix	budget	basis	level	bridge
+ab:browser-r5@n102400	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=102400			102400			
+ab:browser-r5@n1600	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=1600			1600			
+ab:browser-r5@n25600	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=25600			25600			
+ab:browser-r5@n6400	2p-adj-r5	ab	ab:eval=linear-r3,pvs=1,killers=1,history=1,lmr=2,asp=1,ttrep=1,mate=1,partial=1,fut=1,futk=20,fut2=1,rows=5,nodes=6400			6400			
+net:r5-large-gen0@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-large-gen0	134b02f0c4f90deb	200	sims200,time		
+net:r5-large-gen10@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-large-gen10	4c5dfc9a5336fb06	200	sims200,time		
+net:r5-small-gen0@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen0	6381176933b830da	200	sims200		
+net:r5-small-gen9@s1000	2p-adj-r5	net	mcts:sims=1000,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	1000	time		
+net:r5-small-gen9@s200	2p-adj-r5	net	mcts:sims=200,batch=1,cpuct=1.0,noise=0,temp=0,race=0	r5-small-gen9	c236ae0eac7a6a51	200	sims200		

@@ -1,0 +1,10 @@
+net:r5-large-gen10@s200	net:r5-small-gen9@s200
+net:r5-large-gen10@s200	net:r5-small-gen9@s1000
+net:r5-large-gen0@s200	net:r5-small-gen0@s200
+net:r5-small-gen9@s200	net:r5-small-gen0@s200
+net:r5-large-gen10@s200	net:r5-large-gen0@s200
+net:r5-small-gen9@s1000	net:r5-small-gen9@s200
+net:r5-small-gen9@s1000	net:r5-small-gen0@s1000
+net:r5-large-gen10@s200	net:r5-small-gen0@s200
+net:r5-small-gen9@s200	net:r5-large-gen0@s200
+net:r5-large-gen0@s200	net:r5-small-gen0@s1000

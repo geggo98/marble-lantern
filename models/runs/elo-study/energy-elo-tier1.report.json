@@ -1,0 +1,81 @@
+{
+  "name": "elo-tier1",
+  "metric": "wall",
+  "baseline_w": 9.594098681383095,
+  "baseline_source": "marker phase 'baseline' (0:09:48 covered, from 2026-11-26T22:07:46Z)",
+  "file_start": "2026-11-26T22:07:59Z",
+  "file_end": "2026-11-27T09:30:54Z",
+  "phases": [
+    {
+      "phase": "baseline",
+      "start": "2026-11-26T22:07:46Z",
+      "start_epoch": 1795730866.8,
+      "segments": 1,
+      "duration_s": 600.1000001430511,
+      "covered_s": 587.6000001430511,
+      "mean_w": 9.594098681383095,
+      "peak_w": 17.84784,
+      "kwh": 0.001565970107375876,
+      "kwh_above_baseline": 0.0,
+      "notes": []
+    },
+    {
+      "phase": "2p-adj-r4",
+      "start": "2026-11-26T22:17:46Z",
+      "start_epoch": 1795731466.9,
+      "segments": 2,
+      "duration_s": 2485.5999999046326,
+      "covered_s": 2485.5999999046326,
+      "mean_w": 43.752872560342446,
+      "peak_w": 68.74674,
+      "kwh": 0.030208927786615162,
+      "kwh_above_baseline": 0.02358473565285659,
+      "notes": []
+    },
+    {
+      "phase": "2p-adj-r5",
+      "start": "2026-11-26T22:39:25Z",
+      "start_epoch": 1795732765.0,
+      "segments": 2,
+      "duration_s": 26869.5,
+      "covered_s": 26869.5,
+      "mean_w": 38.819268140597025,
+      "peak_w": 52.58676,
+      "kwh": 0.28973731258438107,
+      "kwh_above_baseline": 0.218129358551208,
+      "notes": []
+    },
+    {
+      "phase": "3p-adj-r4",
+      "start": "2026-11-27T03:51:01Z",
+      "start_epoch": 1795751461.2,
+      "segments": 2,
+      "duration_s": 10733.800000190735,
+      "covered_s": 10733.800000190735,
+      "mean_w": 40.171675999609825,
+      "peak_w": 47.34222,
+      "kwh": 0.11977631551452059,
+      "kwh_above_baseline": 0.09117044428450398,
+      "notes": []
+    }
+  ],
+  "phases_total": {
+    "phases": [
+      "2p-adj-r4",
+      "2p-adj-r5",
+      "3p-adj-r4"
+    ],
+    "kwh": 0.4397225558855168,
+    "kwh_above_baseline": 0.3328845384885685,
+    "covered_s": 40088.90000009537
+  },
+  "run_total": {
+    "kwh": 0.442752112,
+    "kwh_above_baseline": 0.33355154780276114,
+    "covered_s": 40975.40000009537,
+    "mean_w": 38.89913468071795,
+    "peak_w": 68.74674
+  },
+  "gaps": [],
+  "warnings": []
+}
