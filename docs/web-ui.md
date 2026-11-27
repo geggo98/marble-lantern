@@ -7,7 +7,7 @@ Three browser engines play the same moves: Java compiled by TeaVM to WebAssembly
 All engines implement one TypeScript `Engine` interface, and the browser engines speak one worker message protocol.
 The engines are compared in [ADR 0002](adr/0002-browser-engines.md), the reasons for the default engine are in [ADR 0003](adr/0003-teavm-default-engine.md), and the speed comparison is in [web benchmark](web-benchmark.md).
 The address of the page holds the current game, so a game can be shared as a link ([game URL](#game-url)).
-The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)).
+The browser engines can also score moves ([analysis API](#analysis-api)). The UI uses this for optional marks on the board ([move guides](#move-guides)) and for an estimate of the player's strength ([skill estimate](#skill-estimate)). On devices with WebGPU, a neural network can add a second opinion to these marks ([net hints](#net-hints)).
 The app also plays game variants: the long-hop jump rule, games with three players, with a human or an engine on each seat, and two board sizes, 4 or 5 rows per house ([game variants](#game-variants)). The start dialog offers the board size and the game mode, and a collapsed panel with the rules that can be adjusted ([rules panel](#rules-panel)), with 5 rows as the default for every new game ([start dialog](#start-dialog)); a game that already exists keeps its size; a game link also starts a variant ([starting a variant](#starting-a-variant)).
 Two more browser engines play with a neural network instead of alpha-beta search: `net-wasm` computes the network on the CPU, `net-webgpu` on the GPU ([net engines](#net-engines)). The networks they load are described in [models](models.md).
 The static site can be installed as an app and plays offline after one visit ([installable app and offline cache](#installable-app-and-offline-cache)).
@@ -520,7 +520,7 @@ Before 2026-11-20 these features stayed off while a net engine played: the guide
 
 ## Move guides
 
-Move guides are optional marks on the board. Three levels set how much the board shows; the person picks one in the card "Move guides".
+Move guides are optional marks on the board. Four levels set how much the board shows; the person picks one in the card "Move guides".
 
 ### Guide levels
 
@@ -529,13 +529,14 @@ Move guides are optional marks on the board. Three levels set how much the board
 | none | "Off" | `none` | No mark of any kind. The selected piece keeps its highlight. | None |
 | legal targets | "Targets" (default) | `targets` | A ring and a dot on each legal target of the selected piece. No rating. | None |
 | evaluation | "With evaluation" | `eval` | Everything under "What is shown at the level With evaluation" below: piece badges, rated targets, legend. The [advantage strip](#advantage-strip) is on at every level. | One analysis per human turn |
+| net hints | "With net hints" | `net` | Everything of "With evaluation", plus at most two marks of a neural network, the Falle and the Spezialzug ([net hints](#net-hints)). Two players and WebGPU only. | One analysis, one net search of 800 simulations and at most two probes of 100 simulations per human turn |
 
-- **Control.** A group of three native radio buttons named "Move guides", drawn as one segmented control. The browser gives it one tab stop, the arrow keys move and choose, and a screen reader announces the position ("2 of 3"). The hint of the chosen level describes the group (keys `guides_hint_none`, `guides_hint_targets`, `guides_hint_eval`). The notes `guides_note_net` and `guides_note_three`, the analysis status line and the legend belong to the level "With evaluation" and show only there.
+- **Control.** A group of four native radio buttons named "Move guides", laid out as a 2 x 2 grid at every width (none and targets in the first row, eval and net in the second). The browser gives it one tab stop, the arrow keys move and choose, and a screen reader announces the position ("2 of 4"). Reason for the grid: four equal columns leave about 61 px of text per option on a 375 px phone, and the German labels would break inside a word. The hint of the chosen level describes the group (keys `guides_hint_none`, `guides_hint_targets`, `guides_hint_eval`, `guides_hint_net`). The notes `guides_note_net` and `guides_note_three`, the analysis status line and the legend belong to the levels "With evaluation" and "With net hints" and show only there. When the net level cannot be used, its radio button stays focusable with `aria-disabled="true"`, and a paragraph under the group gives the reason ([net hints](#net-hints), "When the level is available").
 - **Level "none".** The board takes the prop `targetMarks={false}` (`web/src/ui/Board.tsx`). It hides the rings and dots of the targets and nothing else: tapping a piece still selects it, tapping or dragging to a legal target still plays the move, and the keys work as before. The accessible name of a target cell still says "target": the name is no mark, and a screen reader user has no other way to find the targets. The line that previews a drag path stays, because the person asks for it by dragging.
 - **Level "targets".** This is what the board showed with the old switch off. The board draws no rating and the card shows no status. In a two-player game the analysis of the human's turn still runs, because the [advantage strip](#advantage-strip) needs its value; nothing of it is drawn on the board.
-- **Dimming (level "evaluation" only).** While a piece is selected, the board dims everything else: every other piece, every empty cell (the layer of the sockets) and the badges of the other pieces go to 40 % opacity (`.ml-board__svg[data-dim]` in `web/src/ui/ui.css`; `dimOthers` on `Board`). The selected piece, its ring, the rated targets with their band glyphs and the plate stay at full strength, so the targets stand out. Origin: the owner's wish of 2026-11-20. It fades in 0.2 s; under `prefers-reduced-motion` it switches at once. It changes opacity only: the hit circles, the tab stop, the accessible names and the keys are untouched (a unit test compares them with and without dimming), and Escape or a move ends it with the selection. It does not apply at the levels "none" and "targets" (`dimOthers` is false), while the board is inert, or when target marks are off. Limit: 40 % is a judgment from the screenshots in light and dark; the dimmed pieces keep their outline colour at the same opacity and stay recognisable, but no contrast figure is required for them, since they are no longer the subject. Tests: `web/src/ui/Board.guides.test.tsx` (the cases above), `web/e2e/review-fixes.spec.ts` (computed opacities at four sizes in light and dark, reduced motion, the levels without dimming).
+- **Dimming (levels "evaluation" and "net hints" only).** While a piece is selected, the board dims everything else: every other piece, every empty cell (the layer of the sockets) and the badges of the other pieces go to 40 % opacity (`.ml-board__svg[data-dim]` in `web/src/ui/ui.css`; `dimOthers` on `Board`). The selected piece, its ring, the rated targets with their band glyphs and the plate stay at full strength, so the targets stand out. Origin: the owner's wish of 2026-11-20. It fades in 0.2 s; under `prefers-reduced-motion` it switches at once. It changes opacity only: the hit circles, the tab stop, the accessible names and the keys are untouched (a unit test compares them with and without dimming), and Escape or a move ends it with the selection. It does not apply at the levels "none" and "targets" (`dimOthers` is false), while the board is inert, or when target marks are off. Limit: 40 % is a judgment from the screenshots in light and dark; the dimmed pieces keep their outline colour at the same opacity and stay recognisable, but no contrast figure is required for them, since they are no longer the subject. Tests: `web/src/ui/Board.guides.test.tsx` (the cases above), `web/e2e/review-fixes.spec.ts` (computed opacities at four sizes in light and dark, reduced motion, the levels without dimming).
 - **Default.** `targets` for a person without a stored choice. Reason: the old default was the switch off, and that showed the legal targets.
-- **Storage.** `localStorage`, key `ml.guides` (`web/src/guides/preference.ts`). Every access is guarded: without storage, or with blocked storage, the level lasts for the page only. An unknown stored text gives the default.
+- **Storage.** `localStorage`, key `ml.guides` (`web/src/guides/preference.ts`). Every access is guarded: without storage, or with blocked storage, the level lasts for the page only. An unknown stored text gives the default. A stored `net` on a device or in a game without net hints works as `eval` and stays stored (`effectiveGuideLevel`).
 - **Migration.** Before 2026-11-20 the key held `on` or `off`. `on` reads as `eval` and `off` as `targets`; the first read writes the new text back. Reason: with the old switch off, the board still showed the legal targets, so `targets` keeps what the person saw, and `eval` keeps what the person had switched on. If the write is blocked, the mapping applies again at the next read, so nothing is lost. Origin: the request of 2026-11-20 for three levels.
 
 **What is shown at the level "With evaluation".**
@@ -543,7 +544,7 @@ Move guides are optional marks on the board. Three levels set how much the board
 - **Piece badges.** Each piece that can move gets a badge with a ring. It rates the best move of that piece against the best move of the whole position.
 - **Target marks.** After the human selects a piece, each of its targets gets a ring and a mark. The mark rates that move on the same scale as the piece badges: the loss against the best move of the position.
 - **Advantage strip.** It is not part of the level: it is on the play screen at every level (see [advantage strip](#advantage-strip)).
-- **Legend.** "What the marks mean" under the level choice lists the five bands and their marks. It is shown at the level "With evaluation" only.
+- **Legend.** "What the marks mean" under the level choice lists the five bands and their marks. It is shown at the levels "With evaluation" and "With net hints"; at "With net hints" it adds a second list with the Falle and the Spezialzug.
 
 The marks appear only while the board accepts input, that is on the human's turn.
 
@@ -573,7 +574,7 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width o
 - The accessible name of a cell includes the band, for example "e5, empty, target, top", and of a piece its rank, for example "best move: top".
 - The advantage bar is a `role="meter"` with the text as `aria-valuetext` while it shows a value; without a value (pending, unavailable) the track is a `role="img"` named by the text. The state of the analysis ("Analysing the position") is a polite live region.
 - The five guide colours reach a contrast of at least 3:1 against the board colours in the light and the dark theme; `web/src/guides/tokens.test.ts` computes the ratios from `tokens.css`. In forced-colours mode the marks use system colours.
-- The marks have no animation.
+- The band marks have no animation. The net marks fade in once when they appear ([net hints](#net-hints)).
 - On small screens the marks grow with the other board marks ([small screens and touch](#small-screens-and-touch)).
 
 **Variants.** The guides work for two and three players. With the long hop, the analysis runs under the long-hop rule (`BROWSER_LONG_SPEC` without race play); the app passes the variant with every request, and the cache key includes the variant. The bands were fitted for the adjacent rule. The long-hop evaluator `linear-r3` is weaker, so the same point difference may mean a different move quality there. Nobody has measured this.
@@ -585,7 +586,7 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width o
 - **Who is guided.** Every human seat on its turn. In hot-seat the guides refer to the seat to move and change with the turn. While an engine seat is to move, the board shows no marks and the app sends no analysis request (`humanTurn` in `web/src/app/PlayScreen.tsx`); a running analysis is aborted when the turn ends.
 - **Same scale.** For three players `Engine.analyse` returns paranoid scores from the mover's point of view (the mover maximises, both others minimise), in the same units and with the same mate bounds as for two players. `buildView` and `rankBand` therefore apply unchanged: the band is the loss against the best move of the position, with the limits of [the five bands](#move-guides). The scores are not calibrated as a chance to win for three players: no fit was made, and a random winner wins 1 time in 3. Read the bands as a ranking of the moves. The guide card says so in a note (key `guides_note_three`).
 - **Budget.** `GUIDE_NODES` stays at 4,000 per move for three players. Measured on 2026-11-20 on a developer machine in Node, all legal moves of positions from a self-play game with three seats: `cpp-wasm` 7 to 16 ms at ply 0 (14 moves) and 67 to 106 ms from ply 15 to 105 (47 to 66 moves); `java-wasmgc` 55 ms at ply 0 and 157 to 276 ms at plies 20 to 60 (44 to 66 moves); `java-js` 71 ms at ply 0 and 199 to 337 ms at plies 20 to 60. All stay under the limit of 0.5 s, so the budget was not lowered.
-- **Setting.** The same levels as for two players, stored under the same key `ml.guides`. The three-player note and the advantage indicator belong to the level "With evaluation".
+- **Setting.** The same levels as for two players, stored under the same key `ml.guides`. The level "With net hints" cannot be chosen in a three-player game; a stored `net` works as "With evaluation" there ([net hints](#net-hints)). The three-player note and the advantage indicator belong to the level "With evaluation".
 - **Skill.** The skill tracker measures nothing in a three-player game.
 
 **The advantage indicator for three players.**
@@ -601,7 +602,7 @@ The limits are in `web/src/guides/bands.ts`: one step (30 points) is the width o
 
 **Server engines.** The server engines reject `analyse` with the code `unsupported`. The guides then show "Move guides need an engine that runs in this browser." and draw no marks; choosing a browser engine brings them back. Any other error shows "Move guides are not available right now." for that position. A failure never stops the game.
 
-**Tests.** `web/src/guides/*.test.ts` (bands, model with three-seat results, advantage text, three-player shares, marks, preference, analyser, contrast), `web/src/app/App.guides3.test.tsx` (three-player guides and indicator in the app: hot-seat turn changes the guided seat, no request on engine turns, abort when the turn ends), `web/e2e/guides3.spec.ts` (real engine, hot-seat link, desktop and 390 and 320 px), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the level choice and the marks in a browser) and `web/e2e/guides-levels.spec.ts` (keyboard, the three levels, persistence, migration).
+**Tests.** `web/src/guides/*.test.ts` (bands, model with three-seat results, advantage text, three-player shares, marks, preference, analyser, contrast), `web/src/app/App.guides3.test.tsx` (three-player guides and indicator in the app: hot-seat turn changes the guided seat, no request on engine turns, abort when the turn ends), `web/e2e/guides3.spec.ts` (real engine, hot-seat link, desktop and 390 and 320 px), `web/src/ui/Board.guides.test.tsx` (marks and accessible names on the board) and `web/e2e/guides.spec.ts` (the level choice and the marks in a browser) and `web/e2e/guides-levels.spec.ts` (keyboard, the levels none, targets and eval, persistence, migration). The tests of the level "net" are listed under [net hints](#net-hints).
 
 ### Advantage strip
 
@@ -620,6 +621,114 @@ The advantage strip shows who is ahead. It is on the play screen in every game, 
 - **The gauge.** The track is a flex item that takes all the width the marbles leave (before: a grid column `auto` that collapsed to a 2 px sliver when no marbles stood at the ends, as in a demo). The fill has the colour of the marble it grows towards: the person's marble on the right for a lead of "you", the engine's on the left (before it took the colour of the guide bands, which was the colour of the other side's marble when the person played amber). `data-fill` carries the style of that marble, `--ml-piece-a/b/c` the colour, and a 1.5 px inset line in the edge colour of the marble (`--ml-piece-*-edge`) keeps the fill visible against the track in light and dark (the amber marble alone has 2.3:1 against the light track; the edge colour has more than 3:1, checked by `web/e2e/review-fixes.spec.ts`). Without marbles (no style) a fill keeps the band colours.
 - **Open decision.** The strip shows `unavailable` in a demo. A demo has no "you", so a "who is ahead" bar without a side of the person would need its own wording.
 - **Tests.** `web/src/ui/AdvantageBar.test.tsx` (the states, the fill colour per side), `web/e2e/review-fixes.spec.ts` (the long text at four sizes, the track in a demo, the fill colours in light and dark), `web/src/app/App.guides.test.tsx` and `App.guides3.test.tsx` (the strip at the levels "Targets" and "None", `unavailable`), and `web/e2e/advantage-strip.spec.ts` (Chromium and Firefox: at 360, 390 and 1280 px, with two and three players, the strip lies inside the window without scrolling, does not move when its value arrives and does not cover the board; at 1280 x 800 it stays inside the window after the page scrolled by 400 px; in a window 500 px high it is reachable).
+
+### Net hints
+
+**TL;DR:** The guide level "With net hints" (stored value `net`) shows everything of "With evaluation" and adds a second opinion of the strongest neural network for the variant. The network marks at most two moves where it disagrees with the classical analysis: the **Falle** (trap), the classically best move when the network values it clearly lower than its own favourite, and the **Spezialzug** (special move), the network's favourite when the classical analysis rates it fair, weak or poor. In a calibration study of 96 games the Falle appeared in 5.5 % of the positions, and its warning held up: played out, the classically best move did worse than the network's favourite. The Spezialzug appeared in 2.1 % of the positions, and a benefit is not proven; it ships under a neutral name by the owner's decision. The level exists for two-player games on devices with WebGPU only. The network's favourite is never shown.
+
+**Terms of this section.**
+
+- **Net:** the strongest network for the variant (`bestModel` in `web/src/engines/net/selection.ts`), run by a `net-webgpu` engine of its own that never plays. It searches the position with 800 simulations (`ADVISOR_SIMS` in `web/src/guides/net-advisor.ts`) and gives each move a value v from -1 to 1 for the side to move. The win chance is p = (v + 1) / 2.
+- **Net favourite:** the move with the most root visits in that search; ties go to the lowest move code.
+- **Classically best move:** the move with the highest score of the guide analysis (4,000 nodes per move, see [guide levels](#guide-levels)); ties go to the move with the most net visits.
+- **Probe:** a second, short net search (100 simulations, `PROBE_SIMS`) from the position after one move. The value of the move for the mover is minus the value of the probe's root. A move that ends the game needs no search: it is worth 1 for a win, -1 for a loss and 0 for a draw.
+- **Balanced position:** a position whose net value lies between -0.5 and 0.5.
+- **Counter-move test:** from each marked position, both alternatives are played to the end by equal classical players, and the results are compared ([scripts/guides/README.md](../scripts/guides/README.md), "Counter-move test").
+- **Score of an alternative:** 1 when the side that made the move wins the playout, 0 when it loses, 0.5 for a draw or a playout cut at 300 plies; averaged over playouts with 3,000, 4,000 and 5,000 nodes per move.
+
+**The two marks** (`findDivergences` in `web/src/guides/divergence.ts`). In the code the Falle is `trap` and the Spezialzug is `special`; the English UI says "Trap" and "Special move".
+
+- **Falle:** the classically best move, when it is not the net favourite and its net value lies at least 0.25 below the favourite's (`TRAP_DELTA`). 0.25 in v is 12.5 percentage points of win chance. Both values come from the same kind of search: the root values when the classically best move has at least 16 visits (`MIN_VISITS`), else a probe of each of the two moves. Without both probes there is no Falle.
+- **Spezialzug:** the net favourite, when the classical analysis rates it fair, weak or poor (a loss of more than 90 points against the classically best move).
+- **No marks** in race positions and forced wins (the best score is outside the band "ordinary" of `scoreBand`, [analysis API](#analysis-api)), when only one move is legal, and in three-player games. Reason: in race positions and forced wins the classical result is exact.
+- **At most one of each.** The two marks never fall on the same move: the Falle is the classically best move, and the Spezialzug is a fair move or worse. They can start from the same piece.
+
+**Measured figures.** The calibration and the counter-move test of 2026-11-27 ran 96 games: 24 each on 4 and on 5 rows, in mode `A` (net with 200 simulations against classical with 4,000 nodes; the net mostly leads) and in mode `B` (net with 50 simulations against classical with 102,400 nodes; more balanced games). The study recorded 9,611 positions, 1,661 of them balanced. The net ran on `net-wasm` in Node.js with the shipped models. The intervals are 95 % percentile bootstraps over positions (2,000 resamples, seed 20261127).
+
+| Figure | Value |
+|---|---|
+| Spezialzug, share of all positions | 204 of 9,611 (2.1 %) |
+| Falle at delta 0.25, share of all positions | 533 of 9,611 (5.5 %) |
+| Falle at delta 0.25, share of balanced positions | 341 of 1,661 (20.5 %) |
+| Falle at delta 0.20, share of all positions | 723 of 9,611 (7.5 %) |
+| Falle at delta 0.25: score of the classically best move minus score of the net favourite | -0.058 [-0.095, -0.022] |
+| the same, 4 rows only | -0.072 [-0.122, -0.023] |
+| the same, 5 rows only | -0.040 [-0.090, +0.010] |
+| Falle at delta 0.20: the same difference | -0.060 [-0.092, -0.029] |
+| Spezialzug: score of the net favourite minus score of the classically best move | +0.022 [-0.019, +0.063], not proven |
+
+Read the Falle row like this: from a position with a Falle, the classically best move scored on average 0.058 less than the net favourite, about 6 percentage points of result. The interval lies below 0, so the warning is valid on average. On 5 rows alone the interval includes 0. The Spezialzug interval includes 0, so a better result of the Spezialzug is not shown.
+
+The result file `data/nethints/result.json` is not in the repository (`/data/` is in `.gitignore`). The tools and their use are in [scripts/guides/README.md](../scripts/guides/README.md). From the repository root, these commands reproduce the study (`web/node_modules` must exist):
+
+```zsh
+scripts/guides/jobs.py --variants r5,r4 --modes A,B --games 24 --out data/nethints/jobs.txt
+scripts/guides/run.py data/nethints/jobs.txt --out data/nethints/study --workers 6 --detach
+scripts/guides/analyze.py data/nethints/study --json data/nethints/result.json
+```
+
+**Why delta 0.25.** Origin: the owner's decision of 2026-11-27, after the calibration. The rule fixed before the study was to take the smallest delta of the sweep 0.20, 0.25, 0.30 and 0.40 at which the Falle is significantly right; that is 0.20. At 0.25 the effect is the same (-0.058 against -0.060), and the mark is rarer (5.5 % against 7.5 % of all positions). A rarer mark keeps its signal. Limit: a delta below 0.15 is not measurable, because a probe deviates from the 800-simulation root value by up to 0.07 to 0.08 in 90 % of the cases (measured in the first, smaller simulation of 2026-11-27 with 20 games and 2,763 positions, which fixed the first thresholds before the calibration study).
+
+**Why only the classically best move can be a Falle.** Origin: the first simulation of 2026-11-27. The first rule took every move of the bands top and good as a candidate. At delta 0.25 that gave a Falle in 57 to 68 % of the positions of the more balanced games; with the band top alone still 26 to 34 %. A mark in most positions marks nothing special. The reason for the spread: the band good reaches a loss of 90 points, which costs much win chance by the classical scale, and the net separates such moves more sharply. With the classically best move as the only candidate, the Falle is at most one move per position.
+
+**Why the Spezialzug ships.** The rule fixed before the study said that the Spezialzug is not shipped if the counter-move test does not confirm it, and the test did not. The owner decided on 2026-11-27 to ship it under the neutral name "Spezialzug" instead of the earlier working name "Geheimtipp" ("secret tip"), which promised a good move. The UI gives it less weight than the Falle: a hollow badge against a solid one, second place in the chip, the legend and the net block, and no number. Expiry: a counter-move test with an interval above 0, or one that shows the mark misleads players.
+
+**When the level is available** (`useNetHints` in `web/src/guides/useNetHints.ts`). The net radio button can be chosen only when all of these hold; otherwise the paragraph under the radio group names the first reason that fails (keys `guides_net_off` with `guides_net_reason_*` or `net.reason.<code>`):
+
+1. The game has two players. Reason: a probe values a move as minus the value of the opponent's search, and that holds for two players only. Expiry: a search that reports a value per seat.
+2. The GPU was not lost earlier in this session.
+3. The WebGPU check (`isWebGpuAvailable` in `web/src/engines/net/webgpu-backend.ts`) has answered yes. Until it answers, the reason is "still being checked".
+4. The variant has a model (`no-model-id`, `variant-not-supported`).
+5. The build has the `net-webgpu` engine (`netEngineFactory`).
+
+WebGPU only is the owner's decision of 2026-11-27. Reason: the owner wanted the level for capable devices, and WebGPU is the test for that; the net search runs on every human turn beside the guide analysis, and the GPU backend evaluates far more positions per second than the CPU backend ([measurements of the net engines](#measurements-of-the-net-engines)). Limit: fast CPUs without WebGPU are excluded; nobody measured whether they would be fast enough.
+
+**GPU lost during a session.** When a net search reports a backend other than `webgpu`, or the warning `backend-unavailable`, the advisor stops for the rest of the session. The chip shows "unavailable" with the reason for that position; from the next position on, the level works as "With evaluation", and the radio group shows "With evaluation" as chosen and the net option as unavailable. The stored value stays `net`, so the level returns after a reload on a working device.
+
+**How a position is judged** (`NetAdvisor` in `web/src/guides/net-advisor.ts`). On the human's turn, after the guide analysis of the position is ready, the advisor searches the position with 800 simulations. If the classically best move is not the favourite and has fewer than 16 visits, a second engine probes it and the favourite with 100 simulations each. `findDivergences` then decides. A move of the human, an undo or the engine's turn aborts the search. Results are cached for the last 32 positions by analysis engine, model, variant and history, so Undo shows the marks at once. A failure gives the state `failed` for that position; the game goes on.
+
+**What the board shows** (`web/src/ui/Board.tsx`, layer `ml-nethints`).
+
+- **Staged reveal.** At rest only the origin piece of a marked move carries a badge, at the lower right of the piece. The target badge appears when the person selects that piece. A piece with both marks shows only the Falle badge at rest. Reason: the person still has to find which move of the piece is meant; a marked target at rest would give the answer. Limit: for a piece with one legal move the piece badge gives the move away.
+- **Why at rest at all.** A Spezialzug is fair or worse, so its piece may carry a weak band and never get touched. The Falle is on the ▲▲ move, the one the person is most likely to play, often in one drag; the warning must be there before the drag starts.
+- **Look.** Both marks are a rounded-square plate in the colour token `--ml-guide-net`. The Falle is solid with a zigzag, the Spezialzug hollow with an asterisk, so shape alone tells them apart, also in forced-colours mode. The badge sits above the selection ring, so it stays visible while a piece is dragged onto the Falle. Band rings and band glyphs stay unchanged beside it.
+- **Motion.** A badge fades in once when it appears (0.2 s); under `prefers-reduced-motion` it appears at once. Reason: the net result arrives after the bands, and a rare mark that appears without any cue is easy to miss. This is a deviation from the band marks, which have no animation, accepted by the owner on 2026-11-27.
+- **Dimming.** With a piece selected, the badges of other pieces dim to 40 % like the band badges; the badge of the selected piece and of its target stay at full strength.
+- **Accessible names.** The cell name of the origin gets the text `nethint_piece_trap` or `nethint_piece_special`, and the target the text `nethint_move_*`. A polite live region next to the chip announces the marks when they arrive (key `nethints_live`), with the cell of the piece.
+- **Unchanged.** The badges take no pointer events. Hit circles, the tab stop and the keys of the board are the same as without net hints.
+
+**The hidden favourite.** The net block of a Falle shows two rounded win chances, one for the marked move and one for "another move", but never which move the net favours. Reason: the person's task is to find it; naming it would turn the hint into an order. The win chances are rounded to 5 % and kept between 5 and 95 % (`netPercent` in `web/src/ui/NetHintBlock.tsx`), because a probe is accurate to about 4 percentage points. The Spezialzug shows no number, because no benefit is proven and a lone percentage would look like proof. Classical win chances are never shown next to the net's, because the two are calibrated differently.
+
+**The chip, the net block and the panel.** One state drives all three (`NetHintState` in `web/src/guides/net-hints-types.ts`):
+
+| State | When | Chip |
+|---|---|---|
+| `off` | the level in effect is not "net" | not rendered |
+| `idle` | the engine is to move, or the guide analysis of the position is not ready yet | a dash |
+| `loading` | first search with this model and variant; the model loads | three dots, `aria-busy` |
+| `thinking` | the search or a probe runs | three dots, `aria-busy` |
+| `marks` | at least one mark | the badge of each mark, Falle first |
+| `none` | the net finished and found nothing | a dash |
+| `skipped` | race position, forced win or one legal move | a dash |
+| `failed` | the search of this position failed | an alert icon, dashed border |
+| `unavailable` | the GPU was lost on this position | an alert icon, dashed border |
+
+- **Chip** (`web/src/ui/NetHintChip.tsx`). A 44 x 32 px button with a 44 x 44 px hit area in the upper inline-end corner of the board; no cell lies there. It shows the state on every screen size. Reason: on a phone the guide card is inside the menu, so the board needs its own sign that the net looked. `none` and `skipped` look alike on the chip and differ in text.
+- **Net block** (`web/src/ui/NetHintBlock.tsx`). Per mark: badge, name, one reason line and one open question; then a caveat sentence and the state text. It is never a tooltip, because touch screens have no hover. On wide screens (from 60 rem) it sits in the guide card under the status line and keeps a minimum height of 5.5 rem, so the cards below do not move; a click on the chip moves the focus into it.
+- **Panel (small screens).** A click on the chip opens the net block as a panel over the advantage strip and the action bar; the board stays visible. It closes with its close button, with Escape, and when the position changes. The first mark that ever appears opens it by itself, once; the flag `ml.nethints.seen` in `localStorage` (value `1`) records that. Reason: a panel that opened on every mark would cover the actions several times per game, and one that never opened would leave a rare badge unexplained. Blocked storage only means that it may open by itself again.
+
+**Storage.** The level is the value `net` of the key `ml.guides` ([guide levels](#guide-levels)). Without net hints the level in effect is `eval` (`effectiveGuideLevel` in `web/src/guides/preference.ts`), and the stored value is not changed.
+
+**Cost.** The advisor runs its own `net-webgpu` engine in an extra worker, and a second one for probes when a probe is first needed. On every human turn of an ordinary position: one search of 800 simulations and at most two probes of 100 simulations, beside the guide analysis. The first search also loads the model. Measured in the first simulation of 2026-11-27 on the CPU in Node.js (Apple M3 Max): about 0.23 s for 800 simulations and 0.03 s for a probe. Time on WebGPU in a browser and the memory of the extra workers were not measured.
+
+**Limits.**
+
+- The sample is small: 96 games, two board sizes, one family of opponents. On 5 rows alone the Falle interval includes 0.
+- The counter-move test plays out with classical players only. It shows which move scores better against classical play, not against people or the net.
+- The study ran the net on `net-wasm` in Node.js; the app runs it on `net-webgpu`. The study compared the probe of the classically best move with the root value of the favourite; the app probes both moves. Whether either difference changes the rates was not measured.
+- Nobody has tested the marks with people. The proposed test has five people of mixed strength, about 30 minutes each on a phone and a desktop: whether the badges read without the legend, whether people play the Spezialzug blindly, whether they notice the chip, whether the panel over the action bar annoys, and whether a Falle in every fifth turn of a close game tires strong players.
+
+**Tests.** `web/src/guides/divergence.test.ts` (the delta at its edge, probes, bands, no marks), `web/src/guides/net-advisor.test.ts`, `web/src/guides/useNetHints.test.tsx`, `web/src/ui/Board.nethints.test.tsx`, `web/src/ui/NetHintBlock.test.tsx` and `web/src/app/App.nethints.test.tsx` (the whole app with a fake net engine). The study itself is `web/tooling/nethints-sim.test.ts`, skipped unless `NETHINTS_SIM=1` is set.
 
 ## Distance of the result
 
