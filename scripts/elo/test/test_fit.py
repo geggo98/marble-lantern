@@ -416,6 +416,30 @@ class Input(Tmp):
         with self.assertRaises(fit.FitError):
             fit.resolve_anchors(edges, c, {})
 
+    def test_same_config_id_in_two_scales_is_scoped_per_scale(self):
+        # bridge players have the same engine setting, hence the same id, in a 2p and a 3p scale (Tier 1 data)
+        p = self.dir / "configs.tsv"
+        p.write_text("id\tscale\tlevel\tanchor\tbridge\n"
+                     "ab:x@n5000\t2p-adj-r4\t2\t0\tab5000\n"
+                     "ab:x@n20000\t2p-adj-r4\t3\t1\tab20000\n"
+                     "ab:x@n5000\t3p-adj-r4\t3\t1\tab5000\n"
+                     "ab:x@n20000\t3p-adj-r4\t2\t0\tab20000\n")
+        c = fit.load_configs(p)
+        self.d.edge("e1", "2p-adj-r4", "pair", ["ab:x@n5000", "ab:x@n20000"], pair_lines([0.5] * 4))
+        self.d.edge("e2", "3p-adj-r4", "one-vs-two", ["ab:x@n5000", "ab:x@n20000"], ovt_lines(sim_ovt(random.Random(1), 1000, 1000, 4)))
+        edges = fit.load_edges([self.d.write()])
+        # the rows differ per scale: the anchor is the level 3 config of the scale, not of the other one
+        self.assertEqual(fit.resolve_anchors(edges, c, {}), {"2p-adj-r4": "ab:x@n20000", "3p-adj-r4": "ab:x@n5000"})
+
+    def test_duplicate_config_id_inside_one_scale_is_still_an_error(self):
+        p = self.dir / "configs.tsv"
+        p.write_text("id\tscale\tlevel\n"
+                     "ab:x@n5000\t2p-adj-r4\t2\n"
+                     "ab:x@n5000\t2p-adj-r4\t3\n")
+        with self.assertRaises(fit.FitError) as cm:
+            fit.load_configs(p)
+        self.assertIn("configs.tsv:3: config ab:x@n5000 listed twice in scale 2p-adj-r4", str(cm.exception))
+
 
 # --------------------------------------------------------------------------------------------- three-player checks
 
@@ -645,6 +669,53 @@ class EndToEnd(Tmp):
         # n1000 is always the subject (1e9 ns / 50 moves = 20 ms), the network always the opponent (2e9 / 50 = 40 ms)
         self.assertIn("| `ab:b@n1000#2p` | 20.0 |", rep)
         self.assertIn("| `net:shared@s200#2p` | 40.0 |", rep)
+
+    def test_bridge_with_shared_config_ids_in_two_and_three_player_scale(self):
+        rng = random.Random(12)
+        true = {"ab:b@n1000": 700, "ab:b@n5000": 880, "ab:b@n20000": 1000, "net:shared@s200": 1080}
+        bridge = {"ab:b@n1000": "ab1000", "ab:b@n5000": "ab5000", "ab:b@n20000": "ab20000",
+                  "net:shared@s200": "shared200"}
+        level = {"ab:b@n1000": "1", "ab:b@n5000": "2", "ab:b@n20000": "3"}
+        cfg = ["id\tscale\tlevel\tnodes\tsims\tnet\tbasis\tbridge"]
+        k = 0
+        for scale, kind in (("2p-adj-r4", "pair"), ("3p-adj-r4", "one-vs-two")):
+            for p in true:
+                # the 3p rows of the same ids carry other metadata: no level 1, and ab:b@n5000 is no bridge player
+                lv = "" if (scale[0] == "3" and p == "ab:b@n1000") else level.get(p, "")
+                br = "" if (scale[0] == "3" and p == "ab:b@n5000") else bridge[p]
+                cfg.append(f"{p}\t{scale}\t{lv}\t{p.split('@n')[1] if '@n' in p else ''}\t"
+                           f"{'200' if p.startswith('net') else ''}\t{'shared' if p.startswith('net') else ''}\t\t{br}")
+            names = list(true)
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    a, b = names[i], names[j]
+                    if kind == "pair":
+                        lines = pair_lines(sim_pairs(rng, true[a], true[b], 150))
+                        self.d.edge(f"e{k}", scale, kind, [a, b], lines, seed=8102)
+                    else:
+                        lines = ovt_lines(sim_ovt(rng, true[a], true[b], 150))
+                        self.d.edge(f"e{k}", scale, kind, [a, b], lines, seed=8104)
+                    k += 1
+        (self.dir / "configs.tsv").write_text("\n".join(cfg) + "\n")
+        code, js = run_fit(self.d.write(), self.out, ["--configs", str(self.dir / "configs.tsv"),
+                                                      "--replicates", "200", "--gof-replicates", "20"])
+        self.assertEqual(code, 0)
+        for s in ("2p-adj-r4", "3p-adj-r4"):
+            self.assertEqual(js["scales"][s]["anchor"], "ab:b@n20000")
+            self.assertEqual(sorted(by_id(js, s)), sorted(true))
+            self.assertAlmostEqual(by_id(js, s)["ab:b@n20000"]["elo"], 1000.0)
+            self.assertEqual(by_id(js, s)["net:shared@s200"]["net"], "shared")
+        self.assertEqual([x["level"] for x in js["levels"]["2p-adj-r4"]], [1, 2, 3])
+        self.assertEqual([x["level"] for x in js["levels"]["3p-adj-r4"]], [2, 3])
+        rep = (self.out / "fit-report.md").read_text()
+        self.assertEqual(rep.count("alternative anchor `ab:b@n1000` (level 1)"), 1)     # the 2p scale only
+        self.assertEqual([b["id"] for b in js["bridge"]["players"]], ["ab1000", "ab20000", "shared200"])
+        for b in js["bridge"]["players"]:
+            self.assertEqual(sorted(b["ratings"]), ["2p-adj-r4", "3p-adj-r4"])
+            self.assertEqual(b["ratings"]["2p-adj-r4"]["config"], b["ratings"]["3p-adj-r4"]["config"])
+        t = js["bridge"]["tests"]
+        self.assertEqual(len(t), 1)
+        self.assertEqual((t[0]["scales"], t[0]["df"]), (["2p-adj-r4", "3p-adj-r4"], 2))
 
 
 # --------------------------------------------------------------------------------------------- long-run behaviour

@@ -69,6 +69,8 @@ columns are ignored; '-' means empty):
   its scale; without this column the level-3 config is the anchor), nodes, sims, net or net_id, engine and budget
   (budget = nodes for engine ab, sims for engine net), basis (comma separated tags such as sims200,time), bridge
   (bridge id shared by the same engine setting in several scales).
+  The same id may be listed once per scale (bridge players); edges name players by the plain id within their scale.
+  An id twice within one scale is an error.
   Without configs.tsv every scale needs --anchor SCALE=CONFIG, net and sims are parsed from ids of the form
   net:<net>@s<sims>, and levels, bridge test and level-1 sensitivity are skipped.
 
@@ -134,11 +136,30 @@ def rows_of_scale(scale):
     return int(re.match(r"^\dp-[a-z]+-r(?P<rows>\d+)$", scale)["rows"])
 
 
+class Configs(dict):
+    """The rows of configs.tsv, {id: row}, for lookups that do not care about the scale (the first row of an id wins).
+    The same id may be listed once per scale (bridge players have the same setting in a two- and a three-player
+    scale); scoped(scale) gives the {id: row} view of one scale. Rows without a scale column belong to every scale."""
+
+    def __init__(self):
+        super().__init__()
+        self.by_scale = {}                  # scale ("" = no scale column) -> {id: row}
+
+    def scoped(self, scale):
+        out = dict(self.by_scale.get("", {}))
+        out.update(self.by_scale.get(scale, {}))
+        return out
+
+
+def scoped(configs, scale):
+    return configs.scoped(scale) if isinstance(configs, Configs) else configs
+
+
 def load_configs(path):
-    """configs.tsv -> {id: row}. Leading '#' lines are comments; '-' means empty. Column aliases (scripts/elo/FORMAT.md
+    """configs.tsv -> Configs ({id: row}, scoped per scale; an id twice within one scale is an error). Leading '#' lines are comments; '-' means empty. Column aliases (scripts/elo/FORMAT.md
     and the registry of task T3): config_id = id, net_id = net, budget = nodes (engine ab) or sims (engine net)."""
     if path is None:
-        return {}
+        return Configs()
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     start = 0
     while start < len(lines) and (lines[start].startswith("#") or not lines[start].strip()):
@@ -149,7 +170,7 @@ def load_configs(path):
     head = ["id" if h == "config_id" else h for h in head]
     if "id" not in head:
         raise FitError(f"{path}:{start + 1}: no column 'id' or 'config_id'")
-    out = {}
+    out = Configs()
     for n, line in enumerate(lines[start + 1:], start + 2):
         if not line.strip() or line.startswith("#"):
             continue
@@ -157,15 +178,17 @@ def load_configs(path):
         cid = row.get("id", "")
         if not cid:
             raise FitError(f"{path}:{n}: empty id")
-        if cid in out:
-            raise FitError(f"{path}:{n}: config {cid} listed twice")
+        scale = row.get("scale", "")
+        if cid in out.by_scale.get(scale, {}):
+            raise FitError(f"{path}:{n}: config {cid} listed twice" + (f" in scale {scale}" if scale else ""))
         if not row.get("net") and row.get("net_id"):
             row["net"] = row["net_id"]
         if row.get("budget"):
             key = {"ab": "nodes", "net": "sims"}.get(row.get("engine", ""))
             if key and not row.get(key):
                 row[key] = row["budget"]
-        out[cid] = row
+        out.by_scale.setdefault(scale, {})[cid] = row
+        out.setdefault(cid, row)
     return out
 
 
@@ -997,6 +1020,7 @@ class ScaleResult:
 
 
 def fit_scale(scale, edges, anchor, configs, args, runner, notes):
+    configs = scoped(configs, scale)
     r = ScaleResult()
     r.scale, r.anchor = scale, anchor
     m = Model(scale, edges, anchor, args.prior_games)
@@ -1366,12 +1390,13 @@ def build_json(results, bridge, configs, wanted_pairs, args):
     for s, r in results.items():
         m = r.model
         players = []
+        cfg = scoped(configs, s)
         for p in m.players:
-            net, sims, basis = config_meta(p, configs)
+            net, sims, basis = config_meta(p, cfg)
             players.append({"id": p, "net": net, "sims": sims, "basis": basis, "elo": r.R[p], "ci95": r.ci[p],
                             "games": r.games[p], "edges": r.nedges[p]})
-        levels = sorted(((int(configs[p]["level"]), p) for p in m.players
-                         if configs.get(p, {}).get("level", "").isdigit()))
+        levels = sorted(((int(cfg[p]["level"]), p) for p in m.players
+                         if cfg.get(p, {}).get("level", "").isdigit()))
         pairs, seen = [], set()
         for a, b in wanted_pairs:
             if a in r.R and b in r.R and (a, b) not in seen:
@@ -1389,7 +1414,7 @@ def build_json(results, bridge, configs, wanted_pairs, args):
             fit["threePlayer"] = r.three_verdict
         out["scales"][s] = {"anchor": r.anchor, "players": players, "pairs": pairs, "fit": fit}
         if levels:
-            out["levels"][s] = [{"level": lv, "nodes": _int(configs[p].get("nodes")), "elo": r.R[p], "ci95": r.ci[p]}
+            out["levels"][s] = [{"level": lv, "nodes": _int(cfg[p].get("nodes")), "elo": r.R[p], "ci95": r.ci[p]}
                                 for lv, p in levels]
     return out
 
@@ -1508,7 +1533,7 @@ def build_report(results, bridge, js, args, notes):
         for p in m.players:
             ns, mv = r.cpu.get(p, (0.0, 0.0))
             L.append(f"| `{p}` | {ns / mv / 1e6:.1f} | {ns / 3.6e12:.2f} |" if mv else f"| `{p}` | n/a | n/a |")
-        timed = [p for p in m.players if "time" in config_meta(p, args.configs_map)[2] and r.cpu.get(p, (0, 0))[1]]
+        timed = [p for p in m.players if "time" in config_meta(p, scoped(args.configs_map, s))[2] and r.cpu.get(p, (0, 0))[1]]
         if len(timed) >= 2:
             ms = {p: r.cpu[p][0] / r.cpu[p][1] / 1e6 for p in timed}
             L += ["", "Equal-time configs: " + ", ".join(f"`{p}` {v:.1f} ms" for p, v in ms.items())
@@ -1543,7 +1568,7 @@ def run_bridge(results, configs):
     ids = defaultdict(dict)                     # bridge id -> scale -> config
     for s, r in results.items():
         for p in r.model.players:
-            b = configs.get(p, {}).get("bridge")
+            b = scoped(configs, s).get(p, {}).get("bridge")
             if b:
                 ids[b][s] = p
     players = [{"id": b, "ratings": {s: {"config": p, "elo": results[s].R[p], "ci95": results[s].ci[p]}
@@ -1580,8 +1605,9 @@ def resolve_anchors(edges, configs, overrides):
             anchors[s] = overrides[s]
             continue
         players = {p for e in edges if e.scale == s for p in e.players}
-        marked = sorted(p for p in players if configs.get(p, {}).get("anchor") == "1")
-        l3 = marked or sorted(p for p in players if configs.get(p, {}).get("level") == "3")
+        cfg = scoped(configs, s)
+        marked = sorted(p for p in players if cfg.get(p, {}).get("anchor") == "1")
+        l3 = marked or sorted(p for p in players if cfg.get(p, {}).get("level") == "3")
         if len(l3) != 1:
             raise FitError(f"scale {s}: anchor needs exactly one config with anchor = 1 or level 3 in configs.tsv "
                            f"among its players (found {len(l3)}), or --anchor {s}=CONFIG")
