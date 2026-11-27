@@ -9,7 +9,7 @@
     { "id": "java-vec-avx512", "group": "other", "kind": "java", "value": 9213, "needle": "9,213", "source": { "doc": "docs/cloud.md", "line": 217 } },
     { "id": "tornado-cuda-t4", "group": "other", "kind": "java", "value": 85222, "needle": "85,222.0", "source": { "doc": "docs/cpp-comparison.md", "line": 207 } },
     { "id": "cpp-cuda-t4", "group": "other", "kind": "cpp", "value": 85582.5, "needle": "85,582.5", "source": { "doc": "docs/cpp-comparison.md", "line": 207 } },
-    { "id": "teavm-scalar-b1", "group": "other", "kind": "java", "value": 145, "lo": 126, "hi": 163, "needle": "126 to 163", "source": { "doc": "docs/web-ui.md", "line": 834 } },
-    { "id": "cpp-wasm-simd", "group": "other", "kind": "cpp", "value": 3100, "needle": "3,100", "source": { "doc": "docs/web-ui.md", "line": 834 } }
+    { "id": "teavm-scalar-b1", "group": "other", "kind": "java", "value": 145, "lo": 126, "hi": 163, "needle": "126 to 163", "source": { "doc": "docs/web-ui.md", "line": 874 } },
+    { "id": "cpp-wasm-simd", "group": "other", "kind": "cpp", "value": 3100, "needle": "3,100", "source": { "doc": "docs/web-ui.md", "line": 874 } }
   ]
 }
