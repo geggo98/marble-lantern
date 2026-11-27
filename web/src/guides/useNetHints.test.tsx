@@ -6,24 +6,20 @@ import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Engine } from '../engines/engine';
 import type { ProbeResult } from '../engines/warnings';
-import { DEFAULT_VARIANT } from '../game/variant';
+import { DEFAULT_VARIANT, withRows } from '../game/variant';
+import en from '../i18n/en.json';
+import de from '../i18n/de.json';
 import type { Variant } from '../game/variant';
 import type { Divergence } from './divergence';
-import type { GuideView } from './model';
 import type { AdvisorLike, UseNetHintsInput } from './useNetHints';
-import { defaultModelCheck, useNetHints } from './useNetHints';
+import { REASON_CODES, defaultModelCheck, knownReason, useNetHints } from './useNetHints';
 import type { NetAdvisorState } from './net-advisor';
 import type { NetHintsModel } from './net-hints-types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const V3: Variant = { jump: 'adjacent', players: 3 };
-const view: GuideView = {
-  position: 100,
-  moves: new Map(),
-  pieces: new Map(),
-  scores: new Map([[7, 100], [9, -20]]),
-};
+const view = { moves: [7, 9], scores: [100, -20] };
 const marksDivergence = (move: number): Divergence => ({ move, netValue: 0.1, favouriteValue: 0.5, classicalBand: 'equal' });
 
 /** An advisor that the test drives by hand. Its key is `k:<history>` so that a moved game has another key. */
@@ -116,9 +112,39 @@ describe('useNetHints: availability', () => {
     expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'no-model-id' });
   });
 
-  it('the default model check answers from models.json (a code or null, never throws)', () => {
-    const r = defaultModelCheck(DEFAULT_VARIANT);
-    expect([null, 'no-model-id', 'variant-not-supported']).toContain(r);
+  // web/models/models.json: small-2p-adjacent-expert (4 rows), small-2p-adjacent-r5-expert (5 rows), small-shared-all (adjacent and long, 4 rows)
+  it.each([
+    ['4 rows, adjacent: the expert model', { jump: 'adjacent', players: 2 } as Variant, null],
+    ['4 rows, long hop: the shared model', { jump: 'long', players: 2 } as Variant, null],
+    ['5 rows, adjacent: the r5 expert', withRows({ jump: 'adjacent', players: 2 }, 5), null],
+    ['5 rows, long hop: no model', withRows({ jump: 'long', players: 2 }, 5), 'variant-not-supported'],
+  ])('the default model check, two players, %s', (_name, variant, expected) => {
+    expect(defaultModelCheck(variant)).toBe(expected);
+  });
+
+  it('the long hop on 5 rows gives the reason variant-not-supported through the hook', async () => {
+    const h = setup(fakeAdvisor());
+    await h.render({ variant: withRows({ jump: 'long', players: 2 }, 5), modelCheck: defaultModelCheck });
+    expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'variant-not-supported' });
+    expect(h.get().state).toBe('off');
+  });
+
+  it.each(REASON_CODES)('the reason code %s has a text in both catalogs', (code) => {
+    expect((en as Record<string, string>)[`net.reason.${code}`]).toEqual(expect.any(String));
+    expect((de as Record<string, string>)[`net.reason.${code}`]).toEqual(expect.any(String));
+  });
+
+  it('a lost code without a catalog text falls back to webgpu-lost; known codes pass through', async () => {
+    expect(knownReason('load-failed')).toBe('load-failed');
+    expect(knownReason('webassembly-unavailable')).toBe('webassembly-unavailable');
+    expect(knownReason('something-new')).toBe('webgpu-lost');
+    const fake = fakeAdvisor();
+    const h = setup(fake);
+    await h.render();
+    fake.set({ status: 'failed', key: 'k:cpp:1,2', lost: 'something-new' });
+    expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'webgpu-lost' });
+    fake.set({ status: 'failed', key: 'k:cpp:1,2', lost: 'load-failed' });
+    expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'load-failed' });
   });
 
   it('a build without the net engine is unavailable', async () => {
@@ -216,12 +242,16 @@ describe('useNetHints: state shown', () => {
     expect(h.get().trap).toBeNull();
   });
 
-  it('idle on the opponent turn, and while the classical view is missing', async () => {
-    const h = setup(fakeAdvisor());
+  it('idle on the opponent turn, thinking on the human turn while the classical analysis is missing', async () => {
+    const fake = fakeAdvisor();
+    const h = setup(fake);
     await h.render({ humanTurn: false });
     expect(h.get().state).toBe('idle');
-    await h.render({ humanTurn: true, classical: null });
+    await h.render({ humanTurn: false, classical: null });
     expect(h.get().state).toBe('idle');
+    await h.render({ humanTurn: true, classical: null });
+    expect(h.get().state).toBe('thinking');
+    expect(fake.requests).toHaveLength(0); // thinking, but the advisor waits for the classical scores
   });
 
   it('thinking until the advisor reports for this position', async () => {

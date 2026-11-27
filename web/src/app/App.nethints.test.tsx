@@ -21,7 +21,8 @@ const hook = vi.hoisted(() => ({
   state: 'marks' as NetHintState,
   inputs: [] as UseNetHintsInput[],
 }));
-vi.mock('../guides/useNetHints', () => ({
+vi.mock('../guides/useNetHints', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../guides/useNetHints')>()),
   useNetHints: (input: UseNetHintsInput): NetHintsModel => {
     hook.inputs.push(input);
     const active = input.level === 'net' && hook.availability.available && input.humanTurn;
@@ -111,7 +112,7 @@ describe('net hints in the play screen, wide', () => {
     await start(false);
     await until(() => all('[data-nethint-at="piece"]').length > 0, 'the net badge');
     const withClassical = hook.inputs.find((i) => i.classical !== null)!;
-    expect(Object.keys(withClassical).sort()).toEqual(['classical', 'history', 'humanTurn', 'level', 'scope', 'variant']);
+    expect(Object.keys(withClassical).sort()).toEqual(['classical', 'createEngine', 'history', 'humanTurn', 'level', 'scope', 'variant']);
     expect(withClassical.level).toBe('net');
     expect(withClassical.humanTurn).toBe(true);
     expect(withClassical.classical!.moves.length).toBe(withClassical.classical!.scores.length);

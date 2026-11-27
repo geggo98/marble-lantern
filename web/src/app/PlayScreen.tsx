@@ -20,7 +20,7 @@ import { useGuides } from '../guides/useGuides';
 import { useAdvantage3 } from '../guides/useAdvantage3';
 import type { Evaluate3Fn } from '../guides/useAdvantage3';
 import { effectiveGuideLevel, loadGuideLevel, loadNetHintsSeen, saveGuideLevel, saveNetHintsSeen } from '../guides/preference';
-import { useNetHints } from '../guides/useNetHints';
+import { netEngineFactory, useNetHints } from '../guides/useNetHints';
 import type { NetMarkKind } from '../guides/marks';
 import { NetHintChip } from '../ui/NetHintChip';
 import { NetHintBlock, useNetReasonText } from '../ui/NetHintBlock';
@@ -192,8 +192,20 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     () => (guides.view ? { moves: [...guides.view.scores.keys()], scores: [...guides.view.scores.values()] } : null),
     [guides.view],
   );
-  const netHints = useNetHints({ level: guideLevel, variant, humanTurn, history: state.history, classical, scope: guideScope });
-  const netLevel = effectiveGuideLevel(guideLevel, netHints.availability.available) === 'net';
+  // the advisor makes its own net-webgpu engine from the manifest of the session (never the engine that plays); the manifest is there once the session has started
+  const advisorSource = model.session.advisorSource();
+  const vKey = variantKey(variant);
+  const createNetEngine = useMemo(
+    () => (advisorSource ? netEngineFactory(advisorSource.manifest, advisorSource.baseUrl, variant) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the variant is named by its key
+    [advisorSource?.manifest, advisorSource?.baseUrl, vKey],
+  );
+  const netHints = useNetHints({ level: guideLevel, variant, humanTurn, history: state.history, classical, scope: guideScope, createEngine: createNetEngine });
+  // The level that works now: a stored "net" without the net acts as "eval" (the stored value stays). The hook gets the stored level and
+  // gates on its own availability, so there is no loop; `guidesOn` above reads the stored level, which gives the same answer for the
+  // bands (eval and net both have them) and is available before the analysis runs.
+  const effectiveLevel = effectiveGuideLevel(guideLevel, netHints.availability.available);
+  const netLevel = effectiveLevel === 'net';
   const boardNetHints = useMemo(
     () => (netLevel && netHints.state === 'marks' ? { ...(netHints.trap ? { trap: netHints.trap.move } : {}), ...(netHints.special ? { special: netHints.special.move } : {}) } : null),
     [netLevel, netHints.state, netHints.trap, netHints.special],

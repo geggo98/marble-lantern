@@ -9,9 +9,9 @@ import type { EnginesManifest } from '../engines/registry';
 import type { ProbeResult, ReasonCode } from '../engines/warnings';
 import { DEFAULT_VARIANT } from '../game/variant';
 import type { Variant } from '../game/variant';
-import type { GuideView } from './model';
 import { NetAdvisor } from './net-advisor';
 import type { NetAdvisorState } from './net-advisor';
+import type { ClassicalResult } from './divergence';
 import type { NetAvailability, NetHintState, NetHintsModel } from './net-hints-types';
 import type { GuideLevel } from './preference';
 
@@ -25,8 +25,8 @@ export interface UseNetHintsInput {
   /** The human is to move and the game is on: the only time the advisor may run. */
   humanTurn: boolean;
   history: readonly number[];
-  /** The classical analysis of the current position (useGuides.view); null while it is not ready. */
-  classical: GuideView | null;
+  /** The classical scores of the legal moves of the current position (from useGuides.view.scores, built once by the caller); null while the analysis is not ready. */
+  classical: ClassicalResult | null;
   /** Identifies the classical engine for the cache (useGuides' scope); null while there is none. */
   scope: string | null;
   /** Makes the net-webgpu engine, not yet initialised (see netEngineFactory); null when this build or browser cannot run it. */
@@ -50,6 +50,17 @@ export function netEngineFactory(manifest: EnginesManifest | null, baseUrl: stri
 export function defaultModelCheck(variant: Variant): ReasonCode | null {
   if (bestModel(variant) !== null) return null;
   return listModels().length === 0 ? 'no-model-id' : 'variant-not-supported';
+}
+
+/** Every ReasonCode has a catalog text `net.reason.<code>` (checked in the test); the record makes the compiler list a new code here. */
+const KNOWN_REASONS: Record<ReasonCode, true> = {
+  'no-model-id': true, 'variant-not-supported': true, 'webassembly-unavailable': true, 'webgpu-no-api': true, 'webgpu-no-adapter': true,
+  'webgpu-device-failed': true, 'webgpu-lost': true, 'load-failed': true, 'verify-failed': true, unknown: true,
+};
+export const REASON_CODES: readonly string[] = Object.keys(KNOWN_REASONS);
+/** A code with no catalog text falls back to `webgpu-lost` (the advisor reports a string, not a ReasonCode), so the screen never shows a bare key. */
+export function knownReason(code: string): string {
+  return Object.hasOwn(KNOWN_REASONS, code) ? code : 'webgpu-lost';
 }
 
 const defaultProbe = (): Promise<ProbeResult> => import('../engines/net/webgpu-backend').then((m) => m.isWebGpuAvailable());
@@ -101,7 +112,7 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
     const lostInSession = lostCode !== null;
     const no = (reason: NetAvailability['reason']): NetAvailability => ({ available: false, reason, lostInSession });
     if (variant.players !== 2) return no({ kind: 'three-players' });
-    if (lostCode !== null) return no({ kind: 'reason', code: lostCode });
+    if (lostCode !== null) return no({ kind: 'reason', code: knownReason(lostCode) });
     if (probe === null) return no({ kind: 'checking' });
     if (!probe.available) return no({ kind: 'reason', code: probe.reason ?? 'webgpu-device-failed' });
     if (modelCode !== null) return no({ kind: 'reason', code: modelCode });
@@ -114,8 +125,7 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
   useEffect(() => {
     if (!advisor) return;
     if (active && classical && scope !== null) {
-      const moves = [...classical.scores.keys()];
-      advisor.request(scope, history, variant, { moves, scores: moves.map((m) => classical.scores.get(m)!) });
+      advisor.request(scope, history, variant, classical);
     } else {
       advisor.cancel();
     }
@@ -127,7 +137,8 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
   let shown: NetHintState;
   if (lostCode !== null && here) shown = 'unavailable'; // until the next position
   else if (level !== 'net' || !availability.available) shown = 'off';
-  else if (!humanTurn || classical === null) shown = 'idle';
+  else if (!humanTurn) shown = 'idle'; // the opponent is to move: the hints come on the player's turn
+  else if (classical === null) shown = 'thinking'; // the player's turn, the classical analysis still runs (the net waits for it)
   else if (!here || state.status === 'idle') shown = 'thinking'; // the request of this position is about to start
   else shown = state.status;
 

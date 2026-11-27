@@ -99,6 +99,14 @@ export class EngineSession {
     return { id: choice.info.id, create: () => createEngine(choice, manifest, this.deps.baseUrl) };
   }
 
+  /**
+   * What the net-hints advisor needs to make its own net-webgpu engine (netEngineFactory in guides/useNetHints.ts): the manifest and the
+   * site root. Null before start(). The advisor owns the engine it makes: it is never the engine that plays and never shared with it.
+   */
+  advisorSource(): { manifest: EnginesManifest; baseUrl: string } | null {
+    return this.manifest ? { manifest: this.manifest, baseUrl: this.deps.baseUrl } : null;
+  }
+
   getState = (): SessionState => this.state;
 
   subscribe = (listener: () => void): (() => void) => {
