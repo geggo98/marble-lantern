@@ -1,11 +1,11 @@
 // Fig. 4.4: the marks inside the plot. They use `usePlot()` of the kit (as the ring of J5 does) and draw, per view: the dominated region and the front
-// step line, the level of SMALL generation 9, the complete runs with their ladder whiskers, the direct-match triangle, the CPU lower-bound lines,
+// step line, the level of SMALL generation 9, the complete runs with the 95 % bars of their ratings, the direct-match triangle, the CPU lower-bound lines,
 // the power band and the CPU-against-GPU paths, the ring of the selected row, the labels and the invisible hit circles. All positions come from
 // the pure model; nothing is typed here that is not derived from data/energy.json. The rows are also reachable by the table buttons (the complete,
 // accessible way); the hit circles are for the pointer and carry no focus and no name.
 import { PlotBand, usePlot } from '../kit';
 import type { FigText } from './shared';
-import { frontPath, frontPoints, hitRadii, markKind, matchOf, rowById, rowCode, strengthY, viewSpec, xOf } from './energy-model';
+import { frontPath, frontPoints, hitRadii, markKind, matchOf, matchY, ratingOf, rowById, rowCode, strengthY, viewSpec, xOf } from './energy-model';
 import type { Basis, EnergyData, EnergyRow, View } from './energy-model';
 
 export interface MarksProps {
@@ -20,7 +20,7 @@ export interface MarksProps {
 /** The vertical whisker with caps of 10 units. */
 const whisker = (cx: number, y0: number, y1: number): string => `M${cx} ${y0}V${y1}M${cx - 5} ${y0}H${cx + 5}M${cx - 5} ${y1}H${cx + 5}`;
 
-/** A mark of a net: a circle for SMALL, a square for LARGE; solid when measured, hollow for an estimate or a value the ladder cannot rank. */
+/** A mark of a net: a circle for SMALL, a square for LARGE; solid when measured, hollow for an estimate. */
 function Shape({ net, cx, cy, hollow, r = 5 }: { net: EnergyRow['net']; cx: number; cy: number; hollow?: boolean; r?: number }): React.JSX.Element {
   const fill = hollow ? 'hollow' : 'solid';
   return net === 'SMALL' ? (
@@ -44,6 +44,8 @@ export function wrapLabel(text: string, max: number): string[] {
   return lines;
 }
 
+/** Distance in units between the rating mark of a row and its head-to-head triangle. */
+const MATCH_DX = 11;
 const TRI_UP = '0,-7 6,5 -6,5';
 const TRI_DOWN = '0,7 6,-5 -6,-5';
 
@@ -61,7 +63,7 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
   // ---- the strength views ----
   let strengthMarks: React.ReactNode = null;
   if (strengthView) {
-    const shape = frontPath(frontPoints(strengthView, basis, data), spec.x.domain[1], 0);
+    const shape = frontPath(frontPoints(strengthView, basis, data), spec.x.domain[1], spec.y.domain[0]);
     const px = (p: { x: number; y: number }): string => `${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`;
     const s9 = rowById(data, 'small-gen9');
     const runs = data.rows.filter((r) => r.group === 'run' && r.strength);
@@ -93,21 +95,20 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
         })}
         {runs.map((r) => {
           const x = sx(xOf(r, strengthView));
-          const ladder = r.strength!;
-          const m = matchOf(r, basis, data);
-          const unranked = m !== undefined;
+          const rating = ratingOf(r, basis);
           return (
             <g key={r.id} data-row={r.id}>
-              <path className={unranked ? 'ml-fig-plot__whisker ml-fig-energy__whisker--dashed' : 'ml-fig-plot__whisker'} d={whisker(x, sy(ladder.elo - ladder.ci), sy(ladder.elo + ladder.ci))} />
-              <Shape net={r.net} cx={x} cy={sy(ladder.elo)} hollow={unranked} />
+              <path className="ml-fig-plot__whisker" d={whisker(x, sy(rating.elo - rating.hw95), sy(rating.elo + rating.hw95))} />
+              <Shape net={r.net} cx={x} cy={sy(rating.elo)} />
             </g>
           );
         })}
         {runs.map((r) => {
           const m = matchOf(r, basis, data);
           if (!m) return null;
-          const x = sx(xOf(r, strengthView));
-          const y = strengthY(r, basis, data);
+          // the triangle stands a little right of the rating mark of the same row, so that both stay readable
+          const x = sx(xOf(r, strengthView)) + MATCH_DX;
+          const y = matchY(m, basis);
           return (
             <g key={`match-${r.id}`} data-match={basis} data-row={r.id}>
               <path className="ml-fig-plot__whisker" d={whisker(x, sy(y - m.ci), sy(y + m.ci))} />
@@ -126,16 +127,16 @@ export function EnergyMarks({ data, view, basis, selected, onSelect, fig }: Mark
         {strengthMarks}
         {runs.map((r) => {
           const x = sx(xOf(r, strengthView));
-          const ladder = r.strength!;
+          const ladder = ratingOf(r, basis);
           const side = r.id === 'small-gen9' ? 'left' : r.generation === 10 ? 'above' : compact && r.id === 'small-gen0' ? 'below' : 'right';
-          const top = Math.min(sy(ladder.elo + ladder.ci), sy(ladder.elo));
+          const top = Math.min(sy(ladder.elo + ladder.hw95), sy(ladder.elo));
           return (
             <text
               key={r.id}
               className="ml-fig-energy__label"
               data-selected={r.id === selected ? '' : undefined}
               x={side === 'left' ? x - 9 : side === 'above' || side === 'below' ? x : x + 9}
-              y={side === 'above' ? top - 8 : side === 'below' ? sy(ladder.elo - ladder.ci) + 15 : sy(ladder.elo) - 8}
+              y={side === 'above' ? top - 8 : side === 'below' ? sy(ladder.elo - ladder.hw95) + 15 : sy(ladder.elo) - 8}
               textAnchor={side === 'left' ? 'end' : side === 'above' || side === 'below' ? 'middle' : 'start'}
             >
               {code(r)}

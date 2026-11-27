@@ -1,9 +1,9 @@
 {
- "schema": 1,
+ "schema": 2,
  "source": {
   "generator": "transcribed",
   "date": "2026-11-25",
-  "how": "Every number is copied from a cited line of docs/training.md (sections 'Energy', 'CPU against GPU training', 'Strength per cost', 'Check of the GPU estimate'); energy.test.ts reads each line and looks for the needle and the numbers. The duration of the four complete runs is the sum of the phase durations (column 'duration', from the markers) of the cited rows of the energy reports: SMALL Gen0 = teacher 0:24:40 + gen0 0:07:24 = 0.534 h; SMALL generation 9 adds loop-1 to loop-9 = 4.254 h; LARGE Gen0 = the reused teacher data 0:24:40 + gen0-large 0:48:42 = 1.223 h; LARGE generation 10 adds loop-large-1 to loop-large-10 = 17.053 h. They are stored with three decimals; the figure prints 0.53, 4.3, 1.2 and 17. The checks (pilot, ladder, e1 to e3, h2h) are not in the sum, as the document says for the energy per network. The SMALL GPU row and the two CPU rows are the document's estimates; the LARGE CPU row is the document's rescaling to the real step count of 285,618 steps ('Check of the GPU estimate'); the LARGE GPU row is measured. The ratios are the documented ones, not computed from the rounded hours."
+  "how": "Every number is copied from a cited line of docs/training.md (sections 'Energy', 'CPU against GPU training', 'Strength per cost', 'Check of the GPU estimate'); energy.test.ts reads each line and looks for the needle and the numbers. The duration of the four complete runs is the sum of the phase durations (column 'duration', from the markers) of the cited rows of the energy reports: SMALL Gen0 = teacher 0:24:40 + gen0 0:07:24 = 0.534 h; SMALL generation 9 adds loop-1 to loop-9 = 4.254 h; LARGE Gen0 = the reused teacher data 0:24:40 + gen0-large 0:48:42 = 1.223 h; LARGE generation 10 adds loop-large-1 to loop-large-10 = 17.053 h. They are stored with three decimals; the figure prints 0.53, 4.3, 1.2 and 17. The checks (pilot, ladder, e1 to e3, h2h) are not in the sum, as the document says for the energy per network. The SMALL GPU row and the two CPU rows are the document's estimates; the LARGE CPU row is the document's rescaling to the real step count of 285,618 steps ('Check of the GPU estimate'); the LARGE GPU row is measured. The ratios are the documented ones, not computed from the rounded hours. Schema 2: the strength of the four complete runs is the published rating of models/ratings/ratings.json (scale 2p-adj-r5, random-effects fit), copied as that file prints it; energy.test.ts reads that file. The 'pairs' are its pooled pairwise differences for the pairs the figure compares and that have no head-to-head match."
  },
  "machine": {
   "name": "Apple MacBook Pro, M3 Max",
@@ -96,12 +96,26 @@
    "status": "measured",
    "aboveIdleKwh": 0.013,
    "strength": {
-    "elo": 131,
-    "ci": 33,
-    "source": {
-     "doc": "docs/training.md",
-     "line": 2871,
-     "needle": "`ab:25600`"
+    "sims": {
+     "basis": "sims",
+     "config": "net:r5-small-gen0@s200",
+     "sims": 200,
+     "elo": 1197,
+     "hw95": 100,
+     "displayElo": 1200,
+     "displayHw95": 100,
+     "method": "re-nma-pm-kh"
+    },
+    "time": {
+     "basis": "time",
+     "config": "net:r5-small-gen0@s1000",
+     "sims": 1000,
+     "elo": 1560,
+     "hw95": 150,
+     "displayElo": 1560,
+     "displayHw95": 150,
+     "method": "re-nma-pm-kh",
+     "sparse": true
     }
    },
    "source": {
@@ -190,12 +204,25 @@
    "status": "measured",
    "aboveIdleKwh": 0.119,
    "strength": {
-    "elo": 611,
-    "ci": 112,
-    "source": {
-     "doc": "docs/training.md",
-     "line": 2871,
-     "needle": "`ab:25600`"
+    "sims": {
+     "basis": "sims",
+     "config": "net:r5-small-gen9@s200",
+     "sims": 200,
+     "elo": 1839,
+     "hw95": 125,
+     "displayElo": 1840,
+     "displayHw95": 130,
+     "method": "re-nma-pm-kh"
+    },
+    "time": {
+     "basis": "time",
+     "config": "net:r5-small-gen9@s1000",
+     "sims": 1000,
+     "elo": 2151,
+     "hw95": 164,
+     "displayElo": 2150,
+     "displayHw95": 170,
+     "method": "re-nma-pm-kh"
     }
    },
    "source": {
@@ -228,12 +255,25 @@
    "kwh": 0.05,
    "status": "measured",
    "strength": {
-    "elo": 242,
-    "ci": 39,
-    "source": {
-     "doc": "docs/training.md",
-     "line": 2871,
-     "needle": "`ab:25600`"
+    "sims": {
+     "basis": "sims",
+     "config": "net:r5-large-gen0@s200",
+     "sims": 200,
+     "elo": 1321,
+     "hw95": 116,
+     "displayElo": 1320,
+     "displayHw95": 120,
+     "method": "re-nma-pm-kh"
+    },
+    "time": {
+     "basis": "time",
+     "config": "net:r5-large-gen0@s200",
+     "sims": 200,
+     "elo": 1321,
+     "hw95": 116,
+     "displayElo": 1320,
+     "displayHw95": 120,
+     "method": "re-nma-pm-kh"
     }
    },
    "source": {
@@ -326,12 +366,25 @@
    "kwh": 0.712,
    "status": "measured",
    "strength": {
-    "elo": 798,
-    "ci": 261,
-    "source": {
-     "doc": "docs/training.md",
-     "line": 2871,
-     "needle": "`ab:25600`"
+    "sims": {
+     "basis": "sims",
+     "config": "net:r5-large-gen10@s200",
+     "sims": 200,
+     "elo": 1907,
+     "hw95": 132,
+     "displayElo": 1910,
+     "displayHw95": 140,
+     "method": "re-nma-pm-kh"
+    },
+    "time": {
+     "basis": "time",
+     "config": "net:r5-large-gen10@s200",
+     "sims": 200,
+     "elo": 1907,
+     "hw95": 132,
+     "displayElo": 1910,
+     "displayHw95": 140,
+     "method": "re-nma-pm-kh"
     }
    },
    "source": {
@@ -498,6 +551,78 @@
     "line": 2783,
     "needle": "34 times (SMALL) and 52 times (LARGE)"
    }
+  }
+ ],
+ "ratings": {
+  "file": "models/ratings/ratings.json",
+  "scale": "2p-adj-r5",
+  "anchor": "ab:browser-r5@n20000",
+  "anchorElo": 1000,
+  "axis": {
+   "domain": [
+    1000,
+    2400
+   ],
+   "rule": "from the interval ends, rounded outward to 200; with these values [1000, 2400]"
+  },
+  "compareRule": "Use the direct match where one exists (the two entries above; unchanged from energy.json 'matches'). For any other pair use the pooled pairwise interval of scales.2p-adj-r5.pairs; a pair whose interval contains 0 is 'unresolved'. Deviation from plan section 5.5, which used the pooled interval for every pair."
+ },
+ "pairs": [
+  {
+   "a": "large-gen0",
+   "b": "small-gen0",
+   "basis": "sims",
+   "elo": 124,
+   "hw95": 76
+  },
+  {
+   "a": "small-gen9",
+   "b": "small-gen0",
+   "basis": "sims",
+   "elo": 642,
+   "hw95": 87
+  },
+  {
+   "a": "large-gen10",
+   "b": "large-gen0",
+   "basis": "sims",
+   "elo": 585,
+   "hw95": 92
+  },
+  {
+   "a": "large-gen10",
+   "b": "large-gen0",
+   "basis": "time",
+   "elo": 585,
+   "hw95": 92
+  },
+  {
+   "a": "small-gen9",
+   "b": "small-gen0",
+   "basis": "time",
+   "elo": 591,
+   "hw95": 175
+  },
+  {
+   "a": "large-gen10",
+   "b": "small-gen0",
+   "basis": "sims",
+   "elo": 710,
+   "hw95": 97
+  },
+  {
+   "a": "small-gen9",
+   "b": "large-gen0",
+   "basis": "sims",
+   "elo": 517,
+   "hw95": 91
+  },
+  {
+   "a": "large-gen0",
+   "b": "small-gen0",
+   "basis": "time",
+   "elo": -239,
+   "hw95": 135
   }
  ]
 }

@@ -72,6 +72,8 @@ export function EnergyFigure({ data = ENERGY_DATA, initial }: EnergyFigureProps)
   ];
 
   const yLines = wrapLabel(plain(spec.y.key === 'kwh' ? 'fig.energy.axis.energy' : 'fig.energy.axis.elo'), compact ? 34 : 200);
+  // the margin holds the longest label (the Elo one) in all views, so that no view moves the frame: two lines at least
+  const topMargin = 14 + 15 * Math.max(2, wrapLabel(plain('fig.energy.axis.elo'), compact ? 34 : 200).length);
 
   const panel = (
     <Manipulate>
@@ -103,6 +105,9 @@ export function EnergyFigure({ data = ENERGY_DATA, initial }: EnergyFigureProps)
       </Entry>
       <Entry off={!both} mark={<circle className="ml-fig-energy__mark" data-fill="hollow" cx="16" cy="8" r="4.5" />}>
         {t('fig.energy.legend.estimate')}
+      </Entry>
+      <Entry off={both} mark={<path className="ml-fig-plot__whisker" d="M16 1V15M11 1H21M11 15H21" />}>
+        {t('fig.energy.legend.interval')}
       </Entry>
       <Entry off={both || basis !== 'sims'} mark={<polygon className="ml-fig-energy__tri ml-fig-energy__tri--up" points="16,2 22,13 10,13" />}>
         {t('fig.energy.legend.match.sims')}
@@ -140,7 +145,7 @@ export function EnergyFigure({ data = ENERGY_DATA, initial }: EnergyFigureProps)
           <Plot
             layout={compact ? 'compact' : 'wide'}
             height={340}
-            margin={{ top: 44, ...(compact ? { left: 48 } : {}) }}
+            margin={{ top: topMargin, ...(compact ? { left: 48 } : {}) }}
             title={title}
             desc={plain(`fig.energy.desc.${view}`)}
             x={{ scale: 'log', domain: spec.x.domain, ticks: spec.x.ticks, format: f.tick, label: t(spec.x.key === 'kwh' ? 'fig.energy.axis.energy' : 'fig.energy.axis.time') }}
@@ -152,7 +157,7 @@ export function EnergyFigure({ data = ENERGY_DATA, initial }: EnergyFigureProps)
         </div>
         <div className="ml-fig-energy__info">
           {legend}
-          <EnergyDetail data={data} view={view} selected={selected} fig={fig} f={f} uid={`${uid}-d`} />
+          <EnergyDetail data={data} basis={basis} view={view} selected={selected} fig={fig} f={f} uid={`${uid}-d`} />
         </div>
         <EnergyTable data={data} basis={basis} selected={selected} onSelect={setSelected} fig={fig} f={f} id={tableId} />
       </div>

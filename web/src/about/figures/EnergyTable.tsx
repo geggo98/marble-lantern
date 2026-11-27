@@ -29,8 +29,10 @@ export function frontWords(row: EnergyRow, data: EnergyData, fig: FigText): stri
   return '–';
 }
 
-function StrengthText({ row, data, f, fig }: { row: EnergyRow; data: EnergyData; f: EnergyFmt; fig: FigText }): React.JSX.Element {
-  if (row.strength) return <>{f.elo(row.strength.elo, row.strength.ci)}</>;
+/** The strength cell: the rating of the basis as the display values print it ("1,840 ± 130"), or why a row has none. */
+function StrengthText({ row, basis, data, f, fig }: { row: EnergyRow; basis: Basis; data: EnergyData; f: EnergyFmt; fig: FigText }): React.JSX.Element {
+  const rating = row.strength?.[basis];
+  if (rating) return <>{f.rating(rating.displayElo, rating.displayHw95)}</>;
   const parent = parentRun(row, data);
   if (parent) return <>{fig.t('fig.energy.strength.part', { code: rowCode(parent) })}</>;
   return <>{fig.t('fig.energy.strength.none')}</>;
@@ -82,7 +84,7 @@ export function EnergyTable({ data, basis, selected, onSelect, fig, f, id }: Tab
               {fx && <span className="ml-fig-energy__factor-line">{fx.energy}</span>}
             </td>
             <td className="ml-fig-energy__strength" data-label={t('fig.energy.col.strength')}>
-              <StrengthText row={row} data={data} f={f} fig={fig} />
+              <StrengthText row={row} basis={basis} data={data} f={f} fig={fig} />
             </td>
             <td className="ml-fig-energy__front-cell" data-label={t('fig.energy.col.front')}>
               {row.group === 'run' ? front : <span className="ml-visually-hidden">{t('fig.energy.front.na')}</span>}
@@ -120,6 +122,7 @@ export function EnergyTable({ data, basis, selected, onSelect, fig, f, id }: Tab
 
 export interface DetailProps {
   data: EnergyData;
+  basis: Basis;
   view: View;
   selected: string;
   fig: FigText;
@@ -128,7 +131,7 @@ export interface DetailProps {
   uid: string;
 }
 
-export function EnergyDetail({ data, view, selected, fig, f, uid }: DetailProps): React.JSX.Element {
+export function EnergyDetail({ data, basis, view, selected, fig, f, uid }: DetailProps): React.JSX.Element {
   const { t } = fig;
   return (
     <section className="ml-fig-energy__detail" aria-labelledby={`${uid}-${selected}`} data-part="detail">
@@ -175,12 +178,27 @@ export function EnergyDetail({ data, view, selected, fig, f, uid }: DetailProps)
                 </div>
                 <div>
                   <dt>{t('fig.energy.detail.strength')}</dt>
-                  <dd>
-                    <StrengthText row={row} data={data} f={f} fig={fig} />
-                  </dd>
-                  {(['sims', 'time'] as const).map((basis) => {
-                    const m = matchOf(row, basis, data);
-                    return m ? <dd key={basis}>{t(`fig.energy.detail.match.${basis}`, { v: f.elo(m.elo, m.ci) })}</dd> : null;
+                  {row.strength ? (
+                    <>
+                      <dd>{t('fig.energy.detail.rating.sims', { v: f.rating(row.strength.sims.displayElo, row.strength.sims.displayHw95) })}</dd>
+                      {row.strength.time.config !== row.strength.sims.config && (
+                        <dd>
+                          {t('fig.energy.detail.rating.time', {
+                            sims: fig.fmt.fixed(row.strength.time.sims, 0),
+                            v: f.rating(row.strength.time.displayElo, row.strength.time.displayHw95),
+                          })}
+                        </dd>
+                      )}
+                      <dd>{t('fig.energy.detail.method')}</dd>
+                    </>
+                  ) : (
+                    <dd>
+                      <StrengthText row={row} basis={basis} data={data} f={f} fig={fig} />
+                    </dd>
+                  )}
+                  {(['sims', 'time'] as const).map((b) => {
+                    const m = matchOf(row, b, data);
+                    return m ? <dd key={b}>{t(`fig.energy.detail.match.${b}`, { v: f.elo(m.elo, m.ci) })}</dd> : null;
                   })}
                 </div>
                 {row.group === 'run' && (

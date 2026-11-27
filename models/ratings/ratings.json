@@ -1,0 +1,911 @@
+{
+ "schema": 1,
+ "date": "2026-11-27",
+ "status": "evaluation result, not yet integrated",
+ "anchorRule": "classical browser engine at 20000 nodes = 1000, per scale",
+ "methods": {
+  "re-nma-pm-kh": "Random-effects fit at edge level. Per edge: Elo difference y = 400*log10(p/(1-p)) (three players, one against two: 400*log10(2p/(1-p))) with p = (points + prior)/(games + 1), standard error clustered over opening pairs or openings (binomial for totals-only edges). Weighted least squares over all edges of the scale with weights 1/(se^2 + tau^2); tau (between-edge standard deviation, Elo) by the Paule-Mandel estimator; half-width = t(df, 0.975) * standard error against the anchor (Knapp-Hartung quantile). Check: leave-one-edge-out 95 % prediction intervals cover 47 of 49 (2p-adj-r5), 16 of 16 (2p-adj-r4), 31 of 32 (3p-adj-r4) edges; the fixed-effect model covers 20 of 49, 10 of 16, 22 of 32.",
+  "direct-match": "Elo difference of one head-to-head match, 400*log10(p/(1-p)), interval from that match alone (docs/training.md). Describes this pairing only.",
+  "bt-mle-bootstrap": "Bradley-Terry maximum likelihood with cluster bootstrap over openings (scripts/elo/fit.py, tier1/ratings.json). Intervals contain sampling error only; rejected as published interval because the model does not fit (deviance p 0.005 to 0.010)."
+ },
+ "scales": {
+  "2p-adj-r5": {
+   "anchor": "ab:browser-r5@n20000",
+   "input": "34 Tier 1 edges + all 19 Tier 0 edges (E1, E2, E3, H2H, equal-time, ladder check); 53 edges, 22200 games",
+   "tauElo": 72,
+   "tauCi95": [
+    54,
+    102
+   ],
+   "df": 29,
+   "btDeviance": {
+    "deviance": 132.11157504857482,
+    "df": 18,
+    "p": 0.004975124378109453,
+    "maxAbsResidual": 5.147473122939825,
+    "priorGames": 1.0
+   },
+   "players": [
+    {
+     "id": "net:r5-small-gen9@s1000",
+     "elo": 2151,
+     "hw95": 164,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 2297,
+     "tier1BtHw95": 60
+    },
+    {
+     "id": "net:r5-large-gen10@s200",
+     "elo": 1907,
+     "hw95": 132,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 2092,
+     "tier1BtHw95": 52
+    },
+    {
+     "id": "net:r5-small-gen9@s200",
+     "elo": 1839,
+     "hw95": 125,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1968,
+     "tier1BtHw95": 47
+    },
+    {
+     "id": "net:r5-small-gen6@s200",
+     "elo": 1799,
+     "hw95": 138,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1881,
+     "tier1BtHw95": 45
+    },
+    {
+     "id": "net:r5-small-gen4@s200",
+     "elo": 1705,
+     "hw95": 137,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1778,
+     "tier1BtHw95": 44
+    },
+    {
+     "id": "net:r5-small-gen9@s100",
+     "elo": 1705,
+     "hw95": 159,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1804,
+     "tier1BtHw95": 49
+    },
+    {
+     "id": "net:r5-small-gen2@s200",
+     "elo": 1598,
+     "hw95": 114,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1636,
+     "tier1BtHw95": 38
+    },
+    {
+     "id": "net:r5-small-gen9@s50",
+     "elo": 1570,
+     "hw95": 164,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1653,
+     "tier1BtHw95": 45
+    },
+    {
+     "id": "net:r5-small-gen0@s1000",
+     "elo": 1560,
+     "hw95": 150,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1551,
+     "tier1BtHw95": 41
+    },
+    {
+     "id": "ab:browser-r5@n500000",
+     "elo": 1455,
+     "hw95": 154,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1533,
+     "tier1BtHw95": 46
+    },
+    {
+     "id": "ab:browser-r5@n223607",
+     "elo": 1362,
+     "hw95": 146,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1430,
+     "tier1BtHw95": 42
+    },
+    {
+     "id": "net:r5-small-gen1@s200",
+     "elo": 1360,
+     "hw95": 107,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1379,
+     "tier1BtHw95": 34
+    },
+    {
+     "id": "net:r5-large-gen0@s200",
+     "elo": 1321,
+     "hw95": 116,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1310,
+     "tier1BtHw95": 34
+    },
+    {
+     "id": "ab:browser-r5@n102400",
+     "elo": 1307,
+     "hw95": 173,
+     "method": "re-nma-pm-kh",
+     "note": "rung of the earlier ladder (Tier 0 data only), placed through network edges; not an app level"
+    },
+    {
+     "id": "ab:browser-r5@n100000",
+     "elo": 1259,
+     "hw95": 126,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1277,
+     "tier1BtHw95": 33
+    },
+    {
+     "id": "net:r5-small-gen0@s200",
+     "elo": 1197,
+     "hw95": 100,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1204,
+     "tier1BtHw95": 28
+    },
+    {
+     "id": "ab:browser-r5@n44721",
+     "elo": 1153,
+     "hw95": 108,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1151,
+     "tier1BtHw95": 26
+    },
+    {
+     "id": "ab:browser-r5@n25600",
+     "elo": 1117,
+     "hw95": 134,
+     "method": "re-nma-pm-kh",
+     "note": "rung of the earlier ladder (Tier 0 data only), placed through network edges; not an app level"
+    },
+    {
+     "id": "ab:browser-r5@n6400",
+     "elo": 1030,
+     "hw95": 130,
+     "method": "re-nma-pm-kh",
+     "note": "rung of the earlier ladder (Tier 0 data only), placed through network edges; not an app level"
+    },
+    {
+     "id": "ab:browser-r5@n20000",
+     "elo": 1000,
+     "hw95": 0,
+     "method": "anchor",
+     "tier1BtElo": 1000,
+     "tier1BtHw95": 0
+    },
+    {
+     "id": "ab:browser-r5@n10000",
+     "elo": 922,
+     "hw95": 152,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 922,
+     "tier1BtHw95": 34
+    },
+    {
+     "id": "ab:browser-r5@n5000",
+     "elo": 826,
+     "hw95": 214,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 826,
+     "tier1BtHw95": 48
+    },
+    {
+     "id": "ab:browser-r5@n1600",
+     "elo": 818,
+     "hw95": 134,
+     "method": "re-nma-pm-kh",
+     "note": "rung of the earlier ladder (Tier 0 data only), placed through network edges; not an app level"
+    },
+    {
+     "id": "ab:browser-r5@n2236",
+     "elo": 661,
+     "hw95": 263,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 661,
+     "tier1BtHw95": 54
+    },
+    {
+     "id": "ab:browser-r5@n1000",
+     "elo": 484,
+     "hw95": 303,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 484,
+     "tier1BtHw95": 65
+    }
+   ],
+   "pairs": [
+    {
+     "a": "net:r5-large-gen10@s200",
+     "b": "net:r5-small-gen9@s200",
+     "pooled": 68,
+     "pooledHw95": 85,
+     "direct": 131,
+     "directHw95": 24,
+     "directGames": 800
+    },
+    {
+     "a": "net:r5-large-gen10@s200",
+     "b": "net:r5-small-gen9@s1000",
+     "pooled": -244,
+     "pooledHw95": 117,
+     "direct": -172,
+     "directHw95": 38,
+     "directGames": 400
+    },
+    {
+     "a": "net:r5-large-gen0@s200",
+     "b": "net:r5-small-gen0@s200",
+     "pooled": 124,
+     "pooledHw95": 76,
+     "direct": 85,
+     "directHw95": 33,
+     "directGames": 400
+    },
+    {
+     "a": "net:r5-small-gen9@s200",
+     "b": "net:r5-small-gen0@s200",
+     "pooled": 642,
+     "pooledHw95": 87,
+     "direct": 810,
+     "directHw95": 116,
+     "directGames": 800
+    },
+    {
+     "a": "net:r5-large-gen10@s200",
+     "b": "net:r5-large-gen0@s200",
+     "pooled": 585,
+     "pooledHw95": 92,
+     "direct": 562,
+     "directHw95": 46,
+     "directGames": 800
+    },
+    {
+     "a": "net:r5-small-gen9@s1000",
+     "b": "net:r5-small-gen9@s200",
+     "pooled": 312,
+     "pooledHw95": 118,
+     "direct": 390,
+     "directHw95": 55,
+     "directGames": 400
+    },
+    {
+     "a": "net:r5-small-gen9@s1000",
+     "b": "net:r5-small-gen0@s1000",
+     "pooled": 591,
+     "pooledHw95": 175
+    },
+    {
+     "a": "net:r5-large-gen10@s200",
+     "b": "net:r5-small-gen0@s200",
+     "pooled": 710,
+     "pooledHw95": 97
+    },
+    {
+     "a": "net:r5-small-gen9@s200",
+     "b": "net:r5-large-gen0@s200",
+     "pooled": 517,
+     "pooledHw95": 91
+    },
+    {
+     "a": "net:r5-large-gen0@s200",
+     "b": "net:r5-small-gen0@s1000",
+     "pooled": -239,
+     "pooledHw95": 135
+    }
+   ]
+  },
+  "2p-adj-r4": {
+   "anchor": "ab:browser-r4@n20000",
+   "input": "16 Tier 1 edges, 4800 games",
+   "tauElo": 38,
+   "tauCi95": [
+    20,
+    86
+   ],
+   "df": 7,
+   "btDeviance": {
+    "deviance": 27.5304669018701,
+    "df": 7,
+    "p": 0.009950248756218905,
+    "maxAbsResidual": 2.8619939898633575,
+    "priorGames": 1.0
+   },
+   "players": [
+    {
+     "id": "ab:browser-r4@n100000",
+     "elo": 1227,
+     "hw95": 94,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1227,
+     "tier1BtHw95": 33
+    },
+    {
+     "id": "net:shared-gen0@s800",
+     "elo": 1188,
+     "hw95": 75,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1187,
+     "tier1BtHw95": 30
+    },
+    {
+     "id": "ab:browser-r4@n44721",
+     "elo": 1098,
+     "hw95": 74,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1101,
+     "tier1BtHw95": 27
+    },
+    {
+     "id": "ab:browser-r4@n20000",
+     "elo": 1000,
+     "hw95": 0,
+     "method": "anchor",
+     "tier1BtElo": 1000,
+     "tier1BtHw95": 0
+    },
+    {
+     "id": "net:shared-gen0@s200",
+     "elo": 901,
+     "hw95": 65,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 900,
+     "tier1BtHw95": 27
+    },
+    {
+     "id": "ab:browser-r4@n10000",
+     "elo": 863,
+     "hw95": 80,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 866,
+     "tier1BtHw95": 30
+    },
+    {
+     "id": "ab:browser-r4@n5000",
+     "elo": 838,
+     "hw95": 86,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 838,
+     "tier1BtHw95": 32
+    },
+    {
+     "id": "ab:browser-r4@n2236",
+     "elo": 705,
+     "hw95": 116,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 706,
+     "tier1BtHw95": 40
+    },
+    {
+     "id": "ab:browser-r4@n1000",
+     "elo": 604,
+     "hw95": 116,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 604,
+     "tier1BtHw95": 45
+    },
+    {
+     "id": "net:shared-gen0@s50",
+     "elo": 569,
+     "hw95": 89,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 565,
+     "tier1BtHw95": 40
+    }
+   ]
+  },
+  "3p-adj-r4": {
+   "anchor": "ab:browser-3p@n20000",
+   "input": "32 Tier 1 one-against-two matches, 14400 games",
+   "tauElo": 48,
+   "tauCi95": [
+    31,
+    78
+   ],
+   "df": 23,
+   "btDeviance": {
+    "deviance": 159.80762684495258,
+    "df": 85,
+    "p": 0.004975124378109453,
+    "maxAbsResidual": 5.174716846759701,
+    "priorGames": 1.0,
+    "threePlayer": "one-dimensional"
+   },
+   "players": [
+    {
+     "id": "net:shared-gen0@s800",
+     "elo": 1521,
+     "hw95": 60,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1521,
+     "tier1BtHw95": 27
+    },
+    {
+     "id": "net:shared-gen0@s200",
+     "elo": 1332,
+     "hw95": 50,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1331,
+     "tier1BtHw95": 18
+    },
+    {
+     "id": "ab:browser-3p@n100000",
+     "elo": 1238,
+     "hw95": 71,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1237,
+     "tier1BtHw95": 24
+    },
+    {
+     "id": "ab:browser-3p@n44721",
+     "elo": 1202,
+     "hw95": 56,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1202,
+     "tier1BtHw95": 19
+    },
+    {
+     "id": "net:shared-gen0@s50",
+     "elo": 1108,
+     "hw95": 66,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 1102,
+     "tier1BtHw95": 23
+    },
+    {
+     "id": "ab:browser-3p@n20000",
+     "elo": 1000,
+     "hw95": 0,
+     "method": "anchor",
+     "tier1BtElo": 1000,
+     "tier1BtHw95": 0
+    },
+    {
+     "id": "ab:browser-3p@n10000",
+     "elo": 835,
+     "hw95": 60,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 839,
+     "tier1BtHw95": 19
+    },
+    {
+     "id": "ab:browser-3p@n5000",
+     "elo": 784,
+     "hw95": 69,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 793,
+     "tier1BtHw95": 27
+    },
+    {
+     "id": "ab:browser-3p@n2236",
+     "elo": 750,
+     "hw95": 88,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 759,
+     "tier1BtHw95": 32
+    },
+    {
+     "id": "ab:browser-3p@n1000",
+     "elo": 742,
+     "hw95": 89,
+     "method": "re-nma-pm-kh",
+     "tier1BtElo": 749,
+     "tier1BtHw95": 31
+    }
+   ],
+   "caveat": "Luce rating from one-against-two tables. Role-swap asymmetry: the pair difference measured with the weaker player alone is lower than with the stronger player alone in 13 of 16 pairs (combined z = -4.5). Kingmaking is not removable. Do not compare with a two-player scale."
+  }
+ },
+ "energyTable": {
+  "scale": "2p-adj-r5",
+  "axis": {
+   "label": "Elo on the scale 2p-adj-r5 (5 rows, two players, neighbour jump); level 3 = classical engine at 20,000 nodes = 1000",
+   "domainRule": "from the interval ends, rounded outward to 200; with these values [1000, 2400]"
+  },
+  "rows": {
+   "small-gen0": {
+    "sims": {
+     "config": "net:r5-small-gen0@s200",
+     "elo": 1197,
+     "hw95": 100,
+     "displayElo": 1200,
+     "displayHw95": 100
+    },
+    "time": {
+     "config": "net:r5-small-gen0@s1000",
+     "elo": 1560,
+     "hw95": 150,
+     "note": "optional; the equal-time comparison of the figure is gen9 against gen10"
+    }
+   },
+   "small-gen9": {
+    "sims": {
+     "config": "net:r5-small-gen9@s200",
+     "elo": 1839,
+     "hw95": 125,
+     "displayElo": 1840,
+     "displayHw95": 130
+    },
+    "time": {
+     "config": "net:r5-small-gen9@s1000",
+     "elo": 2151,
+     "hw95": 164,
+     "displayElo": 2150,
+     "displayHw95": 170
+    }
+   },
+   "large-gen0": {
+    "sims": {
+     "config": "net:r5-large-gen0@s200",
+     "elo": 1321,
+     "hw95": 116,
+     "displayElo": 1320,
+     "displayHw95": 120
+    },
+    "time": {
+     "config": "net:r5-large-gen0@s200",
+     "elo": 1321,
+     "hw95": 116,
+     "displayElo": 1320,
+     "displayHw95": 120
+    }
+   },
+   "large-gen10": {
+    "sims": {
+     "config": "net:r5-large-gen10@s200",
+     "elo": 1907,
+     "hw95": 132,
+     "displayElo": 1910,
+     "displayHw95": 140
+    },
+    "time": {
+     "config": "net:r5-large-gen10@s200",
+     "elo": 1907,
+     "hw95": 132,
+     "displayElo": 1910,
+     "displayHw95": 140
+    }
+   }
+  },
+  "interval": "vertical bar = elo +- hw95 against the anchor (method re-nma-pm-kh). The bars of the rows share most of their error (the path to the anchor), so overlapping bars do not decide which row is stronger.",
+  "compare": [
+   {
+    "a": "large-gen10",
+    "b": "small-gen9",
+    "basis": "sims",
+    "elo": 131,
+    "hw95": 24,
+    "method": "direct-match",
+    "games": 800,
+    "pooledElo": 68,
+    "pooledHw95": 85,
+    "verdict": "LARGE stronger"
+   },
+   {
+    "a": "large-gen10",
+    "b": "small-gen9",
+    "basis": "time",
+    "elo": -173,
+    "hw95": 36,
+    "method": "direct-match",
+    "games": 400,
+    "pooledElo": -244,
+    "pooledHw95": 117,
+    "verdict": "SMALL stronger"
+   }
+  ],
+  "compareRule": "Use the direct match where one exists (the two entries above; unchanged from energy.json 'matches'). For any other pair use the pooled pairwise interval of scales.2p-adj-r5.pairs; a pair whose interval contains 0 is 'unresolved'. Deviation from plan section 5.5, which used the pooled interval for every pair.",
+  "rowsWithoutRating": "small-steps-gpu, small-steps-cpu, large-steps-gpu, large-steps-cpu: no rating, no interpolation, no bar; drawn as today (the 'at least' line or not drawn). The CPU-trained networks were not played.",
+  "replaces": {
+   "small-gen0": "+131 +- 33 against ab:25600",
+   "small-gen9": "+611 +- 112",
+   "large-gen0": "+242 +- 39",
+   "large-gen10": "+798 +- 261"
+  },
+  "caveatsIntent": [
+   "The number is a position on a pooled scale of 25 players, anchored at level 3 = 1000; it has no relation to chess or federation Elo.",
+   "The interval includes the disagreement between matches (tau about 70 Elo per match), not only the sampling error; the sampling error alone would be about +-30 to +-60.",
+   "Differences are not additive on this scale: sums of small steps exceed the directly measured large steps. Against the classical engine at 25,600 nodes SMALL generation 9 scored 0.971 (12 losses in 400 games); its rating would predict about 0.99.",
+   "LARGE against SMALL is stated from the head-to-head matches (+131 +- 24 at 200 simulations, -173 +- 36 at equal CPU time), not from the difference of the two ratings.",
+   "Equal time means SMALL at 1,000 and LARGE at 200 simulations on this CPU with the Java engine (546 against 597 CPU-ms per move in Tier 1); it does not hold for the browser or a GPU.",
+   "Java player, batch 1, F32 weights; the browser build was not measured.",
+   "All top-rated networks descend from self-play; ratings from this engine pool describe this pool."
+  ]
+ },
+ "bridge": {
+  "verdict": "separate",
+  "mixedElo": "none published",
+  "test": [
+   {
+    "scales": [
+     "2p-adj-r4",
+     "3p-adj-r4"
+    ],
+    "chi2": 1616.4660770895564,
+    "df": 6,
+    "p": 0.0,
+    "offset": 0.0,
+    "slope": 1.342131796308528,
+    "tau": 234.21551933539064,
+    "verdict": "separate",
+    "reasons": [
+     "one offset rejected (p = 0)",
+     "tau = 234 > 50"
+    ],
+    "players": [
+     "ab1000",
+     "ab100000",
+     "ab20000",
+     "ab5000",
+     "shared200",
+     "shared50",
+     "shared800"
+    ],
+    "d": [
+     -145.65290481536715,
+     -9.869863766958815,
+     0.0,
+     44.644041699631316,
+     -430.83653845221465,
+     -537.0130320100076,
+     -334.55851095777734
+    ],
+    "dHalf": [
+     53.72219147511039,
+     41.192148958353556,
+     0.0,
+     41.75482874224524,
+     31.89927182542388,
+     46.03825981450353,
+     40.132410582060544
+    ]
+   }
+  ],
+  "table": [
+   {
+    "id": "ab1000",
+    "2p-adj-r4": {
+     "elo": 604,
+     "hw95": 116
+    },
+    "3p-adj-r4": {
+     "elo": 742,
+     "hw95": 89
+    }
+   },
+   {
+    "id": "ab5000",
+    "2p-adj-r4": {
+     "elo": 838,
+     "hw95": 86
+    },
+    "3p-adj-r4": {
+     "elo": 784,
+     "hw95": 69
+    }
+   },
+   {
+    "id": "ab20000",
+    "2p-adj-r4": {
+     "elo": 1000,
+     "hw95": 0
+    },
+    "3p-adj-r4": {
+     "elo": 1000,
+     "hw95": 0
+    }
+   },
+   {
+    "id": "ab100000",
+    "2p-adj-r4": {
+     "elo": 1227,
+     "hw95": 94
+    },
+    "3p-adj-r4": {
+     "elo": 1238,
+     "hw95": 71
+    }
+   },
+   {
+    "id": "shared50",
+    "2p-adj-r4": {
+     "elo": 569,
+     "hw95": 89
+    },
+    "3p-adj-r4": {
+     "elo": 1108,
+     "hw95": 66
+    }
+   },
+   {
+    "id": "shared200",
+    "2p-adj-r4": {
+     "elo": 901,
+     "hw95": 65
+    },
+    "3p-adj-r4": {
+     "elo": 1332,
+     "hw95": 50
+    }
+   },
+   {
+    "id": "shared800",
+    "2p-adj-r4": {
+     "elo": 1188,
+     "hw95": 75
+    },
+    "3p-adj-r4": {
+     "elo": 1521,
+     "hw95": 60
+    }
+   }
+  ],
+  "label": "1000 means level 3 of this game type; numbers of different columns are not comparable beyond that."
+ },
+ "levels": {
+  "2p-adj-r4": [
+   {
+    "level": 1,
+    "nodes": 1000,
+    "elo": 604,
+    "hw95": 116
+   },
+   {
+    "level": 2,
+    "nodes": 5000,
+    "elo": 838,
+    "hw95": 86
+   },
+   {
+    "level": 3,
+    "nodes": 20000,
+    "elo": 1000,
+    "hw95": 0
+   },
+   {
+    "level": 4,
+    "nodes": 100000,
+    "elo": 1227,
+    "hw95": 94
+   },
+   {
+    "level": 5,
+    "nodes": 500000,
+    "elo": null,
+    "note": "not rated in Tier 1"
+   }
+  ],
+  "2p-adj-r5": [
+   {
+    "level": 1,
+    "nodes": 1000,
+    "elo": 484,
+    "hw95": 303
+   },
+   {
+    "level": 2,
+    "nodes": 5000,
+    "elo": 826,
+    "hw95": 214
+   },
+   {
+    "level": 3,
+    "nodes": 20000,
+    "elo": 1000,
+    "hw95": 0
+   },
+   {
+    "level": 4,
+    "nodes": 100000,
+    "elo": 1259,
+    "hw95": 126
+   },
+   {
+    "level": 5,
+    "nodes": 500000,
+    "elo": 1455,
+    "hw95": 154
+   }
+  ],
+  "3p-adj-r4": [
+   {
+    "level": 1,
+    "nodes": 1000,
+    "elo": 742,
+    "hw95": 89
+   },
+   {
+    "level": 2,
+    "nodes": 5000,
+    "elo": 784,
+    "hw95": 69
+   },
+   {
+    "level": 3,
+    "nodes": 20000,
+    "elo": 1000,
+    "hw95": 0
+   },
+   {
+    "level": 4,
+    "nodes": 100000,
+    "elo": 1238,
+    "hw95": 71
+   },
+   {
+    "level": 5,
+    "nodes": 500000,
+    "elo": null,
+    "note": "not rated in Tier 1"
+   }
+  ]
+ },
+ "humans": {
+  "status": "estimate without human data; move-quality equivalent, not a measured rating",
+  "namedClasses": "none in the app; the skill card reports a node budget and a position relative to levels 1 to 5 (web/src/skill/describe.ts)",
+  "2p-adj-r4": [
+   {
+    "cardOutput": "weaker than anything measured / below level 1 (50 to about 750 nodes)",
+    "elo": "below 604; no rated rung below 1,000 nodes"
+   },
+   {
+    "cardOutput": "at level 1 (1,000 nodes)",
+    "elo": 604,
+    "rungHw95": 116
+   },
+   {
+    "cardOutput": "between level 1 and 2",
+    "elo": "604 to 838"
+   },
+   {
+    "cardOutput": "at level 2 (5,000 nodes)",
+    "elo": 838,
+    "rungHw95": 86
+   },
+   {
+    "cardOutput": "between level 2 and 3",
+    "elo": "838 to 1000"
+   },
+   {
+    "cardOutput": "at level 3 (20,000 nodes)",
+    "elo": 1000,
+    "rungHw95": 0
+   },
+   {
+    "cardOutput": "between level 3 and 4, below 50,000 nodes",
+    "elo": "1000 to about 1116"
+   },
+   {
+    "cardOutput": "at least 50,000 nodes (top of the estimator)",
+    "elo": "at least about 1116 (rung +-74); levels 4 (1227 +- 94) and 5 (not rated) cannot be told apart by the estimator"
+   }
+  ],
+  "2p-adj-r5": "level table only (levels.2p-adj-r5); the estimator is not calibrated on 5 rows, so no mapping from move loss to this scale is defensible",
+  "boundedErrorHw95": {
+   "measuredMoves1000": 150,
+   "measuredMoves300": 210,
+   "measuredMoves100": 320,
+   "components": "player sampling 1.96*20/sqrt(N) loss points at 70 to 83 Elo per point; calibration rung +-1.1 points (about +-85 Elo); rating of the rung +-86 to +-116; combined in quadrature"
+  },
+  "unbounded": [
+   "same mean move loss = same playing strength, for a human against an engine",
+   "the judge is a 20,000-node search with the same evaluation as the rated engine",
+   "losses of moves within one game are correlated; the calibration error treats them as independent (16 games per budget)",
+   "no rated rung below 1,000 nodes; above 50,000 nodes the estimator is flat"
+  ]
+ },
+ "tier2": {
+  "recommendation": "do not run the planned 41 h now",
+  "reason": "intervals are dominated by between-edge disagreement (tau 38 to 72 Elo), not by sampling (median edge standard error 19 to 20 Elo); more games on existing edges (8.3 h block) cannot shrink them, and the bridge verdict is already decisive",
+  "reduced": "if ratings of the shipped 4-row models or a human table below level 1 are wanted: 2p-adj-r4 only, at 150 to 200 pairs, with the rungs 50, 200, 500 nodes and with every network playing at least three classical rungs directly and unsaturated (score 0.25 to 0.75); about 10 h. For three players: the six mixed tables before any further one-against-two matches."
+ }
+}
