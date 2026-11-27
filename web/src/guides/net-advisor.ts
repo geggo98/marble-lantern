@@ -12,6 +12,7 @@ import type { EngineWarning, ReasonCode } from '../engines/warnings';
 import { isDefault, sideAt, variantKey } from '../game/variant';
 import type { Variant } from '../game/variant';
 import { findDivergences, needsProbe } from './divergence';
+import { getNetLoss, setNetLoss } from './net-loss';
 import type { ClassicalResult, Divergence, NetResult } from './divergence';
 
 export type NetAdvisorStatus = 'idle' | 'loading' | 'thinking' | 'marks' | 'none' | 'skipped' | 'failed';
@@ -50,6 +51,9 @@ export function netKey(scope: string, modelId: string | null, variant: Variant, 
   return `${scope}|${modelId ?? 'none'}@${variantKey(variant)}:${history.join(',')}`;
 }
 
+/** The net engine could not be started (init failed): the slot has dropped the engine, and the device is treated as lost for the session. */
+class InitFailed extends Error {}
+
 const isAbort = (e: unknown): boolean => (e as { name?: unknown } | null)?.name === 'AbortError';
 
 interface Cached { status: 'marks' | 'none'; trap: Divergence | null; special: Divergence | null }
@@ -66,7 +70,7 @@ function unusableReason(backend: string | undefined, warnings: readonly EngineWa
 }
 
 export class NetAdvisor {
-  private state: NetAdvisorState = { status: 'idle', key: null, trap: null, special: null, lost: null };
+  private state: NetAdvisorState = { status: 'idle', key: null, trap: null, special: null, lost: getNetLoss() };
   private readonly cache = new Map<string, Cached>();
   private readonly listeners = new Set<() => void>();
   private running: { key: string; controller: AbortController } | null = null;
@@ -106,7 +110,7 @@ export class NetAdvisor {
     const key = this.keyFor(scope, history, variant);
     if (this.running?.key === key) return;
     this.abortRunning();
-    const lost = this.state.lost;
+    const lost = this.state.lost ?? getNetLoss();
     if (lost !== null) {
       this.set({ status: 'failed', key, trap: null, special: null, lost });
       return;
@@ -190,7 +194,7 @@ export class NetAdvisor {
         const value = await this.probe(probeEngine, history, move, variant, signal);
         if (!this.current(key, controller)) return;
         if (value.lost !== null) return this.lose(key, value.lost);
-        probes.set(move, value.value);
+        if (value.value !== null) probes.set(move, value.value);
       }
 
       const found = findDivergences(classical, net, probes);
@@ -204,6 +208,7 @@ export class NetAdvisor {
       this.set({ ...result, key, lost: null });
     } catch (e) {
       if (!this.current(key, controller) || isAbort(e)) return;
+      if (e instanceof InitFailed) return this.lose(key, 'load-failed'); // no retry with every position
       this.fail(key);
     }
   }
@@ -211,6 +216,7 @@ export class NetAdvisor {
   /**
    * The value of `move` for the mover, from a short search of the position after it: minus the score of the side to move there. A finished
    * game needs no search: +1 when the mover won, -1 when the mover lost, 0 for a draw.
+   * Null: the net did not search the child, so there is no value (findDivergences reads a missing probe as no trap).
    */
   private async probe(
     engine: Engine,
@@ -218,7 +224,7 @@ export class NetAdvisor {
     move: number,
     variant: Variant,
     signal: AbortSignal,
-  ): Promise<{ value: number; lost: null } | { value: 0; lost: string }> {
+  ): Promise<{ value: number | null; lost: null } | { value: 0; lost: string }> {
     const child = [...history, move];
     const outcome = await engine.outcome(child, variant);
     if (outcome.kind === 'win') return { value: outcome.winner === sideAt(history.length, variant) ? 1 : -1, lost: null };
@@ -226,6 +232,8 @@ export class NetAdvisor {
     const r: ChooseResult = await engine.choose(child, signal, variant);
     const lost = unusableReason(r.net?.backend, r.warnings ?? engine.warnings);
     if (lost !== null) return { value: 0, lost };
+    // The net did no search here (one legal move, a race move): `score` is the constant 0, not a value. No probe, so no trap is decided on it.
+    if (r.raceMove || r.net?.sims === 0 || !r.net?.root) return { value: null, lost: null };
     return { value: -r.score, lost: null };
   }
 
@@ -247,7 +255,14 @@ export class NetAdvisor {
         if (this.disposed) throw new Error('advisor disposed');
         slot.engine ??= this.deps.createEngine();
         if (!slot.inited) {
-          await slot.engine.init();
+          const engine = slot.engine;
+          try {
+            await engine.init();
+          } catch {
+            engine.dispose(); // the worker of a failed init must not stay behind
+            if (slot.engine === engine) slot.engine = null;
+            throw new InitFailed('the net engine did not start');
+          }
           slot.inited = true;
         }
         await slot.engine.newGame({ nodes: [1, 1], ...(isDefault(variant) ? {} : { variant }), model: modelId, netOptions: { sims } });
@@ -263,6 +278,7 @@ export class NetAdvisor {
 
   private lose(key: string, reason: string): void {
     this.running = null;
+    setNetLoss(reason);
     this.set({ status: 'failed', key, trap: null, special: null, lost: reason });
   }
 

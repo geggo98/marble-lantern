@@ -62,16 +62,17 @@
 .ml-guide-legend__piece { color: var(--ml-color-ink-muted); }
 .ml-guides-card__note { margin: var(--ml-space-2) 0 0; font-size: var(--ml-text-sm); color: var(--ml-color-ink-muted); }
 
-/* the chip: a 44 x 32 pill in the upper inline-end corner of the board box; its hit area is 44 x 44 (design: net hints, section 3.4) */
+/* the chip: a pill of at least 44 x 32 (it grows with the glyphs, so two glyphs fit at a larger root font size) in the upper inline-end corner of the board box; its hit area is 44 x 44 (design: net hints, section 3.4) */
 .ml-nethint-chip {
   position: absolute; inset-block-start: 0; inset-inline-end: 0; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center; gap: 2px; box-sizing: border-box;
-  inline-size: 44px; block-size: 32px; padding: 0; margin: 0; border-radius: var(--ml-radius-pill);
+  min-inline-size: 44px; min-block-size: 32px; padding: 0 var(--ml-space-1, 0.25rem); margin: 0; border-radius: var(--ml-radius-pill);
   border: var(--ml-border) solid var(--ml-color-line-strong); background: var(--ml-color-surface); color: var(--ml-color-ink-muted);
   cursor: pointer; font: inherit;
 }
 .ml-nethint-chip::before { content: ""; position: absolute; inset-block: -6px; inset-inline: 0; }
 .ml-nethint-chip:focus-visible { outline: var(--ml-focus-width) solid var(--ml-color-focus); outline-offset: var(--ml-focus-offset); }
+.ml-nethint-chip[aria-disabled="true"] { cursor: default; }
 .ml-nethint-chip[aria-expanded="true"] { background: var(--ml-color-surface-sunken); }
 .ml-nethint-chip[data-state="marks"] { color: var(--ml-color-ink); border-color: var(--ml-guide-net); }
 .ml-nethint-chip[data-state="failed"], .ml-nethint-chip[data-state="unavailable"] { border-style: dashed; }
@@ -98,7 +99,7 @@
 
 /* the panel on small screens: non-modal, over the advantage strip and the action bar (mobile.css places it) */
 .ml-nethints-panel {
-  z-index: 5; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; min-inline-size: 0;
+  z-index: 5; align-self: start; max-block-size: 100%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; min-inline-size: 0;
   padding: var(--ml-space-2) var(--ml-space-3); border-radius: var(--ml-radius-md);
   background: var(--ml-color-surface); box-shadow: var(--ml-shadow-card); border: var(--ml-border) solid var(--ml-color-line-strong);
   display: grid; gap: var(--ml-space-2); align-content: start;

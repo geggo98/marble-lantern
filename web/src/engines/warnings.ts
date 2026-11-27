@@ -28,6 +28,7 @@ export type ReasonCode =
   | 'webgpu-lost' // the GPU device was lost
   | 'load-failed' // the model file could not be fetched or read, or the backend rejected the weights
   | 'verify-failed' // the model file does not match its checksum or manifest entry
+  | 'net-engine-not-shipped' // this build has no net-webgpu engine, or the engine manifest is missing
   | 'unknown';
 
 /** What a WebGPU probe says: usable or not, and when not, why. */

@@ -451,6 +451,7 @@
   "net.reason.webgpu-device-failed": "Das Grafikgerät ließ sich nicht starten.",
   "net.reason.webgpu-lost": "Die Verbindung zum Grafikgerät ist abgebrochen.",
   "net.reason.load-failed": "Die Modelldatei ließ sich nicht herunterladen, lesen oder verwenden.",
+  "net.reason.net-engine-not-shipped": "Dieser Build enthält die WebGPU-Netz-Engine nicht.",
   "net.reason.verify-failed": "Die Modelldatei passt nicht zu ihrer Prüfsumme.",
   "net.reason.unknown": "Die Ursache ist unbekannt.",
   "net.details.summary": "Details",

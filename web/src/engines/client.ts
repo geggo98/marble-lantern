@@ -226,6 +226,8 @@ export class WorkerEngine implements Engine {
   }
 
   private startWorker(onProgress?: (p: Progress) => void): Promise<LoadReport> {
+    // A second init (the retry after a failed one) must not leave the first worker running.
+    this.worker?.terminate();
     this.worker = this.createWorker();
     // A copy is transferred; the main thread keeps the original for the next restart.
     const copy = this.table ? this.table.bytes.slice(0) : null;

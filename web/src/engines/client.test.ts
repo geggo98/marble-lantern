@@ -262,6 +262,21 @@ describe('WorkerEngine', () => {
     });
   });
 
+  it('a second init (the retry after a failed one) terminates the worker of the first', async () => {
+    const made: ManualWorker[] = [];
+    const engine = new WorkerEngine({ info: FAKE_INFO, assets, createWorker: () => { const w = new ManualWorker(); made.push(w); return w; } });
+    const first = engine.init();
+    made[0]!.reply({ id: made[0]!.requests[0]!.id, ok: false, error: { code: 'internal', message: 'no gpu' } });
+    await expect(first).rejects.toMatchObject({ message: 'no gpu' });
+    expect(made[0]!.terminated).toBe(false); // not yet: the client has not started another
+    const second = engine.init();
+    expect(made).toHaveLength(2);
+    expect(made[0]!.terminated).toBe(true);
+    expect(made[1]!.terminated).toBe(false);
+    made[1]!.reply({ id: made[1]!.requests[0]!.id, ok: true, result: { totalMs: 1, fetchMs: 0, inflateMs: 0, verifyMs: 0, instantiateMs: 0, tableInstallMs: 0, tableVerifiedBy: 'engine' } });
+    await second;
+  });
+
   it('rejects pending requests when the worker reports an error', async () => {
     const w = new ManualWorker();
     const engine = new WorkerEngine({ info: FAKE_INFO, assets, createWorker: () => w });

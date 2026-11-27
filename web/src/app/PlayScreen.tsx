@@ -200,7 +200,19 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the variant is named by its key
     [advisorSource?.manifest, advisorSource?.baseUrl, vKey],
   );
-  const netHints = useNetHints({ level: guideLevel, variant, humanTurn, history: state.history, classical, scope: guideScope, createEngine: createNetEngine });
+  const netHints = useNetHints({
+    level: guideLevel,
+    variant,
+    humanTurn,
+    // a demo and a finished game get no hints, and no "hints appear on your turn" either
+    demo,
+    over: Boolean(state.outcome),
+    history: state.history,
+    classical,
+    scope: guideScope,
+    createEngine: createNetEngine,
+    engineSourcePending: advisorSource === null,
+  });
   // The level that works now: a stored "net" without the net acts as "eval" (the stored value stays). The hook gets the stored level and
   // gates on its own availability, so there is no loop; `guidesOn` above reads the stored level, which gives the same answer for the
   // bands (eval and net both have them) and is available before the analysis runs.
@@ -220,15 +232,27 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // small screens: the net block opens as a panel over the advantage strip and the action bar (design, section 3.4)
   const [netPanel, setNetPanel] = useState(false);
   const [netSeen, setNetSeen] = useState(loadNetHintsSeen);
+  // the net block of the wide layout is in the guide card only at the effective level "net"; without it the chip has nothing to open
+  const netBlockShown = wide && netLevel;
+  const mainRef = useRef<HTMLElement | null>(null);
+  /** The focus goes to the chip, or to the page when the chip is gone, so that it never falls back to the body. */
+  const focusAfterPanel = (): void => {
+    const chip = document.querySelector<HTMLElement>('[data-nethint-chip]');
+    (chip ?? mainRef.current)?.focus({ preventScroll: true });
+  };
   const closePanel = (returnFocus: boolean): void => {
     setNetPanel(false);
-    if (returnFocus) document.querySelector<HTMLElement>('[data-nethint-chip]')?.focus();
+    if (returnFocus) focusAfterPanel();
   };
   // the panel goes with the position; the first mark that ever appears opens it by itself, once
   const plies = state.history.length;
   const previousPlies = useRef(plies);
   useEffect(() => {
-    if (previousPlies.current !== plies) setNetPanel(false);
+    if (previousPlies.current !== plies) {
+      // the panel goes with the position; a focus inside it would fall to the body when the panel is removed
+      const focusInside = document.getElementById(NET_PANEL_ID)?.contains(document.activeElement) ?? false;
+      closePanel(focusInside);
+    }
     previousPlies.current = plies;
   }, [plies]);
   useEffect(() => {
@@ -237,9 +261,11 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
     saveNetHintsSeen();
     setNetPanel(true);
   }, [wide, netHints.state, netSeen]);
+  const panelShown = !wide && netPanel && netHints.state !== 'off';
   const onChip = (): void => {
-    if (wide) document.getElementById(NET_BLOCK_ID)?.focus();
-    else setNetPanel((open) => !open);
+    if (wide) {
+      if (netBlockShown) document.getElementById(NET_BLOCK_ID)?.focus();
+    } else setNetPanel((open) => !open);
   };
   const boardGuides = useMemo(() => (guidesOn && guides.view ? { pieces: guides.view.pieces, moves: guides.view.moves } : null), [guidesOn, guides.view]);
   // the advantage strip: always on the play screen (docs/web-ui.md, "Advantage strip"); this is what it shows
@@ -269,7 +295,6 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
   // full ranking: the rank of each seat that is out, and the move after which it finished
   const rankOfSeat = new Map<number, string>((state.ranking ?? state.finished).map((seat, i) => [seat, rankText(i)] as const));
   const rankAfterMove = new Map<number, string>(turn.finishedAt.map((length, i) => [length - 1, rankText(i)] as const));
-  const mainRef = useRef<HTMLElement | null>(null);
   /** "Play on": the result card (and its button) goes away; the focus moves to the page so that it does not fall back to the body. */
   const playOn = (): void => {
     model.onPlayOn?.();
@@ -504,8 +529,8 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
                 marks={netMarkKinds}
                 live={netLive}
                 unavailableReason={netReasonText}
-                controls={wide ? NET_BLOCK_ID : NET_PANEL_ID}
-                {...(wide ? {} : { expanded: netPanel })}
+                {...(panelShown || netBlockShown ? { controls: wide ? NET_BLOCK_ID : NET_PANEL_ID } : {})}
+                {...(wide ? { interactive: netBlockShown } : { expanded: netPanel })}
                 onToggle={onChip}
               />
             }
@@ -540,7 +565,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
             />
           )}
         </div>
-        {!wide && netPanel && netHints.state !== 'off' && (
+        {panelShown && (
           <aside
             id={NET_PANEL_ID}
             className="ml-nethints-panel"
@@ -571,6 +596,7 @@ export function PlayScreen({ model }: { model: PlayModel }): React.JSX.Element {
         </div>
       ) : (
         <ActionBar
+          inert={panelShown}
           disabled={!ready}
           canUndo={state.history.length > 0}
           menuOpen={menu}

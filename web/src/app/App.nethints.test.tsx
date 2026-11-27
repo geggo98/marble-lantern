@@ -20,11 +20,14 @@ const hook = vi.hoisted(() => ({
   /** 'marks' needs a classical result; until it arrives the state is 'thinking'. */
   state: 'marks' as NetHintState,
   inputs: [] as UseNetHintsInput[],
+  /** Forces the state that the stand-in returns (the lost GPU, 'unavailable'); null: the logic below. */
+  force: null as NetHintState | null,
 }));
 vi.mock('../guides/useNetHints', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../guides/useNetHints')>()),
   useNetHints: (input: UseNetHintsInput): NetHintsModel => {
     hook.inputs.push(input);
+    if (hook.force !== null) return { availability: hook.availability, state: hook.force, trap: null, special: null };
     const active = input.level === 'net' && hook.availability.available && input.humanTurn;
     if (!active) return { availability: hook.availability, state: input.level === 'net' ? 'idle' : 'off', trap: null, special: null };
     const first = input.classical?.moves[0];
@@ -99,6 +102,7 @@ beforeEach(() => {
   hook.availability = { available: true, reason: null, lostInSession: false };
   hook.state = 'marks';
   hook.inputs = [];
+  hook.force = null;
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -112,7 +116,10 @@ describe('net hints in the play screen, wide', () => {
     await start(false);
     await until(() => all('[data-nethint-at="piece"]').length > 0, 'the net badge');
     const withClassical = hook.inputs.find((i) => i.classical !== null)!;
-    expect(Object.keys(withClassical).sort()).toEqual(['classical', 'createEngine', 'history', 'humanTurn', 'level', 'scope', 'variant']);
+    expect(Object.keys(withClassical).sort()).toEqual(['classical', 'createEngine', 'demo', 'engineSourcePending', 'history', 'humanTurn', 'level', 'over', 'scope', 'variant']);
+    expect(withClassical.demo).toBe(false);
+    expect(withClassical.over).toBe(false);
+    expect(withClassical.engineSourcePending).toBe(false); // the manifest is there once the session has started
     expect(withClassical.level).toBe('net');
     expect(withClassical.humanTurn).toBe(true);
     expect(withClassical.classical!.moves.length).toBe(withClassical.classical!.scores.length);
@@ -145,6 +152,29 @@ describe('net hints in the play screen, wide', () => {
     await until(() => q('[data-nethint-chip]') !== null, 'the chip');
     await click(q('[data-nethint-chip]')!);
     expect(document.activeElement).toBe(q('#ml-nethint-block'));
+  });
+
+  it('the chip names the net block it controls when the block is on the screen', async () => {
+    await start(false);
+    await until(() => q('[data-nethint-chip]') !== null, 'the chip');
+    expect(q('[data-nethint-chip]')!.getAttribute('aria-controls')).toBe('ml-nethint-block');
+    expect(document.getElementById('ml-nethint-block')).not.toBeNull();
+    expect(q('[data-nethint-chip]')!.hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('the chip of a lost GPU (state unavailable, no net block in the card) is not a dead button: no aria-controls, aria-disabled, the click does nothing', async () => {
+    hook.availability = { available: false, reason: { kind: 'reason', code: 'webgpu-lost' }, lostInSession: true };
+    hook.force = 'unavailable';
+    await start(false);
+    await until(() => q('[data-nethint-chip]') !== null, 'the chip');
+    const chip = q('[data-nethint-chip]')!;
+    expect(chip.getAttribute('data-state')).toBe('unavailable');
+    expect(document.getElementById('ml-nethint-block')).toBeNull(); // the level fell back to eval: no block
+    expect(chip.hasAttribute('aria-controls')).toBe(false);
+    expect(chip.getAttribute('aria-disabled')).toBe('true');
+    const active = document.activeElement;
+    await click(chip);
+    expect(document.activeElement).toBe(active);
   });
 
   it('draws no net mark and no chip below the level net', async () => {
@@ -209,6 +239,69 @@ describe('net hints in the play screen, small', () => {
     });
     expect(q('#ml-nethint-panel')).toBeNull();
     expect(document.activeElement).toBe(q('[data-nethint-chip]'));
+  });
+
+  it('no aria-controls while the panel is closed (its element does not exist); the open panel is named', async () => {
+    localStorage.setItem('ml.nethints.seen', '1');
+    await start(true);
+    await until(() => q('[data-nethint-chip]') !== null, 'the chip');
+    expect(q('[data-nethint-chip]')!.hasAttribute('aria-controls')).toBe(false);
+    await click(q('[data-nethint-chip]')!);
+    expect(q('[data-nethint-chip]')!.getAttribute('aria-controls')).toBe('ml-nethint-panel');
+  });
+
+  it('marks the action bar inert while the panel is open, and only then', async () => {
+    localStorage.setItem('ml.nethints.seen', '1');
+    await start(true);
+    await until(() => all('[data-nethint-at="piece"]').length > 0, 'the net badge');
+    expect(q('.ml-play__bar')!.hasAttribute('inert')).toBe(false);
+    await click(q('[data-nethint-chip]')!);
+    expect(q('.ml-play__bar')!.hasAttribute('inert')).toBe(true);
+    await click(q('.ml-nethints-panel__close')!);
+    expect(q('.ml-play__bar')!.hasAttribute('inert')).toBe(false);
+  });
+
+  it('Escape closes the panel with the bar inert and gives the bar back', async () => {
+    await start(true);
+    await until(() => q('#ml-nethint-panel') !== null, 'the panel');
+    expect(q('.ml-play__bar')!.hasAttribute('inert')).toBe(true);
+    q<HTMLElement>('.ml-nethints-panel__close')!.focus();
+    await act(async () => {
+      q('.ml-nethints-panel__close')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(q('.ml-play__bar')!.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(q('[data-nethint-chip]'));
+  });
+
+  it('a focus inside the panel goes to the chip when the position closes the panel, not to the body', async () => {
+    localStorage.setItem('ml.nethints.seen', '1');
+    await start(true);
+    await until(() => all('[data-nethint-at="piece"]').length > 0, 'the net badge');
+    await click(q('[data-nethint-chip]')!);
+    q<HTMLElement>('.ml-nethints-panel__close')!.focus();
+    expect(document.activeElement).toBe(q('.ml-nethints-panel__close'));
+    const piece = all('[data-nethint-at="piece"]')[0]!.getAttribute('data-cell-of')!;
+    await click(q(`[data-cell="${piece}"]`)!);
+    q<HTMLElement>('.ml-nethints-panel__close')!.focus(); // the board click does not take the focus in jsdom
+    const before = plies();
+    await click(all('[data-cell][aria-label*="target"]')[0]!);
+    await until(() => plies() > before, 'the move was played');
+    expect(q('#ml-nethint-panel')).toBeNull();
+    expect(document.activeElement).toBe(q('[data-nethint-chip]'));
+  });
+
+  it('a focus elsewhere is left alone when the position closes the panel', async () => {
+    localStorage.setItem('ml.nethints.seen', '1');
+    await start(true);
+    await until(() => all('[data-nethint-at="piece"]').length > 0, 'the net badge');
+    await click(q('[data-nethint-chip]')!);
+    const piece = all('[data-nethint-at="piece"]')[0]!.getAttribute('data-cell-of')!;
+    await click(q(`[data-cell="${piece}"]`)!);
+    (document.activeElement as HTMLElement | null)?.blur();
+    const before = plies();
+    await click(all('[data-cell][aria-label*="target"]')[0]!);
+    await until(() => plies() > before, 'the move was played');
+    expect(document.activeElement).not.toBe(q('[data-nethint-chip]'));
   });
 
   it('closes by itself when the position changes', async () => {

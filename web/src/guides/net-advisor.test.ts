@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { SCORE } from '../engines/analysis';
 import type { ChooseResult, Engine, EngineOutcome } from '../engines/engine';
 import type { EngineWarning } from '../engines/warnings';
@@ -6,6 +6,10 @@ import { DEFAULT_VARIANT } from '../game/variant';
 import { MIN_VISITS } from './divergence';
 import { ADVISOR_SIMS, NetAdvisor, PROBE_SIMS } from './net-advisor';
 import type { NetAdvisorState } from './net-advisor';
+import { getNetLoss, resetNetLoss } from './net-loss';
+
+// the loss of the net is kept for the session (net-loss.ts); every test starts without it
+beforeEach(() => { resetNetLoss(); });
 
 const V = DEFAULT_VARIANT;
 const abortError = (): Error => new DOMException('aborted', 'AbortError');
@@ -20,9 +24,10 @@ const classical = (scores: number[]) => ({ moves: scores.map((_, i) => i + 1), s
 
 interface Call { history: readonly number[]; signal: AbortSignal | undefined; resolve: (r: ChooseResult) => void; reject: (e: unknown) => void }
 
-const reply = (over: { score?: number; backend?: 'wasm' | 'webgpu' | 'random'; root?: { moves: number[]; visits: number[]; values?: number[] }; warnings?: EngineWarning[] } = {}): ChooseResult => ({
-  move: 1, score: over.score ?? 0, depth: 0, nodes: 1, ms: 0, raceMove: false, rows1Requests: 0,
-  net: { backend: over.backend ?? 'webgpu', sims: 1, batches: 1, ...(over.root ? { root: over.root } : {}) },
+const reply = (over: { score?: number; backend?: 'wasm' | 'webgpu' | 'random'; root?: { moves: number[]; visits: number[]; values?: number[] } | null; sims?: number; raceMove?: boolean; warnings?: EngineWarning[] } = {}): ChooseResult => ({
+  move: 1, score: over.score ?? 0, depth: 0, nodes: 1, ms: 0, raceMove: over.raceMove ?? false, rows1Requests: 0,
+  // a real search always reports its root; `root: null` is a result without one (no search happened)
+  net: { backend: over.backend ?? 'webgpu', sims: over.sims ?? 1, batches: 1, ...(over.root === null ? {} : { root: over.root ?? { moves: [1, 2], visits: [1, 1], values: [0, 0] } }) },
   ...(over.warnings ? { warnings: over.warnings } : {}),
 });
 const root = (visits: number[], values: number[]) => ({ moves: visits.map((_, i) => i + 1), visits, values });
@@ -134,17 +139,30 @@ describe('NetAdvisor: states and marks', () => {
     expect(advisor.getState().status).toBe('failed');
   });
 
-  it('a failing init is failed, and a later request tries the init again', async () => {
-    let fail = true;
-    const main = fake({ init: async () => { if (fail) throw new Error('no gpu device'); }, script: () => reply({ root: specialRoot }) });
-    const { advisor } = advisorOf([main]);
+  it('a failing init is lost for the session with the reason load-failed: the engine is disposed and later positions do not retry', async () => {
+    const main = fake({ init: async () => { throw new Error('no gpu device'); }, script: () => reply({ root: specialRoot }) });
+    const { advisor, created } = advisorOf([main, fake({ script: () => reply({ root: specialRoot }) })]);
     advisor.request('cpp', [], V, classical([BEST, FAIR]));
     await flush();
-    expect(advisor.getState()).toMatchObject({ status: 'failed', lost: null });
-    fail = false;
+    expect(advisor.getState()).toMatchObject({ status: 'failed', lost: 'load-failed' });
+    expect(main.disposed()).toBe(true);
+    expect(getNetLoss()).toBe('load-failed');
     advisor.request('cpp', [1], V, classical([BEST, FAIR]));
+    advisor.request('cpp', [1, 2], V, classical([BEST, FAIR]));
     await flush();
-    expect(advisor.getState().status).toBe('marks');
+    expect(advisor.getState()).toMatchObject({ status: 'failed', lost: 'load-failed' });
+    expect(main.inits()).toBe(1);
+    expect(created()).toBe(1);
+  });
+
+  it('a failing init of the probe engine is lost too, and that engine is disposed', async () => {
+    const main = fake({ script: () => reply({ root: root([MIN_VISITS - 1, 100], [-0.9, 0.5]) }) });
+    const probe = fake({ init: async () => { throw new Error('boom'); }, script: () => reply({}) });
+    const { advisor } = advisorOf([main, probe]);
+    advisor.request('cpp', [], V, classical([BEST, TOP]));
+    await flush();
+    expect(advisor.getState()).toMatchObject({ status: 'failed', lost: 'load-failed' });
+    expect(probe.disposed()).toBe(true);
   });
 });
 
@@ -256,6 +274,49 @@ describe('NetAdvisor: probes', () => {
     await flush();
     // seat 1 moves now and wins with move 1: +1 for move 1, so no trap
     expect(advisor.getState()).toMatchObject({ status: 'none', trap: null });
+  });
+
+  describe('a child where the net does no search has no value (no 0 that looks like a value)', () => {
+    // move 1 is the best classical move with few visits, favourite 2; both probed. Real child values: move 1 -> -0.9, move 2 -> +0.5.
+    // A no-search answer for move 1 would read as 0, which is a trap (0 <= 0.5 - 0.25) that the net never said.
+    const run = async (noSearch: Partial<Parameters<typeof reply>[0]>, favouriteNoSearch = false) => {
+      const main = fake({ script: () => reply({ root: lowRoot }) });
+      const probe = fake({
+        script: (h) => {
+          const mv = h[h.length - 1]!;
+          const dead = mv === (favouriteNoSearch ? 2 : 1);
+          return dead ? reply({ score: 0, ...noSearch }) : reply({ score: mv === 1 ? 0.9 : -0.5 });
+        },
+      });
+      const { advisor } = advisorOf([main, probe]);
+      advisor.request('cpp', [], V, classical([BEST, TOP]));
+      await flush();
+      return advisor.getState();
+    };
+    it('one legal move: sims 0 and no root gives no trap on the best move', async () => {
+      expect(await run({ sims: 0, root: null })).toMatchObject({ status: 'none', trap: null });
+    });
+    it('a race move gives no trap', async () => {
+      expect(await run({ raceMove: true })).toMatchObject({ status: 'none', trap: null });
+    });
+    it('a result without root gives no trap', async () => {
+      expect(await run({ root: null })).toMatchObject({ status: 'none', trap: null });
+    });
+    it('sims 0 with a root gives no trap', async () => {
+      expect(await run({ sims: 0 })).toMatchObject({ status: 'none', trap: null });
+    });
+    it('the favourite without a search does not hide a real trap as a value 0 either: still no trap decided', async () => {
+      // favourite would read 0, best -0.9: 0 - 0.25 >= -0.9 would be a trap; with no probe for the favourite it is not decided
+      expect(await run({ sims: 0, root: null }, true)).toMatchObject({ status: 'none', trap: null });
+    });
+    it('control: with real searches in both children the trap is found', async () => {
+      const main = fake({ script: () => reply({ root: lowRoot }) });
+      const probe = probeScripts({ 1: 0.9, 2: -0.5 });
+      const { advisor } = advisorOf([main, probe]);
+      advisor.request('cpp', [], V, classical([BEST, TOP]));
+      await flush();
+      expect(advisor.getState().trap).toMatchObject({ move: 1, netValue: -0.9, favouriteValue: 0.5 });
+    });
   });
 
   it('a random backend in a probe is lost', async () => {

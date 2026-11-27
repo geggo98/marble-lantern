@@ -15,6 +15,8 @@ import type { AdvisorLike, UseNetHintsInput } from './useNetHints';
 import { REASON_CODES, defaultModelCheck, knownReason, useNetHints } from './useNetHints';
 import type { NetAdvisorState } from './net-advisor';
 import type { NetHintsModel } from './net-hints-types';
+import { NetAdvisor } from './net-advisor';
+import { getNetLoss, resetNetLoss, setNetLoss } from './net-loss';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,7 +49,7 @@ const noEngine = (): Engine => { throw new Error('the faked advisor makes no eng
 
 let host: HTMLDivElement;
 let root: Root;
-beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { resetNetLoss(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 type Input = Partial<UseNetHintsInput>;
@@ -147,10 +149,60 @@ describe('useNetHints: availability', () => {
     expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'load-failed' });
   });
 
-  it('a build without the net engine is unavailable', async () => {
+  it('a build without the net engine says net-engine-not-shipped, not "no WebGPU API"', async () => {
     const h = setup(fakeAdvisor());
     await h.render({ createEngine: null });
-    expect(h.get().availability.available).toBe(false);
+    expect(h.get().availability).toMatchObject({ available: false, reason: { kind: 'reason', code: 'net-engine-not-shipped' } });
+  });
+
+  it('no manifest yet (engineSourcePending) is checking; once it is there without an engine, net-engine-not-shipped', async () => {
+    const h = setup(fakeAdvisor());
+    await h.render({ createEngine: null, engineSourcePending: true });
+    expect(h.get().availability.reason).toEqual({ kind: 'checking' });
+    await h.render({ createEngine: null, engineSourcePending: false });
+    expect(h.get().availability.reason).toEqual({ kind: 'reason', code: 'net-engine-not-shipped' });
+    await h.render({ createEngine: noEngine, engineSourcePending: false });
+    expect(h.get().availability.available).toBe(true);
+  });
+
+  it('the GPU loss survives a remount: a new mount with a new advisor starts out as lost', async () => {
+    const first = fakeAdvisor();
+    const h = setup(first);
+    await h.render();
+    expect(h.get().availability.available).toBe(true);
+    setNetLoss('webgpu-device-failed'); // what NetAdvisor.lose() writes
+    await h.render();
+    act(() => root.unmount());
+    root = createRoot(host);
+    const second = fakeAdvisor(); // a fresh advisor knows nothing of the loss
+    const h2 = setup(second);
+    await h2.render();
+    expect(h2.get().availability).toEqual({ available: false, reason: { kind: 'reason', code: 'webgpu-device-failed' }, lostInSession: true });
+  });
+
+  it('the hook follows a loss that is recorded while it is mounted', async () => {
+    const h = setup(fakeAdvisor());
+    await h.render();
+    expect(h.get().availability.lostInSession).toBe(false);
+    act(() => setNetLoss('webgpu-lost'));
+    expect(h.get().availability).toMatchObject({ available: false, lostInSession: true });
+  });
+
+  it('a real advisor that loses the GPU writes the store; the next real advisor does not call an engine', async () => {
+    let made = 0;
+    const engine = { warnings: [], async init() { return {}; }, async newGame() {}, dispose() {}, async outcome() { return { kind: 'ongoing' }; },
+      async choose() { return { move: 1, score: 0, depth: 0, nodes: 0, ms: 0, raceMove: false, rows1Requests: 0, net: { backend: 'random', sims: 0, batches: 0 } }; } } as unknown as Engine;
+    const a = new NetAdvisor({ createEngine: () => { made++; return engine; }, modelOf: () => 'm' });
+    a.request('cpp', [], DEFAULT_VARIANT, { moves: [1, 2], scores: [100, -20] });
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(getNetLoss()).toBe('webgpu-lost');
+    a.dispose();
+    const madeBefore = made;
+    const b = new NetAdvisor({ createEngine: () => { made++; return engine; }, modelOf: () => 'm' });
+    expect(b.getState().lost).toBe('webgpu-lost');
+    b.request('cpp', [], DEFAULT_VARIANT, { moves: [1, 2], scores: [100, -20] });
+    expect(b.getState()).toMatchObject({ status: 'failed', lost: 'webgpu-lost' });
+    expect(made).toBe(madeBefore);
   });
 
   it('the GPU lost in the session: lostInSession, reason webgpu-lost, and the mark of that position is "unavailable" until the next one', async () => {
@@ -252,6 +304,24 @@ describe('useNetHints: state shown', () => {
     await h.render({ humanTurn: true, classical: null });
     expect(h.get().state).toBe('thinking');
     expect(fake.requests).toHaveLength(0); // thinking, but the advisor waits for the classical scores
+  });
+
+  it.each([{ demo: true }, { over: true }])('no hints in a demo or after the game: %o is off, never "idle"', async (over) => {
+    const h = setup(fakeAdvisor());
+    await h.render({ humanTurn: false, ...over });
+    expect(h.get().state).toBe('off');
+    await h.render({ humanTurn: false, demo: false, over: false }); // the same input without it: the opponent is to move
+    expect(h.get().state).toBe('idle');
+  });
+
+  it('the chip of a lost GPU is off in a demo too', async () => {
+    const fake = fakeAdvisor();
+    const h = setup(fake);
+    await h.render();
+    fake.set({ status: 'failed', key: 'k:cpp:1,2', lost: 'webgpu-lost' });
+    expect(h.get().state).toBe('unavailable');
+    await h.render({ demo: true });
+    expect(h.get().state).toBe('off');
   });
 
   it('thinking until the advisor reports for this position', async () => {

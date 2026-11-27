@@ -4,6 +4,8 @@ import { MenuButton } from './Menu';
 import { useT } from './texts';
 
 export interface ActionBarProps {
+  /** The net panel lies over the bar: nothing in it may take focus or clicks while the panel is open. */
+  inert?: boolean;
   disabled: boolean;
   canUndo: boolean;
   menuOpen: boolean;
@@ -17,7 +19,7 @@ export interface ActionBarProps {
 export function ActionBar(props: ActionBarProps): React.JSX.Element {
   const { t } = useT();
   return (
-    <div className="ml-play__bar ml-actionbar" role="group" aria-label={t('bar_label')}>
+    <div className="ml-play__bar ml-actionbar" role="group" aria-label={t('bar_label')} inert={props.inert}>
       <button type="button" className="ml-btn" disabled={props.disabled || !props.canUndo} onClick={props.onUndo}>
         <Icon name="undo" />
         <span>{t('undo')}</span>

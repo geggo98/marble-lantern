@@ -103,7 +103,7 @@ describe('describeWarnings', () => {
     for (const x of d) expect(x.text).not.toMatch(/requestAdapter|GPU reset|sha256 differs/);
   });
 
-  it.each(['no-model-id', 'variant-not-supported', 'webassembly-unavailable', 'webgpu-no-api', 'webgpu-no-adapter', 'webgpu-device-failed', 'webgpu-lost', 'load-failed', 'verify-failed', 'unknown'] as const)(
+  it.each(['no-model-id', 'variant-not-supported', 'webassembly-unavailable', 'webgpu-no-api', 'webgpu-no-adapter', 'webgpu-device-failed', 'webgpu-lost', 'load-failed', 'verify-failed', 'net-engine-not-shipped', 'unknown'] as const)(
     'reason code %s has its own catalog text',
     (code) => {
       const key = `net.reason.${code}` as keyof typeof en;

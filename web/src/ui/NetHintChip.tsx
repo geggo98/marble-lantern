@@ -1,5 +1,5 @@
 // The chip in the upper inline-end corner of the board: the state of the net hints on every screen size (design: net hints, sections 3.4, 4.4).
-// A button of 44 x 32 px with a 44 x 44 px hit area, followed by a visually hidden live region that announces the arrival of marks.
+// A button of at least 44 x 32 px with a 44 x 44 px hit area, followed by a visually hidden live region that announces the arrival of marks.
 import type { NetHintState } from '../guides/net-hints-types';
 import type { NetMarkKind } from '../guides/marks';
 import { NetGlyph } from './GuideGlyph';
@@ -14,6 +14,8 @@ export interface NetHintChipProps {
   expanded?: boolean;
   /** The id of the panel or the net block that the chip controls. */
   controls?: string;
+  /** False when the click has nothing to open (the net block is not on the screen): the chip then only informs, through its label. Default true. */
+  interactive?: boolean;
   onToggle: () => void;
   /** The announcement for this position; the live region shows it only while the state is "marks". */
   live?: string;
@@ -21,7 +23,7 @@ export interface NetHintChipProps {
   unavailableReason?: string;
 }
 
-export function NetHintChip({ state, marks, expanded, controls, onToggle, live = '', unavailableReason }: NetHintChipProps): React.JSX.Element | null {
+export function NetHintChip({ state, marks, expanded, controls, interactive = true, onToggle, live = '', unavailableReason }: NetHintChipProps): React.JSX.Element | null {
   const { t } = useT();
   const stateText = useNetStateText(state, unavailableReason);
   if (state === 'off') return null;
@@ -37,7 +39,8 @@ export function NetHintChip({ state, marks, expanded, controls, onToggle, live =
         aria-busy={busy}
         {...(expanded !== undefined ? { 'aria-expanded': expanded } : {})}
         {...(controls ? { 'aria-controls': controls } : {})}
-        onClick={onToggle}
+        {...(interactive ? {} : { 'aria-disabled': true })}
+        onClick={interactive ? onToggle : undefined}
       >
         {busy ? (
           <span className="ml-nethint-chip__dots" aria-hidden="true">

@@ -12,6 +12,7 @@ import type { Variant } from '../game/variant';
 import { NetAdvisor } from './net-advisor';
 import type { NetAdvisorState } from './net-advisor';
 import type { ClassicalResult } from './divergence';
+import { getNetLoss, subscribeNetLoss } from './net-loss';
 import type { NetAvailability, NetHintState, NetHintsModel } from './net-hints-types';
 import type { GuideLevel } from './preference';
 
@@ -29,6 +30,12 @@ export interface UseNetHintsInput {
   classical: ClassicalResult | null;
   /** Identifies the classical engine for the cache (useGuides' scope); null while there is none. */
   scope: string | null;
+  /** A demo is on: nobody plays, so no hint is due and the state is "off". */
+  demo?: boolean;
+  /** The game is over: no further move, so no hint is due and the state is "off". */
+  over?: boolean;
+  /** `createEngine` is null only because the manifest of the session is not there yet (before the session has started): the availability is still "checking". */
+  engineSourcePending?: boolean;
   /** Makes the net-webgpu engine, not yet initialised (see netEngineFactory); null when this build or browser cannot run it. */
   createEngine: (() => Engine) | null;
   /** The WebGPU probe. Default: isWebGpuAvailable, loaded on first use. */
@@ -55,7 +62,7 @@ export function defaultModelCheck(variant: Variant): ReasonCode | null {
 /** Every ReasonCode has a catalog text `net.reason.<code>` (checked in the test); the record makes the compiler list a new code here. */
 const KNOWN_REASONS: Record<ReasonCode, true> = {
   'no-model-id': true, 'variant-not-supported': true, 'webassembly-unavailable': true, 'webgpu-no-api': true, 'webgpu-no-adapter': true,
-  'webgpu-device-failed': true, 'webgpu-lost': true, 'load-failed': true, 'verify-failed': true, unknown: true,
+  'webgpu-device-failed': true, 'webgpu-lost': true, 'load-failed': true, 'net-engine-not-shipped': true, 'verify-failed': true, unknown: true,
 };
 export const REASON_CODES: readonly string[] = Object.keys(KNOWN_REASONS);
 /** A code with no catalog text falls back to `webgpu-lost` (the advisor reports a string, not a ReasonCode), so the screen never shows a bare key. */
@@ -69,6 +76,8 @@ const idleState: NetAdvisorState = { status: 'idle', key: null, trap: null, spec
 
 export function useNetHints(input: UseNetHintsInput): NetHintsModel {
   const { level, variant, humanTurn, history, classical, scope, createEngine } = input;
+  const engineSourcePending = input.engineSourcePending ?? false;
+  const idleFree = Boolean(input.demo) || Boolean(input.over); // a demo and a finished game get no hints at all
   const createRef = useRef(createEngine);
   createRef.current = createEngine;
   const makeRef = useRef(input.makeAdvisor);
@@ -106,7 +115,9 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
   }, []);
 
   const modelCode = (input.modelCheck ?? defaultModelCheck)(variant);
-  const lostCode = state.lost;
+  // the loss outlives the mount (net-loss.ts): after a remount the new advisor has not seen it yet, the store has
+  const storedLoss = useSyncExternalStore(subscribeNetLoss, getNetLoss);
+  const lostCode = state.lost ?? storedLoss;
 
   const availability: NetAvailability = useMemo(() => {
     const lostInSession = lostCode !== null;
@@ -116,9 +127,9 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
     if (probe === null) return no({ kind: 'checking' });
     if (!probe.available) return no({ kind: 'reason', code: probe.reason ?? 'webgpu-device-failed' });
     if (modelCode !== null) return no({ kind: 'reason', code: modelCode });
-    if (createEngine === null) return no({ kind: 'reason', code: 'webgpu-no-api' }); // the build ships no net-webgpu engine
+    if (createEngine === null) return no(engineSourcePending ? { kind: 'checking' } : { kind: 'reason', code: 'net-engine-not-shipped' }); // no manifest yet, or a build without the net-webgpu engine
     return { available: true, reason: null, lostInSession };
-  }, [variant.players, lostCode, probe, modelCode, createEngine]);
+  }, [variant.players, lostCode, probe, modelCode, createEngine, engineSourcePending]);
 
   const active = level === 'net' && availability.available && humanTurn && classical !== null && scope !== null;
 
@@ -135,7 +146,8 @@ export function useNetHints(input: UseNetHintsInput): NetHintsModel {
   const here = currentKey !== null && state.key === currentKey;
 
   let shown: NetHintState;
-  if (lostCode !== null && here) shown = 'unavailable'; // until the next position
+  if (idleFree) shown = 'off'; // no turn of the player will come: never "hints appear on your turn"
+  else if (lostCode !== null && here) shown = 'unavailable'; // until the next position
   else if (level !== 'net' || !availability.available) shown = 'off';
   else if (!humanTurn) shown = 'idle'; // the opponent is to move: the hints come on the player's turn
   else if (classical === null) shown = 'thinking'; // the player's turn, the classical analysis still runs (the net waits for it)
