@@ -82,6 +82,16 @@ The ladder is saturated at these scores; against its own Gen0 the network scored
 
 The long-hop Elo is against `BROWSER_LONG_SPEC` and cannot be compared with the neighbour-jump Elo. In two players with the neighbour jump, the shared model is weaker than the expert: -123 against +490 Elo at `ab:25600`. These two figures come from separate matches with different seeds and opening sets, so the difference is only a rough guide.
 
+**Ratings of the Elo study.** The [Elo study](elo.md) rated two of the shipped models on scales with the classical browser engine at app level 3 (20,000 nodes) = 1000, one scale per game type ([`models/ratings/ratings.json`](../models/ratings/ratings.json)). These ratings are not in `models.json`, and the engine sheet does not show them. Each value belongs to one simulation count; ± is the 95 % interval, which includes the disagreement between matches of about 40 to 70 Elo per match:
+
+| Model, game type | 50 simulations | 200 simulations | 800 simulations | 1,000 simulations |
+|---|---|---|---|---|
+| 5-row expert, 2 players, 5 rows | 1570 ± 164 | 1839 ± 125 | not rated | 2151 ± 164 |
+| Shared, 2 players, neighbour jump, 4 rows | 569 ± 89 | 901 ± 65 | 1188 ± 75 | not rated |
+| Shared, 3 players, neighbour jump, 4 rows (one against two copies of an opponent) | 1108 ± 66 | 1332 ± 50 | 1521 ± 60 | not rated |
+
+The 5-row expert is also rated at 100 simulations: 1705 ± 159. The expert for 4 rows was not rated. Numbers of different game types cannot be compared beyond "1000 = level 3 of this game type": the shared model at 200 simulations is 901 with two players and 1332 with three ([Elo study, two against three players](elo.md#two-against-three-players-no-mixed-elo)).
+
 ## Packing: F16 and gzip
 
 `scripts/models/pack-model.py pack` converts every tensor to F16 (round to nearest even; a value beyond the F16 range or a NaN is an error), keeps the metadata, and writes the file with `gzip -9` and mtime 0, so the same input gives the same bytes. The browser loader widens F16 back to F32 before the backend sees the weights (`web/src/engines/net/models.ts`).
@@ -180,7 +190,7 @@ Three specialists, one SMALL network per variant, were trained with the same tra
 
 A difference counts as measurable at |z| > 1.96. No specialist is measurably better than the shared model, and the three-player neighbour-jump specialist is measurably worse at 5,000 nodes. Shipping them would add about 115 KB per file and a choice in the UI without a measured gain, so only the shared model covers these variants.
 
-**LARGE 5-row network.** Generation 10 of the [five-row LARGE run](training.md#five-row-large-net) is a LARGE network (64 channels, 6 residual blocks, 352,998 parameters) for the same variant as the 5-row expert: 2 players, neighbour jump, 5 rows. The file is `data/net5/loop-large/gen-0010/candidate.safetensors`, archived as `models/nets/net5/loop-large-gen-0010.safetensors.gz` (Git LFS, listed in the [archive index](../models/index.md)). At 200 simulations each it beats the 5-row expert by +131 ± 24 Elo (score 0.680, 400 pairs). It is not shipped, for three reasons:
+**LARGE 5-row network.** Generation 10 of the [five-row LARGE run](training.md#five-row-large-net) is a LARGE network (64 channels, 6 residual blocks, 352,998 parameters) for the same variant as the 5-row expert: 2 players, neighbour jump, 5 rows. The file is `data/net5/loop-large/gen-0010/candidate.safetensors`, archived as `models/nets/net5/loop-large-gen-0010.safetensors.gz` (Git LFS, listed in the [archive index](../models/index.md)). At 200 simulations each it beats the 5-row expert by +131 ± 24 Elo (score 0.680, 400 pairs). The [Elo study](elo.md#2p-adj-r5-two-players-5-rows) rates it 1907 ± 132 at 200 simulations, against 1839 ± 125 for the 5-row expert; the head-to-head figure, not the difference of the two ratings, decides which one is stronger. It is not shipped, for three reasons:
 
 1. **No gain at equal time per move.** The project has no written limit for the size or the time per move of a model. The rule applied is the one of the specialists above: a model is shipped for a measured gain at the cost the player pays. At 200 simulations a LARGE move costs 5.6 times the CPU time of a SMALL move (541.7 against 97.4 ms of CPU time per move in the Java match tool `MctsMatch`). Given about the same CPU time per move, the 5-row expert at 1,000 simulations beat the LARGE network at 200 by 173 ± 36 Elo (LARGE score 0.270, 200 pairs; [training, strength per cost](training.md#strength-per-cost)).
 2. **Size and speed in the browser.** Packed as F16 with gzip, the network is 650,959 bytes, 5.7 times the 115,132 bytes of the 5-row expert, so the first load of a 5-row net game would grow from about 350 KB (the net engine of 234,654 bytes plus the model) to about 886 KB. A move would take about 5.6 times as long; for 200 simulations on a desktop-class CPU that is an estimate of about 320 ms instead of 58 ms ([web UI, measurements of the net engines](web-ui.md#measurements-of-the-net-engines)), and the times shown at the three simulation presets would no longer fit this model.

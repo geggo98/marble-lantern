@@ -125,6 +125,7 @@ Paths are relative to the repository root. Rows marked *git-ignored* name direct
 | `web/src/pwa/`, `web/tooling/` | service worker and the Vite plugin that writes `sw.js` | `web/src/pwa/sw.ts` |
 | `web/models/` | the three shipped networks (F16 + gzip): [4-row expert](web/models/small-2p-adjacent-expert.safetensors.gz), [5-row expert](web/models/small-2p-adjacent-r5-expert.safetensors.gz), [shared](web/models/small-shared-all.safetensors.gz), listed in [`models.json`](web/models/models.json) | `docs/models.md` |
 | `models/` | every trained network of the documented runs (F32 + gzip, Git LFS), with sizes, SHA-256, board sizes, strength and kWh in [`index.md`](models/index.md); the run records that `docs/training.md` cites are in `models/runs/` ([5-row SMALL run](models/runs/net5/README.md), [5-row LARGE run](models/runs/net5-large/README.md), [CPU against GPU power](models/runs/net5-cpu-power/README.md)) | `models/README.md` |
+| `scripts/elo/`, `models/ratings/` | the Elo study: match driver, import of earlier matches, the two rating fits with tests; the published ratings; its match records are in [`models/runs/elo-study/`](models/runs/elo-study/README.md) | `docs/elo.md`, `models/ratings/ratings.json` |
 | `web/e2e/` | Playwright tests | `web/playwright.config.ts` |
 | `scripts/` | one script per devenv task; training, model packing and cloud scripts | `scripts/loop.sh` |
 | `docs/` | design documents, ADRs, references | `docs/architecture.md` |
@@ -139,5 +140,6 @@ Paths are relative to the repository root. Rows marked *git-ignored* name direct
 - [Web benchmark](docs/web-benchmark.md): the browser engines compared on identical work.
 - [ADR 0002](docs/adr/0002-browser-engines.md): the three browser engines (C++ and two TeaVM builds of Java) and their measurements.
 - [ADR 0003](docs/adr/0003-teavm-default-engine.md): why Java compiled by TeaVM to Wasm GC is the default browser engine, with C++ as the fallback for browsers without Wasm GC.
+- [Elo study](docs/elo.md): ratings of the engines and the shipped models, one scale per game type with app level 3 = 1000; why two- and three-player ratings stay separate; what can be said about humans.
 - [Architecture](docs/architecture.md): modules, status, roadmap and TornadoVM setup.
 - [Rules](docs/rules.md), [search and evaluation](docs/search-and-evaluation.md), [TornadoVM](docs/tornado.md), [offline mode](docs/offline-mode.md) and the other files in `docs/`.
